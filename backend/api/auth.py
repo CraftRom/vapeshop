@@ -13,9 +13,18 @@ security = HTTPBearer(auto_error=False)
 
 
 def verify_credentials(login: str, password: str) -> bool:
-    return hmac.compare_digest(login, settings.dashboard_login) and hmac.compare_digest(
-        password, settings.dashboard_password
+    """Порівняння сталого часу.
+
+    compare_digest з рядками працює лише для ASCII — на кирилиці кидає
+    TypeError. Тому порівнюємо байти: так проходить будь-який символ.
+    """
+    login_ok = hmac.compare_digest(
+        login.encode("utf-8"), settings.dashboard_login.encode("utf-8")
     )
+    password_ok = hmac.compare_digest(
+        password.encode("utf-8"), settings.dashboard_password.encode("utf-8")
+    )
+    return login_ok and password_ok
 
 
 def create_token(login: str) -> str:

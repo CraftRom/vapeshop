@@ -37,11 +37,22 @@ async function request(path, { method = 'GET', body, params } = {}) {
   }
 
   if (!response.ok) {
-    let detail = `Помилка ${response.status}`
+    let detail = ''
     try {
       const data = await response.json()
-      if (data.detail) detail = typeof data.detail === 'string' ? data.detail : detail
-    } catch { /* тіло не JSON — лишаємо загальний текст */ }
+      if (typeof data.detail === 'string') detail = data.detail
+    } catch { /* тіло не JSON */ }
+
+    if (!detail) {
+      // Без цього збій сервера виглядав би як помилка в даних форми.
+      if (response.status >= 500) {
+        detail = `Сервер відповів помилкою ${response.status}. Перевірте логи: docker compose logs api`
+      } else if (response.status === 404) {
+        detail = 'Ендпоінт не знайдено — схоже, панель не достукалась до API'
+      } else {
+        detail = `Помилка ${response.status}`
+      }
+    }
     throw new ApiError(detail, response.status)
   }
 

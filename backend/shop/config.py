@@ -1,5 +1,6 @@
 from functools import lru_cache
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -30,6 +31,19 @@ class Settings(BaseSettings):
     bonus_max_percent: float = 30.0     # макс. частка замовлення, яку можна закрити бонусами
     card_number: str = "0000 0000 0000 0000"
     card_holder: str = ""
+
+    @field_validator("dashboard_login", "dashboard_password", mode="after")
+    @classmethod
+    def _strip_credentials(cls, value: str) -> str:
+        """Знімає зайві пробіли й лапки, які легко лишити в .env.
+
+        DASHBOARD_PASSWORD="secret" і DASHBOARD_PASSWORD=secret мають
+        працювати однаково — інакше причину невдалого входу не видно очима.
+        """
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+            value = value[1:-1]
+        return value
 
     @property
     def admin_id_list(self) -> list[int]:

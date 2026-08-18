@@ -18,6 +18,14 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)-8s %(na
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
+
+    log = logging.getLogger("api")
+    log.info("Дашборд очікує логін: %r", settings.dashboard_login)
+    if settings.dashboard_password == "admin":
+        log.warning(
+            "DASHBOARD_PASSWORD не змінено з дефолтного. "
+            "Задайте його в .env і перестворіть контейнер: docker compose up -d --force-recreate api"
+        )
     yield
 
 
@@ -35,6 +43,15 @@ app.add_middleware(
 @app.post("/api/auth/login", response_model=TokenOut, tags=["auth"])
 async def login(data: LoginIn):
     if not verify_credentials(data.login, data.password):
+        # Логуємо тільки логін і довжину пароля — сам пароль у логи не потрапляє.
+        logging.getLogger("api").warning(
+            "Невдалий вхід: отримано логін %r (довжина пароля %d); очікується логін %r "
+            "(довжина пароля %d)",
+            data.login,
+            len(data.password),
+            settings.dashboard_login,
+            len(settings.dashboard_password),
+        )
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Невірний логін або пароль")
     return TokenOut(access_token=create_token(data.login))
 
