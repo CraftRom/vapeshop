@@ -1,0 +1,53 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-shop}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-shop}
+      POSTGRES_DB: ${POSTGRES_DB:-shop}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-shop} -d ${POSTGRES_DB:-shop}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    # Порт назовні відкривати не треба — доступ лише зсередини мережі compose.
+    # Для локальної відладки розкоментуйте:
+    # ports:
+    #   - "127.0.0.1:5432:5432"
+
+  api:
+    build: ./backend
+    restart: unless-stopped
+    command: uvicorn api.main:app --host 0.0.0.0 --port 8000 --proxy-headers
+    env_file: .env
+    depends_on:
+      db:
+        condition: service_healthy
+    expose:
+      - "8000"
+    # Наприкінці налаштування приберіть цей блок — назовні api ходить через nginx
+    ports:
+      - "127.0.0.1:8000:8000"
+
+  bot:
+    build: ./backend
+    restart: unless-stopped
+    command: python -m bot
+    env_file: .env
+    depends_on:
+      db:
+        condition: service_healthy
+
+  dashboard:
+    build: ./dashboard
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "80:80"
+
+volumes:
+  pgdata:

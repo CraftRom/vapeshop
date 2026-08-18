@@ -1,0 +1,104 @@
+const BASE = import.meta.env.VITE_API_URL || '/api'
+const TOKEN_KEY = 'shop_dashboard_token'
+
+export const getToken = () => localStorage.getItem(TOKEN_KEY)
+export const setToken = (t) => localStorage.setItem(TOKEN_KEY, t)
+export const clearToken = () => localStorage.removeItem(TOKEN_KEY)
+
+class ApiError extends Error {
+  constructor(message, status) {
+    super(message)
+    this.status = status
+  }
+}
+
+async function request(path, { method = 'GET', body, params } = {}) {
+  const url = new URL(`${BASE}${path}`, window.location.origin)
+  if (params) {
+    Object.entries(params).forEach(([k, v]) => {
+      if (v !== undefined && v !== null && v !== '') url.searchParams.set(k, v)
+    })
+  }
+
+  const headers = { 'Content-Type': 'application/json' }
+  const token = getToken()
+  if (token) headers.Authorization = `Bearer ${token}`
+
+  const response = await fetch(url, {
+    method,
+    headers,
+    body: body === undefined ? undefined : JSON.stringify(body),
+  })
+
+  if (response.status === 401) {
+    clearToken()
+    window.location.href = '/login'
+    throw new ApiError('Сесія завершилась', 401)
+  }
+
+  if (!response.ok) {
+    let detail = `Помилка ${response.status}`
+    try {
+      const data = await response.json()
+      if (data.detail) detail = typeof data.detail === 'string' ? data.detail : detail
+    } catch { /* тіло не JSON — лишаємо загальний текст */ }
+    throw new ApiError(detail, response.status)
+  }
+
+  if (response.status === 204) return null
+  return response.json()
+}
+
+export const api = {
+  login: (login, password) => request('/auth/login', { method: 'POST', body: { login, password } }),
+
+  stats: {
+    summary: (days = 30) => request('/stats/summary', { params: { days } }),
+    series: (days = 30) => request('/stats/series', { params: { days } }),
+    topProducts: (days = 30) => request('/stats/top-products', { params: { days } }),
+    breakdown: () => request('/stats/status-breakdown'),
+  },
+
+  categories: {
+    list: () => request('/catalog/categories'),
+    create: (data) => request('/catalog/categories', { method: 'POST', body: data }),
+    update: (id, data) => request(`/catalog/categories/${id}`, { method: 'PUT', body: data }),
+    remove: (id) => request(`/catalog/categories/${id}`, { method: 'DELETE' }),
+  },
+
+  products: {
+    list: (params) => request('/catalog/products', { params }),
+    create: (data) => request('/catalog/products', { method: 'POST', body: data }),
+    update: (id, data) => request(`/catalog/products/${id}`, { method: 'PUT', body: data }),
+    setStock: (id, stock) => request(`/catalog/products/${id}/stock`, { method: 'PATCH', body: { stock } }),
+    remove: (id) => request(`/catalog/products/${id}`, { method: 'DELETE' }),
+  },
+
+  orders: {
+    list: (params) => request('/orders', { params }),
+    get: (id) => request(`/orders/${id}`),
+    patch: (id, data) => request(`/orders/${id}`, { method: 'PATCH', body: data }),
+  },
+
+  customers: {
+    list: (params) => request('/customers', { params }),
+    patch: (id, data) => request(`/customers/${id}`, { method: 'PATCH', body: data }),
+    orders: (id) => request(`/customers/${id}/orders`),
+  },
+
+  promos: {
+    list: () => request('/promos'),
+    create: (data) => request('/promos', { method: 'POST', body: data }),
+    update: (id, data) => request(`/promos/${id}`, { method: 'PUT', body: data }),
+    remove: (id) => request(`/promos/${id}`, { method: 'DELETE' }),
+  },
+
+  broadcasts: {
+    list: () => request('/broadcasts'),
+    segments: () => request('/broadcasts/segments'),
+    preview: (segment) => request('/broadcasts/preview', { method: 'POST', body: segment }),
+    create: (data) => request('/broadcasts', { method: 'POST', body: data }),
+    send: (id) => request(`/broadcasts/${id}/send`, { method: 'POST' }),
+    remove: (id) => request(`/broadcasts/${id}`, { method: 'DELETE' }),
+  },
+}
