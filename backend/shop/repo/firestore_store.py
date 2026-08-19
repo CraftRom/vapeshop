@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 
 from google.api_core import exceptions as gexc
-from google.cloud.firestore import AsyncClient, Increment
+from google.cloud.firestore import AsyncClient, Increment, async_transactional
 from google.cloud.firestore_v1.base_query import FieldFilter
 
 from shop.repo.docstore import DocStore, Inc
@@ -94,7 +94,11 @@ class FirestoreDocStore(DocStore):
         """
         doc = self._col("_counters").document(name)
 
-        @self.client.transactional
+        # async_transactional — функція рівня модуля, а не метод клієнта.
+        # AsyncClient.transactional не існує, і звернення до нього валило
+        # створення будь-якої сутності: користувачів, замовлень, товарів.
+        # Синхронний transactional тут теж не підходить — потрібен async-варіант.
+        @async_transactional
         async def bump(transaction):
             snapshot = await doc.get(transaction=transaction)
             current = snapshot.to_dict().get("value", 0) if snapshot.exists else 0
