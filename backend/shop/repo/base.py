@@ -215,6 +215,16 @@ class Repository(ABC):
     @abstractmethod
     async def stats_top_products(self, days: int, limit: int) -> list[dict]: ...
 
+    # --------------------------------------------------- налаштування
+
+    @abstractmethod
+    async def get_settings_map(self) -> dict[str, str]:
+        """Налаштування, збережені з панелі. Порожній dict — нічого не задано."""
+
+    @abstractmethod
+    async def save_settings_map(self, values: dict[str, str]) -> None:
+        """Перезаписує передані ключі, не чіпаючи решту."""
+
     # ------------------------------------------------------ lifecycle
 
     async def close(self) -> None:

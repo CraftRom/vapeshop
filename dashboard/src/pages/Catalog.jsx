@@ -107,16 +107,33 @@ function ProductForm({ product, categories, onClose, onSaved }) {
   )
 }
 
-function CategoryForm({ onClose, onSaved }) {
+function CategoryForm({ category, onClose, onSaved }) {
   const notify = useToast()
-  const [name, setName] = useState('')
+  const editing = Boolean(category?.id)
+  const [form, setForm] = useState({
+    name: category?.name || '',
+    sort_order: category?.sort_order ?? 0,
+    is_active: category?.is_active ?? true,
+  })
   const [error, setError] = useState('')
 
+  const set = (key) => (e) => {
+    const value = e.target.type === 'checkbox' ? e.target.checked : e.target.value
+    setForm((f) => ({ ...f, [key]: value }))
+  }
+
   const save = async () => {
+    const payload = {
+      name: form.name.trim(),
+      sort_order: Number(form.sort_order) || 0,
+      is_active: form.is_active,
+    }
     try {
-      const saved = await api.categories.create({ name, sort_order: 0, is_active: true })
+      const saved = editing
+        ? await api.categories.update(category.id, payload)
+        : await api.categories.create(payload)
       onSaved(saved)
-      notify('Категорію створено')
+      notify(editing ? 'Категорію оновлено' : 'Категорію створено')
       onClose()
     } catch (err) {
       setError(err.message)
@@ -125,20 +142,126 @@ function CategoryForm({ onClose, onSaved }) {
 
   return (
     <Modal
-      title="Нова категорія"
+      title={editing ? 'Редагувати категорію' : 'Нова категорія'}
       onClose={onClose}
       footer={
         <>
           <button className="btn ghost" onClick={onClose}>Скасувати</button>
-          <button className="btn" onClick={save} disabled={!name.trim()}>Створити</button>
+          <button className="btn" onClick={save} disabled={!form.name.trim()}>
+            {editing ? 'Зберегти' : 'Створити'}
+          </button>
         </>
       }
     >
       <ErrorBar error={error} />
       <Field label="Назва категорії">
-        <input className="input" value={name} onChange={(e) => setName(e.target.value)} autoFocus />
+        <input className="input" value={form.name} onChange={set('name')} autoFocus />
       </Field>
+      <Field label="Порядок" hint="Менше число — вище у списку в боті">
+        <input className="input" type="number" value={form.sort_order} onChange={set('sort_order')} />
+      </Field>
+      <div className="row">
+        <label className="row" style={{ gap: 8, cursor: 'pointer' }}>
+          <input type="checkbox" checked={form.is_active} onChange={set('is_active')} />
+          Показувати в боті
+        </label>
+      </div>
     </Modal>
+  )
+}
+
+function CategoryManager({ categories, onClose, onChanged }) {
+  const notify = useToast()
+  const [editing, setEditing] = useState(null)
+
+  const remove = async (category) => {
+    if (category.products_count > 0) {
+      notify(
+        `У категорії «${category.name}» ще ${category.products_count} товар(ів). ` +
+        'Перенесіть або приберіть їх спочатку.',
+        'bad',
+      )
+      return
+    }
+    if (!confirm(`Видалити категорію «${category.name}»?`)) return
+    try {
+      await api.categories.remove(category.id)
+      notify('Категорію видалено')
+      onChanged()
+    } catch (err) {
+      notify(err.message, 'bad')
+    }
+  }
+
+  return (
+    <>
+      <Modal
+        title="Категорії"
+        onClose={onClose}
+        footer={
+          <>
+            <button className="btn ghost" onClick={onClose}>Закрити</button>
+            <button className="btn" onClick={() => setEditing({})}>Нова категорія</button>
+          </>
+        }
+      >
+        {categories.length === 0 ? (
+          <Empty title="Категорій немає">
+            Створіть першу — без неї товар не додати.
+          </Empty>
+        ) : (
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Назва</th>
+                  <th className="num">Порядок</th>
+                  <th className="num">Товарів</th>
+                  <th>Статус</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {categories.map((c) => (
+                  <tr key={c.id}>
+                    <td>{c.name}</td>
+                    <td className="num">{c.sort_order}</td>
+                    <td className="num">{c.products_count}</td>
+                    <td>
+                      <span className={`chip ${c.is_active ? 'ok' : ''}`}>
+                        {c.is_active ? 'Активна' : 'Прихована'}
+                      </span>
+                    </td>
+                    <td>
+                      <div className="row">
+                        <button className="btn small ghost" onClick={() => setEditing(c)}>
+                          Змінити
+                        </button>
+                        <button
+                          className="btn danger small"
+                          onClick={() => remove(c)}
+                          title={c.products_count > 0 ? 'Спочатку приберіть товари' : 'Видалити'}
+                        >
+                          Видалити
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Modal>
+
+      {editing && (
+        <CategoryForm
+          category={editing.id ? editing : null}
+          onClose={() => setEditing(null)}
+          onSaved={onChanged}
+        />
+      )}
+    </>
   )
 }
 
@@ -150,7 +273,7 @@ export default function Catalog() {
   const [search, setSearch] = useState('')
   const [error, setError] = useState('')
   const [editing, setEditing] = useState(null)
-  const [newCategory, setNewCategory] = useState(false)
+  const [managingCategories, setManagingCategories] = useState(false)
 
   const load = useCallback(async () => {
     setError('')
@@ -199,7 +322,7 @@ export default function Catalog() {
           <p>Товари, ціни та залишки — усе, що бачить клієнт у боті</p>
         </div>
         <div className="row">
-          <button className="btn ghost" onClick={() => setNewCategory(true)}>Нова категорія</button>
+          <button className="btn ghost" onClick={() => setManagingCategories(true)}>Категорії</button>
           <button className="btn" onClick={() => setEditing({})}>Додати товар</button>
         </div>
       </div>
@@ -296,7 +419,13 @@ export default function Catalog() {
         />
       )}
 
-      {newCategory && <CategoryForm onClose={() => setNewCategory(false)} onSaved={load} />}
+      {managingCategories && (
+        <CategoryManager
+          categories={categories}
+          onClose={() => setManagingCategories(false)}
+          onChanged={load}
+        />
+      )}
     </>
   )
 }

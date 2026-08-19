@@ -201,3 +201,26 @@ class TopProduct(BaseModel):
     name: str
     qty: int
     revenue: Decimal
+
+
+# ----------------------------------------------------------- налаштування
+
+
+class ShopSettingsIn(BaseModel):
+    shop_name: str | None = Field(None, min_length=1, max_length=64)
+    currency: str | None = Field(None, min_length=1, max_length=16)
+    min_age: int | None = Field(None, ge=18, le=99)
+    referral_percent: Decimal | None = Field(None, ge=0, le=100)
+    bonus_max_percent: Decimal | None = Field(None, ge=0, le=100)
+    card_number: str | None = Field(None, max_length=32)
+    card_holder: str | None = Field(None, max_length=64)
+
+
+class ShopSettingsOut(BaseModel):
+    shop_name: str
+    currency: str
+    min_age: int
+    referral_percent: Decimal
+    bonus_max_percent: Decimal
+    card_number: str
+    card_holder: str

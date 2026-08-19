@@ -10,6 +10,7 @@ from bot import keyboards as kb
 from bot import texts
 from bot.states import Checkout
 from shop.config import settings
+from shop.services.shop_settings import get_shop_settings
 from shop.entities import Order, User
 from shop.repo.base import Repository
 from shop.services import shop_service as svc
@@ -111,7 +112,7 @@ async def _ask_bonus(message: Message, state: FSMContext, repo: Repository, user
     data = await state.get_data()
     subtotal = await svc.cart_subtotal(repo, user.id)
     discount = Decimal(data.get("discount", "0"))
-    available = svc.max_bonus_for(subtotal - discount, user.bonus_balance)
+    available = await svc.max_bonus_for_repo(repo, subtotal - discount, user.bonus_balance)
 
     if available <= 0:
         await state.set_state(Checkout.payment)
@@ -160,7 +161,10 @@ async def _show_summary(message: Message, state: FSMContext, repo: Repository, u
     items = await repo.get_cart(user.id)
     subtotal = sum((i.product.price * i.qty for i in items), Decimal(0))
     discount = Decimal(data.get("discount", "0"))
-    bonus = svc.max_bonus_for(subtotal - discount, user.bonus_balance) if data.get("use_bonus") else Decimal(0)
+    bonus = (
+        await svc.max_bonus_for_repo(repo, subtotal - discount, user.bonus_balance)
+        if data.get("use_bonus") else Decimal(0)
+    )
     total = max(Decimal(0), subtotal - discount - bonus)
 
     lines = ["<b>Перевірте замовлення</b>\n"]
@@ -215,8 +219,9 @@ async def confirm_order(
         await callback.answer()
         return
 
+    shop = await get_shop_settings(repo)
     await callback.message.edit_text(
-        texts.ORDER_DONE.format(id=order.id, total=f"{order.total:.0f}", currency=settings.currency)
+        texts.ORDER_DONE.format(id=order.id, total=f"{order.total:.0f}", currency=shop.currency)
     )
 
     if order.payment_method == "card" and order.total > 0:
@@ -224,10 +229,10 @@ async def confirm_order(
         await state.update_data(order_id=order.id)
         await callback.message.answer(
             texts.PAYMENT_INFO.format(
-                card=settings.card_number,
-                holder=settings.card_holder or "—",
+                card=shop.card_number,
+                holder=shop.card_holder or "—",
                 total=f"{order.total:.0f}",
-                currency=settings.currency,
+                currency=shop.currency,
             )
         )
     else:

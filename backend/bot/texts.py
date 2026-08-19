@@ -1,17 +1,20 @@
 from shop.config import settings
 
-AGE_GATE = (
-    f"<b>Підтвердження віку</b>\n\n"
-    f"Товари в цьому магазині містять нікотин і продаються лише особам, "
-    f"яким виповнилося {settings.min_age} років.\n\n"
-    f"Нікотин викликає залежність. Продукція не є засобом для відмови від куріння.\n\n"
-    f"Вам вже є {settings.min_age}?"
-)
+def age_gate(min_age: int | None = None) -> str:
+    """Мінімальний вік редагується з панелі, тож текст будується на льоту."""
+    age = settings.min_age if min_age is None else min_age
+    return (
+        f"<b>Підтвердження віку</b>\n\n"
+        f"Товари в цьому магазині містять нікотин і продаються лише особам, "
+        f"яким виповнилося {age} років.\n\n"
+        f"Нікотин викликає залежність. Продукція не є засобом для відмови від куріння.\n\n"
+        f"Вам вже є {age}?"
+    )
 
-AGE_DENIED = (
-    "Доступ до каталогу можливий лише з "
-    f"{settings.min_age} років. Дякуємо за розуміння."
-)
+
+def age_denied(min_age: int | None = None) -> str:
+    age = settings.min_age if min_age is None else min_age
+    return f"Доступ до каталогу можливий лише з {age} років. Дякуємо за розуміння."
 
 WELCOME = (
     "👋 <b>Ласкаво просимо до {shop}</b>\n\n"

@@ -9,6 +9,7 @@ from aiogram.types import CallbackQuery, Message, TelegramObject
 from bot import keyboards as kb
 from bot import texts
 from shop.config import settings
+from shop.services.shop_settings import get_shop_settings
 from shop.repo.factory import open_repo
 from shop.services.shop_service import get_or_create_user
 
@@ -66,7 +67,10 @@ class AgeGateMiddleware(BaseMiddleware):
         if isinstance(event, Message):
             if event.text and event.text.startswith("/start"):
                 return await handler(event, data)
-            await event.answer(texts.AGE_GATE, reply_markup=kb.age_gate())
+            repo = data.get("repo")
+            shop = await get_shop_settings(repo) if repo else None
+            min_age = shop.min_age if shop else None
+            await event.answer(texts.age_gate(min_age), reply_markup=kb.age_gate())
             return None
 
         return await handler(event, data)

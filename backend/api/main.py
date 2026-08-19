@@ -7,7 +7,10 @@ from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.auth import create_token, verify_credentials
-from api.routers import broadcasts, catalog, cron, customers, orders, promos, stats, telegram
+from api.routers import (
+    broadcasts, catalog, cron, customers, orders, promos, settings as settings_router,
+    stats, telegram,
+)
 from api.schemas import LoginIn, TokenOut
 from shop.config import settings
 from shop.db import init_db
@@ -124,5 +127,6 @@ app.include_router(orders.router, prefix="/api/orders", tags=["orders"])
 app.include_router(customers.router, prefix="/api/customers", tags=["customers"])
 app.include_router(promos.router, prefix="/api/promos", tags=["promos"])
 app.include_router(broadcasts.router, prefix="/api/broadcasts", tags=["broadcasts"])
+app.include_router(settings_router.router, prefix="/api/settings", tags=["settings"])
 app.include_router(cron.router, prefix="/api/cron", tags=["cron"])
 app.include_router(telegram.router, prefix="/api", tags=["telegram"])

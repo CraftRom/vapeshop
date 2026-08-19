@@ -8,6 +8,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from shop.config import settings
+from shop.services.shop_settings import get_shop_settings
 from shop.models import BonusTx, Order, OrderStatus, User
 
 ALPHABET = string.ascii_uppercase + string.digits
@@ -82,7 +83,9 @@ async def pay_referral_reward(session: AsyncSession, order: Order) -> Decimal | 
         await session.commit()
         return None
 
-    reward = (order.total * Decimal(str(settings.referral_percent)) / Decimal(100)).quantize(Decimal("0.01"))
+    from shop.repo.sql import SqlRepository
+    shop = await get_shop_settings(SqlRepository(session))
+    reward = (order.total * shop.referral_percent / Decimal(100)).quantize(Decimal("0.01"))
     if reward > 0:
         await add_bonus(session, user.referrer_id, reward, "referral", order.id)
 

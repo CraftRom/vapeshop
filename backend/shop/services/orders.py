@@ -5,6 +5,7 @@ from decimal import Decimal
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from shop.config import settings
+from shop.services.shop_settings import get_shop_settings
 from shop.models import Order, OrderItem, OrderStatus, Product, User
 from shop.services import cart as cart_service
 from shop.services import promo as promo_service
@@ -20,10 +21,18 @@ STATUS_LABELS = {
 }
 
 
-def max_bonus_for(subtotal: Decimal, balance: Decimal) -> Decimal:
+def max_bonus_for(subtotal: Decimal, balance: Decimal, percent=None) -> Decimal:
     """Скільки бонусів реально можна списати на це замовлення."""
-    cap = (subtotal * Decimal(str(settings.bonus_max_percent)) / Decimal(100)).quantize(Decimal("0.01"))
+    if percent is None:
+        percent = settings.bonus_max_percent
+    cap = (subtotal * Decimal(str(percent)) / Decimal(100)).quantize(Decimal("0.01"))
     return max(Decimal(0), min(cap, balance))
+
+
+async def _shop(session):
+    """Налаштування з бази для SQL-гілки: репозиторій поверх наявної сесії."""
+    from shop.repo.sql import SqlRepository
+    return await get_shop_settings(SqlRepository(session))
 
 
 async def create_from_cart(
@@ -60,7 +69,10 @@ async def create_from_cart(
 
     bonus_used = Decimal(0)
     if use_bonus:
-        bonus_used = max_bonus_for(subtotal - discount, user.bonus_balance)
+        shop = await _shop(session)
+        bonus_used = max_bonus_for(
+            subtotal - discount, user.bonus_balance, shop.bonus_max_percent
+        )
 
     total = max(Decimal(0), subtotal - discount - bonus_used)
 

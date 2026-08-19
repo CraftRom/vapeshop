@@ -8,6 +8,7 @@ from aiogram.types import CallbackQuery, Message
 from bot import keyboards as kb
 from bot import texts
 from shop.config import settings
+from shop.services.shop_settings import get_shop_settings
 from shop.entities import User
 from shop.repo.base import Repository
 
@@ -30,30 +31,34 @@ async def cmd_start(
             await repo.set_user_referrer(user, referrer.id)
 
     if not user.age_confirmed:
-        await message.answer(texts.AGE_GATE, reply_markup=kb.age_gate())
+        shop = await get_shop_settings(repo)
+        await message.answer(texts.age_gate(shop.min_age), reply_markup=kb.age_gate())
         return
 
+    shop = await get_shop_settings(repo)
     await message.answer(
-        texts.WELCOME.format(shop=settings.shop_name), reply_markup=kb.MAIN_MENU
+        texts.WELCOME.format(shop=shop.shop_name), reply_markup=kb.MAIN_MENU
     )
 
 
 @router.callback_query(F.data == "age:yes")
 async def age_yes(callback: CallbackQuery, repo: Repository, user: User) -> None:
     await repo.confirm_age(user)
+    shop = await get_shop_settings(repo)
     await callback.message.edit_text(
         f"Дякуємо. Пам'ятайте: нікотин викликає залежність.\n"
-        f"Продаж — від {settings.min_age} років."
+        f"Продаж — від {shop.min_age} років."
     )
     await callback.message.answer(
-        texts.WELCOME.format(shop=settings.shop_name), reply_markup=kb.MAIN_MENU
+        texts.WELCOME.format(shop=shop.shop_name), reply_markup=kb.MAIN_MENU
     )
     await callback.answer()
 
 
 @router.callback_query(F.data == "age:no")
-async def age_no(callback: CallbackQuery) -> None:
-    await callback.message.edit_text(texts.AGE_DENIED)
+async def age_no(callback: CallbackQuery, repo: Repository) -> None:
+    shop = await get_shop_settings(repo)
+    await callback.message.edit_text(texts.age_denied(shop.min_age))
     await callback.answer()
 
 

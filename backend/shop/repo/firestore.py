@@ -32,6 +32,7 @@ PAID_VALUES = [s.value for s in PAID_STATUSES]
 USERS, CATEGORIES, PRODUCTS = "users", "categories", "products"
 CARTS, ORDERS, PROMOS = "carts", "orders", "promos"
 PROMO_USES, BONUS_TX, BROADCASTS = "promo_uses", "bonus_tx", "broadcasts"
+SETTINGS, SETTINGS_DOC = "settings", "shop"
 
 # Найбільша кодова точка — межа префіксного діапазону в Firestore
 PREFIX_END = "\uf8ff"
@@ -691,6 +692,17 @@ class FirestoreRepository(Repository):
                 entry["qty"] += item["qty"]
                 entry["revenue"] += from_cents(item["price_cents"] * item["qty"])
         return sorted(totals.values(), key=lambda e: e["revenue"], reverse=True)[:limit]
+
+    # --------------------------------------------------- налаштування
+
+    async def get_settings_map(self) -> dict[str, str]:
+        doc = await self.db.get(SETTINGS, SETTINGS_DOC)
+        return {k: v for k, v in (doc or {}).items() if k != "id"}
+
+    async def save_settings_map(self, values: dict[str, str]) -> None:
+        payload = {key: str(value) for key, value in values.items()}
+        if not await self.db.update(SETTINGS, SETTINGS_DOC, dict(payload)):
+            await self.db.set(SETTINGS, SETTINGS_DOC, {"id": SETTINGS_DOC, **payload})
 
     async def close(self) -> None:
         await self.db.close()

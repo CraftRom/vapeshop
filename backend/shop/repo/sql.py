@@ -611,3 +611,20 @@ class SqlRepository(Repository):
             .limit(limit)
         )
         return [{"name": n, "qty": int(q), "revenue": _dec(r)} for n, q, r in rows]
+
+    # --------------------------------------------------- налаштування
+
+    async def get_settings_map(self) -> dict[str, str]:
+        rows = await self.s.execute(select(m.Setting.key, m.Setting.value))
+        return {key: value for key, value in rows}
+
+    async def save_settings_map(self, values: dict[str, str]) -> None:
+        existing = {key for (key,) in await self.s.execute(select(m.Setting.key))}
+        for key, value in values.items():
+            if key in existing:
+                await self.s.execute(
+                    update(m.Setting).where(m.Setting.key == key).values(value=str(value))
+                )
+            else:
+                self.s.add(m.Setting(key=key, value=str(value)))
+        await self.s.commit()

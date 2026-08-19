@@ -6,6 +6,7 @@ from aiogram.types import CallbackQuery, Message
 
 from bot import keyboards as kb
 from shop.config import settings
+from shop.services.shop_settings import get_shop_settings
 from shop.entities import STATUS_LABELS, OrderStatus
 from shop.repo.base import Repository
 from shop.services.shop_service import change_order_status
@@ -25,11 +26,12 @@ router.callback_query.filter(IsAdmin())
 @router.message(Command("stats"))
 async def stats(message: Message, repo: Repository) -> None:
     summary = await repo.stats_summary(30)
+    shop = await get_shop_settings(repo)
     await message.answer(
         f"<b>Коротка статистика</b>\n\n"
         f"Клієнтів: {summary.customers_total}\n"
         f"Нових замовлень: {summary.orders_new}\n"
-        f"Виручка: {summary.revenue_total:.0f} {settings.currency}\n"
+        f"Виручка: {summary.revenue_total:.0f} {shop.currency}\n"
         f"Товарів із залишком &lt; 5: {summary.low_stock}\n\n"
         f"Повна аналітика — у дашборді."
     )
@@ -65,12 +67,13 @@ async def admin_change_status(callback: CallbackQuery, repo: Repository) -> None
         pass
 
     if reward and client.referrer_id:
+        shop = await get_shop_settings(repo)
         referrer = await repo.get_user(client.referrer_id)
         if referrer:
             try:
                 await callback.bot.send_message(
                     referrer.tg_id,
-                    f"🎁 Вам нараховано {reward:.0f} {settings.currency} бонусів "
+                    f"🎁 Вам нараховано {reward:.0f} {shop.currency} бонусів "
                     f"за замовлення запрошеного друга.",
                 )
             except Exception:

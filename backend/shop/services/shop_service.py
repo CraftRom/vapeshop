@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 
 from shop.config import settings
+from shop.services.shop_settings import get_shop_settings
 from shop.entities import Order, OrderLine, OrderStatus, Promo, PromoType, User
 from shop.repo.base import Repository
 
@@ -112,11 +113,17 @@ async def validate_cart(repo: Repository, user_id: int) -> list[str]:
 
 # ------------------------------------------------------------------ замовлення
 
-def max_bonus_for(subtotal: Decimal, balance: Decimal) -> Decimal:
-    cap = (subtotal * Decimal(str(settings.bonus_max_percent)) / Decimal(100)).quantize(
-        Decimal("0.01")
-    )
+def max_bonus_for(subtotal: Decimal, balance: Decimal, percent=None) -> Decimal:
+    """percent=None — беремо дефолт із .env (для викликів без доступу до бази)."""
+    if percent is None:
+        percent = settings.bonus_max_percent
+    cap = (subtotal * Decimal(str(percent)) / Decimal(100)).quantize(Decimal("0.01"))
     return max(Decimal(0), min(cap, balance))
+
+
+async def max_bonus_for_repo(repo, subtotal: Decimal, balance: Decimal) -> Decimal:
+    shop = await get_shop_settings(repo)
+    return max_bonus_for(subtotal, balance, shop.bonus_max_percent)
 
 
 async def create_order(
@@ -142,7 +149,10 @@ async def create_order(
             return None, result.error
         discount, promo_id = result.discount, result.promo.id
 
-    bonus_used = max_bonus_for(subtotal - discount, user.bonus_balance) if use_bonus else Decimal(0)
+    bonus_used = (
+        await max_bonus_for_repo(repo, subtotal - discount, user.bonus_balance)
+        if use_bonus else Decimal(0)
+    )
     total = max(Decimal(0), subtotal - discount - bonus_used)
 
     draft = Order(
@@ -230,9 +240,8 @@ async def _pay_referral(repo: Repository, order: Order) -> Decimal | None:
     if not user or not user.referrer_id:
         return None
 
-    reward = (order.total * Decimal(str(settings.referral_percent)) / Decimal(100)).quantize(
-        Decimal("0.01")
-    )
+    shop = await get_shop_settings(repo)
+    reward = (order.total * shop.referral_percent / Decimal(100)).quantize(Decimal("0.01"))
     if reward > 0:
         await repo.add_bonus(user.referrer_id, reward, "referral", order.id)
     return reward

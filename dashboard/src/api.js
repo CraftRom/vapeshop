@@ -114,6 +114,11 @@ export const api = {
     remove: (id) => request(`/promos/${id}`, { method: 'DELETE' }),
   },
 
+  settings: {
+    get: () => request('/settings'),
+    update: (data) => request('/settings', { method: 'PUT', body: data }),
+  },
+
   broadcasts: {
     list: () => request('/broadcasts'),
     segments: () => request('/broadcasts/segments'),
