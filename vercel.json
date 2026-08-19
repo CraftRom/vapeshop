@@ -1,8 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
 
-  "//": "Один проєкт віддає і панель, і API з одного домену: ані CORS, ані ризику, що панель не знайде бекенд. Використано builds+routes, а не buildCommand+rewrites: у цій схемі 'dest' гарантовано доносить до функції початковий шлях запиту, тому FastAPI бачить /api/auth/login, а не переписаний шлях.",
-
   "builds": [
     {
       "src": "api/index.py",
