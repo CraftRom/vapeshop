@@ -1,0 +1,22 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "functions": {
+    "api/index.py": {
+      "runtime": "@vercel/python@4.3.0",
+      "memory": 1024,
+      "maxDuration": 60,
+      "includeFiles": "backend/**"
+    }
+  },
+  "rewrites": [
+    { "source": "/api/(.*)", "destination": "/api/index" },
+    { "source": "/docs", "destination": "/api/index" },
+    { "source": "/openapi.json", "destination": "/api/index" }
+  ],
+  "crons": [
+    {
+      "path": "/api/cron/broadcast-tick",
+      "schedule": "0 4 * * *"
+    }
+  ]
+}

@@ -5,7 +5,7 @@ from datetime import datetime
 from decimal import Decimal
 
 from sqlalchemy import (
-    JSON, BigInteger, Boolean, DateTime, Enum, ForeignKey, Integer, Numeric,
+    JSON, BigInteger, Index, Boolean, DateTime, Enum, ForeignKey, Integer, Numeric,
     String, Text, UniqueConstraint, func,
 )
 from sqlalchemy.dialects.postgresql import JSONB
@@ -44,6 +44,7 @@ class BroadcastStatus(str, enum.Enum):
 
 class User(Base):
     __tablename__ = "users"
+    __table_args__ = (Index("ix_users_search", "search_key"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     tg_id: Mapped[int] = mapped_column(BigInteger, unique=True, index=True)
@@ -58,6 +59,16 @@ class User(Base):
     referral_code: Mapped[str] = mapped_column(String(12), unique=True, index=True)
     referrer_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
     bonus_balance: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0)
+
+    # Денормалізація: у SQL це рахувалось JOIN'ом на кожен показ списку клієнтів
+    # і кожну сегментацію. Тримаємо готові значення — Firestore інакше не вміє,
+    # а SQL від цього лише виграє.
+    orders_count: Mapped[int] = mapped_column(Integer, default=0)
+    total_spent: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0)
+    referrals_count: Mapped[int] = mapped_column(Integer, default=0)
+    # Готовий рядок для пошуку. Власна нормалізація замість lower() у запиті:
+    # SQLite не вміє знижувати регістр кирилиці, і поведінка розходилась із Firestore.
+    search_key: Mapped[str] = mapped_column(String(400), default="")
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -84,6 +95,11 @@ class Category(Base):
 
 class Product(Base):
     __tablename__ = "products"
+    __table_args__ = (
+        # Каталог завжди читається як "активні товари категорії за порядком"
+        Index("ix_products_category_active", "category_id", "is_active", "sort_order"),
+        Index("ix_products_name_lower", "name_lower"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     category_id: Mapped[int] = mapped_column(ForeignKey("categories.id", ondelete="CASCADE"))
@@ -96,6 +112,8 @@ class Product(Base):
     photo_url: Mapped[str | None] = mapped_column(String(512))
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Готове поле для пошуку без урахування регістру (ILIKE не використовує індекс)
+    name_lower: Mapped[str] = mapped_column(String(255), default="")
 
     category: Mapped[Category] = relationship(back_populates="products")
 
@@ -117,6 +135,12 @@ class CartItem(Base):
 
 class Order(Base):
     __tablename__ = "orders"
+    __table_args__ = (
+        # Список замовлень: фільтр за статусом + сортування за датою
+        Index("ix_orders_status_created", "status", "created_at"),
+        Index("ix_orders_user_created", "user_id", "created_at"),
+        Index("ix_orders_search", "search_key"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
@@ -139,6 +163,7 @@ class Order(Base):
     admin_note: Mapped[str | None] = mapped_column(Text)
 
     referral_paid: Mapped[bool] = mapped_column(Boolean, default=False)
+    search_key: Mapped[str] = mapped_column(String(320), default="")   # ім'я + телефон, нижній регістр
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
@@ -213,6 +238,9 @@ class Broadcast(Base):
     button_url: Mapped[str | None] = mapped_column(String(512))
     segment: Mapped[dict] = mapped_column(JsonType, default=dict)
     status: Mapped[BroadcastStatus] = mapped_column(Enum(BroadcastStatus), default=BroadcastStatus.DRAFT)
+    # Скільки вже пройдено: id останнього обробленого користувача. Дозволяє
+    # надсилати порціями і продовжувати з того ж місця після паузи або таймауту.
+    cursor_id: Mapped[int] = mapped_column(Integer, default=0)
     sent_count: Mapped[int] = mapped_column(Integer, default=0)
     failed_count: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

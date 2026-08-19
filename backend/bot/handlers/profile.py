@@ -2,14 +2,11 @@ from __future__ import annotations
 
 from aiogram import F, Router
 from aiogram.types import CallbackQuery, Message
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot import keyboards as kb
 from shop.config import settings
-from shop.models import Order, User
-from shop.services.orders import STATUS_LABELS
-from shop.services.users import user_stats
+from shop.entities import STATUS_LABELS, User
+from shop.repo.base import Repository
 
 router = Router()
 
@@ -19,17 +16,17 @@ def referral_link(code: str) -> str:
 
 
 @router.message(F.text == "👤 Профіль")
-async def profile(message: Message, session: AsyncSession, user: User) -> None:
-    stats = await user_stats(session, user.id)
-    link = referral_link(user.referral_code)
+async def profile(message: Message, repo: Repository, user: User) -> None:
+    fresh = await repo.get_user(user.id) or user
+    link = referral_link(fresh.referral_code)
 
     text = (
         f"<b>Ваш профіль</b>\n\n"
-        f"Замовлень: {stats['orders_count']}\n"
-        f"Витрачено: {stats['total_spent']:.0f} {settings.currency}\n"
-        f"Бонусний рахунок: <b>{user.bonus_balance:.0f} {settings.currency}</b>\n\n"
+        f"Замовлень: {fresh.orders_count}\n"
+        f"Витрачено: {fresh.total_spent:.0f} {settings.currency}\n"
+        f"Бонусний рахунок: <b>{fresh.bonus_balance:.0f} {settings.currency}</b>\n\n"
         f"<b>Реферальна програма</b>\n"
-        f"Запрошено друзів: {stats['referrals']}\n"
+        f"Запрошено друзів: {fresh.referrals_count}\n"
         f"Ви отримуєте {settings.referral_percent:.0f}% бонусами від кожного "
         f"виконаного замовлення запрошеного друга. Бонусами можна оплатити "
         f"до {settings.bonus_max_percent:.0f}% вартості замовлення.\n\n"
@@ -39,22 +36,18 @@ async def profile(message: Message, session: AsyncSession, user: User) -> None:
 
 
 @router.callback_query(F.data == "myorders")
-async def my_orders(callback: CallbackQuery, session: AsyncSession, user: User) -> None:
-    orders = list(
-        await session.scalars(
-            select(Order).where(Order.user_id == user.id).order_by(Order.created_at.desc()).limit(10)
-        )
-    )
+async def my_orders(callback: CallbackQuery, repo: Repository, user: User) -> None:
+    orders = await repo.list_orders(user_id=user.id, limit=10)
     if not orders:
         await callback.answer("У вас поки немає замовлень", show_alert=True)
         return
 
     lines = ["<b>Останні замовлення</b>\n"]
-    for o in orders:
-        items = ", ".join(f"{i.name} ×{i.qty}" for i in o.items)
+    for order in orders:
+        items = ", ".join(f"{ln.name} ×{ln.qty}" for ln in order.items)
         lines.append(
-            f"<b>№{o.id}</b> — {STATUS_LABELS.get(o.status, o.status.value)}\n"
-            f"{o.created_at:%d.%m.%Y} · {o.total:.0f} {settings.currency}\n"
+            f"<b>№{order.id}</b> — {STATUS_LABELS.get(order.status, order.status.value)}\n"
+            f"{order.created_at:%d.%m.%Y} · {order.total:.0f} {settings.currency}\n"
             f"<i>{items}</i>\n"
         )
     await callback.message.answer("\n".join(lines))

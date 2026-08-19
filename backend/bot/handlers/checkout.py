@@ -6,16 +6,13 @@ from decimal import Decimal
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message, ReplyKeyboardRemove
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from bot import keyboards as kb
 from bot import texts
 from bot.states import Checkout
 from shop.config import settings
-from shop.models import Order, User
-from shop.services import cart as cart_service
-from shop.services import orders as order_service
-from shop.services import promo as promo_service
+from shop.entities import Order, User
+from shop.repo.base import Repository
+from shop.services import shop_service as svc
 
 router = Router()
 
@@ -33,13 +30,13 @@ def normalize_phone(raw: str) -> str | None:
 
 @router.callback_query(F.data == "checkout")
 async def start_checkout(
-    callback: CallbackQuery, session: AsyncSession, user: User, state: FSMContext
+    callback: CallbackQuery, repo: Repository, user: User, state: FSMContext
 ) -> None:
-    problems = await cart_service.validate_stock(session, user.id)
+    problems = await svc.validate_cart(repo, user.id)
     if problems:
         await callback.answer("Змінилася наявність, перевірте кошик", show_alert=True)
         return
-    if not await cart_service.get_items(session, user.id):
+    if not await repo.get_cart(user.id):
         await callback.answer("Кошик порожній", show_alert=True)
         return
 
@@ -92,29 +89,29 @@ async def step_address(message: Message, state: FSMContext) -> None:
 
 
 @router.message(Checkout.promo, F.text)
-async def step_promo(message: Message, state: FSMContext, session: AsyncSession, user: User) -> None:
-    subtotal = await cart_service.subtotal(session, user.id)
-    result = await promo_service.apply(session, message.text, user.id, subtotal)
+async def step_promo(message: Message, state: FSMContext, repo: Repository, user: User) -> None:
+    subtotal = await svc.cart_subtotal(repo, user.id)
+    result = await svc.check_promo(repo, message.text, user.id, subtotal)
     if not result.ok:
         await message.answer(f"{result.error}. Спробуйте інший код або пропустіть крок.", reply_markup=kb.SKIP)
         return
     await state.update_data(promo=result.promo.code, discount=str(result.discount))
     await message.answer(f"Промокод застосовано: −{result.discount:.0f} грн")
-    await _ask_bonus(message, state, session, user)
+    await _ask_bonus(message, state, repo, user)
 
 
 @router.callback_query(Checkout.promo, F.data == "skip")
-async def skip_promo(callback: CallbackQuery, state: FSMContext, session: AsyncSession, user: User) -> None:
+async def skip_promo(callback: CallbackQuery, state: FSMContext, repo: Repository, user: User) -> None:
     await callback.message.edit_reply_markup(reply_markup=None)
-    await _ask_bonus(callback.message, state, session, user)
+    await _ask_bonus(callback.message, state, repo, user)
     await callback.answer()
 
 
-async def _ask_bonus(message: Message, state: FSMContext, session: AsyncSession, user: User) -> None:
+async def _ask_bonus(message: Message, state: FSMContext, repo: Repository, user: User) -> None:
     data = await state.get_data()
-    subtotal = await cart_service.subtotal(session, user.id)
+    subtotal = await svc.cart_subtotal(repo, user.id)
     discount = Decimal(data.get("discount", "0"))
-    available = order_service.max_bonus_for(subtotal - discount, user.bonus_balance)
+    available = svc.max_bonus_for(subtotal - discount, user.bonus_balance)
 
     if available <= 0:
         await state.set_state(Checkout.payment)
@@ -146,29 +143,29 @@ async def step_payment(callback: CallbackQuery, state: FSMContext) -> None:
 
 
 @router.message(Checkout.comment, F.text)
-async def step_comment(message: Message, state: FSMContext, session: AsyncSession, user: User) -> None:
+async def step_comment(message: Message, state: FSMContext, repo: Repository, user: User) -> None:
     await state.update_data(comment=message.text.strip())
-    await _show_summary(message, state, session, user)
+    await _show_summary(message, state, repo, user)
 
 
 @router.callback_query(Checkout.comment, F.data == "skip")
-async def skip_comment(callback: CallbackQuery, state: FSMContext, session: AsyncSession, user: User) -> None:
+async def skip_comment(callback: CallbackQuery, state: FSMContext, repo: Repository, user: User) -> None:
     await callback.message.edit_reply_markup(reply_markup=None)
-    await _show_summary(callback.message, state, session, user)
+    await _show_summary(callback.message, state, repo, user)
     await callback.answer()
 
 
-async def _show_summary(message: Message, state: FSMContext, session: AsyncSession, user: User) -> None:
+async def _show_summary(message: Message, state: FSMContext, repo: Repository, user: User) -> None:
     data = await state.get_data()
-    items = await cart_service.get_items(session, user.id)
+    items = await repo.get_cart(user.id)
     subtotal = sum((i.product.price * i.qty for i in items), Decimal(0))
     discount = Decimal(data.get("discount", "0"))
-    bonus = order_service.max_bonus_for(subtotal - discount, user.bonus_balance) if data.get("use_bonus") else Decimal(0)
+    bonus = svc.max_bonus_for(subtotal - discount, user.bonus_balance) if data.get("use_bonus") else Decimal(0)
     total = max(Decimal(0), subtotal - discount - bonus)
 
     lines = ["<b>Перевірте замовлення</b>\n"]
-    for i in items:
-        lines.append(f"• {i.product.name} × {i.qty} — {i.product.price * i.qty:.0f} грн")
+    for line in items:
+        lines.append(f"• {line.product.name} × {line.qty} — {line.line_total:.0f} грн")
     lines.append(f"\nСума: {subtotal:.0f} грн")
     if discount:
         lines.append(f"Промокод {data.get('promo')}: −{discount:.0f} грн")
@@ -196,11 +193,11 @@ async def cancel_order(callback: CallbackQuery, state: FSMContext) -> None:
 
 @router.callback_query(Checkout.confirm, F.data == "order:confirm")
 async def confirm_order(
-    callback: CallbackQuery, state: FSMContext, session: AsyncSession, user: User
+    callback: CallbackQuery, state: FSMContext, repo: Repository, user: User
 ) -> None:
     data = await state.get_data()
-    order, error = await order_service.create_from_cart(
-        session,
+    order, error = await svc.create_order(
+        repo,
         user,
         contact_name=data["name"],
         contact_phone=data["phone"],
@@ -242,12 +239,11 @@ async def confirm_order(
 
 
 @router.message(Checkout.receipt, F.photo)
-async def receive_receipt(message: Message, state: FSMContext, session: AsyncSession) -> None:
+async def receive_receipt(message: Message, state: FSMContext, repo: Repository) -> None:
     data = await state.get_data()
-    order = await session.get(Order, data.get("order_id"))
+    order = await repo.get_order(data.get("order_id"))
     if order:
-        order.receipt_file_id = message.photo[-1].file_id
-        await session.commit()
+        await repo.update_order(order.id, {"receipt_file_id": message.photo[-1].file_id})
         if settings.admin_chat_id:
             await message.bot.send_photo(
                 settings.admin_chat_id,
@@ -262,7 +258,7 @@ async def receive_receipt(message: Message, state: FSMContext, session: AsyncSes
 async def _notify_admins(callback: CallbackQuery, order: Order, user: User) -> None:
     if not settings.admin_chat_id:
         return
-    items = "\n".join(f"• {i.name} × {i.qty} — {i.price * i.qty:.0f} грн" for i in order.items)
+    items = "\n".join(f"• {ln.name} × {ln.qty} — {ln.line_total:.0f} грн" for ln in order.items)
     username = f"@{user.username}" if user.username else f"id{user.tg_id}"
     text = (
         f"🆕 <b>Замовлення №{order.id}</b>\n\n"

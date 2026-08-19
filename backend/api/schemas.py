@@ -5,7 +5,7 @@ from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from shop.models import BroadcastStatus, OrderStatus, PromoType
+from shop.entities import BroadcastStatus, OrderStatus, PromoType
 
 
 class ORMModel(BaseModel):
@@ -62,7 +62,9 @@ class StockIn(BaseModel):
 # ------------------------------------------------------------------ замовлення
 
 class OrderItemOut(ORMModel):
-    id: int
+    # У Firestore позиції вкладені в документ замовлення й власного id не мають —
+    # це був артефакт SQL, тому поле необов'язкове.
+    id: int | None = None
     product_id: int | None
     name: str
     price: Decimal
@@ -90,7 +92,7 @@ class OrderOut(ORMModel):
     delivery_address: str | None
     comment: str | None
     admin_note: str | None
-    created_at: datetime
+    created_at: datetime | None = None
     items: list[OrderItemOut] = []
     user: OrderCustomer | None = None
 
@@ -105,16 +107,17 @@ class OrderPatch(BaseModel):
 class CustomerOut(ORMModel):
     id: int
     tg_id: int
-    username: str | None
-    first_name: str | None
-    phone: str | None
-    bonus_balance: Decimal
-    is_blocked: bool
+    username: str | None = None
+    first_name: str | None = None
+    phone: str | None = None
+    bonus_balance: Decimal = Decimal(0)
+    is_blocked: bool = False
     referral_code: str
-    created_at: datetime
-    last_seen_at: datetime
+    created_at: datetime | None = None
+    last_seen_at: datetime | None = None
     orders_count: int = 0
     total_spent: Decimal = Decimal(0)
+    referrals_count: int = 0
 
 
 class CustomerPatch(BaseModel):
@@ -138,8 +141,8 @@ class PromoIn(BaseModel):
 
 class PromoOut(ORMModel, PromoIn):
     id: int
-    used_count: int
-    created_at: datetime
+    used_count: int = 0
+    created_at: datetime | None = None
 
 
 # -------------------------------------------------------------------- розсилки
@@ -168,10 +171,11 @@ class BroadcastOut(ORMModel):
     button_url: str | None
     segment: dict
     status: BroadcastStatus
-    sent_count: int
-    failed_count: int
-    created_at: datetime
-    finished_at: datetime | None
+    sent_count: int = 0
+    failed_count: int = 0
+    cursor_id: int = 0
+    created_at: datetime | None = None
+    finished_at: datetime | None = None
 
 
 # ------------------------------------------------------------------ статистика

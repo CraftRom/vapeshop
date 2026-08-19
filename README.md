@@ -28,7 +28,24 @@
 
 ---
 
-## Швидкий старт
+## Розгортання
+
+Проєкт працює з двома базами даних — вибір задає одна змінна `DB_BACKEND`:
+
+| | Власний сервер | Vercel |
+|---|---|---|
+| Інструкція | **[docs/SERVER.md](docs/SERVER.md)** | **[docs/VERCEL.md](docs/VERCEL.md)** |
+| База | Postgres (`DB_BACKEND=sql`) | Firestore (`DB_BACKEND=firestore`) — [docs/FIREBASE.md](docs/FIREBASE.md) |
+| Режим бота | polling (можна вебхук) | лише вебхук |
+| Розсилки | фонове завдання, без пауз | порціями через планувальник |
+| FSM | Redis у Docker | Upstash Redis (обов'язково) |
+| Кому підходить | бойовий магазин | швидко перевірити ідею |
+
+Бізнес-логіка від бази не залежить: і бот, і API працюють через інтерфейс
+`Repository`, у якого дві реалізації. Що вони поводяться однаково — перевіряє
+спільний набір тестів.
+
+### Локальний запуск (розробка)
 
 ```bash
 cp .env.example .env
@@ -49,13 +66,12 @@ python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 export PYTHONPATH=$PWD
 
+alembic upgrade head                             # схема бази (для DB_BACKEND=sql)
 python -m bot                                    # термінал 1
 uvicorn api.main:app --reload --port 8000        # термінал 2
 
 cd ../dashboard && npm install && npm run dev    # термінал 3
 ```
-
----
 
 ## Обов'язкові налаштування перед запуском
 
@@ -77,115 +93,115 @@ cd ../dashboard && npm install && npm run dev    # термінал 3
 ## Тести
 
 ```bash
-cd backend && python tests_smoke.py
+cd backend
+python tests_repo.py     # 62 перевірки логіки × 2 бази + звірка на розбіжності
+python tests_api.py      # 60 перевірок HTTP × 2 бази
 ```
 
-36 перевірок наскрізної логіки на SQLite: кошик і обрізання за залишком,
-промокоди (регістр, мінімальна сума, повторне використання), розрахунок
-замовлення, списання залишків, реферальна винагорода і захист від подвійного
-нарахування, повернення залишків і бонусів при скасуванні, усі 6 сегментів.
+`tests_repo.py` ганяє один сценарій через обидві реалізації й окремо порівнює
+результати. Якщо SQL і Firestore почнуть розходитись — тест назве конкретну
+перевірку. Саме так було знайдено, що SQLite не знижує регістр кирилиці.
 
----
+Проти справжнього Firestore (потрібен емулятор):
+
+```bash
+firebase emulators:start --only firestore
+FIRESTORE_EMULATOR_HOST=localhost:8080 python tests_repo.py --real
+```
 
 ## Архітектура
 
 ```
 backend/
-├── shop/                    ← спільне ядро: моделі + бізнес-логіка
-│   ├── models.py            User, Category, Product, CartItem, Order, OrderItem,
-│   │                        PromoCode, PromoUsage, BonusTx, Broadcast, Setting
-│   ├── config.py            налаштування з .env через pydantic-settings
-│   ├── db.py                async engine + sessionmaker
-│   ├── telegram.py          Bot API клієнт для дашборду (сповіщення, розсилки)
-│   └── services/
-│       ├── users.py         реєстрація, реферали, рух бонусів
-│       ├── cart.py          кошик + валідація наявності
-│       ├── promo.py         перевірка й розрахунок знижок
-│       ├── orders.py        створення замовлення, зміна статусу
-│       └── segments.py      побудова запитів для сегментів розсилки
+├── shop/
+│   ├── entities.py          доменні dataclass'и — спільна мова обох баз
+│   ├── config.py            налаштування з .env
+│   ├── telegram.py          Bot API клієнт (сповіщення, розсилки)
+│   ├── repo/
+│   │   ├── base.py          контракт Repository — ~50 операцій
+│   │   ├── sql.py           реалізація на SQLAlchemy
+│   │   ├── firestore.py     реалізація на Firestore
+│   │   ├── docstore.py      інтерфейс документного сховища + фейк для тестів
+│   │   ├── firestore_store.py  справжній клієнт Firestore
+│   │   └── factory.py       вибір бекенду за DB_BACKEND
+│   ├── services/
+│   │   ├── shop_service.py  уся бізнес-логіка: кошик, промокоди, бонуси, статуси
+│   │   └── broadcast.py     порційна відправка з курсором
+│   └── models.py, db.py     таблиці SQLAlchemy (лише для DB_BACKEND=sql)
 ├── bot/                     aiogram 3
 │   ├── handlers/            start, catalog, cart, checkout, profile, admin
-│   ├── middlewares.py       сесія БД → age gate → перевірка блокування
-│   ├── keyboards.py, texts.py, states.py
-│   └── __main__.py
-└── api/                     FastAPI
-    ├── routers/             catalog, orders, customers, promos, broadcasts, stats
-    ├── auth.py              JWT
-    ├── schemas.py
-    └── main.py
+│   ├── factory.py           спільна збірка для polling і вебхука
+│   ├── middlewares.py       репозиторій → блокування → age gate
+│   └── __main__.py          режим polling
+├── api/                     FastAPI
+│   ├── routers/             catalog, orders, customers, promos, broadcasts,
+│   │                        stats, cron, telegram
+│   └── auth.py, main.py
+├── alembic/                 міграції (DB_BACKEND=sql)
+├── tests_repo.py            контрактні тести обох баз
+└── tests_api.py             наскрізні тести HTTP
 
-dashboard/src/
-├── api.js                   клієнт із автоматичним виходом на 401
-├── App.jsx                  роутинг + сайдбар зі щетчиком нових замовлень
-├── components/              ui.jsx (модалка, тости, форматери), StatusRail.jsx
-└── pages/                   Login, Overview, Orders, Catalog, Customers, Promos, Broadcasts
+api/index.py                 точка входу Vercel
+vercel.json                  функції, роути, cron
+firestore.indexes.json       11 складених індексів під запити коду
+firestore.rules              прямий доступ заборонено — ходить лише бекенд
+deploy/                      продакшн для власного сервера
+├── docker-compose.prod.yml  + Redis, migrate, nginx, certbot
+├── nginx/app.conf           TLS, rate limit
+└── deploy.sh, backup.sh, restore.sh
 ```
 
 ### Рішення, які варто знати
+
+**Дві бази за одним інтерфейсом.** Хендлери й роутери працюють з `Repository`
+і не знають, Postgres це чи Firestore. Правило межі: в інтерфейс потрапляють
+операції предметної області (`count_segment`, `adjust_stock`), а не запити.
+Інакше SQL протік би в контракт і Firestore його не реалізував.
+
+**Денормалізовані лічильники.** `orders_count`, `total_spent`, `referrals_count`
+у клієнта, `products_count` у категорії. Firestore не має JOIN і GROUP BY, тому
+рахувати їх при читанні неможливо — оновлюємо при записі, атомарними
+інкрементами. SQL від цього теж виграв: список клієнтів більше не робить JOIN.
+
+**Гроші в копійках у Firestore.** Немає типу Decimal, а float для грошей —
+джерело помилок округлення. Конвертація на межі репозиторію; бізнес-логіка
+як і раніше бачить `Decimal`.
 
 **Age gate — це middleware, не хендлер.** Поки `age_confirmed = false`, крізь
 проходить лише `/start` і колбек підтвердження. Не обійти ні через deep link,
 ні через inline-кнопку зі старого повідомлення.
 
-**Бонуси — журнал, не лічильник.** Кожен рух пишеться в `BonusTx` (нарахування,
-списання, повернення), тому баланс завжди можна перерахувати й звірити.
-Прапорець `Order.referral_paid` гарантує, що винагорода нарахується один раз,
-навіть якщо статус перемикати туди-сюди.
+**Бонуси — журнал, не лічильник.** Кожен рух пишеться окремим записом
+(нарахування, списання, повернення), тому баланс завжди можна перерахувати.
+Прапорець `referral_paid` гарантує, що винагорода нарахується один раз, навіть
+якщо статус перемикати туди-сюди.
 
-**Скасування відкочує все.** Повертає залишки на склад і списані бонуси клієнту.
-
-**М'яке видалення.** Товари й промокоди не видаляються, а деактивуються —
-історія замовлень залишається читабельною.
+**Скасування відкочує все:** залишки на склад, бонуси клієнту, лічильники покупок.
 
 **Статус як доріжка етапів.** У таблиці замовлень статус — не випадний список,
-а рейка: видно і поточний етап, і пройдений шлях. Клік переводить далі й одразу
-надсилає клієнту сповіщення.
+а рейка: видно поточний етап і пройдений шлях. Клік переводить далі й одразу
+сповіщає клієнта.
 
-**Розсилка з підрахунком охоплення.** Перед відправкою видно, скільки людей
-отримає повідомлення. Йде у фоні з обмеженням 25 повідомлень/с (ліміт Telegram
-близько 30), прогрес оновлюється в таблиці кожні 4 секунди.
-
----
+**Розсилка порціями з курсором.** Курсор живе в самій розсилці, тому процес
+можна обірвати будь-коли. На сервері порції крутить фонове завдання, у
+serverless — планувальник. Усередині порції відправка паралельна (8 потоків)
+з дотриманням ліміту 25 повідомлень/с.
 
 ## Перед виходом у продакшн
 
-**Обов'язково:**
+Три пункти з попередньої версії README вже закриті:
 
-1. **Alembic замість `create_all`.** Зараз таблиці створюються на старті — це
-   зручно для розробки, але будь-яка зміна моделі потім вимагатиме ручного ALTER.
-   ```bash
-   cd backend && alembic init -t async alembic
-   # у env.py: target_metadata = Base.metadata
-   alembic revision --autogenerate -m "initial"
-   ```
-   Після цього приберіть виклики `init_db()` з `bot/__main__.py` і `api/main.py`.
+- ✅ **Alembic** — міграції налаштовані, `create_all` у продакшні не працює
+- ✅ **Redis для FSM** — вмикається через `REDIS_URL`
+- ✅ **Закритий API, HTTPS, бекапи** — у `deploy/` (див. docs/SERVER.md)
 
-2. **Redis для FSM.** Стан оформлення зараз у пам'яті процесу — при рестарті
-   бота недооформлені замовлення губляться.
-   ```python
-   from aiogram.fsm.storage.redis import RedisStorage
-   dp = Dispatcher(storage=RedisStorage.from_url("redis://redis:6379/0"))
-   ```
-
-3. **Закрити API назовні.** Приберіть блок `ports` у сервісу `api` з
-   `docker-compose.yml` — дашборд ходить до нього через nginx усередині мережі.
-
-4. **HTTPS.** `certbot --nginx` або Traefik перед сервісом `dashboard`.
-
-5. **Бекапи БД.**
-   ```bash
-   docker compose exec db pg_dump -U shop shop | gzip > backup_$(date +%F).sql.gz
-   ```
-
-**Варто додати:**
+Лишається доробити:
 
 - **Нова Пошта** — поля `delivery_city` / `delivery_address` уже є, лишається
   прикрутити API для пошуку відділень і створення ТТН
 - **Кілька адмінів** з ролями замість одного логіна в `.env`
-- **Webhook замість polling** для бота, якщо навантаження зросте
 - **Логування дій адміністраторів** — хто і коли змінив статус чи ціну
-
----
+- **Моніторинг** — Uptime Kuma на `/api/health`
 
 ## Про оплату
 

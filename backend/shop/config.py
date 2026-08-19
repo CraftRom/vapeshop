@@ -1,4 +1,5 @@
 from functools import lru_cache
+from urllib.parse import quote_plus
 
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -13,8 +14,40 @@ class Settings(BaseSettings):
     admin_chat_id: int = 0          # куди падають нові замовлення
     admin_ids: str = ""             # "123,456" — хто має доступ до /admin у боті
 
-    # --- База ---
-    database_url: str = "postgresql+asyncpg://shop:shop@db:5432/shop"
+    # --- Вибір бази ---
+    # sql — Postgres/SQLite (власний сервер); firestore — Firebase (Vercel)
+    db_backend: str = "sql"
+    firebase_project: str = ""
+    firebase_database: str = ""
+
+    # --- База (для db_backend=sql) ---
+    # DATABASE_URL можна не задавати — тоді збереться з POSTGRES_*.
+    # Так пароль БД зберігається в одному місці й не розходиться.
+    postgres_user: str = "shop"
+    postgres_password: str = "shop"
+    postgres_db: str = "shop"
+    postgres_host: str = "db"
+    postgres_port: int = 5432
+    database_url: str | None = None
+
+    @property
+    def db_url(self) -> str:
+        if self.database_url:
+            return self.database_url
+        # quote — інакше пароль зі спецсимволами (@ : / #) ламає рядок підключення
+        password = quote_plus(self.postgres_password)
+        return (
+            f"postgresql+asyncpg://{self.postgres_user}:{password}"
+            f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
+        )
+
+    # --- Режим роботи ---
+    # serverless=true вимикає пул з'єднань (Vercel створює процес на запит)
+    serverless: bool = False
+    public_url: str = ""            # https://your-app.vercel.app — для вебхука
+    webhook_secret: str = ""        # секрет у шляху вебхука, згенеруйте випадковий
+    cron_secret: str = ""           # Bearer-токен для /api/cron/*
+    redis_url: str = ""             # якщо задано — FSM переживає рестарт бота
 
     # --- Дашборд ---
     jwt_secret: str = "change-me"

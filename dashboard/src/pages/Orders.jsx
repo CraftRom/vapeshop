@@ -58,8 +58,8 @@ function OrderDetails({ order, onClose, onSaved }) {
               </tr>
             </thead>
             <tbody>
-              {order.items.map((item) => (
-                <tr key={item.id}>
+              {order.items.map((item, index) => (
+                <tr key={item.id ?? index}>
                   <td>{item.name}</td>
                   <td className="num">{item.qty}</td>
                   <td className="num">{money(item.price * item.qty)}</td>

@@ -3,13 +3,12 @@ from __future__ import annotations
 from aiogram import F, Router
 from aiogram.filters import BaseFilter, Command
 from aiogram.types import CallbackQuery, Message
-from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot import keyboards as kb
 from shop.config import settings
-from shop.models import Order, OrderStatus, Product, User
-from shop.services.orders import STATUS_LABELS, change_status
+from shop.entities import STATUS_LABELS, OrderStatus
+from shop.repo.base import Repository
+from shop.services.shop_service import change_order_status
 
 router = Router()
 
@@ -24,39 +23,28 @@ router.callback_query.filter(IsAdmin())
 
 
 @router.message(Command("stats"))
-async def stats(message: Message, session: AsyncSession) -> None:
-    users_total = await session.scalar(select(func.count(User.id)))
-    orders_new = await session.scalar(
-        select(func.count(Order.id)).where(Order.status == OrderStatus.NEW)
-    )
-    revenue = await session.scalar(
-        select(func.coalesce(func.sum(Order.total), 0)).where(
-            Order.status.in_([OrderStatus.PAID, OrderStatus.SHIPPED, OrderStatus.DONE])
-        )
-    )
-    low_stock = await session.scalar(
-        select(func.count(Product.id)).where(Product.is_active.is_(True), Product.stock < 5)
-    )
+async def stats(message: Message, repo: Repository) -> None:
+    summary = await repo.stats_summary(30)
     await message.answer(
         f"<b>Коротка статистика</b>\n\n"
-        f"Клієнтів: {users_total}\n"
-        f"Нових замовлень: {orders_new}\n"
-        f"Виручка: {revenue:.0f} {settings.currency}\n"
-        f"Товарів із залишком &lt; 5: {low_stock}\n\n"
+        f"Клієнтів: {summary.customers_total}\n"
+        f"Нових замовлень: {summary.orders_new}\n"
+        f"Виручка: {summary.revenue_total:.0f} {settings.currency}\n"
+        f"Товарів із залишком &lt; 5: {summary.low_stock}\n\n"
         f"Повна аналітика — у дашборді."
     )
 
 
 @router.callback_query(F.data.startswith("ao:"))
-async def admin_change_status(callback: CallbackQuery, session: AsyncSession) -> None:
+async def admin_change_status(callback: CallbackQuery, repo: Repository) -> None:
     _, order_id, status_value = callback.data.split(":")
-    order = await session.get(Order, int(order_id))
+    order = await repo.get_order(int(order_id))
     if not order:
         await callback.answer("Замовлення не знайдено", show_alert=True)
         return
 
     status = OrderStatus(status_value)
-    reward = await change_status(session, order, status)
+    reward = await change_order_status(repo, order, status)
     label = STATUS_LABELS[status]
 
     await callback.answer(f"Статус: {label}")
@@ -65,23 +53,25 @@ async def admin_change_status(callback: CallbackQuery, session: AsyncSession) ->
     except Exception:
         pass
 
-    client = await session.get(User, order.user_id)
-    if client:
-        try:
-            await callback.bot.send_message(
-                client.tg_id, f"Замовлення №{order.id}: статус змінено на «{label}»."
-            )
-        except Exception:
-            pass
+    client = await repo.get_user(order.user_id)
+    if not client:
+        return
 
-        if reward and client.referrer_id:
-            referrer = await session.get(User, client.referrer_id)
-            if referrer:
-                try:
-                    await callback.bot.send_message(
-                        referrer.tg_id,
-                        f"🎁 Вам нараховано {reward:.0f} {settings.currency} бонусів "
-                        f"за замовлення запрошеного друга.",
-                    )
-                except Exception:
-                    pass
+    try:
+        await callback.bot.send_message(
+            client.tg_id, f"Замовлення №{order.id}: статус змінено на «{label}»."
+        )
+    except Exception:
+        pass
+
+    if reward and client.referrer_id:
+        referrer = await repo.get_user(client.referrer_id)
+        if referrer:
+            try:
+                await callback.bot.send_message(
+                    referrer.tg_id,
+                    f"🎁 Вам нараховано {reward:.0f} {settings.currency} бонусів "
+                    f"за замовлення запрошеного друга.",
+                )
+            except Exception:
+                pass

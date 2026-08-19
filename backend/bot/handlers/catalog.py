@@ -3,29 +3,22 @@ from __future__ import annotations
 import math
 
 from aiogram import F, Router
-from aiogram.types import CallbackQuery, InputMediaPhoto, Message
-from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import AsyncSession
+from aiogram.types import CallbackQuery, Message
 
 from bot import keyboards as kb
-from shop.models import CartItem, Category, Product, User
+from shop.entities import User
+from shop.repo.base import Repository
 
 router = Router()
 PAGE_SIZE = 8
 
 
-async def _send_categories(target: Message | CallbackQuery, session: AsyncSession) -> None:
-    items = list(
-        await session.scalars(
-            select(Category).where(Category.is_active.is_(True)).order_by(Category.sort_order, Category.name)
-        )
-    )
+async def _send_categories(target: Message | CallbackQuery, repo: Repository) -> None:
+    items = await repo.list_categories(only_active=True)
     if not items:
-        text = "Каталог наповнюється. Зазирніть трохи пізніше."
-        markup = None
+        text, markup = "Каталог наповнюється. Зазирніть трохи пізніше.", None
     else:
-        text = "<b>Каталог</b>\n\nОберіть категорію:"
-        markup = kb.categories(items)
+        text, markup = "<b>Каталог</b>\n\nОберіть категорію:", kb.categories(items)
 
     if isinstance(target, CallbackQuery):
         try:
@@ -38,35 +31,27 @@ async def _send_categories(target: Message | CallbackQuery, session: AsyncSessio
 
 
 @router.message(F.text == "🛍 Каталог")
-async def catalog_message(message: Message, session: AsyncSession) -> None:
-    await _send_categories(message, session)
+async def catalog_message(message: Message, repo: Repository) -> None:
+    await _send_categories(message, repo)
 
 
 @router.callback_query(F.data == "catalog")
-async def catalog_callback(callback: CallbackQuery, session: AsyncSession) -> None:
-    await _send_categories(callback, session)
+async def catalog_callback(callback: CallbackQuery, repo: Repository) -> None:
+    await _send_categories(callback, repo)
 
 
-async def _render_products(callback: CallbackQuery, session: AsyncSession, cat_id: int, page: int) -> None:
-    category = await session.get(Category, cat_id)
+async def _render_products(callback: CallbackQuery, repo: Repository, cat_id: int, page: int) -> None:
+    category = await repo.get_category(cat_id)
     if not category:
         await callback.answer("Категорію не знайдено", show_alert=True)
         return
 
-    total = await session.scalar(
-        select(func.count(Product.id)).where(Product.category_id == cat_id, Product.is_active.is_(True))
-    ) or 0
+    total = await repo.count_products(cat_id, only_active=True)
     pages = max(1, math.ceil(total / PAGE_SIZE))
     page = max(0, min(page, pages - 1))
 
-    items = list(
-        await session.scalars(
-            select(Product)
-            .where(Product.category_id == cat_id, Product.is_active.is_(True))
-            .order_by(Product.sort_order, Product.name)
-            .offset(page * PAGE_SIZE)
-            .limit(PAGE_SIZE)
-        )
+    items = await repo.list_products(
+        category_id=cat_id, only_active=True, limit=PAGE_SIZE, offset=page * PAGE_SIZE
     )
 
     header = f"<b>{category.name}</b>"
@@ -75,36 +60,36 @@ async def _render_products(callback: CallbackQuery, session: AsyncSession, cat_i
     if not items:
         header += "\n\nУ цій категорії поки порожньо."
 
+    markup = kb.products(items, cat_id, page, pages)
     try:
-        await callback.message.edit_text(header, reply_markup=kb.products(items, cat_id, page, pages))
+        await callback.message.edit_text(header, reply_markup=markup)
     except Exception:
-        await callback.message.answer(header, reply_markup=kb.products(items, cat_id, page, pages))
+        await callback.message.answer(header, reply_markup=markup)
     await callback.answer()
 
 
 @router.callback_query(F.data.startswith("cat:"))
-async def open_category(callback: CallbackQuery, session: AsyncSession) -> None:
-    cat_id = int(callback.data.split(":")[1])
-    await _render_products(callback, session, cat_id, 0)
+async def open_category(callback: CallbackQuery, repo: Repository) -> None:
+    await _render_products(callback, repo, int(callback.data.split(":")[1]), 0)
 
 
 @router.callback_query(F.data.startswith("catpage:"))
-async def page_category(callback: CallbackQuery, session: AsyncSession) -> None:
+async def page_category(callback: CallbackQuery, repo: Repository) -> None:
     _, cat_id, page = callback.data.split(":")
-    await _render_products(callback, session, int(cat_id), int(page))
+    await _render_products(callback, repo, int(cat_id), int(page))
 
 
 @router.callback_query(F.data.startswith("prod:"))
-async def open_product(callback: CallbackQuery, session: AsyncSession, user: User) -> None:
+async def open_product(callback: CallbackQuery, repo: Repository, user: User) -> None:
     product_id = int(callback.data.split(":")[1])
-    product = await session.get(Product, product_id)
+    product = await repo.get_product(product_id)
     if not product or not product.is_active:
         await callback.answer("Товар більше недоступний", show_alert=True)
         return
 
-    in_cart = await session.scalar(
-        select(CartItem.qty).where(CartItem.user_id == user.id, CartItem.product_id == product_id)
-    ) or 0
+    in_cart = next(
+        (line.qty for line in await repo.get_cart(user.id) if line.product_id == product_id), 0
+    )
 
     lines = [f"<b>{product.name}</b>"]
     if product.description:

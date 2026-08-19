@@ -1,16 +1,16 @@
-"""Створює таблиці й наповнює каталог демо-даними.
+"""Наповнює каталог демо-даними.
 
-Запуск:  docker compose exec bot python seed.py
+Працює з будь-якою базою: DB_BACKEND визначає, куди саме писати.
+    docker compose exec bot python seed.py
 """
 from __future__ import annotations
 
 import asyncio
 from decimal import Decimal
 
-from sqlalchemy import select
-
-from shop.db import SessionMaker, init_db
-from shop.models import Category, Product, PromoCode, PromoType
+from shop.config import settings
+from shop.entities import PromoType
+from shop.repo.factory import open_repo
 
 CATALOG = {
     "Одноразові поди": [
@@ -33,50 +33,39 @@ CATALOG = {
 }
 
 PROMOS = [
-    ("WELCOME10", PromoType.PERCENT, Decimal(10), Decimal(500), None, 1),
-    ("OPT500", PromoType.FIXED, Decimal(500), Decimal(5000), 50, 3),
+    {"code": "WELCOME10", "type": PromoType.PERCENT, "value": Decimal(10),
+     "min_order": Decimal(500), "max_uses": None, "per_user_limit": 1},
+    {"code": "OPT500", "type": PromoType.FIXED, "value": Decimal(500),
+     "min_order": Decimal(5000), "max_uses": 50, "per_user_limit": 3},
 ]
 
 
 async def main() -> None:
-    await init_db()
+    if settings.db_backend == "sql":
+        from shop.db import init_db
+        await init_db()
 
-    async with SessionMaker() as session:
-        if await session.scalar(select(Category.id).limit(1)):
+    async with open_repo() as repo:
+        if await repo.list_categories():
             print("У базі вже є дані — сідинг пропущено.")
             return
 
         for order, (name, products) in enumerate(CATALOG.items()):
-            category = Category(name=name, sort_order=order)
-            session.add(category)
-            await session.flush()
-
-            for p_order, (p_name, description, price, stock) in enumerate(products):
-                session.add(
-                    Product(
-                        category_id=category.id,
-                        name=p_name,
-                        description=description,
-                        price=Decimal(price),
-                        stock=stock,
-                        sort_order=p_order,
-                    )
-                )
-
-        for code, ptype, value, min_order, max_uses, per_user in PROMOS:
-            session.add(
-                PromoCode(
-                    code=code,
-                    type=ptype,
-                    value=value,
-                    min_order=min_order,
-                    max_uses=max_uses,
-                    per_user_limit=per_user,
-                )
+            category = await repo.create_category(
+                {"name": name, "sort_order": order, "is_active": True}
             )
+            for p_order, (p_name, description, price, stock) in enumerate(products):
+                await repo.create_product({
+                    "category_id": category.id, "name": p_name,
+                    "description": description, "price": Decimal(price),
+                    "stock": stock, "sort_order": p_order, "is_active": True,
+                })
 
-        await session.commit()
-        print("Каталог і промокоди створено.")
+        for promo in PROMOS:
+            await repo.create_promo(promo | {"is_active": True})
+
+        print(f"Готово: {len(CATALOG)} категорій, {len(PROMOS)} промокоди "
+              f"(база: {settings.db_backend}).")
 
 
 if __name__ == "__main__":

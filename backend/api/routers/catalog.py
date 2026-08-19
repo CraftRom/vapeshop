@@ -1,138 +1,82 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.auth import require_admin
 from api.schemas import CategoryIn, CategoryOut, ProductIn, ProductOut, StockIn
-from shop.db import get_session
-from shop.models import Category, Product
+from shop.repo.base import Repository
+from shop.repo.factory import get_repo
 
 router = APIRouter(dependencies=[Depends(require_admin)])
 
 
-# ----------------------------------------------------------------- категорії
-
 @router.get("/categories", response_model=list[CategoryOut])
-async def list_categories(session: AsyncSession = Depends(get_session)):
-    counts = (
-        select(Product.category_id, func.count(Product.id).label("cnt"))
-        .group_by(Product.category_id)
-        .subquery()
-    )
-    rows = await session.execute(
-        select(Category, func.coalesce(counts.c.cnt, 0))
-        .outerjoin(counts, counts.c.category_id == Category.id)
-        .order_by(Category.sort_order, Category.name)
-    )
-    return [
-        CategoryOut(**CategoryOut.model_validate(c).model_dump() | {"products_count": cnt})
-        for c, cnt in rows
-    ]
+async def list_categories(repo: Repository = Depends(get_repo)):
+    return await repo.list_categories()
 
 
 @router.post("/categories", response_model=CategoryOut, status_code=201)
-async def create_category(data: CategoryIn, session: AsyncSession = Depends(get_session)):
-    category = Category(**data.model_dump())
-    session.add(category)
-    await session.commit()
-    await session.refresh(category)
-    return category
+async def create_category(data: CategoryIn, repo: Repository = Depends(get_repo)):
+    return await repo.create_category(data.model_dump())
 
 
 @router.put("/categories/{category_id}", response_model=CategoryOut)
 async def update_category(
-    category_id: int, data: CategoryIn, session: AsyncSession = Depends(get_session)
+    category_id: int, data: CategoryIn, repo: Repository = Depends(get_repo)
 ):
-    category = await session.get(Category, category_id)
+    category = await repo.update_category(category_id, data.model_dump())
     if not category:
         raise HTTPException(404, "Категорію не знайдено")
-    for key, value in data.model_dump().items():
-        setattr(category, key, value)
-    await session.commit()
-    await session.refresh(category)
     return category
 
 
 @router.delete("/categories/{category_id}", status_code=204)
-async def delete_category(category_id: int, session: AsyncSession = Depends(get_session)):
-    category = await session.get(Category, category_id)
-    if not category:
+async def delete_category(category_id: int, repo: Repository = Depends(get_repo)):
+    if not await repo.get_category(category_id):
         raise HTTPException(404, "Категорію не знайдено")
-    count = await session.scalar(
-        select(func.count(Product.id)).where(Product.category_id == category_id)
-    )
-    if count:
-        raise HTTPException(409, f"У категорії {count} товарів. Спочатку перенесіть або видаліть їх.")
-    await session.delete(category)
-    await session.commit()
+    if not await repo.delete_category(category_id):
+        raise HTTPException(409, "У категорії є товари. Спочатку перенесіть або видаліть їх.")
 
-
-# -------------------------------------------------------------------- товари
 
 @router.get("/products", response_model=list[ProductOut])
 async def list_products(
     category_id: int | None = None,
     search: str | None = None,
     only_active: bool = False,
-    session: AsyncSession = Depends(get_session),
+    repo: Repository = Depends(get_repo),
 ):
-    query = select(Product, Category.name).join(Category).order_by(Product.sort_order, Product.name)
-    if category_id:
-        query = query.where(Product.category_id == category_id)
-    if search:
-        query = query.where(Product.name.ilike(f"%{search}%"))
-    if only_active:
-        query = query.where(Product.is_active.is_(True))
-
-    rows = await session.execute(query)
-    return [
-        ProductOut(**ProductOut.model_validate(p).model_dump() | {"category_name": cat_name})
-        for p, cat_name in rows
-    ]
+    return await repo.list_products(
+        category_id=category_id, search=search, only_active=only_active
+    )
 
 
 @router.post("/products", response_model=ProductOut, status_code=201)
-async def create_product(data: ProductIn, session: AsyncSession = Depends(get_session)):
-    if not await session.get(Category, data.category_id):
+async def create_product(data: ProductIn, repo: Repository = Depends(get_repo)):
+    if not await repo.get_category(data.category_id):
         raise HTTPException(400, "Такої категорії немає")
-    product = Product(**data.model_dump())
-    session.add(product)
-    await session.commit()
-    await session.refresh(product)
-    return product
+    return await repo.create_product(data.model_dump())
 
 
 @router.put("/products/{product_id}", response_model=ProductOut)
 async def update_product(
-    product_id: int, data: ProductIn, session: AsyncSession = Depends(get_session)
+    product_id: int, data: ProductIn, repo: Repository = Depends(get_repo)
 ):
-    product = await session.get(Product, product_id)
+    product = await repo.update_product(product_id, data.model_dump())
     if not product:
         raise HTTPException(404, "Товар не знайдено")
-    for key, value in data.model_dump().items():
-        setattr(product, key, value)
-    await session.commit()
-    await session.refresh(product)
     return product
 
 
 @router.patch("/products/{product_id}/stock", response_model=ProductOut)
-async def set_stock(product_id: int, data: StockIn, session: AsyncSession = Depends(get_session)):
-    product = await session.get(Product, product_id)
+async def set_stock(product_id: int, data: StockIn, repo: Repository = Depends(get_repo)):
+    product = await repo.set_stock(product_id, data.stock)
     if not product:
         raise HTTPException(404, "Товар не знайдено")
-    product.stock = data.stock
-    await session.commit()
-    await session.refresh(product)
     return product
 
 
 @router.delete("/products/{product_id}", status_code=204)
-async def delete_product(product_id: int, session: AsyncSession = Depends(get_session)):
-    product = await session.get(Product, product_id)
-    if not product:
+async def delete_product(product_id: int, repo: Repository = Depends(get_repo)):
+    # М'яке видалення — історія замовлень має лишитись читабельною
+    if not await repo.update_product(product_id, {"is_active": False}):
         raise HTTPException(404, "Товар не знайдено")
-    product.is_active = False  # м'яке видалення — історія замовлень залишається цілою
-    await session.commit()

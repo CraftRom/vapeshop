@@ -1,15 +1,18 @@
-import { useEffect, useState } from 'react'
+import { Suspense, lazy, useEffect, useState } from 'react'
 import { NavLink, Navigate, Route, Routes, useNavigate } from 'react-router-dom'
 
 import { api, clearToken, getToken } from './api'
-import { ToastProvider } from './components/ui'
-import Broadcasts from './pages/Broadcasts'
-import Catalog from './pages/Catalog'
-import Customers from './pages/Customers'
+import { Loading, ToastProvider } from './components/ui'
 import Login from './pages/Login'
-import Orders from './pages/Orders'
-import Overview from './pages/Overview'
-import Promos from './pages/Promos'
+
+// Кожна сторінка — окремий чанк. Головне навантаження давав recharts (390 kB):
+// тепер він тягнеться лише коли реально відкривають «Огляд».
+const Overview = lazy(() => import('./pages/Overview'))
+const Orders = lazy(() => import('./pages/Orders'))
+const Catalog = lazy(() => import('./pages/Catalog'))
+const Customers = lazy(() => import('./pages/Customers'))
+const Promos = lazy(() => import('./pages/Promos'))
+const Broadcasts = lazy(() => import('./pages/Broadcasts'))
 
 const NAV = [
   { to: '/', label: 'Огляд', end: true },
@@ -27,6 +30,8 @@ function Shell({ children }) {
   useEffect(() => {
     let cancelled = false
     const poll = async () => {
+      // Не смикаємо сервер, поки вкладку не видно — на serverless це ще й гроші
+      if (document.hidden) return
       try {
         const data = await api.stats.summary(30)
         if (!cancelled) setNewOrders(data.orders_new)
@@ -34,7 +39,12 @@ function Shell({ children }) {
     }
     poll()
     const timer = setInterval(poll, 30000)
-    return () => { cancelled = true; clearInterval(timer) }
+    document.addEventListener('visibilitychange', poll)
+    return () => {
+      cancelled = true
+      clearInterval(timer)
+      document.removeEventListener('visibilitychange', poll)
+    }
   }, [])
 
   const logout = () => {
@@ -63,7 +73,9 @@ function Shell({ children }) {
           </button>
         </div>
       </aside>
-      <main className="main">{children}</main>
+      <main className="main">
+        <Suspense fallback={<Loading rows={4} />}>{children}</Suspense>
+      </main>
     </div>
   )
 }

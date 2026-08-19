@@ -8,12 +8,15 @@ from aiogram.types import CallbackQuery, Message, TelegramObject
 
 from bot import keyboards as kb
 from bot import texts
-from shop.db import SessionMaker
-from shop.services.users import get_or_create_user
+from shop.repo.factory import open_repo
+from shop.services.shop_service import get_or_create_user
 
 
-class DatabaseMiddleware(BaseMiddleware):
-    """Відкриває сесію та підтягує (або створює) користувача для кожного апдейту."""
+class RepositoryMiddleware(BaseMiddleware):
+    """Відкриває репозиторій і підтягує користувача на кожен апдейт.
+
+    Хендлери отримують `repo` і не знають, Postgres це чи Firestore.
+    """
 
     async def __call__(
         self,
@@ -22,11 +25,11 @@ class DatabaseMiddleware(BaseMiddleware):
         data: dict[str, Any],
     ) -> Any:
         tg_user = data.get("event_from_user")
-        async with SessionMaker() as session:
-            data["session"] = session
+        async with open_repo() as repo:
+            data["repo"] = repo
             if tg_user and not tg_user.is_bot:
                 user, is_new = await get_or_create_user(
-                    session, tg_user.id, tg_user.username, tg_user.first_name
+                    repo, tg_user.id, tg_user.username, tg_user.first_name
                 )
                 data["user"] = user
                 data["is_new_user"] = is_new
@@ -34,7 +37,7 @@ class DatabaseMiddleware(BaseMiddleware):
 
 
 class AgeGateMiddleware(BaseMiddleware):
-    """Нікотинові товари — 18+. Поки вік не підтверджено, доступний лише сам age gate."""
+    """Нікотинові товари — 18+. Поки вік не підтверджено, доступний лише age gate."""
 
     ALLOWED_CALLBACKS = ("age:",)
 

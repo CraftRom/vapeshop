@@ -1,16 +1,10 @@
+"""Запуск бота в режимі polling — для власного сервера."""
 from __future__ import annotations
 
 import asyncio
 import logging
 
-from aiogram import Bot, Dispatcher
-from aiogram.client.default import DefaultBotProperties
-from aiogram.enums import ParseMode
-from aiogram.fsm.storage.memory import MemoryStorage
-
-from bot.handlers import admin, cart, catalog, checkout, profile, start
-from bot.middlewares import AgeGateMiddleware, BlockedUserMiddleware, DatabaseMiddleware
-from shop.config import settings
+from bot.factory import build_bot, build_dispatcher
 from shop.db import init_db
 
 logging.basicConfig(
@@ -23,27 +17,13 @@ log = logging.getLogger("bot")
 async def main() -> None:
     await init_db()
 
-    bot = Bot(
-        token=settings.bot_token,
-        default=DefaultBotProperties(parse_mode=ParseMode.HTML),
-    )
-    dp = Dispatcher(storage=MemoryStorage())
-
-    for observer in (dp.message, dp.callback_query):
-        observer.middleware(DatabaseMiddleware())
-        observer.middleware(BlockedUserMiddleware())
-        observer.middleware(AgeGateMiddleware())
-
-    dp.include_router(admin.router)      # адмінський роутер — першим
-    dp.include_router(start.router)
-    dp.include_router(catalog.router)
-    dp.include_router(cart.router)
-    dp.include_router(checkout.router)
-    dp.include_router(profile.router)
+    bot = build_bot()
+    dp = build_dispatcher()
 
     me = await bot.get_me()
-    log.info("Бот @%s запущено", me.username)
+    log.info("Бот @%s запущено в режимі polling", me.username)
 
+    # Знімаємо вебхук: інакше Telegram не віддасть апдейти через polling
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
 

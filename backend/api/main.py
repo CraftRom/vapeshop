@@ -7,7 +7,7 @@ from fastapi import FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.auth import create_token, verify_credentials
-from api.routers import broadcasts, catalog, customers, orders, promos, stats
+from api.routers import broadcasts, catalog, cron, customers, orders, promos, stats, telegram
 from api.schemas import LoginIn, TokenOut
 from shop.config import settings
 from shop.db import init_db
@@ -17,9 +17,37 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)-8s %(na
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    await init_db()
-
     log = logging.getLogger("api")
+
+    if settings.db_backend == "firestore":
+        log.info("База: Firestore (проєкт %s)", settings.firebase_project or "за замовчуванням")
+        log.info("Дашборд очікує логін: %r", settings.dashboard_login)
+        yield
+        return
+
+    if settings.serverless:
+        # На Vercel схему накочує Alembic окремою командою, а не кожен інстанс
+        log.info("Serverless-режим: init_db пропущено")
+        yield
+        return
+
+    try:
+        await init_db()
+    except Exception as exc:
+        # Без цього блоку API просто падав у краш-цикл, nginx віддавав 502,
+        # а в панелі це виглядало як проблема з логіном.
+        log.error("=" * 70)
+        log.error("НЕ ВДАЛОСЯ ПІДКЛЮЧИТИСЬ ДО БАЗИ: %s", exc)
+        log.error("Перевірте POSTGRES_PASSWORD у .env.")
+        log.error(
+            "Якщо ви змінили пароль ПІСЛЯ першого запуску — Postgres його не підхопить: "
+            "пароль задається лише при створенні тому. Або поверніть старий пароль, "
+            "або перестворіть базу (УВАГА, це зітре дані): "
+            "docker compose down -v && docker compose up -d"
+        )
+        log.error("=" * 70)
+        raise
+
     log.info("Дашборд очікує логін: %r", settings.dashboard_login)
     if settings.dashboard_password == "admin":
         log.warning(
@@ -67,3 +95,5 @@ app.include_router(orders.router, prefix="/api/orders", tags=["orders"])
 app.include_router(customers.router, prefix="/api/customers", tags=["customers"])
 app.include_router(promos.router, prefix="/api/promos", tags=["promos"])
 app.include_router(broadcasts.router, prefix="/api/broadcasts", tags=["broadcasts"])
+app.include_router(cron.router, prefix="/api/cron", tags=["cron"])
+app.include_router(telegram.router, prefix="/api", tags=["telegram"])
