@@ -1,7 +1,7 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
-import { api, setToken } from '../api'
+import { api, apiBase, setToken } from '../api'
 import { ErrorBar, Field } from '../components/ui'
 
 export default function Login() {
@@ -10,6 +10,15 @@ export default function Login() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const [health, setHealth] = useState('checking')
+
+  // Перевіряємо бекенд одразу: якщо він недоступний, це видно до спроби входу,
+  // а не у вигляді незрозумілої помилки після натискання кнопки.
+  useEffect(() => {
+    api.health()
+      .then(() => setHealth('ok'))
+      .catch(() => setHealth('down'))
+  }, [])
 
   const submit = async () => {
     setBusy(true)
@@ -32,6 +41,13 @@ export default function Login() {
         <p className="muted">Керування каталогом, замовленнями та розсилками</p>
 
         <div className="stack">
+          {health === 'down' && (
+            <div className="error-bar" role="alert">
+              API недоступний за адресою <span className="mono">{apiBase}</span>.
+              Перевірте, що бекенд розгорнутий на тому самому домені, або задайте
+              <span className="mono"> VITE_API_URL</span>.
+            </div>
+          )}
           <ErrorBar error={error} />
           <Field label="Логін">
             <input
@@ -51,7 +67,11 @@ export default function Login() {
               onKeyDown={(e) => e.key === 'Enter' && submit()}
             />
           </Field>
-          <button className="btn" onClick={submit} disabled={busy || !login || !password}>
+          <button
+            className="btn"
+            onClick={submit}
+            disabled={busy || !login || !password || health === 'down'}
+          >
             {busy ? 'Входимо…' : 'Увійти'}
           </button>
         </div>

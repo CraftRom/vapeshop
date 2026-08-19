@@ -8,6 +8,7 @@ from aiogram.types import CallbackQuery, Message, TelegramObject
 
 from bot import keyboards as kb
 from bot import texts
+from shop.config import settings
 from shop.repo.factory import open_repo
 from shop.services.shop_service import get_or_create_user
 
@@ -37,13 +38,23 @@ class RepositoryMiddleware(BaseMiddleware):
 
 
 class AgeGateMiddleware(BaseMiddleware):
-    """Нікотинові товари — 18+. Поки вік не підтверджено, доступний лише age gate."""
+    """Нікотинові товари — 18+. Поки вік не підтверджено, доступний лише age gate.
+
+    Персонал пропускаємо: адміністратор керує замовленнями, а не купує. Інакше
+    менеджер, який не заходив у бот як покупець, не міг би ні натиснути кнопку
+    статусу в адмін-чаті, ні викликати /stats — а сама група отримувала б
+    повідомлення про підтвердження віку.
+    """
 
     ALLOWED_CALLBACKS = ("age:",)
 
     async def __call__(self, handler, event: TelegramObject, data: dict[str, Any]) -> Any:
         user = data.get("user")
         if user is None or user.age_confirmed:
+            return await handler(event, data)
+
+        tg_user = data.get("event_from_user")
+        if tg_user and tg_user.id in settings.admin_id_list:
             return await handler(event, data)
 
         if isinstance(event, CallbackQuery):

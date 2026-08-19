@@ -62,10 +62,14 @@ DB_BACKEND=firestore FIREBASE_PROJECT=ваш-проєкт \
 Якщо обрали Postgres — замість цього накотіть міграції:
 `PYTHONPATH=$PWD alembic upgrade head`
 
-## Крок 4. Бекенд
+## Крок 4. Деплой — ОДИН проєкт
 
-У Vercel: New Project → імпорт репозиторію → **Root Directory лишити кореневим**.
-`vercel.json` і `api/index.py` уже на місці.
+Панель і API живуть в одному проєкті Vercel і на одному домені. Так немає
+CORS і немає ризику, що панель не знайде бекенд.
+
+New Project → імпорт репозиторію → **Root Directory лишити кореневим**
+(не `dashboard`, не `backend`). `vercel.json` уже налаштований: збирає панель
+із `dashboard/`, а `api/index.py` віддає як serverless-функцію.
 
 Змінні оточення (Settings → Environment Variables):
 
@@ -84,38 +88,47 @@ DASHBOARD_LOGIN=admin
 DASHBOARD_PASSWORD=<надійний пароль>
 WEBHOOK_SECRET=<openssl rand -hex 16>
 CRON_SECRET=<openssl rand -hex 32>
-PUBLIC_URL=https://your-api.vercel.app
-CORS_ORIGINS=https://your-dashboard.vercel.app
+PUBLIC_URL=https://ваш-домен
 CARD_NUMBER=...
 CARD_HOLDER=...
 ```
 
-`PUBLIC_URL` заповніть після першого деплою, коли Vercel видасть домен, і
-задеплойте ще раз.
+`CORS_ORIGINS` і `VITE_API_URL` **не потрібні** — все на одному домені.
+
+`PUBLIC_URL` заповніть після першого деплою, коли з'явиться домен,
+і задеплойте ще раз.
+
+Перевірка:
+
+```bash
+curl https://ваш-домен/api/health
+# {"status":"ok","shop":"..."}
+```
+
+Екран входу тепер сам перевіряє API і скаже, якщо той недоступний.
 
 ## Крок 5. Реєстрація вебхука
 
 Одноразово після деплою:
 
 ```bash
-curl "https://your-api.vercel.app/api/telegram-setup?token=<CRON_SECRET>"
+curl "https://ваш-домен/api/telegram-setup?token=<CRON_SECRET>"
 ```
 
-Відповідь має містити `webhook_url` і `pending_updates`. Напишіть боту `/start` —
-має відповісти.
+Відповідь має містити `webhook_url`. Напишіть боту `/start` — має відповісти.
 
-## Крок 6. Дашборд
+## Крок 6. Якщо все ж потрібні два проєкти
 
-Окремий проєкт у Vercel: New Project → той самий репозиторій →
-**Root Directory: `dashboard`**. Vite визначиться сам.
+Такий поділ має сенс, лише якщо панель і API мусять жити на різних доменах.
+Тоді:
 
-Одна змінна оточення:
+1. Проєкт панелі: Root Directory `dashboard`, змінна
+   `VITE_API_URL=https://ваш-api-домен/api`
+2. Проєкт API: Root Directory кореневий
+3. У бекенді задайте `CORS_ORIGINS=https://домен-панелі`
 
-```
-VITE_API_URL=https://your-api.vercel.app/api
-```
-
-Після цього додайте домен дашборду в `CORS_ORIGINS` бекенду й передеплойте його.
+**Саме пропуск кроку 1 дає помилку «Ендпоінт не знайдено»**: без
+`VITE_API_URL` панель стукає на власний домен, де функцій немає.
 
 ## Крок 7. Планувальник розсилок
 
@@ -162,11 +175,12 @@ curl $API/api/cron/broadcast-tick -H "Authorization: Bearer <CRON_SECRET>"
 
 | Симптом | Причина |
 |---|---|
+| «Ендпоінт не знайдено» на вході | Панель і API в різних проєктах, а `VITE_API_URL` не задано. Розгорніть одним проєктом (крок 4) |
 | Бот мовчить | Вебхук не зареєстровано — крок 5 |
 | Бот забуває крок оформлення | Немає `REDIS_URL` |
 | 500 на всіх запитах | Перевірте `GOOGLE_APPLICATION_CREDENTIALS_JSON` і `FIREBASE_PROJECT` |
 | Помилка про відсутній індекс | Накотіть `firebase deploy --only firestore:indexes` |
-| Панель не бачить API | Домен дашборду не доданий у `CORS_ORIGINS` |
+| Панель не бачить API (два проєкти) | Домен панелі не доданий у `CORS_ORIGINS` |
 | Розсилка висить у «Надсилається» | Планувальник не налаштовано — крок 7 |
 
 Логи: Vercel → проєкт → Logs.

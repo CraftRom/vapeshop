@@ -1,5 +1,12 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+
+  "//": "Один проєкт віддає і панель, і API з одного домену. Так немає ані CORS, ані ризику, що панель не знайде бекенд.",
+
+  "installCommand": "cd dashboard && npm install",
+  "buildCommand": "cd dashboard && npm run build",
+  "outputDirectory": "dashboard/dist",
+
   "functions": {
     "api/index.py": {
       "runtime": "@vercel/python@4.3.0",
@@ -8,15 +15,15 @@
       "includeFiles": "backend/**"
     }
   },
+
   "rewrites": [
     { "source": "/api/(.*)", "destination": "/api/index" },
     { "source": "/docs", "destination": "/api/index" },
-    { "source": "/openapi.json", "destination": "/api/index" }
+    { "source": "/openapi.json", "destination": "/api/index" },
+    { "source": "/((?!api/|assets/).*)", "destination": "/index.html" }
   ],
+
   "crons": [
-    {
-      "path": "/api/cron/broadcast-tick",
-      "schedule": "0 4 * * *"
-    }
+    { "path": "/api/cron/broadcast-tick", "schedule": "0 4 * * *" }
   ]
 }

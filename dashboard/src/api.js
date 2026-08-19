@@ -1,4 +1,6 @@
 const BASE = import.meta.env.VITE_API_URL || '/api'
+
+export const apiBase = BASE
 const TOKEN_KEY = 'shop_dashboard_token'
 
 export const getToken = () => localStorage.getItem(TOKEN_KEY)
@@ -48,7 +50,12 @@ async function request(path, { method = 'GET', body, params } = {}) {
       if (response.status >= 500) {
         detail = `Сервер відповів помилкою ${response.status}. Перевірте логи: docker compose logs api`
       } else if (response.status === 404) {
-        detail = 'Ендпоінт не знайдено — схоже, панель не достукалась до API'
+        // Найчастіша причина — панель і API розгорнуті окремо, а VITE_API_URL
+        // не задано, тож запит пішов на власний домен, де функцій немає.
+        detail =
+          `API не відповів за адресою ${url.pathname}. ` +
+          `Панель звертається до ${BASE}. Якщо бекенд на іншому домені — ` +
+          `задайте VITE_API_URL і перезберіть панель.`
       } else {
         detail = `Помилка ${response.status}`
       }
@@ -61,6 +68,8 @@ async function request(path, { method = 'GET', body, params } = {}) {
 }
 
 export const api = {
+  health: () => request('/health'),
+
   login: (login, password) => request('/auth/login', { method: 'POST', body: { login, password } }),
 
   stats: {
