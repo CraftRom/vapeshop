@@ -21,8 +21,13 @@
     { "src": "/api/(.*)", "dest": "/api/index.py" },
     { "src": "/docs", "dest": "/api/index.py" },
     { "src": "/openapi.json", "dest": "/api/index.py" },
+
+    { "src": "/", "dest": "/dashboard/index.html" },
+    { "src": "/(.*)", "dest": "/dashboard/$1" },
+
     { "handle": "filesystem" },
-    { "src": "/(.*)", "dest": "/index.html" }
+
+    { "src": "/(.*)", "dest": "/dashboard/index.html" }
   ],
 
   "crons": [
