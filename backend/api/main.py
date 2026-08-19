@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, status
+from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.auth import create_token, verify_credentials
@@ -86,7 +86,36 @@ async def login(data: LoginIn):
 
 @app.get("/api/health", tags=["service"])
 async def health():
-    return {"status": "ok", "shop": settings.shop_name}
+    """Діагностика розгортання.
+
+    Навмисно без авторизації: якщо конфігурація зламана, увійти неможливо,
+    і саме тоді потрібно розуміти причину. Значень змінних не розкриваємо —
+    лише назви тих, яких бракує.
+    """
+    problems = settings.missing_required()
+    return {
+        "status": "ok" if not problems else "misconfigured",
+        "shop": settings.shop_name,
+        "db_backend": settings.db_backend,
+        "serverless": settings.serverless,
+        "webhook_configured": bool(settings.webhook_secret and settings.public_url),
+        "missing_env": problems,
+    }
+
+
+@app.get("/api/debug/routing", tags=["service"])
+async def debug_routing(request: Request):
+    """Показує, який шлях реально дійшов до застосунку.
+
+    Потрібно, коли платформа переписує URL: якщо сюди приходить не той шлях,
+    що в адресному рядку, значить проблема в маршрутизації, а не в коді.
+    """
+    return {
+        "path_received": request.url.path,
+        "root_path": request.scope.get("root_path", ""),
+        "expected": "/api/debug/routing",
+        "routing_ok": request.url.path.endswith("/api/debug/routing"),
+    }
 
 
 app.include_router(stats.router, prefix="/api/stats", tags=["stats"])

@@ -10,14 +10,20 @@ export default function Login() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
-  const [health, setHealth] = useState('checking')
+  const [health, setHealth] = useState({ state: 'checking' })
 
   // Перевіряємо бекенд одразу: якщо він недоступний, це видно до спроби входу,
   // а не у вигляді незрозумілої помилки після натискання кнопки.
   useEffect(() => {
     api.health()
-      .then(() => setHealth('ok'))
-      .catch(() => setHealth('down'))
+      .then((data) => {
+        if (data.status === 'misconfigured') {
+          setHealth({ state: 'misconfigured', missing: data.missing_env || [] })
+        } else {
+          setHealth({ state: 'ok' })
+        }
+      })
+      .catch((err) => setHealth({ state: 'down', status: err.status }))
   }, [])
 
   const submit = async () => {
@@ -41,11 +47,30 @@ export default function Login() {
         <p className="muted">Керування каталогом, замовленнями та розсилками</p>
 
         <div className="stack">
-          {health === 'down' && (
+          {health.state === 'down' && (
             <div className="error-bar" role="alert">
-              API недоступний за адресою <span className="mono">{apiBase}</span>.
-              Перевірте, що бекенд розгорнутий на тому самому домені, або задайте
-              <span className="mono"> VITE_API_URL</span>.
+              {health.status === 404 ? (
+                <>
+                  Бекенд не знайдено за адресою <span className="mono">{apiBase}</span>.
+                  Функції API там не розгорнуті — перевірте, що Root Directory
+                  проєкту вказує на корінь репозиторію, а не на{' '}
+                  <span className="mono">dashboard</span>.
+                </>
+              ) : (
+                <>
+                  Бекенд відповів помилкою {health.status || '—'} за адресою{' '}
+                  <span className="mono">{apiBase}</span>. Найчастіше це означає,
+                  що не задані змінні оточення. Дивіться логи функції.
+                </>
+              )}
+            </div>
+          )}
+
+          {health.state === 'misconfigured' && (
+            <div className="error-bar" role="alert">
+              Бекенд працює, але не налаштований. Не задано:{' '}
+              <span className="mono">{health.missing.join(', ')}</span>.
+              Додайте ці змінні оточення й передеплойте.
             </div>
           )}
           <ErrorBar error={error} />
@@ -70,7 +95,7 @@ export default function Login() {
           <button
             className="btn"
             onClick={submit}
-            disabled={busy || !login || !password || health === 'down'}
+            disabled={busy || !login || !password || health.state !== 'ok'}
           >
             {busy ? 'Входимо…' : 'Увійти'}
           </button>

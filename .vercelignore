@@ -1,0 +1,7 @@
+deploy/
+docs/
+docker-compose.yml
+backend/tests_smoke.py
+dashboard/node_modules/
+dashboard/dist/
+**/__pycache__/

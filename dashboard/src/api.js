@@ -70,6 +70,7 @@ async function request(path, { method = 'GET', body, params } = {}) {
 export const api = {
   health: () => request('/health'),
 
+
   login: (login, password) => request('/auth/login', { method: 'POST', body: { login, password } }),
 
   stats: {

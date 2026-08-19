@@ -1,26 +1,30 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
 
-  "//": "Один проєкт віддає і панель, і API з одного домену. Так немає ані CORS, ані ризику, що панель не знайде бекенд.",
+  "//": "Один проєкт віддає і панель, і API з одного домену: ані CORS, ані ризику, що панель не знайде бекенд. Використано builds+routes, а не buildCommand+rewrites: у цій схемі 'dest' гарантовано доносить до функції початковий шлях запиту, тому FastAPI бачить /api/auth/login, а не переписаний шлях.",
 
-  "installCommand": "cd dashboard && npm install",
-  "buildCommand": "cd dashboard && npm run build",
-  "outputDirectory": "dashboard/dist",
-
-  "functions": {
-    "api/index.py": {
-      "runtime": "@vercel/python@4.3.0",
-      "memory": 1024,
-      "maxDuration": 60,
-      "includeFiles": "backend/**"
+  "builds": [
+    {
+      "src": "api/index.py",
+      "use": "@vercel/python",
+      "config": {
+        "includeFiles": "backend/**",
+        "maxLambdaSize": "50mb"
+      }
+    },
+    {
+      "src": "dashboard/package.json",
+      "use": "@vercel/static-build",
+      "config": { "distDir": "dist" }
     }
-  },
+  ],
 
-  "rewrites": [
-    { "source": "/api/(.*)", "destination": "/api/index" },
-    { "source": "/docs", "destination": "/api/index" },
-    { "source": "/openapi.json", "destination": "/api/index" },
-    { "source": "/((?!api/|assets/).*)", "destination": "/index.html" }
+  "routes": [
+    { "src": "/api/(.*)", "dest": "/api/index.py" },
+    { "src": "/docs", "dest": "/api/index.py" },
+    { "src": "/openapi.json", "dest": "/api/index.py" },
+    { "handle": "filesystem" },
+    { "src": "/(.*)", "dest": "/index.html" }
   ],
 
   "crons": [

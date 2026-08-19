@@ -9,7 +9,10 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     # --- Telegram ---
-    bot_token: str
+    # Без значення за замовчуванням застосунок падав ще на імпорті, і панель
+    # бачила лише 500 без пояснення. Тепер він піднімається, а про брак
+    # налаштувань повідомляє /api/health.
+    bot_token: str = ""
     bot_username: str = "your_shop_bot"
     admin_chat_id: int = 0          # куди падають нові замовлення
     admin_ids: str = ""             # "123,456" — хто має доступ до /admin у боті
@@ -85,6 +88,22 @@ class Settings(BaseSettings):
     @property
     def cors_list(self) -> list[str]:
         return [x.strip() for x in self.cors_origins.split(",") if x.strip()]
+
+
+    def missing_required(self) -> list[str]:
+        """Змінні, без яких магазин не працюватиме. Значень не розкриваємо."""
+        problems = []
+        if not self.bot_token:
+            problems.append("BOT_TOKEN")
+        if self.jwt_secret in ("", "change-me"):
+            problems.append("JWT_SECRET")
+        if self.dashboard_password in ("", "admin"):
+            problems.append("DASHBOARD_PASSWORD")
+        if self.db_backend == "firestore" and not self.firebase_project:
+            problems.append("FIREBASE_PROJECT")
+        if self.db_backend not in ("sql", "firestore"):
+            problems.append("DB_BACKEND (має бути sql або firestore)")
+        return problems
 
 
 @lru_cache
