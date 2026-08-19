@@ -1,7 +1,7 @@
 from functools import lru_cache
 from urllib.parse import quote_plus
 
-from pydantic import field_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -67,6 +67,28 @@ class Settings(BaseSettings):
     bonus_max_percent: float = 30.0     # макс. частка замовлення, яку можна закрити бонусами
     card_number: str = "0000 0000 0000 0000"
     card_holder: str = ""
+
+    @model_validator(mode="before")
+    @classmethod
+    def _ignore_empty_values(cls, data):
+        """Порожня змінна оточення = не задана.
+
+        Інтерфейс Vercel дозволяє створити змінну без значення, і тоді сюди
+        приходить '' — для int/float/bool це помилка валідації, яка валить
+        застосунок ще на імпорті. Для таких полів порожнє значення просто
+        відкидаємо, щоб застосувався дефолт. Рядкові поля не чіпаємо: для них
+        '' — легітимне значення (напр. порожній CARD_HOLDER).
+        """
+        if not isinstance(data, dict):
+            return data
+
+        cleaned = {}
+        for key, value in data.items():
+            field = cls.model_fields.get(key)
+            if value == "" and field is not None and field.annotation is not str:
+                continue
+            cleaned[key] = value
+        return cleaned
 
     @field_validator("dashboard_login", "dashboard_password", mode="after")
     @classmethod

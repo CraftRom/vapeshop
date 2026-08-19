@@ -3,6 +3,11 @@
 Vercel перетворює кожен файл у /api на serverless-функцію. Змінна `app`
 (ASGI-застосунок) підхоплюється рантаймом @vercel/python автоматично.
 Маршрутизацію всіх шляхів сюди задає vercel.json.
+
+ВАЖЛИВО: назовні експортується справжній екземпляр FastAPI. Рантайм Vercel
+сам визначає, ASGI перед ним чи WSGI, і на кастомних класах-обгортках це
+визначення збивається — застосунок викликається за WSGI-протоколом і падає
+з TypeError, що назовні виглядає як 500 на кожному запиті.
 """
 import os
 import sys
@@ -24,16 +29,16 @@ if _credentials and not os.environ.get("GOOGLE_APPLICATION_CREDENTIALS"):
         handle.write(_credentials)
     os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = _path
 
-from api.main import app as _app  # noqa: E402
+from api.main import app  # noqa: E402
 
 
 class RestoreOriginalPath:
     """Повертає початковий шлях запиту, якщо платформа його переписала.
 
-    Схема builds+routes у vercel.json доносить справжній шлях, але конфігурацію
-    легко змінити на rewrites — і тоді до застосунку прийде «/api/index»
-    замість «/api/auth/login». Замість того щоб покладатися на конкретну
-    поведінку платформи, відновлюємо шлях із заголовків, які проксі лишає.
+    Схема builds+routes у vercel.json доносить справжній шлях, тож зазвичай
+    цей клас нічого не робить. Він лишається страховкою на випадок переходу
+    на rewrites — тоді до застосунку прийшло б «/api/index» замість
+    «/api/auth/login», і шлях відновлюється із заголовків проксі.
     """
 
     REWRITTEN = ("/api/index", "/api/index.py", "/api", "")
@@ -55,4 +60,6 @@ class RestoreOriginalPath:
         await self.app(scope, receive, send)
 
 
-app = RestoreOriginalPath(_app)
+# Middleware чіпляється до застосунку, а не загортає його ззовні — так `app`
+# лишається екземпляром FastAPI і рантайм розпізнає його як ASGI.
+app.add_middleware(RestoreOriginalPath)
