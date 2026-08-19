@@ -175,18 +175,19 @@ function CategoryManager({ categories, onClose, onChanged }) {
   const [editing, setEditing] = useState(null)
 
   const remove = async (category) => {
-    if (category.products_count > 0) {
-      notify(
-        `У категорії «${category.name}» ще ${category.products_count} товар(ів). ` +
-        'Перенесіть або приберіть їх спочатку.',
-        'bad',
-      )
-      return
-    }
-    if (!confirm(`Видалити категорію «${category.name}»?`)) return
+    const warning = category.products_count > 0
+      ? ` Разом із нею з каталогу зникнуть товари (${category.products_count} шт).`
+      : ''
+    if (!confirm(
+      `Прибрати категорію «${category.name}» з каталогу?${warning}` +
+      ' Історія замовлень збережеться.'
+    )) return
     try {
-      await api.categories.remove(category.id)
-      notify('Категорію видалено')
+      const res = await api.categories.remove(category.id)
+      const hidden = res?.hidden_products || 0
+      notify(hidden
+        ? `Категорію прибрано, разом із нею ${hidden} товар(ів)`
+        : 'Категорію прибрано з каталогу')
       onChanged()
     } catch (err) {
       notify(err.message, 'bad')
@@ -240,7 +241,7 @@ function CategoryManager({ categories, onClose, onChanged }) {
                         <button
                           className="btn danger small"
                           onClick={() => remove(c)}
-                          title={c.products_count > 0 ? 'Спочатку приберіть товари' : 'Видалити'}
+                          title="Прибрати з каталогу разом із товарами"
                         >
                           Видалити
                         </button>

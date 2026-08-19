@@ -30,12 +30,13 @@ async def update_category(
     return category
 
 
-@router.delete("/categories/{category_id}", status_code=204)
+@router.delete("/categories/{category_id}")
 async def delete_category(category_id: int, repo: Repository = Depends(get_repo)):
+    """М'яке видалення: категорія та її товари зникають з бота, але лишаються в базі."""
     if not await repo.get_category(category_id):
         raise HTTPException(404, "Категорію не знайдено")
-    if not await repo.delete_category(category_id):
-        raise HTTPException(409, "У категорії є товари. Спочатку перенесіть або видаліть їх.")
+    hidden = await repo.delete_category(category_id)
+    return {"hidden_products": hidden}
 
 
 @router.get("/products", response_model=list[ProductOut])

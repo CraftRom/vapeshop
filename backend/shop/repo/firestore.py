@@ -284,11 +284,14 @@ class FirestoreRepository(Repository):
             return None
         return await self.get_category(category_id)
 
-    async def delete_category(self, category_id) -> bool:
-        if await self.db.count(PRODUCTS, [("category_id", "==", category_id)]):
-            return False
-        await self.db.delete(CATEGORIES, category_id)
-        return True
+    async def delete_category(self, category_id) -> int:
+        rows = await self.db.query(
+            PRODUCTS, [("category_id", "==", category_id), ("is_active", "==", True)]
+        )
+        for row in rows:
+            await self.db.update(PRODUCTS, row["id"], {"is_active": False})
+        await self.db.update(CATEGORIES, category_id, {"is_active": False})
+        return len(rows)
 
     async def list_products(
         self, category_id=None, search=None, only_active=False, limit=500, offset=0

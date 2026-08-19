@@ -252,17 +252,17 @@ class SqlRepository(Repository):
         await self.s.commit()
         return _category(row)
 
-    async def delete_category(self, category_id) -> bool:
-        count = await self.s.scalar(
-            select(func.count(m.Product.id)).where(m.Product.category_id == category_id)
+    async def delete_category(self, category_id) -> int:
+        result = await self.s.execute(
+            update(m.Product)
+            .where(m.Product.category_id == category_id, m.Product.is_active.is_(True))
+            .values(is_active=False)
         )
-        if count:
-            return False
-        row = await self.s.get(m.Category, category_id)
-        if row:
-            await self.s.delete(row)
-            await self.s.commit()
-        return True
+        await self.s.execute(
+            update(m.Category).where(m.Category.id == category_id).values(is_active=False)
+        )
+        await self.s.commit()
+        return int(result.rowcount or 0)
 
     async def list_products(
         self, category_id=None, search=None, only_active=False, limit=500, offset=0

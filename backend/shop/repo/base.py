@@ -84,8 +84,12 @@ class Repository(ABC):
     async def update_category(self, category_id: int, data: dict) -> Category | None: ...
 
     @abstractmethod
-    async def delete_category(self, category_id: int) -> bool:
-        """False — якщо в категорії ще є товари."""
+    async def delete_category(self, category_id: int) -> int:
+        """Ховає категорію разом із її товарами. Повертає кількість схованих товарів.
+
+        Семантика та сама, що в товарів і промокодів: запис лишається в базі,
+        але зникає з бота. Інакше історія замовлень посилалася б у порожнечу.
+        """
 
     @abstractmethod
     async def list_products(
