@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 
 import { api } from '../api'
-import { Empty, ErrorBar, Field, Loading, Modal, date, money, useToast } from '../components/ui'
+import { Empty, ErrorBar, Field, Loading, Modal, confirmPurge, date, money, useToast } from '../components/ui'
 
 const EMPTY = {
   code: '',
@@ -138,6 +138,20 @@ export default function Promos() {
     }
   }
 
+  const purge = async (promo) => {
+    const extra = promo.used_count > 0
+      ? `Разом з ним зникне історія застосувань (${promo.used_count}).`
+      : ''
+    if (!confirmPurge(promo.code, extra)) return
+    try {
+      await api.promos.purge(promo.id)
+      notify('Промокод стерто назавжди')
+      load()
+    } catch (err) {
+      notify(err.message, 'bad')
+    }
+  }
+
   const isExpired = (p) => p.expires_at && new Date(p.expires_at) < new Date()
   const isExhausted = (p) => p.max_uses !== null && p.used_count >= p.max_uses
 
@@ -200,8 +214,21 @@ export default function Promos() {
                       <div className="row">
                         <button className="btn ghost small" onClick={() => setEditing(p)}>Змінити</button>
                         {p.is_active && (
-                          <button className="btn danger small" onClick={() => deactivate(p)}>Вимкнути</button>
+                          <button
+                            className="btn danger small"
+                            onClick={() => deactivate(p)}
+                            title="Код перестане діяти, статистика лишиться"
+                          >
+                            Вимкнути
+                          </button>
                         )}
+                        <button
+                          className="btn danger small"
+                          onClick={() => purge(p)}
+                          title="Стерти з бази назавжди. Необоротно"
+                        >
+                          Стерти
+                        </button>
                       </div>
                     </td>
                   </tr>

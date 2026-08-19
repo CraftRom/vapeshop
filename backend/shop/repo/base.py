@@ -84,6 +84,25 @@ class Repository(ABC):
     async def update_category(self, category_id: int, data: dict) -> Category | None: ...
 
     @abstractmethod
+    async def purge_category(self, category_id: int) -> int:
+        """Стирає категорію і всі її товари НАЗАВЖДИ. Повертає кількість товарів.
+
+        Історія замовлень не страждає: позиції зберігають знімок назви й ціни,
+        а посилання на товар обнуляється.
+        """
+
+    @abstractmethod
+    async def purge_product(self, product_id: int) -> bool:
+        """Стирає товар назавжди. Прибирає його з кошиків і знеособлює в історії."""
+
+    @abstractmethod
+    async def purge_promo(self, promo_id: int) -> bool:
+        """Стирає промокод назавжди разом з історією його застосувань.
+
+        Замовлення, оформлені з ним, лишаються — у них обнуляється посилання.
+        """
+
+    @abstractmethod
     async def delete_category(self, category_id: int) -> int:
         """Ховає категорію разом із її товарами. Повертає кількість схованих товарів.
 

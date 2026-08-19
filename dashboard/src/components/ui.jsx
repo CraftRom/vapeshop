@@ -104,3 +104,24 @@ export const dateTime = (iso) =>
   new Date(iso).toLocaleString('uk-UA', {
     day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
   })
+
+// ------------------------------------------------------- небезпечні дії
+
+/** Підтвердження остаточного видалення: вимагає вписати назву.
+ *
+ * Звичайний confirm() тут замало — операція необоротна, а натиснути «ОК»
+ * на автоматі надто легко. Друк назви змушує зупинитись і подивитись,
+ * що саме стирається.
+ */
+export function confirmPurge(label, extra = '') {
+  const typed = window.prompt(
+    `Стерти «${label}» НАЗАВЖДИ?${extra ? ' ' + extra : ''}\n\n` +
+    'Це необоротно. Щоб підтвердити, впишіть назву точно:',
+  )
+  if (typed === null) return false
+  if (typed.trim() !== label.trim()) {
+    window.alert('Назва не збіглася — нічого не видалено.')
+    return false
+  }
+  return true
+}

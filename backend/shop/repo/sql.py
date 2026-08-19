@@ -628,3 +628,52 @@ class SqlRepository(Repository):
             else:
                 self.s.add(m.Setting(key=key, value=str(value)))
         await self.s.commit()
+
+    # ------------------------------------------ остаточне видалення
+
+    async def purge_product(self, product_id) -> bool:
+        row = await self.s.get(m.Product, product_id)
+        if not row:
+            return False
+        # Знеособлюємо історію явно: покладатись на ON DELETE SET NULL не можна,
+        # бо SQLite за замовчуванням не вмикає перевірку зовнішніх ключів.
+        await self.s.execute(
+            update(m.OrderItem)
+            .where(m.OrderItem.product_id == product_id)
+            .values(product_id=None)
+        )
+        await self.s.execute(delete(m.CartItem).where(m.CartItem.product_id == product_id))
+        # products_count у SQL — обчислюване поле (COUNT), окремо його не рухаємо
+        await self.s.delete(row)
+        await self.s.commit()
+        return True
+
+    async def purge_category(self, category_id) -> int:
+        if not await self.s.get(m.Category, category_id):
+            return 0
+        ids = list(
+            await self.s.scalars(
+                select(m.Product.id).where(m.Product.category_id == category_id)
+            )
+        )
+        for product_id in ids:
+            await self.purge_product(product_id)
+        row = await self.s.get(m.Category, category_id)
+        if row:
+            await self.s.delete(row)
+            await self.s.commit()
+        return len(ids)
+
+    async def purge_promo(self, promo_id) -> bool:
+        row = await self.s.get(m.PromoCode, promo_id)
+        if not row:
+            return False
+        # orders.promo_code_id — звичайний FK без ondelete, тож чистимо вручну,
+        # інакше Postgres відмовить у видаленні.
+        await self.s.execute(
+            update(m.Order).where(m.Order.promo_code_id == promo_id).values(promo_code_id=None)
+        )
+        await self.s.execute(delete(m.PromoUsage).where(m.PromoUsage.promo_id == promo_id))
+        await self.s.delete(row)
+        await self.s.commit()
+        return True

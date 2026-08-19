@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 
 import { api } from '../api'
-import { Empty, ErrorBar, Field, Loading, Modal, money, useToast } from '../components/ui'
+import { Empty, ErrorBar, Field, Loading, Modal, confirmPurge, money, useToast } from '../components/ui'
 
 const EMPTY_PRODUCT = {
   category_id: '',
@@ -194,6 +194,20 @@ function CategoryManager({ categories, onClose, onChanged }) {
     }
   }
 
+  const purge = async (category) => {
+    const extra = category.products_count > 0
+      ? `Разом з нею назавжди зникнуть товари (${category.products_count} шт).`
+      : ''
+    if (!confirmPurge(category.name, extra)) return
+    try {
+      const res = await api.categories.purge(category.id)
+      notify(`Стерто назавжди${res?.purged_products ? `, товарів: ${res.purged_products}` : ''}`)
+      onChanged()
+    } catch (err) {
+      notify(err.message, 'bad')
+    }
+  }
+
   return (
     <>
       <Modal
@@ -241,9 +255,16 @@ function CategoryManager({ categories, onClose, onChanged }) {
                         <button
                           className="btn danger small"
                           onClick={() => remove(c)}
-                          title="Прибрати з каталогу разом із товарами"
+                          title="Приховати: зникне з бота, лишиться в базі"
                         >
-                          Видалити
+                          Приховати
+                        </button>
+                        <button
+                          className="btn danger small"
+                          onClick={() => purge(c)}
+                          title="Стерти з бази назавжди. Необоротно"
+                        >
+                          Стерти
                         </button>
                       </div>
                     </td>
@@ -299,6 +320,17 @@ export default function Catalog() {
     try {
       const updated = await api.products.setStock(product.id, Math.max(0, stock))
       setProducts((list) => list.map((p) => (p.id === updated.id ? updated : p)))
+    } catch (err) {
+      notify(err.message, 'bad')
+    }
+  }
+
+  const purgeProduct = async (product) => {
+    if (!confirmPurge(product.name)) return
+    try {
+      await api.products.purge(product.id)
+      notify('Товар стерто назавжди')
+      load()
     } catch (err) {
       notify(err.message, 'bad')
     }
@@ -399,8 +431,21 @@ export default function Catalog() {
                       <div className="row">
                         <button className="btn ghost small" onClick={() => setEditing(p)}>Змінити</button>
                         {p.is_active && (
-                          <button className="btn danger small" onClick={() => hide(p)}>Прибрати</button>
+                          <button
+                            className="btn danger small"
+                            onClick={() => hide(p)}
+                            title="Зникне з бота, лишиться в історії"
+                          >
+                            Прибрати
+                          </button>
                         )}
+                        <button
+                          className="btn danger small"
+                          onClick={() => purgeProduct(p)}
+                          title="Стерти з бази назавжди. Необоротно"
+                        >
+                          Стерти
+                        </button>
                       </div>
                     </td>
                   </tr>

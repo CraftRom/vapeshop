@@ -39,6 +39,25 @@ async def delete_category(category_id: int, repo: Repository = Depends(get_repo)
     return {"hidden_products": hidden}
 
 
+@router.delete("/categories/{category_id}/purge")
+async def purge_category(category_id: int, repo: Repository = Depends(get_repo)):
+    """Остаточне видалення: категорія та її товари стираються з бази назавжди.
+
+    Окремий шлях, а не прапорець у DELETE — щоб випадковий запит не зніс дані.
+    Історія замовлень лишається читабельною: позиції зберігають знімок
+    назви й ціни, обнуляється лише посилання на товар.
+    """
+    if not await repo.get_category(category_id):
+        raise HTTPException(404, "Категорію не знайдено")
+    return {"purged_products": await repo.purge_category(category_id)}
+
+
+@router.delete("/products/{product_id}/purge", status_code=204)
+async def purge_product(product_id: int, repo: Repository = Depends(get_repo)):
+    if not await repo.purge_product(product_id):
+        raise HTTPException(404, "Товар не знайдено")
+
+
 @router.get("/products", response_model=list[ProductOut])
 async def list_products(
     category_id: int | None = None,

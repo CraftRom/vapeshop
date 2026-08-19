@@ -696,6 +696,54 @@ class FirestoreRepository(Repository):
                 entry["revenue"] += from_cents(item["price_cents"] * item["qty"])
         return sorted(totals.values(), key=lambda e: e["revenue"], reverse=True)[:limit]
 
+    # ------------------------------------------ остаточне видалення
+
+    async def purge_product(self, product_id) -> bool:
+        doc = await self.db.get(PRODUCTS, product_id)
+        if not doc:
+            return False
+
+        # Кошики: рядок більше не має на що посилатись
+        for line in await self.db.query(CARTS, [("product_id", "==", product_id)]):
+            await self.db.delete(CARTS, line["id"])
+
+        # Історія: позиції зберігають знімок назви й ціни, обнуляємо лише посилання
+        for order in await self.db.query(ORDERS):
+            items = order.get("items") or []
+            if not any(i.get("product_id") == product_id for i in items):
+                continue
+            cleaned = [
+                {**i, "product_id": None} if i.get("product_id") == product_id else i
+                for i in items
+            ]
+            await self.db.update(ORDERS, order["id"], {"items": cleaned})
+
+        await self.db.delete(PRODUCTS, product_id)
+        if doc.get("category_id"):
+            await self.db.update(
+                CATEGORIES, doc["category_id"], {"products_count": Inc(-1)}
+            )
+        return True
+
+    async def purge_category(self, category_id) -> int:
+        if not await self.db.get(CATEGORIES, category_id):
+            return 0
+        rows = await self.db.query(PRODUCTS, [("category_id", "==", category_id)])
+        for row in rows:
+            await self.purge_product(row["id"])
+        await self.db.delete(CATEGORIES, category_id)
+        return len(rows)
+
+    async def purge_promo(self, promo_id) -> bool:
+        if not await self.db.get(PROMOS, promo_id):
+            return False
+        for use in await self.db.query(PROMO_USES, [("promo_id", "==", promo_id)]):
+            await self.db.delete(PROMO_USES, use["id"])
+        for order in await self.db.query(ORDERS, [("promo_code_id", "==", promo_id)]):
+            await self.db.update(ORDERS, order["id"], {"promo_code_id": None})
+        await self.db.delete(PROMOS, promo_id)
+        return True
+
     # --------------------------------------------------- налаштування
 
     async def get_settings_map(self) -> dict[str, str]:

@@ -32,5 +32,13 @@ async def update_promo(promo_id: int, data: PromoIn, repo: Repository = Depends(
 
 @router.delete("/{promo_id}", status_code=204)
 async def delete_promo(promo_id: int, repo: Repository = Depends(get_repo)):
+    """М'яке приховування: код перестає діяти, статистика застосувань лишається."""
     if not await repo.update_promo(promo_id, {"is_active": False}):
+        raise HTTPException(404, "Промокод не знайдено")
+
+
+@router.delete("/{promo_id}/purge", status_code=204)
+async def purge_promo(promo_id: int, repo: Repository = Depends(get_repo)):
+    """Остаточне видалення разом з історією застосувань."""
+    if not await repo.purge_promo(promo_id):
         raise HTTPException(404, "Промокод не знайдено")

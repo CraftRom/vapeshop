@@ -85,6 +85,7 @@ export const api = {
     create: (data) => request('/catalog/categories', { method: 'POST', body: data }),
     update: (id, data) => request(`/catalog/categories/${id}`, { method: 'PUT', body: data }),
     remove: (id) => request(`/catalog/categories/${id}`, { method: 'DELETE' }),
+    purge: (id) => request(`/catalog/categories/${id}/purge`, { method: 'DELETE' }),
   },
 
   products: {
@@ -93,6 +94,7 @@ export const api = {
     update: (id, data) => request(`/catalog/products/${id}`, { method: 'PUT', body: data }),
     setStock: (id, stock) => request(`/catalog/products/${id}/stock`, { method: 'PATCH', body: { stock } }),
     remove: (id) => request(`/catalog/products/${id}`, { method: 'DELETE' }),
+    purge: (id) => request(`/catalog/products/${id}/purge`, { method: 'DELETE' }),
   },
 
   orders: {
@@ -112,6 +114,7 @@ export const api = {
     create: (data) => request('/promos', { method: 'POST', body: data }),
     update: (id, data) => request(`/promos/${id}`, { method: 'PUT', body: data }),
     remove: (id) => request(`/promos/${id}`, { method: 'DELETE' }),
+    purge: (id) => request(`/promos/${id}/purge`, { method: 'DELETE' }),
   },
 
   settings: {
