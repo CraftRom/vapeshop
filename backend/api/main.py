@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from api.auth import create_token, verify_credentials
 from api.routers import (
     broadcasts, catalog, cron, customers, orders, promos, settings as settings_router,
-    stats, telegram,
+    shop as shop_router, stats, telegram,
 )
 from api.schemas import LoginIn, TokenOut
 from shop.config import settings
@@ -128,5 +128,7 @@ app.include_router(customers.router, prefix="/api/customers", tags=["customers"]
 app.include_router(promos.router, prefix="/api/promos", tags=["promos"])
 app.include_router(broadcasts.router, prefix="/api/broadcasts", tags=["broadcasts"])
 app.include_router(settings_router.router, prefix="/api/settings", tags=["settings"])
+# Вітрина Mini App — окрема автентифікація (Telegram initData), не JWT панелі
+app.include_router(shop_router.router, prefix="/api/shop", tags=["shop"])
 app.include_router(cron.router, prefix="/api/cron", tags=["cron"])
 app.include_router(telegram.router, prefix="/api", tags=["telegram"])
