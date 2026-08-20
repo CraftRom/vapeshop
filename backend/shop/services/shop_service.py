@@ -64,7 +64,11 @@ async def check_promo(
         return PromoResult(False, error="Ліміт використань вичерпано")
 
     if subtotal < promo.min_order:
-        return PromoResult(False, error=f"Мінімальна сума замовлення — {promo.min_order:.0f} грн")
+        shop = await get_shop_settings(repo)
+        return PromoResult(
+            False,
+            error=f"Мінімальна сума замовлення — {promo.min_order:.0f} {shop.currency}",
+        )
 
     if await repo.promo_uses_by_user(promo.id, user_id) >= promo.per_user_limit:
         return PromoResult(False, error="Ви вже використали цей промокод")

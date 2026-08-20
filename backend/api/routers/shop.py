@@ -9,6 +9,7 @@
 """
 from __future__ import annotations
 
+import logging
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -21,7 +22,10 @@ from shop.entities import User
 from shop.repo.base import Repository
 from shop.repo.factory import get_repo
 from shop.services import shop_service as svc
+from shop.services.notifications import notify_new_order
 from shop.services.shop_settings import get_shop_settings
+
+log = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -276,6 +280,17 @@ async def checkout(
     )
     if error or not order:
         raise HTTPException(400, error or "Не вдалося створити замовлення")
+
+    # Менеджер має побачити замовлення з вітрини так само, як із чату.
+    # Помилка тут не скасовує замовлення: воно вже в базі й видиме в панелі.
+    try:
+        from api.routers.telegram import _instances
+
+        bot, _ = _instances()
+        await notify_new_order(bot, repo, order, user)
+    except Exception:
+        log.warning("Замовлення №%s створено, але сповіщення не пішло",
+                    order.id, exc_info=True)
 
     shop = await get_shop_settings(repo)
     return CheckoutOut(

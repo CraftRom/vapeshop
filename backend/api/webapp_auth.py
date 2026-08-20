@@ -88,14 +88,23 @@ async def require_webapp_user(
     if not tg_id:
         raise HTTPException(401, "У initData немає користувача")
 
+    referral_code = data.get("start_param")
     user, _ = await get_or_create_user(
         repo,
         tg_id=int(tg_id),
         username=tg_user.get("username"),
         first_name=tg_user.get("first_name"),
         # start_param несе реферальний код із посилання t.me/bot?startapp=<code>
-        referral_code=data.get("start_param"),
+        referral_code=referral_code,
     )
+
+    # get_or_create_user прив'язує реферера лише при створенні. Той, хто вже
+    # заходив у бот, але реферера не має, інакше втрачав би запрошення —
+    # у чаті таке посилання спрацьовує, і вітрина не має поводитись інакше.
+    if referral_code and not user.referrer_id:
+        referrer = await repo.get_user_by_referral_code(referral_code.strip())
+        if referrer and referrer.id != user.id:
+            await repo.set_user_referrer(user, referrer.id)
     if user.is_blocked:
         raise HTTPException(403, "Доступ обмежено")
     return user

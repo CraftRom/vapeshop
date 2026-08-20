@@ -39,13 +39,19 @@ async def stats(message: Message, repo: Repository) -> None:
 
 @router.callback_query(F.data.startswith("ao:"))
 async def admin_change_status(callback: CallbackQuery, repo: Repository) -> None:
-    _, order_id, status_value = callback.data.split(":")
-    order = await repo.get_order(int(order_id))
+    # Дані кнопки приходять ззовні: зіпсований рядок не має валити обробник
+    try:
+        _, raw_id, status_value = callback.data.split(":")
+        order_id = int(raw_id)
+        status = OrderStatus(status_value)
+    except ValueError:
+        await callback.answer("Кнопка застаріла, оновіть повідомлення", show_alert=True)
+        return
+
+    order = await repo.get_order(order_id)
     if not order:
         await callback.answer("Замовлення не знайдено", show_alert=True)
         return
-
-    status = OrderStatus(status_value)
     reward = await change_order_status(repo, order, status)
     label = STATUS_LABELS[status]
 

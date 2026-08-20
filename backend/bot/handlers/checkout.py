@@ -10,6 +10,7 @@ from bot import keyboards as kb
 from bot import texts
 from bot.states import Checkout
 from shop.config import settings
+from shop.services.notifications import notify_new_order
 from shop.services.shop_settings import get_shop_settings
 from shop.entities import Order, User
 from shop.repo.base import Repository
@@ -239,7 +240,7 @@ async def confirm_order(
         await state.clear()
         await callback.message.answer(texts.MENU_HINT, reply_markup=kb.main_menu())
 
-    await _notify_admins(callback, order, user)
+    await notify_new_order(callback.bot, repo, order, user)
     await callback.answer()
 
 
@@ -258,24 +259,3 @@ async def receive_receipt(message: Message, state: FSMContext, repo: Repository)
             )
     await state.clear()
     await message.answer("Квитанцію отримано. Менеджер перевірить оплату.", reply_markup=kb.main_menu())
-
-
-async def _notify_admins(callback: CallbackQuery, order: Order, user: User) -> None:
-    if not settings.admin_chat_id:
-        return
-    items = "\n".join(f"• {ln.name} × {ln.qty} — {ln.line_total:.0f} грн" for ln in order.items)
-    username = f"@{user.username}" if user.username else f"id{user.tg_id}"
-    text = (
-        f"🆕 <b>Замовлення №{order.id}</b>\n\n"
-        f"{items}\n\n"
-        f"Сума: {order.subtotal:.0f} грн\n"
-        f"Знижка: {order.discount:.0f} грн | Бонуси: {order.bonus_used:.0f} грн\n"
-        f"<b>До сплати: {order.total:.0f} грн</b>\n\n"
-        f"Клієнт: {order.contact_name} ({username})\n"
-        f"Телефон: {order.contact_phone}\n"
-        f"Доставка: {order.delivery_city}, {order.delivery_address}\n"
-        f"Оплата: {'картка' if order.payment_method == 'card' else 'накладений платіж'}"
-    )
-    if order.comment:
-        text += f"\nКоментар: {order.comment}"
-    await callback.bot.send_message(settings.admin_chat_id, text, reply_markup=kb.admin_order(order.id))
