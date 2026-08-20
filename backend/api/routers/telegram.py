@@ -70,7 +70,7 @@ async def setup_webhook(token: str = ""):
 
     # Синя кнопка біля поля вводу — головний вхід у вітрину.
     # Telegram вимагає https, тож на локальному хості вона не зʼявиться.
-    shop_url = settings.public_url.rstrip("/") + "/app"
+    shop_url = settings.public_url.rstrip("/") + "/app/"
     menu_set = False
     if shop_url.startswith("https://"):
         await bot.set_chat_menu_button(

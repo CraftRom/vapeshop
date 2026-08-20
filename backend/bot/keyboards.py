@@ -12,10 +12,16 @@ from shop.models import CartItem, Category, Product
 # ------------------------------------------------------------------ головне меню
 
 def _shop_url() -> str | None:
-    """Адреса вітрини. Без PUBLIC_URL кнопку показати не можна."""
+    """Адреса вітрини. Без PUBLIC_URL кнопку показати не можна.
+
+    Зі слешем на кінці навмисно: Telegram на Android кешує WebView міні-аппа
+    за адресою, і при відновленні процесу перезавантажує вже обрізану версію
+    посилання — без підпису користувача. Зміна адреси змушує клієнт відкрити
+    сторінку з нуля. Обидві форми, /app і /app/, ведуть в одне місце.
+    """
     if not settings.public_url:
         return None
-    return settings.public_url.rstrip("/") + "/app"
+    return settings.public_url.rstrip("/") + "/app/"
 
 
 def to_private_chat() -> InlineKeyboardMarkup:

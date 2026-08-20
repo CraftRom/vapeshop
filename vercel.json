@@ -42,7 +42,11 @@
       "dest": "/miniapp/index.html"
     },
     {
-      "src": "/app/(.*)",
+      "src": "/app/",
+      "dest": "/miniapp/index.html"
+    },
+    {
+      "src": "/app/(.+)",
       "dest": "/miniapp/$1"
     },
     {

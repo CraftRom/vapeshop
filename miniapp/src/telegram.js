@@ -7,6 +7,37 @@
 const tg = window.Telegram?.WebApp
 
 const CACHE_KEY = 'tgInitData'
+// Android вивантажує процес і відновлює WebView, перезавантажуючи вже
+// обрізану адресу. sessionStorage при цьому теж чиститься, тому підпис
+// кешуємо надовше. Строк тримаємо коротким: бекенд усе одно відхилить
+// initData, старший за добу.
+const CACHE_TTL_MS = 12 * 60 * 60 * 1000
+
+function cacheWrite(value) {
+  const payload = JSON.stringify({ value, at: Date.now() })
+  for (const store of [window.localStorage, window.sessionStorage]) {
+    try {
+      store.setItem(CACHE_KEY, payload)
+    } catch {
+      /* приватний режим або переповнення — просто пропускаємо */
+    }
+  }
+}
+
+function cacheRead() {
+  for (const store of [window.localStorage, window.sessionStorage]) {
+    try {
+      const raw = store.getItem(CACHE_KEY)
+      if (!raw) continue
+      const { value, at } = JSON.parse(raw)
+      if (value && Date.now() - at < CACHE_TTL_MS) return value
+      store.removeItem(CACHE_KEY)
+    } catch {
+      /* зіпсований запис — ігноруємо */
+    }
+  }
+  return ''
+}
 
 /** Витягує tgWebAppData з фрагмента адреси.
  *
@@ -46,29 +77,17 @@ function fromHash() {
 export function getInitData() {
   const fromSdk = tg?.initData
   if (fromSdk) {
-    try {
-      sessionStorage.setItem(CACHE_KEY, fromSdk)
-    } catch {
-      /* приватний режим — просто не кешуємо */
-    }
+    cacheWrite(fromSdk)
     return fromSdk
   }
 
   const hashed = fromHash()
   if (hashed) {
-    try {
-      sessionStorage.setItem(CACHE_KEY, hashed)
-    } catch {
-      /* те саме */
-    }
+    cacheWrite(hashed)
     return hashed
   }
 
-  try {
-    return sessionStorage.getItem(CACHE_KEY) || ''
-  } catch {
-    return ''
-  }
+  return cacheRead()
 }
 
 /** Які параметри запуску Telegram поклав у адресу.
@@ -92,11 +111,7 @@ export function launchParamNames() {
 export function initDataSource() {
   if (tg?.initData) return 'SDK'
   if (fromHash()) return 'адреса сторінки'
-  try {
-    if (sessionStorage.getItem(CACHE_KEY)) return 'кеш вкладки'
-  } catch {
-    /* нічого */
-  }
+  if (cacheRead()) return 'кеш пристрою'
   return 'немає'
 }
 
