@@ -2,20 +2,41 @@ from __future__ import annotations
 
 from aiogram.types import (
     InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup,
+    WebAppInfo,
 )
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
+from shop.config import settings
 from shop.models import CartItem, Category, Product
 
 # ------------------------------------------------------------------ головне меню
 
-MAIN_MENU = ReplyKeyboardMarkup(
-    keyboard=[
-        [KeyboardButton(text="🛍 Каталог"), KeyboardButton(text="🛒 Кошик")],
-        [KeyboardButton(text="👤 Профіль"), KeyboardButton(text="ℹ️ Довідка")],
-    ],
-    resize_keyboard=True,
-)
+def _shop_url() -> str | None:
+    """Адреса вітрини. Без PUBLIC_URL кнопку показати не можна."""
+    if not settings.public_url:
+        return None
+    return settings.public_url.rstrip("/") + "/app"
+
+
+def main_menu() -> ReplyKeyboardMarkup:
+    """Головне меню. Перший ряд — вітрина, якщо вона налаштована.
+
+    Кнопка з web_app відкриває Mini App поверх чату. Текстові кнопки нижче
+    лишаються: вони працюють там, де Mini App недоступний (старі клієнти,
+    деякі десктопні збірки), і слугують запасним шляхом.
+    """
+    rows = []
+    url = _shop_url()
+    if url:
+        rows.append([KeyboardButton(text="🛍 Відкрити магазин", web_app=WebAppInfo(url=url))])
+    rows.append([KeyboardButton(text="🛍 Каталог"), KeyboardButton(text="🛒 Кошик")])
+    rows.append([KeyboardButton(text="👤 Профіль"), KeyboardButton(text="ℹ️ Довідка")])
+    return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True)
+
+
+# Константа лишається для сумісності, але хендлери викликають main_menu():
+# у serverless модуль імпортується один раз, а PUBLIC_URL може зʼявитись пізніше
+MAIN_MENU = main_menu()
 
 PHONE_REQUEST = ReplyKeyboardMarkup(
     keyboard=[[KeyboardButton(text="📱 Надіслати номер", request_contact=True)]],

@@ -12,6 +12,8 @@ from aiogram.types import Update
 from fastapi import APIRouter, HTTPException, Request, status
 
 from bot.factory import build_bot, build_dispatcher, webhook_path
+from aiogram.types import MenuButtonWebApp, WebAppInfo
+
 from shop.config import settings
 
 router = APIRouter()
@@ -65,5 +67,21 @@ async def setup_webhook(token: str = ""):
     bot, _ = _instances()
     url = settings.public_url.rstrip("/") + webhook_path()
     await bot.set_webhook(url, drop_pending_updates=True)
+
+    # Синя кнопка біля поля вводу — головний вхід у вітрину.
+    # Telegram вимагає https, тож на локальному хості вона не зʼявиться.
+    shop_url = settings.public_url.rstrip("/") + "/app"
+    menu_set = False
+    if shop_url.startswith("https://"):
+        await bot.set_chat_menu_button(
+            menu_button=MenuButtonWebApp(text="Магазин", web_app=WebAppInfo(url=shop_url))
+        )
+        menu_set = True
+
     info = await bot.get_webhook_info()
-    return {"webhook_url": url, "pending_updates": info.pending_update_count}
+    return {
+        "webhook_url": url,
+        "pending_updates": info.pending_update_count,
+        "shop_url": shop_url,
+        "menu_button": "встановлено" if menu_set else "пропущено: потрібен https",
+    }

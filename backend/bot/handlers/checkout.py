@@ -191,7 +191,7 @@ async def _show_summary(message: Message, state: FSMContext, repo: Repository, u
 async def cancel_order(callback: CallbackQuery, state: FSMContext) -> None:
     await state.clear()
     await callback.message.edit_text("Замовлення скасовано. Кошик залишився без змін.")
-    await callback.message.answer(texts.MENU_HINT, reply_markup=kb.MAIN_MENU)
+    await callback.message.answer(texts.MENU_HINT, reply_markup=kb.main_menu())
     await callback.answer()
 
 
@@ -237,7 +237,7 @@ async def confirm_order(
         )
     else:
         await state.clear()
-        await callback.message.answer(texts.MENU_HINT, reply_markup=kb.MAIN_MENU)
+        await callback.message.answer(texts.MENU_HINT, reply_markup=kb.main_menu())
 
     await _notify_admins(callback, order, user)
     await callback.answer()
@@ -257,7 +257,7 @@ async def receive_receipt(message: Message, state: FSMContext, repo: Repository)
                 reply_markup=kb.admin_order(order.id),
             )
     await state.clear()
-    await message.answer("Квитанцію отримано. Менеджер перевірить оплату.", reply_markup=kb.MAIN_MENU)
+    await message.answer("Квитанцію отримано. Менеджер перевірить оплату.", reply_markup=kb.main_menu())
 
 
 async def _notify_admins(callback: CallbackQuery, order: Order, user: User) -> None:

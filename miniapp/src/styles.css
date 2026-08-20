@@ -1,0 +1,490 @@
+/* Вітрина в Telegram.
+ *
+ * Тло, текст і кнопки беруться з теми клієнта — застосунок має виглядати
+ * частиною Telegram, а не вбудованим сайтом. Фірмовим лишається акцент:
+ * м'ята з панелі керування. Для світлої теми відтінок темніший, бо світла
+ * м'ята на білому не читається.
+ */
+
+:root {
+  --tg-bg: #17151f;
+  --tg-text: #f2f0f7;
+  --tg-hint: #8e8a9c;
+  --tg-link: #6ab3f3;
+  --tg-button: #5b53d4;
+  --tg-button-text: #ffffff;
+  --tg-secondary-bg: #1f1c2b;
+
+  --accent: #4fd8a5;
+  --accent-soft: rgba(79, 216, 165, 0.14);
+  --warn: #f2607e;
+  --warn-soft: rgba(242, 96, 126, 0.14);
+
+  --radius: 14px;
+  --radius-sm: 10px;
+  --gap: 12px;
+  --bar-height: 64px;
+}
+
+:root[data-scheme='light'] {
+  --accent: #0d9b70;
+  --accent-soft: rgba(13, 155, 112, 0.12);
+  --warn: #d63b5e;
+  --warn-soft: rgba(214, 59, 94, 0.1);
+}
+
+* { box-sizing: border-box; }
+
+html, body, #root { height: 100%; }
+
+body {
+  margin: 0;
+  background: var(--tg-bg);
+  color: var(--tg-text);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 15px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior-y: none;
+}
+
+button { font: inherit; color: inherit; cursor: pointer; }
+
+/* Ціни й кількості — моноширинні цифри, щоб колонки не стрибали */
+.num { font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+
+/* ------------------------------------------------------------- каркас */
+
+.app {
+  min-height: 100%;
+  padding-bottom: calc(var(--bar-height) + env(safe-area-inset-bottom, 0px) + 8px);
+}
+
+.screen { padding: 12px 14px 0; }
+
+.head { padding: 14px 14px 10px; }
+
+.head h1 {
+  margin: 0;
+  font-size: 21px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.head p { margin: 3px 0 0; color: var(--tg-hint); font-size: 13px; }
+
+.hint { color: var(--tg-hint); font-size: 13px; }
+
+/* ------------------------------------------------------------ вкладки */
+
+.tabs {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  gap: 4px;
+  padding: 8px 14px;
+  background: var(--tg-bg);
+  border-bottom: 1px solid var(--tg-secondary-bg);
+}
+
+.tab {
+  flex: 1;
+  padding: 8px 4px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--tg-hint);
+  font-size: 14px;
+  font-weight: 600;
+  transition: background 0.15s, color 0.15s;
+}
+
+.tab[aria-selected='true'] { background: var(--accent-soft); color: var(--accent); }
+
+.tab .count {
+  display: inline-block;
+  min-width: 18px;
+  margin-left: 5px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--accent);
+  color: var(--tg-bg);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+/* ----------------------------------------------------- рейка категорій */
+
+.rail {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 12px 14px;
+  scrollbar-width: none;
+}
+
+.rail::-webkit-scrollbar { display: none; }
+
+.chip {
+  flex: 0 0 auto;
+  padding: 7px 14px;
+  border: 1px solid var(--tg-secondary-bg);
+  border-radius: 999px;
+  background: var(--tg-secondary-bg);
+  color: var(--tg-text);
+  font-size: 14px;
+  white-space: nowrap;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.chip[aria-pressed='true'] {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+/* ------------------------------------------------------------- товари */
+
+.list { display: flex; flex-direction: column; gap: var(--gap); padding: 0 14px 14px; }
+
+.card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border-radius: var(--radius);
+  background: var(--tg-secondary-bg);
+}
+
+.card-body { flex: 1; min-width: 0; }
+
+.card-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.card-note {
+  margin: 2px 0 0;
+  color: var(--tg-hint);
+  font-size: 12.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.price { margin-top: 6px; font-size: 17px; font-weight: 700; }
+
+.price small { color: var(--tg-hint); font-size: 12px; font-weight: 500; }
+
+/* Наявність підписом, а не крапкою: «залишилось 3» — це вже сигнал купувати */
+.stock { font-size: 12px; font-weight: 600; }
+.stock.low { color: var(--warn); }
+.stock.out { color: var(--tg-hint); }
+
+/* ------------------------------------------------------ лічильник штук */
+
+.stepper {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 999px;
+  background: var(--tg-bg);
+}
+
+.stepper button {
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--accent);
+  font-size: 19px;
+  line-height: 1;
+  transition: background 0.12s;
+}
+
+.stepper button:disabled { color: var(--tg-hint); cursor: not-allowed; }
+
+.stepper button:active:not(:disabled) { background: var(--accent-soft); }
+
+.stepper .qty { min-width: 22px; text-align: center; font-weight: 700; }
+
+.add {
+  padding: 9px 16px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--tg-bg);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.add:disabled { background: var(--tg-secondary-bg); color: var(--tg-hint); }
+
+/* ----------------------------------------------------------- підсумок */
+
+.summary {
+  margin: 0 14px 14px;
+  padding: 14px;
+  border-radius: var(--radius);
+  background: var(--tg-secondary-bg);
+}
+
+.row-between {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 0;
+}
+
+.row-between.total {
+  margin-top: 6px;
+  padding-top: 11px;
+  border-top: 1px solid var(--tg-bg);
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.discount { color: var(--accent); }
+
+/* -------------------------------------------------------------- форма */
+
+.field { margin-bottom: 12px; padding: 0 14px; }
+
+.field label {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--tg-hint);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.input {
+  width: 100%;
+  padding: 11px 13px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: var(--tg-secondary-bg);
+  color: var(--tg-text);
+  font-size: 16px; /* нижче 16px мобільний Safari зумить сторінку при фокусі */
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.input:focus { border-color: var(--accent); }
+
+.input::placeholder { color: var(--tg-hint); }
+
+textarea.input { min-height: 74px; resize: vertical; }
+
+.choice { display: flex; gap: 8px; padding: 0 14px 12px; }
+
+.choice button {
+  flex: 1;
+  padding: 11px;
+  border: 1px solid var(--tg-secondary-bg);
+  border-radius: var(--radius-sm);
+  background: var(--tg-secondary-bg);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.choice button[aria-pressed='true'] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 14px 12px;
+  padding: 12px 14px;
+  border-radius: var(--radius-sm);
+  background: var(--tg-secondary-bg);
+}
+
+.toggle input { width: 20px; height: 20px; accent-color: var(--accent); }
+
+.toggle span { flex: 1; font-size: 14px; }
+
+/* ------------------------------------------------------- стани, банери */
+
+.banner {
+  margin: 0 14px 12px;
+  padding: 11px 13px;
+  border-radius: var(--radius-sm);
+  font-size: 13.5px;
+}
+
+.banner.warn { background: var(--warn-soft); color: var(--warn); }
+.banner.ok { background: var(--accent-soft); color: var(--accent); }
+
+.empty { padding: 56px 28px; text-align: center; }
+
+.empty h2 { margin: 0 0 6px; font-size: 17px; font-weight: 700; }
+
+.empty p { margin: 0; color: var(--tg-hint); font-size: 14px; }
+
+.skeleton {
+  height: 74px;
+  border-radius: var(--radius);
+  background: var(--tg-secondary-bg);
+  animation: pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes pulse { 50% { opacity: 0.5; } }
+
+/* ------------------------------------------------- нижня панель кошика
+ *
+ * Головний елемент екрана: завжди видно, скільки набрано і на яку суму.
+ * У Telegram для основної дії є нативна MainButton, але вона показує лише
+ * один рядок — а тут важливий і склад кошика, і сума одночасно.
+ */
+
+.bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: var(--bar-height);
+  padding: 0 14px calc(env(safe-area-inset-bottom, 0px));
+  background: var(--tg-secondary-bg);
+  border-top: 1px solid var(--tg-bg);
+  transform: translateY(0);
+  transition: transform 0.22s cubic-bezier(0.2, 0.8, 0.3, 1);
+}
+
+.bar[hidden] { display: flex; transform: translateY(110%); }
+
+.bar-info { flex: 1; min-width: 0; }
+
+.bar-info strong { display: block; font-size: 17px; font-weight: 700; }
+
+.bar-info span { color: var(--tg-hint); font-size: 12.5px; }
+
+.bar button {
+  padding: 11px 20px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--tg-bg);
+  font-size: 15px;
+  font-weight: 700;
+}
+
+/* ------------------------------------------------------- підтвердження віку */
+
+.gate {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 32px 24px;
+  text-align: center;
+}
+
+.gate-mark {
+  align-self: center;
+  width: 66px;
+  height: 66px;
+  margin-bottom: 20px;
+  border: 2px solid var(--warn);
+  border-radius: 50%;
+  color: var(--warn);
+  font-size: 21px;
+  font-weight: 700;
+  line-height: 62px;
+}
+
+.gate h1 { margin: 0 0 12px; font-size: 22px; font-weight: 700; letter-spacing: -0.02em; }
+
+.gate p { margin: 0 0 14px; color: var(--tg-hint); font-size: 14.5px; }
+
+.gate .actions { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
+
+.gate .primary {
+  padding: 14px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: var(--accent);
+  color: var(--tg-bg);
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.gate .secondary {
+  padding: 14px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--tg-hint);
+  font-size: 15px;
+}
+
+/* --------------------------------------------------------------- профіль */
+
+.stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 0 14px 14px; }
+
+.stat { padding: 13px; border-radius: var(--radius); background: var(--tg-secondary-bg); }
+
+.stat b { display: block; font-size: 19px; font-weight: 700; }
+
+.stat span { color: var(--tg-hint); font-size: 12.5px; }
+
+.link-box {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin: 0 14px 14px;
+  padding: 12px;
+  border-radius: var(--radius);
+  background: var(--tg-secondary-bg);
+}
+
+.link-box code {
+  flex: 1;
+  overflow: hidden;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.link-box button {
+  padding: 7px 13px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--tg-bg);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.order {
+  margin: 0 14px 10px;
+  padding: 12px;
+  border-radius: var(--radius);
+  background: var(--tg-secondary-bg);
+}
+
+.order-head { display: flex; justify-content: space-between; font-weight: 600; }
+
+.order-items { margin: 6px 0 0; padding: 0; list-style: none; color: var(--tg-hint); font-size: 13px; }
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation: none !important; transition: none !important; }
+}
+
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }

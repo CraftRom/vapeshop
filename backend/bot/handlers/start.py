@@ -37,7 +37,7 @@ async def cmd_start(
 
     shop = await get_shop_settings(repo)
     await message.answer(
-        texts.WELCOME.format(shop=shop.shop_name), reply_markup=kb.MAIN_MENU
+        texts.WELCOME.format(shop=shop.shop_name), reply_markup=kb.main_menu()
     )
 
 
@@ -50,7 +50,7 @@ async def age_yes(callback: CallbackQuery, repo: Repository, user: User) -> None
         f"Продаж — від {shop.min_age} років."
     )
     await callback.message.answer(
-        texts.WELCOME.format(shop=shop.shop_name), reply_markup=kb.MAIN_MENU
+        texts.WELCOME.format(shop=shop.shop_name), reply_markup=kb.main_menu()
     )
     await callback.answer()
 
@@ -65,7 +65,7 @@ async def age_no(callback: CallbackQuery, repo: Repository) -> None:
 @router.message(F.text == "ℹ️ Довідка")
 @router.message(Command("help"))
 async def cmd_help(message: Message) -> None:
-    await message.answer(texts.HELP, reply_markup=kb.MAIN_MENU)
+    await message.answer(texts.HELP, reply_markup=kb.main_menu())
 
 
 @router.callback_query(F.data == "noop")
