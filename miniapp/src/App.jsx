@@ -6,7 +6,7 @@ import { Cart, Checkout } from './screens/Checkout'
 import { Profile } from './screens/Profile'
 import {
   applyTheme, backButton, getInitData, hideMainButton, initDataSource, isTelegram,
-  onThemeChange, ready,
+  launchParamNames, onThemeChange, ready,
 } from './telegram'
 
 export default function App() {
@@ -95,6 +95,7 @@ initData: ${getInitData() ? `${getInitData().length} символів` : 'пор
 версія: ${window.Telegram?.WebApp?.version || '—'}
 платформа: ${window.Telegram?.WebApp?.platform || '—'}
 фрагмент: ${window.location.hash ? `${window.location.hash.length} символів` : 'порожній'}
+параметри запуску: ${launchParamNames().join(', ') || '—'}
 походження: ${window.location.origin}`}
           </pre>
         </details>

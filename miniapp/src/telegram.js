@@ -71,6 +71,23 @@ export function getInitData() {
   }
 }
 
+/** Які параметри запуску Telegram поклав у адресу.
+ *
+ * Лише імена ключів, без значень: підпис і дані користувача у звіт
+ * потрапляти не мають. Наявність або відсутність tgWebAppData тут —
+ * головна ознака того, у якому контексті відкрито застосунок.
+ */
+export function launchParamNames() {
+  const hash = window.location.hash.slice(1)
+  if (!hash) return []
+  return [...new Set(
+    hash
+      .split('&')
+      .map((pair) => pair.split('=')[0])
+      .filter((name) => name.startsWith('tgWebApp')),
+  )]
+}
+
 /** Звідки саме взялися дані — потрібно для екрана діагностики. */
 export function initDataSource() {
   if (tg?.initData) return 'SDK'
