@@ -45,16 +45,23 @@ def build_storage():
 
 
 def build_dispatcher() -> Dispatcher:
-    from bot.handlers import admin, cart, catalog, checkout, profile, start
-    from bot.middlewares import AgeGateMiddleware, BlockedUserMiddleware, RepositoryMiddleware
+    from bot.handlers import admin, cart, catalog, checkout, group, profile, start
+    from bot.middlewares import (
+        AgeGateMiddleware, BlockedUserMiddleware, PrivateOnlyMiddleware,
+        RepositoryMiddleware,
+    )
 
     dp = Dispatcher(storage=build_storage())
 
     for observer in (dp.message, dp.callback_query):
+        # PrivateOnlyMiddleware — найпершим: у публічному чаті апдейт не має
+        # доходити ні до бази, ні до хендлерів
+        observer.middleware(PrivateOnlyMiddleware())
         observer.middleware(RepositoryMiddleware())
         observer.middleware(BlockedUserMiddleware())
         observer.middleware(AgeGateMiddleware())
 
+    dp.include_router(group.router)      # групи й канали — окремо від магазину
     dp.include_router(admin.router)      # адмінський роутер — першим
     dp.include_router(start.router)
     dp.include_router(catalog.router)

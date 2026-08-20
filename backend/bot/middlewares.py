@@ -8,6 +8,7 @@ from aiogram.types import CallbackQuery, Message, TelegramObject
 
 from bot import keyboards as kb
 from bot import texts
+from bot.greeting import is_greeting_trigger, send_greeting
 from shop.config import settings
 from shop.services.shop_settings import get_shop_settings
 from shop.repo.factory import open_repo
@@ -36,6 +37,51 @@ class RepositoryMiddleware(BaseMiddleware):
                 data["user"] = user
                 data["is_new_user"] = is_new
             return await handler(event, data)
+
+
+class PrivateOnlyMiddleware(BaseMiddleware):
+    """Бот працює лише в особистому листуванні.
+
+    У групі чи каналі відповідь бачать усі присутні, а хендлери віддають
+    приватні дані: профіль показує бонусний рахунок і суму витрат, кошик —
+    що саме людина набрала, історія — її замовлення з адресою. Тому все,
+    що не приватний чат, обривається тут, до роутерів.
+
+    Виняток один — адмінський чат із settings.admin_chat_id: там менеджери
+    натискають кнопки статусу замовлень і викликають /stats. Це і є його
+    призначення. Особисті ідентифікатори адміністраторів сюди не додаємо:
+    інакше адміністратор, покликавши /stats у сторонній групі, вивалив би
+    туди виручку магазину.
+    """
+
+    async def __call__(
+        self,
+        handler: Callable[[TelegramObject, dict[str, Any]], Awaitable[Any]],
+        event: TelegramObject,
+        data: dict[str, Any],
+    ) -> Any:
+        chat = data.get("event_chat")
+        if chat is None or chat.type == "private":
+            return await handler(event, data)
+
+        if settings.admin_chat_id and chat.id == settings.admin_chat_id:
+            return await handler(event, data)
+
+        # Натискання кнопки в групі: коротка підказка тому, хто натиснув,
+        # без повідомлення в сам чат
+        if isinstance(event, CallbackQuery):
+            await event.answer(
+                "Магазин працює лише в особистому чаті з ботом", show_alert=True
+            )
+            return None
+
+        # Привітання шлемо лише коли бота явно покликали: командою /start
+        # або згадкою. На решту реплік у чаті бот мовчить, інакше він
+        # засмічував би розмову відповіддю на кожне повідомлення.
+        if isinstance(event, Message) and is_greeting_trigger(event.text or event.caption):
+            await send_greeting(event)
+
+        return None
 
 
 class AgeGateMiddleware(BaseMiddleware):

@@ -18,20 +18,51 @@ def _shop_url() -> str | None:
     return settings.public_url.rstrip("/") + "/app"
 
 
-def main_menu() -> ReplyKeyboardMarkup:
-    """Головне меню. Перший ряд — вітрина, якщо вона налаштована.
+def to_private_chat() -> InlineKeyboardMarkup:
+    """Кнопка з групи/каналу в особистий чат.
 
-    Кнопка з web_app відкриває Mini App поверх чату. Текстові кнопки нижче
-    лишаються: вони працюють там, де Mini App недоступний (старі клієнти,
-    деякі десктопні збірки), і слугують запасним шляхом.
+    Веде на deep link бота: у приватному чаті одразу спрацює /start.
+    Кнопка з web_app тут не годиться — Telegram дозволяє її лише в приватних
+    чатах, у групі повідомлення просто не надішлеться.
     """
-    rows = []
+    username = (settings.bot_username or "").lstrip("@")
+    url = f"https://t.me/{username}?start=group" if username else None
+    if not url:
+        return InlineKeyboardMarkup(inline_keyboard=[])
+    return InlineKeyboardMarkup(
+        inline_keyboard=[[InlineKeyboardButton(text="🛍 Відкрити магазин", url=url)]]
+    )
+
+
+def main_menu() -> ReplyKeyboardMarkup:
+    """Головне меню.
+
+    Коли вітрина налаштована, лишається одна кнопка — Mini App. Каталог,
+    кошик і профіль там уже є, і дублювати їх текстовими кнопками означало б
+    два різні шляхи до одного й того самого, які легко розійдуться.
+
+    «Довідка» лишається: її у вітрині немає.
+
+    Без PUBLIC_URL кнопку Mini App показати неможливо, тож меню повертається
+    до текстового вигляду — інакше в користувача не лишиться взагалі нічого.
+    """
     url = _shop_url()
     if url:
-        rows.append([KeyboardButton(text="🛍 Відкрити магазин", web_app=WebAppInfo(url=url))])
-    rows.append([KeyboardButton(text="🛍 Каталог"), KeyboardButton(text="🛒 Кошик")])
-    rows.append([KeyboardButton(text="👤 Профіль"), KeyboardButton(text="ℹ️ Довідка")])
-    return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True)
+        return ReplyKeyboardMarkup(
+            keyboard=[
+                [KeyboardButton(text="🛍 Відкрити магазин", web_app=WebAppInfo(url=url))],
+                [KeyboardButton(text="ℹ️ Довідка")],
+            ],
+            resize_keyboard=True,
+        )
+
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="🛍 Каталог"), KeyboardButton(text="🛒 Кошик")],
+            [KeyboardButton(text="👤 Профіль"), KeyboardButton(text="ℹ️ Довідка")],
+        ],
+        resize_keyboard=True,
+    )
 
 
 # Константа лишається для сумісності, але хендлери викликають main_menu():
