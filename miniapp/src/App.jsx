@@ -5,7 +5,8 @@ import { AgeGate, Catalog } from './screens/Catalog'
 import { Cart, Checkout } from './screens/Checkout'
 import { Profile } from './screens/Profile'
 import {
-  applyTheme, backButton, hideMainButton, initData, isTelegram, onThemeChange, ready,
+  applyTheme, backButton, getInitData, hideMainButton, initDataSource, isTelegram,
+  onThemeChange, ready,
 } from './telegram'
 
 export default function App() {
@@ -88,10 +89,12 @@ export default function App() {
           </summary>
           <pre className="hint" style={{ whiteSpace: 'pre-wrap', fontSize: 11 }}>
 {`SDK Telegram: ${window.Telegram?.WebApp ? 'підключено' : 'відсутній'}
-initData: ${initData ? `${initData.length} символів` : 'порожній'}
-поля: ${initData ? [...new URLSearchParams(initData).keys()].sort().join(', ') : '—'}
+initData: ${getInitData() ? `${getInitData().length} символів` : 'порожній'}
+джерело: ${initDataSource()}
+поля: ${getInitData() ? [...new URLSearchParams(getInitData()).keys()].sort().join(', ') : '—'}
 версія: ${window.Telegram?.WebApp?.version || '—'}
 платформа: ${window.Telegram?.WebApp?.platform || '—'}
+фрагмент: ${window.location.hash ? `${window.location.hash.length} символів` : 'порожній'}
 походження: ${window.location.origin}`}
           </pre>
         </details>

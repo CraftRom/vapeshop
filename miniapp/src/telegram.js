@@ -6,10 +6,84 @@
  */
 const tg = window.Telegram?.WebApp
 
-export const isTelegram = Boolean(tg?.initData)
+const CACHE_KEY = 'tgInitData'
 
-/** Підписаний рядок, яким бекенд упізнає покупця. */
-export const initData = tg?.initData || ''
+/** Витягує tgWebAppData з фрагмента адреси.
+ *
+ * Telegram кладе туди рядок виду
+ *   #tgWebAppData=query_id=..&user=..&hash=..&tgWebAppVersion=9.6&tgWebAppPlatform=android
+ * причому роздільники всередині tgWebAppData не закодовані. Тому значення
+ * тягнеться до першого наступного параметра tgWebApp*, а не до першого «&».
+ */
+function fromHash() {
+  const hash = window.location.hash.slice(1)
+  const marker = 'tgWebAppData='
+  const at = hash.indexOf(marker)
+  if (at === -1) return ''
+
+  const tail = hash.slice(at + marker.length)
+  const stop = tail.search(/&tgWebApp[A-Z]/)
+  let value = stop === -1 ? tail : tail.slice(0, stop)
+
+  // Частина клієнтів кодує значення цілком, частина — ні
+  if (!value.includes('hash=')) {
+    try {
+      value = decodeURIComponent(value)
+    } catch {
+      /* лишаємо як є */
+    }
+  }
+  return value
+}
+
+/** Підписаний рядок, яким бекенд упізнає покупця.
+ *
+ * Читається щоразу, а не один раз при завантаженні модуля: SDK стирає
+ * фрагмент з адреси відразу після старту, тож після перезавантаження
+ * сторінки перше джерело порожніє. Значення кешується в sessionStorage —
+ * воно живе рівно стільки, скільки вкладка, і не потрапляє на диск.
+ */
+export function getInitData() {
+  const fromSdk = tg?.initData
+  if (fromSdk) {
+    try {
+      sessionStorage.setItem(CACHE_KEY, fromSdk)
+    } catch {
+      /* приватний режим — просто не кешуємо */
+    }
+    return fromSdk
+  }
+
+  const hashed = fromHash()
+  if (hashed) {
+    try {
+      sessionStorage.setItem(CACHE_KEY, hashed)
+    } catch {
+      /* те саме */
+    }
+    return hashed
+  }
+
+  try {
+    return sessionStorage.getItem(CACHE_KEY) || ''
+  } catch {
+    return ''
+  }
+}
+
+/** Звідки саме взялися дані — потрібно для екрана діагностики. */
+export function initDataSource() {
+  if (tg?.initData) return 'SDK'
+  if (fromHash()) return 'адреса сторінки'
+  try {
+    if (sessionStorage.getItem(CACHE_KEY)) return 'кеш вкладки'
+  } catch {
+    /* нічого */
+  }
+  return 'немає'
+}
+
+export const isTelegram = Boolean(tg?.initData || fromHash() || tg?.platform)
 
 export function ready() {
   if (!tg) return

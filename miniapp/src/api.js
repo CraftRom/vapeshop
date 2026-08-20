@@ -1,4 +1,4 @@
-import { initData } from './telegram'
+import { getInitData } from './telegram'
 
 const BASE = '/api/shop'
 
@@ -8,7 +8,8 @@ async function request(path, { method = 'GET', body } = {}) {
     headers: {
       'Content-Type': 'application/json',
       // Підписаний Telegram рядок — ним бекенд упізнає покупця
-      'X-Telegram-Init-Data': initData,
+      // Читаємо щоразу: SDK може ініціалізуватись пізніше за модуль
+      'X-Telegram-Init-Data': getInitData(),
     },
     body: body ? JSON.stringify(body) : undefined,
   })
