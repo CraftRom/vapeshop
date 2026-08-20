@@ -49,5 +49,13 @@ services:
     ports:
       - "80:80"
 
+  miniapp:
+    build: ./miniapp
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "8080:80"
+
 volumes:
   pgdata:

@@ -46,8 +46,18 @@ firebase use --add          # оберіть щойно створений пр�
 firebase deploy --only firestore:indexes,firestore:rules
 ```
 
-Без індексів Firestore відмовлятиме в частині запитів (списки замовлень,
-сегменти розсилок).
+Без індексів Firestore відмовляє в запитах, а назовні це виглядає як 500 у
+панелі або **порожній каталог у боті** — помилка ловиться й показується
+порожнім списком, тож причина неочевидна.
+
+У `firestore.indexes.json` 22 індекси, виведені з коду `shop/repo/firestore.py`:
+Firestore не має універсального індексу, кожна комбінація «фільтри плюс
+сортування» вимагає власного. У консолі (Firestore → Indexes) вони спершу
+мають статус *Building*; поки не стане *Enabled*, запити відхиляються.
+
+> Додаєте новий запит у `firestore.py` — одразу дописуйте індекс у цей файл.
+> Створений вручну за посиланням з логів у файл не потрапляє, і на новому
+> проєкті все повториться.
 
 ## 1.3. Redis
 
@@ -171,10 +181,20 @@ curl "https://ваш-домен/api/telegram-setup?token=<CRON_SECRET>"
 Очікується:
 
 ```json
-{"webhook_url":"https://ваш-домен/api/telegram/<WEBHOOK_SECRET>","pending_updates":0}
+{
+  "webhook_url": "https://ваш-домен/api/telegram/<WEBHOOK_SECRET>",
+  "pending_updates": 0,
+  "shop_url": "https://ваш-домен/app",
+  "menu_button": "встановлено"
+}
 ```
 
-Перевірка: напишіть боту `/start` — має відповісти підтвердженням віку.
+Цей же виклик ставить синю кнопку «Магазин» біля поля вводу — вхід у вітрину
+Mini App. Якщо в полі `menu_button` написано «пропущено: потрібен https»,
+перевірте `PUBLIC_URL`: Telegram приймає Mini App лише по HTTPS.
+
+Перевірка: напишіть боту `/start` — має відповісти підтвердженням віку,
+а в меню з'явиться кнопка «🛍 Відкрити магазин».
 
 ## 1.10. Планувальник розсилок
 
@@ -253,6 +273,8 @@ POSTGRES_USER=shop
 POSTGRES_PASSWORD=<openssl rand -hex 24>
 POSTGRES_DB=shop
 # DATABASE_URL не задавайте — збереться з POSTGRES_* автоматично
+# PUBLIC_URL обов'язковий: з нього будується адреса вітрини /app
+# BOT_USERNAME обов'язковий: кнопка переходу з групи в особистий чат
 
 REDIS_URL=redis://redis:6379/0
 
@@ -319,11 +341,24 @@ docker compose -f docker-compose.prod.yml exec api python seed.py
 ## 2.5. Перевірка
 
 ```bash
-curl https://ваш-домен.com/api/health
+curl https://ваш-домен.com/api/health          # бекенд
+curl -I https://ваш-домен.com/                 # панель, очікуємо 200
+curl -I https://ваш-домен.com/app              # вітрина, очікуємо 301 → /app/
+```
+
+`nginx` роздає три речі з одного домену: `/` — панель, `/app` — вітрину
+Mini App, `/api/` — бекенд. Якщо `/app` віддає 404, перевірте, що контейнер
+`miniapp` піднявся:
+
+```bash
+docker compose -f docker-compose.prod.yml ps miniapp
 ```
 
 Бот тут працює через **polling** — окремих дій не потрібно, він уже
 підключений. Напишіть `/start`.
+
+Кнопка «Відкрити магазин» з'явиться в меню лише за заданого `PUBLIC_URL`,
+причому обов'язково `https://` — Telegram відхиляє Mini App на http.
 
 Якщо бот мовчить:
 
