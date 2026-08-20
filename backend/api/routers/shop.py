@@ -16,7 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from api.schemas import CategoryOut, ProductOut
-from shop.config import settings
+from shop.links import app_link
 from api.webapp_auth import require_webapp_user
 from shop.entities import User
 from shop.repo.base import Repository
@@ -231,17 +231,13 @@ async def profile(
 ):
     fresh = await repo.get_user(user.id) or user
     subtotal = await svc.cart_subtotal(repo, user.id)
-    bot_username = (settings.bot_username or "").lstrip("@")
     return ProfileOut(
         first_name=fresh.first_name,
         orders_count=fresh.orders_count,
         total_spent=fresh.total_spent,
         bonus_balance=fresh.bonus_balance,
         referrals_count=fresh.referrals_count,
-        referral_link=(
-            f"https://t.me/{bot_username}?startapp={fresh.referral_code}"
-            if bot_username else ""
-        ),
+        referral_link=app_link(fresh.referral_code),
         max_bonus_now=await svc.max_bonus_for_repo(repo, subtotal, fresh.bonus_balance),
     )
 

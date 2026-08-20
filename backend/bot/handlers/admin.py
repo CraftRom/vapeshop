@@ -6,7 +6,7 @@ from aiogram.types import CallbackQuery, Message
 
 from bot import keyboards as kb
 from shop.config import settings
-from shop.services.shop_settings import get_shop_settings
+from shop.services.shop_settings import current, get_shop_settings
 from shop.entities import STATUS_LABELS, OrderStatus
 from shop.repo.base import Repository
 from shop.services.shop_service import change_order_status
@@ -16,7 +16,8 @@ router = Router()
 
 class IsAdmin(BaseFilter):
     async def __call__(self, event: Message | CallbackQuery) -> bool:
-        return event.from_user.id in settings.admin_id_list
+        # Список редагується з панелі; .env лишається дефолтом
+        return event.from_user.id in current().admin_id_list
 
 
 router.message.filter(IsAdmin())

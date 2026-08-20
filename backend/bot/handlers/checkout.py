@@ -10,6 +10,7 @@ from bot import keyboards as kb
 from bot import texts
 from bot.states import Checkout
 from shop.config import settings
+from shop.services.shop_settings import current
 from shop.services.notifications import notify_new_order
 from shop.services.shop_settings import get_shop_settings
 from shop.entities import Order, User
@@ -250,9 +251,9 @@ async def receive_receipt(message: Message, state: FSMContext, repo: Repository)
     order = await repo.get_order(data.get("order_id"))
     if order:
         await repo.update_order(order.id, {"receipt_file_id": message.photo[-1].file_id})
-        if settings.admin_chat_id:
+        if current().admin_chat_id:
             await message.bot.send_photo(
-                settings.admin_chat_id,
+                current().admin_chat_id,
                 message.photo[-1].file_id,
                 caption=f"Квитанція до замовлення №{order.id}",
                 reply_markup=kb.admin_order(order.id),

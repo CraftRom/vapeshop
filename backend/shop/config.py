@@ -14,6 +14,9 @@ class Settings(BaseSettings):
     # налаштувань повідомляє /api/health.
     bot_token: str = ""
     bot_username: str = "your_shop_bot"
+    # Коротка назва Mini App із BotFather (/newapp). Без неї пряме
+    # посилання на вітрину побудувати неможливо — лишиться тільки кнопка.
+    miniapp_short_name: str = ""
     admin_chat_id: int = 0          # куди падають нові замовлення
     admin_ids: str = ""             # "123,456" — хто має доступ до /admin у боті
 

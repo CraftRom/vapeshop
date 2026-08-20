@@ -7,6 +7,8 @@ from aiogram.types import (
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from shop.config import settings
+from shop.links import app_link, chat_link, share_link
+from shop.services.shop_settings import current
 from shop.models import CartItem, Category, Product
 
 # ------------------------------------------------------------------ головне меню
@@ -19,9 +21,10 @@ def _shop_url() -> str | None:
     посилання — без підпису користувача. Зміна адреси змушує клієнт відкрити
     сторінку з нуля. Обидві форми, /app і /app/, ведуть в одне місце.
     """
-    if not settings.public_url:
+    public_url = current().public_url
+    if not public_url:
         return None
-    return settings.public_url.rstrip("/") + "/app/"
+    return public_url.rstrip("/") + "/app/"
 
 
 def to_private_chat() -> InlineKeyboardMarkup:
@@ -31,8 +34,9 @@ def to_private_chat() -> InlineKeyboardMarkup:
     Кнопка з web_app тут не годиться — Telegram дозволяє її лише в приватних
     чатах, у групі повідомлення просто не надішлеться.
     """
-    username = (settings.bot_username or "").lstrip("@")
-    url = f"https://t.me/{username}?start=group" if username else None
+    # Пряме посилання на вітрину, якщо застосунок зареєстровано;
+    # інакше — просто в особистий чат
+    url = app_link("group") or chat_link("group")
     if not url:
         return InlineKeyboardMarkup(inline_keyboard=[])
     return InlineKeyboardMarkup(
@@ -202,7 +206,7 @@ def profile(referral_link: str) -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="📦 Мої замовлення", callback_data="myorders")],
             [InlineKeyboardButton(
                 text="🔗 Поділитися посиланням",
-                url=f"https://t.me/share/url?url={referral_link}&text=Раджу цей магазин",
+                url=share_link(referral_link),
             )],
         ]
     )

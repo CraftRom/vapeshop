@@ -12,6 +12,7 @@ from aiogram.types import ChatMemberUpdated
 
 from bot.greeting import send_greeting
 from shop.config import settings
+from shop.services.shop_settings import current
 
 router = Router(name="group")
 
@@ -25,6 +26,6 @@ async def added_to_chat(event: ChatMemberUpdated) -> None:
     is_in = event.new_chat_member.status in JOINED
     if was_in or not is_in:
         return  # зміна прав, а не додавання
-    if settings.admin_chat_id and event.chat.id == settings.admin_chat_id:
+    if current().admin_chat_id and event.chat.id == current().admin_chat_id:
         return  # адмінський чат робочий, привітання там зайве
     await send_greeting(event)

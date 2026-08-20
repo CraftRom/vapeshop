@@ -12,6 +12,7 @@ import logging
 from bot import keyboards as kb
 from bot import texts
 from shop.config import settings
+from shop.services.shop_settings import current
 from shop.repo.factory import open_repo
 from shop.services.shop_settings import get_shop_settings
 
@@ -33,7 +34,7 @@ def is_greeting_trigger(text: str | None) -> bool:
         if lowered == command or lowered.startswith(command + " ") or lowered.startswith(command + "@"):
             return True
 
-    username = (settings.bot_username or "").lstrip("@").lower()
+    username = (current().bot_username or "").lstrip("@").lower()
     return bool(username) and f"@{username}" in lowered
 
 

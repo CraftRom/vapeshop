@@ -10,7 +10,7 @@ from bot import keyboards as kb
 from bot import texts
 from bot.greeting import is_greeting_trigger, send_greeting
 from shop.config import settings
-from shop.services.shop_settings import get_shop_settings
+from shop.services.shop_settings import current, get_shop_settings
 from shop.repo.factory import open_repo
 from shop.services.shop_service import get_or_create_user
 
@@ -64,7 +64,9 @@ class PrivateOnlyMiddleware(BaseMiddleware):
         if chat is None or chat.type == "private":
             return await handler(event, data)
 
-        if settings.admin_chat_id and chat.id == settings.admin_chat_id:
+        # current() — синхронний знімок кешу: репозиторій тут ще не відкрито
+        admin_chat_id = current().admin_chat_id
+        if admin_chat_id and chat.id == admin_chat_id:
             return await handler(event, data)
 
         # Натискання кнопки в групі: коротка підказка тому, хто натиснув,
@@ -101,7 +103,7 @@ class AgeGateMiddleware(BaseMiddleware):
             return await handler(event, data)
 
         tg_user = data.get("event_from_user")
-        if tg_user and tg_user.id in settings.admin_id_list:
+        if tg_user and tg_user.id in current().admin_id_list:
             return await handler(event, data)
 
         if isinstance(event, CallbackQuery):

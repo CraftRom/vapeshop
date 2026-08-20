@@ -5,6 +5,7 @@ from aiogram.types import CallbackQuery, Message
 
 from bot import keyboards as kb
 from shop.config import settings
+from shop.links import app_link, chat_link
 from shop.services.shop_settings import get_shop_settings
 from shop.entities import STATUS_LABELS, User
 from shop.repo.base import Repository
@@ -13,7 +14,8 @@ router = Router()
 
 
 def referral_link(code: str) -> str:
-    return f"https://t.me/{settings.bot_username}?start={code}"
+    """Веде одразу у вітрину, якщо Mini App зареєстровано, інакше — в чат."""
+    return app_link(code) or chat_link(code)
 
 
 @router.message(F.text == "👤 Профіль")

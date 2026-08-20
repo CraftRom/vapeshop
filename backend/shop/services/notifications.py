@@ -62,15 +62,16 @@ async def notify_new_order(bot, repo: Repository, order: Order, user: User) -> b
     в панелі. Але вона потрапляє в лог як попередження, бо означає, що
     менеджер про замовлення не дізнався.
     """
-    if not settings.admin_chat_id:
-        log.warning("ADMIN_CHAT_ID не заданий — замовлення №%s нікуди надіслати", order.id)
+    shop = await get_shop_settings(repo)
+    if not shop.admin_chat_id:
+        log.warning("Чат для замовлень не заданий — №%s нікуди надіслати", order.id)
         return False
 
     from bot import keyboards as kb
 
     try:
         await bot.send_message(
-            settings.admin_chat_id,
+            shop.admin_chat_id,
             await build_order_text(repo, order, user),
             reply_markup=kb.admin_order(order.id),
         )

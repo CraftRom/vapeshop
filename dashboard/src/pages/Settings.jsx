@@ -36,6 +36,46 @@ const FIELDS = [
     ],
   },
   {
+    title: 'Telegram-група',
+    hint: 'Куди бот надсилає нові замовлення і хто керує ними прямо в чаті.',
+    items: [
+      {
+        key: 'admin_chat_id',
+        label: 'ID чату для замовлень',
+        hint: 'Наприклад -1001234567890. Додайте бота в групу як адміністратора, ' +
+              'а щоб дізнатися ID — тимчасово додайте @getmyid_bot',
+      },
+      {
+        key: 'admin_ids',
+        label: 'Telegram ID менеджерів',
+        hint: 'Через кому. Ці люди бачать /stats і кнопки статусу замовлень',
+      },
+    ],
+  },
+  {
+    title: 'Бот і Mini App',
+    hint: 'Адреси, з яких будуються кнопка магазину й реферальні посилання.',
+    items: [
+      {
+        key: 'bot_username',
+        label: 'Юзернейм бота',
+        hint: 'Без «собаки», наприклад elfar1_bot',
+      },
+      {
+        key: 'miniapp_short_name',
+        label: 'Коротка назва Mini App',
+        hint: 'Із BotFather → /newapp. Без неї реферальні посилання ' +
+              'не відкриватимуть вітрину напряму',
+      },
+      {
+        key: 'public_url',
+        label: 'Адреса сайту',
+        hint: 'Обовʼязково https:// і точно той домен, що віддає сайт — ' +
+              'разом із www, якщо він є',
+      },
+    ],
+  },
+  {
     title: 'Оплата',
     hint: 'Ці реквізити бот надсилає клієнту після оформлення замовлення з оплатою карткою.',
     items: [
@@ -123,9 +163,24 @@ export default function Settings() {
         </div>
       ))}
 
+      <div className="card" style={{ marginBottom: 18 }}>
+        <h2 style={{ marginTop: 0 }}>Що змінюється лише в оточенні</h2>
+        <p className="faint" style={{ marginTop: -6 }}>
+          Ці значення навмисно не редагуються тут: доступ до панелі не має
+          означати повний контроль над ботом і базою.
+        </p>
+        <ul className="faint" style={{ margin: 0, paddingLeft: 18 }}>
+          <li><code>BOT_TOKEN</code> — ключ бота</li>
+          <li><code>JWT_SECRET</code>, <code>DASHBOARD_PASSWORD</code> — доступ до цієї панелі</li>
+          <li><code>WEBHOOK_SECRET</code>, <code>CRON_SECRET</code> — службові секрети</li>
+          <li><code>GOOGLE_APPLICATION_CREDENTIALS_JSON</code>, <code>REDIS_URL</code> — сховища</li>
+        </ul>
+      </div>
+
       <p className="faint">
         Порожнє поле повертає значення зі змінних оточення. Зміни доїжджають до бота
-        протягом 30 секунд.
+        протягом 30 секунд. Після зміни адреси сайту або назви Mini App напишіть боту
+        <code> /start</code>, щоб кнопка перемалювалася з новим посиланням.
       </p>
     </>
   )

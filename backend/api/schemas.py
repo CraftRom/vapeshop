@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from decimal import Decimal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from shop.entities import BroadcastStatus, OrderStatus, PromoType
 
@@ -214,6 +214,42 @@ class ShopSettingsIn(BaseModel):
     bonus_max_percent: Decimal | None = Field(None, ge=0, le=100)
     card_number: str | None = Field(None, max_length=32)
     card_holder: str | None = Field(None, max_length=64)
+    admin_chat_id: int | None = None
+    admin_ids: str | None = Field(None, max_length=255)
+    bot_username: str | None = Field(None, max_length=64)
+    miniapp_short_name: str | None = Field(None, max_length=64)
+    public_url: str | None = Field(None, max_length=255)
+
+    @field_validator("bot_username", "miniapp_short_name", mode="after")
+    @classmethod
+    def _clean_name(cls, value):
+        # Люди копіюють із «собакою» або зі слешем — приймаємо як є
+        return value.strip().lstrip("@").strip("/") if value else value
+
+    @field_validator("public_url", mode="after")
+    @classmethod
+    def _check_url(cls, value):
+        if not value:
+            return value
+        value = value.strip().rstrip("/")
+        if not value.startswith("https://"):
+            raise ValueError("Адреса має починатися з https:// — Telegram не приймає http")
+        return value
+
+    @field_validator("admin_ids", mode="after")
+    @classmethod
+    def _check_ids(cls, value):
+        if not value:
+            return value
+        cleaned = []
+        for chunk in value.replace(";", ",").split(","):
+            chunk = chunk.strip()
+            if not chunk:
+                continue
+            if not chunk.lstrip("-").isdigit():
+                raise ValueError(f"«{chunk}» не схоже на Telegram ID — потрібні лише числа")
+            cleaned.append(chunk)
+        return ",".join(cleaned)
 
 
 class ShopSettingsOut(BaseModel):
@@ -224,3 +260,8 @@ class ShopSettingsOut(BaseModel):
     bonus_max_percent: Decimal
     card_number: str
     card_holder: str
+    admin_chat_id: int
+    admin_ids: str
+    bot_username: str
+    miniapp_short_name: str
+    public_url: str
