@@ -5,7 +5,7 @@ import { AgeGate, Catalog } from './screens/Catalog'
 import { Cart, Checkout } from './screens/Checkout'
 import { Profile } from './screens/Profile'
 import {
-  applyTheme, backButton, hideMainButton, isTelegram, onThemeChange, ready,
+  applyTheme, backButton, hideMainButton, initData, isTelegram, onThemeChange, ready,
 } from './telegram'
 
 export default function App() {
@@ -22,18 +22,18 @@ export default function App() {
     return onThemeChange(applyTheme)
   }, [])
 
-  useEffect(() => {
+  const load = useCallback(() => {
+    setFatal('')
     api
       .config()
       .then(setConfig)
-      .catch((err) =>
-        setFatal(
-          err.status === 401
-            ? 'Не вдалося підтвердити, що застосунок відкрито з Telegram. Відкрийте магазин через кнопку в боті.'
-            : err.message,
-        ),
-      )
+      // Текст із бекенду не підміняємо: він називає конкретну причину
+      // (порожній initData, розбіжність підпису, прострочена сесія),
+      // а без неї всі 401 виглядають однаково й не діагностуються.
+      .catch((err) => setFatal(err.message || 'Невідома помилка'))
   }, [])
+
+  useEffect(load, [load])
 
   const refresh = useCallback(async () => {
     const [c, p] = await Promise.all([api.cart(), api.profile()])
@@ -70,6 +70,31 @@ export default function App() {
       <div className="empty">
         <h2>Не вдалося відкрити магазин</h2>
         <p>{fatal}</p>
+        {!isTelegram && (
+          <p style={{ marginTop: 10 }}>
+            Застосунок відкрито поза Telegram. Скористайтесь кнопкою «Відкрити
+            магазин» у чаті з ботом.
+          </p>
+        )}
+        <div className="actions" style={{ maxWidth: 280, margin: '20px auto 0' }}>
+          <button className="primary" onClick={load}>
+            Спробувати ще раз
+          </button>
+        </div>
+        {/* Технічні деталі — щоб не доводилось лізти в логи по кожен збій */}
+        <details style={{ marginTop: 22, textAlign: 'left' }}>
+          <summary className="hint" style={{ cursor: 'pointer' }}>
+            Деталі для підтримки
+          </summary>
+          <pre className="hint" style={{ whiteSpace: 'pre-wrap', fontSize: 11 }}>
+{`SDK Telegram: ${window.Telegram?.WebApp ? 'підключено' : 'відсутній'}
+initData: ${initData ? `${initData.length} символів` : 'порожній'}
+поля: ${initData ? [...new URLSearchParams(initData).keys()].sort().join(', ') : '—'}
+версія: ${window.Telegram?.WebApp?.version || '—'}
+платформа: ${window.Telegram?.WebApp?.platform || '—'}
+походження: ${window.location.origin}`}
+          </pre>
+        </details>
       </div>
     )
   }

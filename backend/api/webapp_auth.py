@@ -13,6 +13,7 @@ Telegram передає у вікно Mini App рядок initData, підпис
 from __future__ import annotations
 
 import hashlib
+import logging
 import hmac
 import json
 import time
@@ -29,6 +30,8 @@ from shop.services.shop_service import get_or_create_user
 # Скільки максимум живе підпис. Telegram не оновлює initData під час сесії,
 # тож надто короткий строк вибиватиме покупця посеред оформлення.
 MAX_AGE_SECONDS = 24 * 60 * 60
+
+log = logging.getLogger(__name__)
 
 
 class InitDataError(Exception):
@@ -81,6 +84,14 @@ async def require_webapp_user(
     try:
         data = parse_init_data(x_telegram_init_data, settings.bot_token)
     except InitDataError as exc:
+        # Причина має бути видима в логах: назовні вона теж іде, але
+        # користувач її не перекаже, а без неї 401 нерозрізненні між собою
+        log.warning(
+            "initData відхилено: %s (довжина заголовка: %d, поля: %s)",
+            exc,
+            len(x_telegram_init_data or ""),
+            ",".join(sorted(dict(parse_qsl(x_telegram_init_data or "")).keys())) or "—",
+        )
         raise HTTPException(401, str(exc))
 
     tg_user = data.get("user") or {}
