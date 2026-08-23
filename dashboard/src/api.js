@@ -3,9 +3,33 @@ const BASE = import.meta.env.VITE_API_URL || '/api'
 export const apiBase = BASE
 const TOKEN_KEY = 'shop_dashboard_token'
 
+const SESSION_KEY = 'shop_dashboard_session'
+
 export const getToken = () => localStorage.getItem(TOKEN_KEY)
 export const setToken = (t) => localStorage.setItem(TOKEN_KEY, t)
-export const clearToken = () => localStorage.removeItem(TOKEN_KEY)
+export const clearToken = () => {
+  localStorage.removeItem(TOKEN_KEY)
+  localStorage.removeItem(SESSION_KEY)
+}
+
+/** Роль і імʼя того, хто увійшов.
+ *
+ * Використовується лише для того, щоб не показувати недоступні розділи.
+ * Справжнє обмеження — на бекенді: підміна цього запису в браузері нічого
+ * не дає, сервер усе одно поверне 403.
+ */
+export const setSession = (data) =>
+  localStorage.setItem(SESSION_KEY, JSON.stringify({ role: data.role, name: data.name }))
+
+export const getSession = () => {
+  try {
+    return JSON.parse(localStorage.getItem(SESSION_KEY)) || { role: 'admin', name: '' }
+  } catch {
+    return { role: 'admin', name: '' }
+  }
+}
+
+export const isAdmin = () => getSession().role === 'admin'
 
 class ApiError extends Error {
   constructor(message, status) {
@@ -115,6 +139,13 @@ export const api = {
     update: (id, data) => request(`/promos/${id}`, { method: 'PUT', body: data }),
     remove: (id) => request(`/promos/${id}`, { method: 'DELETE' }),
     purge: (id) => request(`/promos/${id}/purge`, { method: 'DELETE' }),
+  },
+
+  operators: {
+    list: () => request('/operators'),
+    create: (data) => request('/operators', { method: 'POST', body: data }),
+    update: (id, data) => request(`/operators/${id}`, { method: 'PUT', body: data }),
+    remove: (id) => request(`/operators/${id}`, { method: 'DELETE' }),
   },
 
   settings: {

@@ -20,6 +20,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 from shop.entities import (
+    Operator, OperatorRole,
     PAID_STATUSES, Broadcast, BroadcastStatus, CartLine, Category, Order,
     OrderLine, OrderStatus, Product, Promo, PromoType, Stats, User,
 )
@@ -33,6 +34,7 @@ USERS, CATEGORIES, PRODUCTS = "users", "categories", "products"
 CARTS, ORDERS, PROMOS = "carts", "orders", "promos"
 PROMO_USES, BONUS_TX, BROADCASTS = "promo_uses", "bonus_tx", "broadcasts"
 SETTINGS, SETTINGS_DOC = "settings", "shop"
+OPERATORS = "operators"
 
 # Найбільша кодова точка — межа префіксного діапазону в Firestore
 PREFIX_END = "\uf8ff"
@@ -744,6 +746,39 @@ class FirestoreRepository(Repository):
         await self.db.delete(PROMOS, promo_id)
         return True
 
+    # ------------------------------------------------------ оператори
+
+    async def create_operator(self, data: dict) -> Operator:
+        doc_id = await self.db.next_id(OPERATORS)
+        payload = {
+            "id": doc_id, "login": data["login"], "name": data.get("name", ""),
+            "password_hash": data["password_hash"],
+            "role": data.get("role", "operator"),
+            "is_active": data.get("is_active", True),
+            "created_at": _now(), "last_login_at": None,
+        }
+        await self.db.set(OPERATORS, doc_id, payload)
+        return _operator(payload)
+
+    async def get_operator(self, operator_id) -> Operator | None:
+        return _operator(await self.db.get(OPERATORS, operator_id))
+
+    async def get_operator_by_login(self, login: str) -> Operator | None:
+        rows = await self.db.query(OPERATORS, [("login", "==", login)], limit=1)
+        return _operator(rows[0]) if rows else None
+
+    async def list_operators(self) -> list[Operator]:
+        rows = await self.db.query(OPERATORS, order_by=[("id", "asc")])
+        return [_operator(r) for r in rows]
+
+    async def update_operator(self, operator_id, data: dict) -> Operator | None:
+        if not await self.db.update(OPERATORS, operator_id, dict(data)):
+            return None
+        return _operator(await self.db.get(OPERATORS, operator_id))
+
+    async def delete_operator(self, operator_id) -> bool:
+        return bool(await self.db.update(OPERATORS, operator_id, {"is_active": False}))
+
     # --------------------------------------------------- налаштування
 
     async def get_settings_map(self) -> dict[str, str]:
@@ -757,3 +792,15 @@ class FirestoreRepository(Repository):
 
     async def close(self) -> None:
         await self.db.close()
+
+
+def _operator(doc) -> Operator | None:
+    if not doc:
+        return None
+    return Operator(
+        id=doc["id"], login=doc["login"], name=doc.get("name", ""),
+        role=OperatorRole(doc.get("role", "operator")),
+        is_active=doc.get("is_active", True),
+        created_at=doc.get("created_at"), last_login_at=doc.get("last_login_at"),
+        password_hash=doc.get("password_hash", ""),
+    )

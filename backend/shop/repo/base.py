@@ -14,6 +14,7 @@ from abc import ABC, abstractmethod
 from decimal import Decimal
 
 from shop.entities import (
+    Operator,
     Broadcast, BroadcastStatus, CartLine, Category, Order, OrderLine,
     OrderStatus, Product, Promo, Stats, User,
 )
@@ -237,6 +238,28 @@ class Repository(ABC):
 
     @abstractmethod
     async def stats_top_products(self, days: int, limit: int) -> list[dict]: ...
+
+    # ------------------------------------------------------ оператори
+
+    @abstractmethod
+    async def create_operator(self, data: dict) -> Operator: ...
+
+    @abstractmethod
+    async def get_operator(self, operator_id: int) -> Operator | None: ...
+
+    @abstractmethod
+    async def get_operator_by_login(self, login: str) -> Operator | None:
+        """Разом із хешем пароля — потрібен для входу."""
+
+    @abstractmethod
+    async def list_operators(self) -> list[Operator]: ...
+
+    @abstractmethod
+    async def update_operator(self, operator_id: int, data: dict) -> Operator | None: ...
+
+    @abstractmethod
+    async def delete_operator(self, operator_id: int) -> bool:
+        """Вимикає доступ. Запис лишається: він потрібен історії дій."""
 
     # --------------------------------------------------- налаштування
 

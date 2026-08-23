@@ -1,7 +1,12 @@
 import { useEffect, useState } from 'react'
 
-import { api } from '../api'
+import { api, isAdmin } from '../api'
 import { ErrorBar, Field, Loading, useToast } from '../components/ui'
+
+// Оператор бачить лише реферальну програму: решта параметрів — реквізити,
+// адреси, список менеджерів — за адміністратором. Бекенд це теж перевіряє,
+// тут ми просто не показуємо те, що все одно не збережеться.
+const ADMIN_ONLY = new Set(['Магазин', 'Оплата', 'Telegram-група', 'Бот і Mini App'])
 
 const FIELDS = [
   {
@@ -146,7 +151,7 @@ export default function Settings() {
 
       <ErrorBar error={error} />
 
-      {FIELDS.map((group) => (
+      {FIELDS.filter((g) => isAdmin() || !ADMIN_ONLY.has(g.title)).map((group) => (
         <div className="card" key={group.title} style={{ marginBottom: 18 }}>
           <h2 style={{ marginTop: 0 }}>{group.title}</h2>
           {group.hint && <p className="faint" style={{ marginTop: -6 }}>{group.hint}</p>}
@@ -163,6 +168,16 @@ export default function Settings() {
         </div>
       ))}
 
+      {!isAdmin() && (
+        <div className="card" style={{ marginBottom: 18 }}>
+          <p className="faint" style={{ margin: 0 }}>
+            Решта налаштувань — реквізити оплати, адреси бота й вітрини, список
+            менеджерів — доступна адміністратору.
+          </p>
+        </div>
+      )}
+
+      {isAdmin() && (
       <div className="card" style={{ marginBottom: 18 }}>
         <h2 style={{ marginTop: 0 }}>Що змінюється лише в оточенні</h2>
         <p className="faint" style={{ marginTop: -6 }}>
@@ -176,6 +191,7 @@ export default function Settings() {
           <li><code>GOOGLE_APPLICATION_CREDENTIALS_JSON</code>, <code>REDIS_URL</code> — сховища</li>
         </ul>
       </div>
+      )}
 
       <p className="faint">
         Порожнє поле повертає значення зі змінних оточення. Зміни доїжджають до бота

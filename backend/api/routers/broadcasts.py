@@ -4,7 +4,7 @@ import logging
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 
-from api.auth import require_admin
+from api.auth import require_staff
 from api.schemas import BroadcastIn, BroadcastOut, SegmentIn
 from shop.config import settings
 from shop.entities import BroadcastStatus
@@ -12,7 +12,7 @@ from shop.repo.base import Repository
 from shop.repo.factory import get_repo
 from shop.services import broadcast as broadcast_service
 
-router = APIRouter(dependencies=[Depends(require_admin)])
+router = APIRouter(dependencies=[Depends(require_staff)])
 log = logging.getLogger("broadcast")
 
 SEGMENTS = {

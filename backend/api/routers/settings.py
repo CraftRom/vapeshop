@@ -5,15 +5,20 @@
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 
-from api.auth import require_admin
+from api.auth import Principal, require_staff
 from api.schemas import ShopSettingsIn, ShopSettingsOut
 from shop.repo.base import Repository
 from shop.repo.factory import get_repo
 from shop.services.shop_settings import get_shop_settings, save_shop_settings
 
-router = APIRouter(dependencies=[Depends(require_admin)])
+router = APIRouter(dependencies=[Depends(require_staff)])
+
+# Що оператор має право змінювати. Реферальні відсотки впливають на
+# нарахування клієнтам, і це робоче питання; реквізити картки, адреса
+# сайту й список менеджерів — ні, тож вони лишаються за адміністратором.
+OPERATOR_FIELDS = {"referral_percent", "bonus_max_percent"}
 
 
 @router.get("", response_model=ShopSettingsOut)
@@ -22,6 +27,21 @@ async def read_settings(repo: Repository = Depends(get_repo)):
 
 
 @router.put("", response_model=ShopSettingsOut)
-async def write_settings(data: ShopSettingsIn, repo: Repository = Depends(get_repo)):
+async def write_settings(
+    data: ShopSettingsIn,
+    who: Principal = Depends(require_staff),
+    repo: Repository = Depends(get_repo),
+):
     # exclude_unset — часткове збереження не затирає полів, яких немає у запиті
-    return await save_shop_settings(repo, data.model_dump(exclude_unset=True))
+    payload = data.model_dump(exclude_unset=True)
+
+    if not who.is_admin:
+        forbidden = sorted(set(payload) - OPERATOR_FIELDS)
+        if forbidden:
+            raise HTTPException(
+                403,
+                "Оператор може змінювати лише реферальну програму. "
+                f"Поза доступом: {', '.join(forbidden)}",
+            )
+
+    return await save_shop_settings(repo, payload)

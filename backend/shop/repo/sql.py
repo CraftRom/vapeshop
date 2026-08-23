@@ -12,6 +12,7 @@ from sqlalchemy.orm import selectinload
 
 from shop import models as m
 from shop.entities import (
+    Operator, OperatorRole,
     PAID_STATUSES, Broadcast, BroadcastStatus, CartLine, Category, Order,
     OrderLine, OrderStatus, Product, Promo, Stats, User,
 )
@@ -677,3 +678,52 @@ class SqlRepository(Repository):
         await self.s.delete(row)
         await self.s.commit()
         return True
+
+    # ------------------------------------------------------ оператори
+
+    async def create_operator(self, data: dict) -> Operator:
+        row = m.Operator(**data)
+        self.s.add(row)
+        await self.s.commit()
+        await self.s.refresh(row)
+        return _operator(row)
+
+    async def get_operator(self, operator_id) -> Operator | None:
+        return _operator(await self.s.get(m.Operator, operator_id))
+
+    async def get_operator_by_login(self, login: str) -> Operator | None:
+        row = await self.s.scalar(select(m.Operator).where(m.Operator.login == login))
+        return _operator(row)
+
+    async def list_operators(self) -> list[Operator]:
+        rows = await self.s.scalars(select(m.Operator).order_by(m.Operator.id))
+        return [_operator(r) for r in rows]
+
+    async def update_operator(self, operator_id, data: dict) -> Operator | None:
+        row = await self.s.get(m.Operator, operator_id)
+        if not row:
+            return None
+        for key, value in data.items():
+            setattr(row, key, value)
+        await self.s.commit()
+        await self.s.refresh(row)
+        return _operator(row)
+
+    async def delete_operator(self, operator_id) -> bool:
+        row = await self.s.get(m.Operator, operator_id)
+        if not row:
+            return False
+        row.is_active = False
+        await self.s.commit()
+        return True
+
+
+def _operator(row) -> Operator | None:
+    if row is None:
+        return None
+    return Operator(
+        id=row.id, login=row.login, name=row.name or "",
+        role=OperatorRole(row.role), is_active=row.is_active,
+        created_at=row.created_at, last_login_at=row.last_login_at,
+        password_hash=row.password_hash,
+    )

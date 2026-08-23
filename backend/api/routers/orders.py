@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from api.auth import require_admin
+from api.auth import require_staff
 from api.schemas import OrderOut, OrderPatch
 from shop.entities import STATUS_LABELS, OrderStatus
 from shop.repo.base import Repository
@@ -10,7 +10,7 @@ from shop.repo.factory import get_repo
 from shop.services.shop_service import change_order_status
 from shop.telegram import notify_user
 
-router = APIRouter(dependencies=[Depends(require_admin)])
+router = APIRouter(dependencies=[Depends(require_staff)])
 
 
 @router.get("", response_model=list[OrderOut])

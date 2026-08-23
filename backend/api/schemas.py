@@ -5,7 +5,7 @@ from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from shop.entities import BroadcastStatus, OrderStatus, PromoType
+from shop.entities import BroadcastStatus, OperatorRole, OrderStatus, PromoType
 
 
 class ORMModel(BaseModel):
@@ -20,6 +20,8 @@ class LoginIn(BaseModel):
 
 
 class TokenOut(BaseModel):
+    role: str = "admin"
+    name: str = ""
     access_token: str
     token_type: str = "bearer"
 
@@ -265,3 +267,32 @@ class ShopSettingsOut(BaseModel):
     bot_username: str
     miniapp_short_name: str
     public_url: str
+
+
+# ------------------------------------------------------------- оператори
+
+
+class OperatorCreate(BaseModel):
+    login: str = Field(..., min_length=3, max_length=64, pattern=r"^[A-Za-z0-9_.-]+$")
+    name: str = Field("", max_length=128)
+    password: str = Field(..., min_length=8, max_length=128)
+    role: OperatorRole = OperatorRole.OPERATOR
+
+
+class OperatorUpdate(BaseModel):
+    name: str | None = Field(None, max_length=128)
+    password: str | None = Field(None, min_length=8, max_length=128)
+    role: OperatorRole | None = None
+    is_active: bool | None = None
+
+
+class OperatorOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    login: str
+    name: str
+    role: OperatorRole
+    is_active: bool
+    created_at: datetime | None = None
+    last_login_at: datetime | None = None

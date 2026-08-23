@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
-import { api, apiBase, setToken } from '../api'
+import { api, apiBase, setSession, setToken } from '../api'
 import { ErrorBar, Field } from '../components/ui'
 
 export default function Login() {
@@ -32,6 +32,7 @@ export default function Login() {
     try {
       const data = await api.login(login, password)
       setToken(data.access_token)
+      setSession(data)
       navigate('/')
     } catch (err) {
       setError(err.message)

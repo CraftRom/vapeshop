@@ -1,7 +1,7 @@
 import { Suspense, lazy, useEffect, useState } from 'react'
 import { NavLink, Navigate, Route, Routes, useNavigate } from 'react-router-dom'
 
-import { api, clearToken, getToken } from './api'
+import { api, clearToken, getSession, getToken, isAdmin } from './api'
 import { Loading, ToastProvider } from './components/ui'
 import Login from './pages/Login'
 
@@ -14,6 +14,7 @@ const Customers = lazy(() => import('./pages/Customers'))
 const Promos = lazy(() => import('./pages/Promos'))
 const Broadcasts = lazy(() => import('./pages/Broadcasts'))
 const Settings = lazy(() => import('./pages/Settings'))
+const Operators = lazy(() => import('./pages/Operators'))
 
 const NAV = [
   { to: '/', label: 'Огляд', end: true },
@@ -22,6 +23,7 @@ const NAV = [
   { to: '/customers', label: 'Клієнти' },
   { to: '/promos', label: 'Промокоди' },
   { to: '/broadcasts', label: 'Розсилки' },
+  { to: '/operators', label: 'Оператори', adminOnly: true },
   { to: '/settings', label: 'Налаштування' },
 ]
 
@@ -62,7 +64,7 @@ function Shell({ children }) {
           Панель магазину
         </div>
         <nav className="nav">
-          {NAV.map((item) => (
+          {NAV.filter((item) => !item.adminOnly || isAdmin()).map((item) => (
             <NavLink key={item.to} to={item.to} end={item.end}>
               {item.label}
               {item.badge === 'orders' && newOrders > 0 && <span className="badge">{newOrders}</span>}
@@ -70,6 +72,10 @@ function Shell({ children }) {
           ))}
         </nav>
         <div className="sidebar-foot">
+          <div className="faint" style={{ marginBottom: 8, fontSize: 12.5 }}>
+            {getSession().name || 'Ви'}
+            {isAdmin() ? ' · адміністратор' : ' · оператор'}
+          </div>
           <button className="btn ghost small" onClick={logout} style={{ width: '100%' }}>
             Вийти
           </button>
@@ -98,6 +104,7 @@ export default function App() {
         <Route path="/promos" element={<Protected><Promos /></Protected>} />
         <Route path="/broadcasts" element={<Protected><Broadcasts /></Protected>} />
         <Route path="/settings" element={<Protected><Settings /></Protected>} />
+        <Route path="/operators" element={<Protected><Operators /></Protected>} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </ToastProvider>

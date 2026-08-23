@@ -3,16 +3,17 @@ from __future__ import annotations
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, Request, status
+from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 
-from api.auth import create_token, verify_credentials
+from api.auth import authenticate, create_token
 from api.routers import (
     broadcasts, catalog, cron, customers, orders, promos, settings as settings_router,
-    shop as shop_router, stats, telegram,
+    operators, shop as shop_router, stats, telegram,
 )
 from api.schemas import LoginIn, TokenOut
 from shop.config import settings
+from shop.repo.factory import get_repo
 from shop.db import init_db
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)-8s %(name)s: %(message)s")
@@ -72,19 +73,21 @@ app.add_middleware(
 
 
 @app.post("/api/auth/login", response_model=TokenOut, tags=["auth"])
-async def login(data: LoginIn):
-    if not verify_credentials(data.login, data.password):
-        # Логуємо тільки логін і довжину пароля — сам пароль у логи не потрапляє.
+async def login(data: LoginIn, repo=Depends(get_repo)):
+    principal = await authenticate(repo, data.login, data.password)
+    if principal is None:
+        # Логуємо лише логін і довжину пароля — сам пароль у логи не потрапляє
         logging.getLogger("api").warning(
-            "Невдалий вхід: отримано логін %r (довжина пароля %d); очікується логін %r "
-            "(довжина пароля %d)",
-            data.login,
-            len(data.password),
-            settings.dashboard_login,
-            len(settings.dashboard_password),
+            "Невдалий вхід: логін %r, довжина пароля %d", data.login, len(data.password)
         )
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Невірний логін або пароль")
-    return TokenOut(access_token=create_token(data.login))
+    return TokenOut(
+        access_token=create_token(
+            principal.login, principal.role, principal.operator_id, principal.name
+        ),
+        role=principal.role.value,
+        name=principal.name or principal.login,
+    )
 
 
 @app.get("/api/health", tags=["service"])
@@ -127,6 +130,7 @@ app.include_router(orders.router, prefix="/api/orders", tags=["orders"])
 app.include_router(customers.router, prefix="/api/customers", tags=["customers"])
 app.include_router(promos.router, prefix="/api/promos", tags=["promos"])
 app.include_router(broadcasts.router, prefix="/api/broadcasts", tags=["broadcasts"])
+app.include_router(operators.router, prefix="/api/operators", tags=["operators"])
 app.include_router(settings_router.router, prefix="/api/settings", tags=["settings"])
 # Вітрина Mini App — окрема автентифікація (Telegram initData), не JWT панелі
 app.include_router(shop_router.router, prefix="/api/shop", tags=["shop"])

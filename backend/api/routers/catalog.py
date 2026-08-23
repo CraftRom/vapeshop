@@ -2,12 +2,12 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from api.auth import require_admin
+from api.auth import require_staff
 from api.schemas import CategoryIn, CategoryOut, ProductIn, ProductOut, StockIn
 from shop.repo.base import Repository
 from shop.repo.factory import get_repo
 
-router = APIRouter(dependencies=[Depends(require_admin)])
+router = APIRouter(dependencies=[Depends(require_staff)])
 
 
 @router.get("/categories", response_model=list[CategoryOut])

@@ -196,3 +196,30 @@ class Stats:
     customers_period: int = 0
     avg_check: Decimal = Decimal(0)
     low_stock: int = 0
+
+
+class OperatorRole(str, enum.Enum):
+    ADMIN = "admin"
+    OPERATOR = "operator"
+
+
+@dataclass
+class Operator:
+    """Обліковий запис для входу в панель.
+
+    Адміністратор із .env існує поза цією таблицею — він потрібен, щоб
+    увійти в щойно розгорнуту систему, де операторів ще немає.
+    """
+
+    id: int
+    login: str
+    name: str
+    role: OperatorRole
+    is_active: bool
+    created_at: datetime | None = None
+    last_login_at: datetime | None = None
+    password_hash: str = ""
+
+    @property
+    def is_admin(self) -> bool:
+        return self.role == OperatorRole.ADMIN
