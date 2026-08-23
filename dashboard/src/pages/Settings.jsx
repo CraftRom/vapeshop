@@ -10,20 +10,51 @@ const ADMIN_ONLY = new Set(['Магазин', 'Оплата', 'Telegram-груп
 
 const FIELDS = [
   {
-    title: 'Реферальна програма',
-    hint: 'Змінюється на льоту — редеплой не потрібен. Уже нараховані бонуси не перераховуються.',
+    title: 'Бонуси',
+    toggle: 'bonus_enabled',
+    hint: 'Вимкнений модуль клієнт не бачить зовсім: ні балансу, ні перемикача ' +
+          'списання при оформленні. Нараховані бонуси зберігаються й повернуться, ' +
+          'якщо ввімкнути знову.',
     items: [
-      {
-        key: 'referral_percent',
-        label: 'Відсоток рефереру',
-        type: 'number',
-        hint: '% від суми виконаного замовлення запрошеного друга, нараховується бонусами',
-      },
       {
         key: 'bonus_max_percent',
         label: 'Ліміт оплати бонусами',
         type: 'number',
         hint: 'Максимальна частка замовлення, яку клієнт може закрити бонусами',
+      },
+    ],
+  },
+  {
+    title: 'Реферальна програма',
+    toggle: 'referral_enabled',
+    hint: 'Потребує ввімкнених бонусів — винагорода нараховується саме ними. ' +
+          'Вимкнена програма невидима: посилання й лічильник запрошених зникають.',
+    items: [
+      {
+        key: 'referral_percent',
+        label: 'Відсоток рефереру',
+        type: 'number',
+        hint: '% від суми виконаного замовлення запрошеного друга',
+      },
+    ],
+  },
+  {
+    title: 'Знижка за суму',
+    toggle: 'volume_discount_enabled',
+    hint: 'Застосовується автоматично. З промокодом не додається — діє більша знижка, ' +
+          'інакше великі чеки віддавалися б собі в збиток.',
+    items: [
+      {
+        key: 'volume_discount_min',
+        label: 'Від якої суми',
+        type: 'number',
+        hint: 'Знижка вмикається, коли сума товарів досягає цього значення',
+      },
+      {
+        key: 'volume_discount_percent',
+        label: 'Розмір знижки, %',
+        type: 'number',
+        hint: 'Скільки відсотків від суми товарів',
       },
     ],
   },
@@ -153,8 +184,25 @@ export default function Settings() {
 
       {FIELDS.filter((g) => isAdmin() || !ADMIN_ONLY.has(g.title)).map((group) => (
         <div className="card" key={group.title} style={{ marginBottom: 18 }}>
-          <h2 style={{ marginTop: 0 }}>{group.title}</h2>
-          {group.hint && <p className="faint" style={{ marginTop: -6 }}>{group.hint}</p>}
+          <div className="row-between">
+            <h2 style={{ margin: 0 }}>{group.title}</h2>
+            {group.toggle && (
+              <label className="row" style={{ gap: 8, cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={Boolean(form[group.toggle])}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, [group.toggle]: e.target.checked }))
+                  }
+                />
+                {form[group.toggle] ? 'Увімкнено' : 'Вимкнено'}
+              </label>
+            )}
+          </div>
+          {group.hint && <p className="faint">{group.hint}</p>}
+          {/* Поля вимкненого модуля лишаються видимими, лише приглушеними:
+              їх треба налаштувати ДО того, як вмикати */}
+          <div style={{ opacity: group.toggle && !form[group.toggle] ? 0.45 : 1 }}>
           {group.items.map((item) => (
             <Field key={item.key} label={item.label} hint={item.hint}>
               <input
@@ -165,6 +213,7 @@ export default function Settings() {
               />
             </Field>
           ))}
+          </div>
         </div>
       ))}
 

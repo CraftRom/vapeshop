@@ -97,7 +97,9 @@ export function Cart({ config, cart, onCartChange, onCheckout }) {
 }
 
 const EMPTY_FORM = {
+  contact_surname: '',
   contact_name: '',
+  contact_patronymic: '',
   contact_phone: '',
   city: '',
   address: '',
@@ -139,16 +141,28 @@ export function Checkout({ config, cart, profile, onDone }) {
   }
 
   const subtotal = Number(cart?.subtotal || 0)
-  const discount = promo?.ok ? Number(promo.discount) : 0
-  const bonus = form.use_bonus ? Number(profile?.max_bonus_now || 0) : 0
+  const promoDiscount = promo?.ok ? Number(promo.discount) : 0
+
+  // Знижка за суму й промокод не додаються — діє більша. Так само рахує
+  // бекенд, тож підсумок у вітрині збігається з рахунком.
+  const volumeDiscount =
+    config.volume_discount_enabled &&
+    Number(config.volume_discount_min) > 0 &&
+    subtotal >= Number(config.volume_discount_min)
+      ? Math.round(subtotal * Number(config.volume_discount_percent)) / 100
+      : 0
+  const discount = Math.max(promoDiscount, volumeDiscount)
+  const byVolume = volumeDiscount > promoDiscount
+  const bonus = config.bonus_enabled && form.use_bonus
+    ? Number(profile?.max_bonus_now || 0) : 0
   const total = Math.max(0, subtotal - discount - bonus)
 
-  const required = ['contact_name', 'contact_phone', 'city', 'address']
+  const required = ['contact_surname', 'contact_name', 'contact_phone', 'city', 'address']
   const filled = required.every((k) => form[k].trim().length > 0)
 
   const submit = async () => {
     if (!filled) {
-      setError('Заповніть імʼя, телефон, місто та адресу.')
+      setError('Заповніть прізвище, імʼя, телефон, місто та адресу.')
       return
     }
     setBusy(true)
@@ -189,9 +203,24 @@ export function Checkout({ config, cart, profile, onDone }) {
 
       {error && <div className="banner warn">{error}</div>}
 
+      {/* Перевізники вимагають повне ПІБ, тож питаємо трьома полями:
+          одним рядком люди вписують його в довільному порядку */}
       <div className="field">
-        <label htmlFor="name">Імʼя одержувача</label>
-        <input id="name" className="input" value={form.contact_name} onChange={set('contact_name')} />
+        <label htmlFor="surname">Прізвище</label>
+        <input id="surname" className="input" value={form.contact_surname}
+               onChange={set('contact_surname')} autoComplete="family-name" />
+      </div>
+
+      <div className="field">
+        <label htmlFor="name">Імʼя</label>
+        <input id="name" className="input" value={form.contact_name}
+               onChange={set('contact_name')} autoComplete="given-name" />
+      </div>
+
+      <div className="field">
+        <label htmlFor="patronymic">По батькові</label>
+        <input id="patronymic" className="input" value={form.contact_patronymic}
+               onChange={set('contact_patronymic')} autoComplete="additional-name" />
       </div>
 
       <div className="field">
@@ -261,7 +290,7 @@ export function Checkout({ config, cart, profile, onDone }) {
         )}
       </div>
 
-      {Number(profile?.bonus_balance || 0) > 0 && (
+      {config.bonus_enabled && Number(profile?.bonus_balance || 0) > 0 && (
         <label className="toggle">
           <input type="checkbox" checked={form.use_bonus} onChange={set('use_bonus')} />
           <span>
@@ -295,7 +324,7 @@ export function Checkout({ config, cart, profile, onDone }) {
         </div>
         {discount > 0 && (
           <div className="row-between num discount">
-            <span>Промокод</span>
+            <span>{byVolume ? `Знижка від ${Number(config.volume_discount_min).toFixed(0)}` : 'Промокод'}</span>
             <span>
               −{discount.toFixed(0)} {config.currency}
             </span>

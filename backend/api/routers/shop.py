@@ -38,9 +38,16 @@ class ShopConfigOut(BaseModel):
     shop_name: str
     currency: str
     min_age: int
-    referral_percent: Decimal
-    bonus_max_percent: Decimal
     age_confirmed: bool
+    # Прапорці модулів. Вимкнений модуль вітрина ховає повністю:
+    # клієнт не має бачити ні нулів, ні перемикачів, які нічого не роблять.
+    referral_enabled: bool
+    referral_percent: Decimal
+    bonus_enabled: bool
+    bonus_max_percent: Decimal
+    volume_discount_enabled: bool
+    volume_discount_min: Decimal
+    volume_discount_percent: Decimal
 
 
 class CartLineOut(BaseModel):
@@ -84,7 +91,9 @@ class ProfileOut(BaseModel):
 
 
 class CheckoutIn(BaseModel):
+    contact_surname: str | None = Field(None, max_length=64)
     contact_name: str = Field(..., min_length=1, max_length=128)
+    contact_patronymic: str | None = Field(None, max_length=64)
     contact_phone: str = Field(..., min_length=5, max_length=32)
     city: str = Field(..., min_length=1, max_length=128)
     address: str = Field(..., min_length=1, max_length=255)
@@ -105,17 +114,26 @@ class CheckoutOut(BaseModel):
 # ------------------------------------------------------------------ вітрина
 
 
+def _config(shop, user) -> ShopConfigOut:
+    return ShopConfigOut(
+        shop_name=shop.shop_name, currency=shop.currency, min_age=shop.min_age,
+        age_confirmed=user.age_confirmed,
+        referral_enabled=shop.referral_enabled,
+        referral_percent=shop.referral_percent,
+        bonus_enabled=shop.bonus_enabled,
+        bonus_max_percent=shop.bonus_max_percent,
+        volume_discount_enabled=shop.volume_discount_enabled,
+        volume_discount_min=shop.volume_discount_min,
+        volume_discount_percent=shop.volume_discount_percent,
+    )
+
+
 @router.get("/config", response_model=ShopConfigOut)
 async def config(
     user: User = Depends(require_webapp_user), repo: Repository = Depends(get_repo)
 ):
     shop = await get_shop_settings(repo)
-    return ShopConfigOut(**{
-        "shop_name": shop.shop_name, "currency": shop.currency, "min_age": shop.min_age,
-        "referral_percent": shop.referral_percent,
-        "bonus_max_percent": shop.bonus_max_percent,
-        "age_confirmed": user.age_confirmed,
-    })
+    return _config(shop, user)
 
 
 @router.post("/age-confirm", response_model=ShopConfigOut)
@@ -125,11 +143,9 @@ async def age_confirm(
     """Той самий 18+ бар'єр, що й у боті — вітрина не має його обходити."""
     await repo.confirm_age(user)
     shop = await get_shop_settings(repo)
-    return ShopConfigOut(**{
-        "shop_name": shop.shop_name, "currency": shop.currency, "min_age": shop.min_age,
-        "referral_percent": shop.referral_percent,
-        "bonus_max_percent": shop.bonus_max_percent, "age_confirmed": True,
-    })
+    # Перечитуємо: confirm_age оновлює запис, а обʼєкт у памʼяті може
+    # лишитись зі старим прапорцем — і вітрина знову показала б бар'єр віку
+    return _config(shop, await repo.get_user(user.id) or user)
 
 
 def _require_age(user: User) -> None:
@@ -232,14 +248,19 @@ async def profile(
 ):
     fresh = await repo.get_user(user.id) or user
     subtotal = await svc.cart_subtotal(repo, user.id)
+    shop = await get_shop_settings(repo)
     return ProfileOut(
         first_name=fresh.first_name,
         orders_count=fresh.orders_count,
         total_spent=fresh.total_spent,
-        bonus_balance=fresh.bonus_balance,
-        referrals_count=fresh.referrals_count,
-        referral_link=app_link(fresh.referral_code),
-        max_bonus_now=await svc.max_bonus_for_repo(repo, subtotal, fresh.bonus_balance),
+        # Вимкнений модуль не має лишати по собі ні балансу, ні посилання
+        bonus_balance=fresh.bonus_balance if shop.bonus_enabled else Decimal("0"),
+        max_bonus_now=(
+            await svc.max_bonus_for_repo(repo, subtotal, fresh.bonus_balance)
+            if shop.bonus_enabled else Decimal("0")
+        ),
+        referral_link=app_link(fresh.referral_code) if shop.referral_enabled else "",
+        referrals_count=fresh.referrals_count if shop.referral_enabled else 0,
     )
 
 
@@ -339,7 +360,8 @@ async def checkout(
     _require_age(user)
     order, error = await svc.create_order(
         repo, user,
-        contact_name=data.contact_name, contact_phone=data.contact_phone,
+        contact_name=data.contact_name, contact_surname=data.contact_surname,
+        contact_patronymic=data.contact_patronymic, contact_phone=data.contact_phone,
         city=data.city, address=data.address, payment_method=data.payment_method,
         comment=data.comment, promo_code=data.promo_code, use_bonus=data.use_bonus,
     )

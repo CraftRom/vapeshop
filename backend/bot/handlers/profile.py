@@ -24,19 +24,36 @@ async def profile(message: Message, repo: Repository, user: User) -> None:
     link = referral_link(fresh.referral_code)
 
     shop = await get_shop_settings(repo)
-    text = (
-        f"<b>Ваш профіль</b>\n\n"
-        f"Замовлень: {fresh.orders_count}\n"
-        f"Витрачено: {fresh.total_spent:.0f} {shop.currency}\n"
-        f"Бонусний рахунок: <b>{fresh.bonus_balance:.0f} {shop.currency}</b>\n\n"
-        f"<b>Реферальна програма</b>\n"
-        f"Запрошено друзів: {fresh.referrals_count}\n"
-        f"Ви отримуєте {shop.referral_percent:.0f}% бонусами від кожного "
-        f"виконаного замовлення запрошеного друга. Бонусами можна оплатити "
-        f"до {shop.bonus_max_percent:.0f}% вартості замовлення.\n\n"
-        f"Ваше посилання:\n<code>{link}</code>"
+
+    # Вимкнені модулі не згадуються взагалі: рядок «Бонусний рахунок: 0»
+    # породжує питання до підтримки там, де бонусів у магазині немає
+    parts = [
+        f"<b>Ваш профіль</b>\n",
+        f"Замовлень: {fresh.orders_count}",
+        f"Витрачено: {fresh.total_spent:.0f} {shop.currency}",
+    ]
+    if shop.bonus_enabled:
+        parts.append(
+            f"Бонусний рахунок: <b>{fresh.bonus_balance:.0f} {shop.currency}</b>"
+        )
+    if shop.volume_discount_enabled and shop.volume_discount_min > 0:
+        parts.append(
+            f"\nЗнижка {shop.volume_discount_percent:.0f}% на замовлення "
+            f"від {shop.volume_discount_min:.0f} {shop.currency}"
+        )
+    if shop.referral_enabled:
+        parts += [
+            "\n<b>Реферальна програма</b>",
+            f"Запрошено друзів: {fresh.referrals_count}",
+            f"Ви отримуєте {shop.referral_percent:.0f}% бонусами від кожного "
+            f"виконаного замовлення запрошеного друга.",
+            f"\nВаше посилання:\n<code>{link}</code>",
+        ]
+
+    await message.answer(
+        "\n".join(parts),
+        reply_markup=kb.profile(link) if shop.referral_enabled else None,
     )
-    await message.answer(text, reply_markup=kb.profile(link))
 
 
 @router.callback_query(F.data == "myorders")

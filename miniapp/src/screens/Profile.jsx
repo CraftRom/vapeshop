@@ -51,12 +51,14 @@ export function Profile({ config, profile }) {
       </div>
 
       <div className="stats">
-        <div className="stat">
-          <b className="num">
-            {Number(profile.bonus_balance).toFixed(0)} {config.currency}
-          </b>
-          <span>Бонусний рахунок</span>
-        </div>
+        {config.bonus_enabled && (
+          <div className="stat">
+            <b className="num">
+              {Number(profile.bonus_balance).toFixed(0)} {config.currency}
+            </b>
+            <span>Бонусний рахунок</span>
+          </div>
+        )}
         <div className="stat">
           <b className="num">{profile.orders_count}</b>
           <span>Замовлень</span>
@@ -67,12 +69,16 @@ export function Profile({ config, profile }) {
           </b>
           <span>Витрачено</span>
         </div>
-        <div className="stat">
-          <b className="num">{profile.referrals_count}</b>
-          <span>Запрошено друзів</span>
-        </div>
+        {config.referral_enabled && (
+          <div className="stat">
+            <b className="num">{profile.referrals_count}</b>
+            <span>Запрошено друзів</span>
+          </div>
+        )}
       </div>
 
+      {config.referral_enabled && (
+        <>
       <div className="head" style={{ paddingBottom: 6 }}>
         <h1 style={{ fontSize: 17 }}>Запрошуйте друзів</h1>
         <p>
@@ -92,6 +98,8 @@ export function Profile({ config, profile }) {
         <div className="banner warn">
           Посилання зʼявиться, коли в налаштуваннях буде вказано імʼя бота.
         </div>
+      )}
+        </>
       )}
 
       <div className="head" style={{ paddingBottom: 6 }}>

@@ -18,7 +18,11 @@ router = APIRouter(dependencies=[Depends(require_staff)])
 # Що оператор має право змінювати. Реферальні відсотки впливають на
 # нарахування клієнтам, і це робоче питання; реквізити картки, адреса
 # сайту й список менеджерів — ні, тож вони лишаються за адміністратором.
-OPERATOR_FIELDS = {"referral_percent", "bonus_max_percent"}
+OPERATOR_FIELDS = {
+    "referral_enabled", "referral_percent",
+    "bonus_enabled", "bonus_max_percent",
+    "volume_discount_enabled", "volume_discount_min", "volume_discount_percent",
+}
 
 
 @router.get("", response_model=ShopSettingsOut)
