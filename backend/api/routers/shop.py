@@ -136,6 +136,48 @@ async def config(
     return _config(shop, user)
 
 
+class BootstrapOut(BaseModel):
+    """Усе, що потрібно вітрині при відкритті, одним запитом."""
+
+    config: ShopConfigOut
+    cart: CartOut | None = None
+    profile: ProfileOut | None = None
+    categories: list[CategoryOut] = []
+    products: list[ProductOut] = []
+    orders: list[dict] = []
+
+
+@router.get("/bootstrap", response_model=BootstrapOut)
+async def bootstrap(
+    user: User = Depends(require_webapp_user), repo: Repository = Depends(get_repo)
+):
+    """Стартові дані вітрини за один раунд-тріп.
+
+    Раніше застосунок робив шість окремих запитів: конфіг, кошик, профіль,
+    замовлення, категорії, товари. На мобільному зв'язку це шість затримок
+    поспіль, а в serverless — ще й шість холодних стартів. Тепер один.
+
+    До підтвердження віку віддаємо лише конфіг: каталог за бар'єром 18+.
+    """
+    shop = await get_shop_settings(repo)
+    config = _config(shop, user)
+    if not user.age_confirmed:
+        return BootstrapOut(config=config)
+
+    # Послідовно, а не через asyncio.gather: сесія SQLAlchemy не розрахована
+    # на одночасні запити й падає з IllegalStateChangeError. Виграш і так у
+    # тому, що це один HTTP-раунд замість шести, а не в паралелізмі всередині.
+    cart = await _cart_payload(repo, user.id)
+    profile_data = await _profile_payload(repo, shop, user)
+    categories = await repo.list_categories(only_active=True)
+    products = await repo.list_products(only_active=True)
+    orders = await _orders_payload(repo, user.id)
+    return BootstrapOut(
+        config=config, cart=cart, profile=profile_data,
+        categories=categories, products=products, orders=orders,
+    )
+
+
 @router.post("/age-confirm", response_model=ShopConfigOut)
 async def age_confirm(
     user: User = Depends(require_webapp_user), repo: Repository = Depends(get_repo)
@@ -242,13 +284,10 @@ async def promo_check(
     )
 
 
-@router.get("/profile", response_model=ProfileOut)
-async def profile(
-    user: User = Depends(require_webapp_user), repo: Repository = Depends(get_repo)
-):
+async def _profile_payload(repo: Repository, shop, user: User) -> ProfileOut:
+    """Спільне тіло профілю — щоб bootstrap і окремий ендпоінт не розійшлися."""
     fresh = await repo.get_user(user.id) or user
     subtotal = await svc.cart_subtotal(repo, user.id)
-    shop = await get_shop_settings(repo)
     return ProfileOut(
         first_name=fresh.first_name,
         orders_count=fresh.orders_count,
@@ -262,6 +301,13 @@ async def profile(
         referral_link=app_link(fresh.referral_code) if shop.referral_enabled else "",
         referrals_count=fresh.referrals_count if shop.referral_enabled else 0,
     )
+
+
+@router.get("/profile", response_model=ProfileOut)
+async def profile(
+    user: User = Depends(require_webapp_user), repo: Repository = Depends(get_repo)
+):
+    return await _profile_payload(repo, await get_shop_settings(repo), user)
 
 
 class ChatMessageOut(BaseModel):
@@ -329,12 +375,8 @@ async def order_chat_send(
     return messages[-1]
 
 
-@router.get("/orders")
-async def my_orders(
-    user: User = Depends(require_webapp_user), repo: Repository = Depends(get_repo)
-):
-    _require_age(user)
-    orders = await repo.list_orders(user_id=user.id, limit=20)
+async def _orders_payload(repo: Repository, user_id: int) -> list[dict]:
+    orders = await repo.list_orders(user_id=user_id, limit=20)
     return [
         {
             "id": o.id, "status": o.status.value, "total": o.total,
@@ -346,6 +388,14 @@ async def my_orders(
         }
         for o in orders
     ]
+
+
+@router.get("/orders")
+async def my_orders(
+    user: User = Depends(require_webapp_user), repo: Repository = Depends(get_repo)
+):
+    _require_age(user)
+    return await _orders_payload(repo, user.id)
 
 
 # ------------------------------------------------------------- оформлення

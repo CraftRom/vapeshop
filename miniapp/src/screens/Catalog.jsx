@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { api } from '../api'
 import { close, haptic } from '../telegram'
@@ -88,18 +88,27 @@ function ProductCard({ product, qty, currency, onChange }) {
   )
 }
 
-export function Catalog({ config, cart, onCartChange }) {
-  const [categories, setCategories] = useState([])
-  const [products, setProducts] = useState(null)
+export function Catalog({ config, cart, onCartChange, seed }) {
+  const [categories, setCategories] = useState(seed?.categories || [])
+  const [products, setProducts] = useState(seed?.products || null)
   const [active, setActive] = useState(null)
   const [search, setSearch] = useState('')
   const [error, setError] = useState('')
 
   useEffect(() => {
+    // Категорії вже прийшли з bootstrap — повторний запит зайвий
+    if (seed?.categories?.length) return
     api.categories().then(setCategories).catch((e) => setError(e.message))
-  }, [])
+  }, [seed])
+
+  const firstRun = useRef(Boolean(seed?.products?.length))
 
   useEffect(() => {
+    // Перший показ бере товари з bootstrap; далі — звичайне довантаження
+    if (firstRun.current) {
+      firstRun.current = false
+      return
+    }
     let cancelled = false
     setProducts(null)
     const timer = setTimeout(() => {

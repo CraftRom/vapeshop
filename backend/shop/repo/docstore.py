@@ -55,6 +55,20 @@ class DocStore(ABC):
     @abstractmethod
     async def count(self, collection: str, filters: list[Filter] | None = None) -> int: ...
 
+    async def get_many(self, collection: str, doc_ids: list) -> dict:
+        """Кілька документів за один раз: {id: документ}.
+
+        Базова реалізація читає по одному — коректно, але повільно. Сховища,
+        які вміють пакетне читання, перевизначають метод: на списку замовлень
+        це різниця між одним зверненням і сотнею.
+        """
+        found = {}
+        for doc_id in doc_ids:
+            doc = await self.get(collection, doc_id)
+            if doc is not None:
+                found[doc_id] = doc
+        return found
+
     @abstractmethod
     async def next_id(self, name: str) -> int:
         """Наступний номер послідовності. Firestore не має автоінкременту,
@@ -120,6 +134,13 @@ class InMemoryDocStore(DocStore):
             else:
                 doc[key] = copy.deepcopy(value)
         return True
+
+    async def get_many(self, collection, doc_ids):
+        col = self._col(collection)
+        return {
+            i: copy.deepcopy(col[str(i)])
+            for i in dict.fromkeys(doc_ids) if str(i) in col
+        }
 
     async def delete(self, collection, doc_id):
         return self._col(collection).pop(str(doc_id), None) is not None

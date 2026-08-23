@@ -114,6 +114,8 @@ def _order(d: dict | None) -> Order | None:
         total=from_cents(d.get("total_cents")),
         promo_code_id=d.get("promo_code_id"), payment_method=d.get("payment_method"),
         receipt_file_id=d.get("receipt_file_id"), contact_name=d.get("contact_name"),
+        contact_surname=d.get("contact_surname"),
+        contact_patronymic=d.get("contact_patronymic"),
         contact_phone=d.get("contact_phone"), delivery_city=d.get("delivery_city"),
         delivery_address=d.get("delivery_address"), comment=d.get("comment"),
         admin_note=d.get("admin_note"), tracking_number=d.get("tracking_number"),
@@ -403,11 +405,16 @@ class FirestoreRepository(Repository):
         rows = await self.db.query(
             CARTS, [("user_id", "==", user_id)], order_by=[("added_at", "asc")]
         )
-        lines = []
-        for row in rows:
-            product = await self.get_product(row["product_id"])
-            lines.append(CartLine(product_id=row["product_id"], qty=row["qty"], product=product))
-        return lines
+        # Товари довантажуємо пакетно: кошик відкривають на кожному кроці
+        # оформлення, і читання по одному робило його найдорожчим екраном
+        docs = await self.db.get_many(PRODUCTS, [r["product_id"] for r in rows])
+        return [
+            CartLine(
+                product_id=row["product_id"], qty=row["qty"],
+                product=_product(docs[row["product_id"]]) if row["product_id"] in docs else None,
+            )
+            for row in rows
+        ]
 
     async def set_cart_qty(self, user_id, product_id, qty: int) -> None:
         doc_id = self._cart_id(user_id, product_id)
@@ -436,6 +443,8 @@ class FirestoreRepository(Repository):
             "total_cents": to_cents(order.total),
             "promo_code_id": order.promo_code_id, "payment_method": order.payment_method,
             "receipt_file_id": None, "contact_name": order.contact_name,
+            "contact_surname": order.contact_surname,
+            "contact_patronymic": order.contact_patronymic,
             "contact_phone": order.contact_phone, "delivery_city": order.delivery_city,
             "delivery_address": order.delivery_address, "comment": order.comment,
             "admin_note": None, "tracking_number": None, "referral_paid": False,
@@ -473,14 +482,14 @@ class FirestoreRepository(Repository):
             needle = search.lower()
             rows = [r for r in rows if needle in r.get("search_key", "")][offset:offset + limit]
 
-        orders = []
-        cache: dict[int, User | None] = {}
-        for row in rows:
-            entity = _order(row)
-            if entity.user_id not in cache:
-                cache[entity.user_id] = await self.get_user(entity.user_id)
-            entity.user = cache[entity.user_id]
-            orders.append(entity)
+        # Клієнтів довантажуємо одним пакетним читанням. Раніше на кожного
+        # йшло окреме звернення, тож сторінка зі ста замовленнями коштувала
+        # сотню зайвих раундтріпів до Firestore.
+        orders = [_order(row) for row in rows]
+        docs = await self.db.get_many(USERS, [o.user_id for o in orders])
+        for entity in orders:
+            doc = docs.get(entity.user_id)
+            entity.user = _user(doc) if doc else None
         return orders
 
     async def update_order(self, order_id, data: dict) -> Order | None:

@@ -19,6 +19,8 @@ export default function App() {
   const [orders, setOrders] = useState([])
   // Відкрите замовлення в чаті. Кнопка з бота веде сюди напряму.
   const [chatOrder, setChatOrder] = useState(null)
+  // Каталог із bootstrap: перший екран малюється без додаткового запиту
+  const [seed, setSeed] = useState(null)
   const [fatal, setFatal] = useState('')
 
   useEffect(() => {
@@ -50,8 +52,10 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    if (config?.age_confirmed) refresh().catch(() => {})
-  }, [config?.age_confirmed, refresh])
+    // bootstrap уже приніс кошик і профіль; довантажуємо лише тоді,
+    // коли вік підтвердили вже в застосунку і даних ще немає
+    if (config?.age_confirmed && !cart) refresh().catch(() => {})
+  }, [config?.age_confirmed, cart, refresh])
 
   // Кнопка «Відкрити чат» у боті веде одразу на потрібну розмову
   useEffect(() => {
@@ -79,7 +83,8 @@ export default function App() {
         ? await api.clearCart()
         : await api.changeCart(productId, delta)
       setCart(next)
-      api.profile().then(setProfile).catch(() => {})
+      // Профіль тут не перечитуємо: у ньому змінюється лише доступний
+      // ліміт бонусів, а він потрібен аж на екрані оформлення
       return next
     },
     [],
@@ -194,7 +199,7 @@ initData: ${getInitData() ? `${getInitData().length} символів` : 'пор
       </div>
 
       {tab === 'catalog' && (
-        <Catalog config={config} cart={cart} onCartChange={changeCart} />
+        <Catalog config={config} cart={cart} onCartChange={changeCart} seed={seed} />
       )}
       {tab === 'cart' && (
         <Cart config={config} cart={cart} onCartChange={changeCart} />
@@ -217,7 +222,15 @@ initData: ${getInitData() ? `${getInitData().length} символів` : 'пор
             {count} {count === 1 ? 'товар' : count < 5 ? 'товари' : 'товарів'} у кошику
           </span>
         </div>
-        <button onClick={() => setCheckingOut(true)}>Оформити</button>
+        <button
+          onClick={() => {
+            // Ліміт бонусів міг змінитися, поки набирали кошик
+            api.profile().then(setProfile).catch(() => {})
+            setCheckingOut(true)
+          }}
+        >
+          Оформити
+        </button>
       </div>
 
       {!isTelegram && (
