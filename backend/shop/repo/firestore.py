@@ -763,6 +763,11 @@ class FirestoreRepository(Repository):
             "direction": data["direction"], "author": data.get("author", ""),
             "text": data["text"], "tg_message_id": data.get("tg_message_id"),
             "is_read": data.get("is_read", False), "created_at": _now(),
+            # Вкладення: без цих полів фото від клієнта мовчки зникало б,
+            # бо SQL-гілка їх зберігає, а тут набір ключів був фіксований
+            "file_id": data.get("file_id"),
+            "file_kind": data.get("file_kind"),
+            "file_name": data.get("file_name"),
         }
         await self.db.set(ORDER_MESSAGES, doc_id, payload)
         return _order_message(payload)

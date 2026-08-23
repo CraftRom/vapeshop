@@ -18,7 +18,13 @@ async function request(path, { method = 'GET', body } = {}) {
     let detail = `Помилка ${res.status}`
     try {
       const data = await res.json()
-      if (data?.detail) detail = data.detail
+      if (typeof data?.detail === 'string') {
+        detail = data.detail
+      } else if (Array.isArray(data?.detail)) {
+        // Помилки валідації приходять масивом обʼєктів. Без розбору текст
+        // перетворився б на «[object Object]» просто в очах покупця.
+        detail = data.detail.map((i) => i.msg).filter(Boolean).join('; ') || detail
+      }
     } catch {
       /* тіло не JSON — лишаємо код статусу */
     }

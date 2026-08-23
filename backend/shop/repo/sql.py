@@ -120,6 +120,19 @@ class SqlRepository(Repository):
     def __init__(self, session: AsyncSession) -> None:
         self.s = session
 
+    async def _commit(self) -> None:
+        """Фіксує зміни й скидає кеш ORM.
+
+        Частина методів змінює дані атомарним UPDATE повз ORM — так
+        безпечніше при одночасних запитах. Але сесія створена з
+        expire_on_commit=False, тож у пам'яті лишалася б стара копія
+        обʼєкта, і наступне читання в тому ж запиті віддавало б, скажімо,
+        доспис бонусів, якого вже немає. Тому після кожного такого запису
+        кеш явно скидаємо.
+        """
+        await self.s.commit()
+        self.s.expire_all()
+
     # ------------------------------------------------------------ users
 
     async def get_user_by_tg(self, tg_id: int) -> User | None:
@@ -149,7 +162,7 @@ class SqlRepository(Repository):
                 update(m.User).where(m.User.id == referrer_id)
                 .values(referrals_count=m.User.referrals_count + 1)
             )
-        await self.s.commit()
+        await self._commit()
         await self.s.refresh(row)
         return _user(row)
 
@@ -164,7 +177,7 @@ class SqlRepository(Repository):
                 ),
             )
         )
-        await self.s.commit()
+        await self._commit()
         user.username = username or user.username
         user.first_name = first_name or user.first_name
         return user
@@ -177,14 +190,14 @@ class SqlRepository(Repository):
             update(m.User).where(m.User.id == referrer_id)
             .values(referrals_count=m.User.referrals_count + 1)
         )
-        await self.s.commit()
+        await self._commit()
         user.referrer_id = referrer_id
 
     async def confirm_age(self, user) -> None:
         await self.s.execute(
             update(m.User).where(m.User.id == user.id).values(age_confirmed=True)
         )
-        await self.s.commit()
+        await self._commit()
         user.age_confirmed = True
 
     async def set_blocked(self, user_id: int, blocked: bool) -> User | None:
@@ -201,7 +214,7 @@ class SqlRepository(Repository):
             update(m.User).where(m.User.id == user_id)
             .values(bonus_balance=m.User.bonus_balance + amount)
         )
-        await self.s.commit()
+        await self._commit()
 
     async def update_user_totals(self, user_id, orders_delta, spent_delta) -> None:
         await self.s.execute(
@@ -210,7 +223,7 @@ class SqlRepository(Repository):
                 total_spent=func.max(0, m.User.total_spent + spent_delta),
             )
         )
-        await self.s.commit()
+        await self._commit()
 
     async def list_users(self, search=None, blocked=None, limit=100, offset=0) -> list[User]:
         query = select(m.User).order_by(m.User.created_at.desc()).limit(limit).offset(offset)
@@ -265,7 +278,7 @@ class SqlRepository(Repository):
         await self.s.execute(
             update(m.Category).where(m.Category.id == category_id).values(is_active=False)
         )
-        await self.s.commit()
+        await self._commit()
         return int(result.rowcount or 0)
 
     async def list_products(
@@ -322,7 +335,7 @@ class SqlRepository(Repository):
             .where(m.Product.id == product_id)
             .values(stock=func.max(0, m.Product.stock + delta))
         )
-        await self.s.commit()
+        await self._commit()
         return _product(await self.s.get(m.Product, product_id))
 
     async def set_stock(self, product_id, stock: int) -> Product | None:
@@ -368,7 +381,7 @@ class SqlRepository(Repository):
 
     async def clear_cart(self, user_id) -> None:
         await self.s.execute(delete(m.CartItem).where(m.CartItem.user_id == user_id))
-        await self.s.commit()
+        await self._commit()
 
     # ----------------------------------------------------------- orders
 
@@ -484,7 +497,7 @@ class SqlRepository(Repository):
             update(m.PromoCode).where(m.PromoCode.id == promo_id)
             .values(used_count=m.PromoCode.used_count + 1)
         )
-        await self.s.commit()
+        await self._commit()
 
     # ------------------------------------------------------- broadcasts
 
@@ -631,7 +644,7 @@ class SqlRepository(Repository):
                 )
             else:
                 self.s.add(m.Setting(key=key, value=str(value)))
-        await self.s.commit()
+        await self._commit()
 
     # ------------------------------------------ остаточне видалення
 
@@ -649,7 +662,7 @@ class SqlRepository(Repository):
         await self.s.execute(delete(m.CartItem).where(m.CartItem.product_id == product_id))
         # products_count у SQL — обчислюване поле (COUNT), окремо його не рухаємо
         await self.s.delete(row)
-        await self.s.commit()
+        await self._commit()
         return True
 
     async def purge_category(self, category_id) -> int:
@@ -679,7 +692,7 @@ class SqlRepository(Repository):
         )
         await self.s.execute(delete(m.PromoUsage).where(m.PromoUsage.promo_id == promo_id))
         await self.s.delete(row)
-        await self.s.commit()
+        await self._commit()
         return True
 
     # -------------------------------------------------- чат замовлення
@@ -688,7 +701,7 @@ class SqlRepository(Repository):
         await self.s.execute(
             update(m.User).where(m.User.id == user_id).values(chat_order_id=order_id)
         )
-        await self.s.commit()
+        await self._commit()
 
     async def add_order_message(self, data: dict) -> OrderMessage:
         row = m.OrderMessage(**data)
@@ -721,7 +734,7 @@ class SqlRepository(Repository):
             )
             .values(is_read=True)
         )
-        await self.s.commit()
+        await self._commit()
         return int(result.rowcount or 0)
 
     async def unread_counts(self) -> dict[int, int]:

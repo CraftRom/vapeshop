@@ -66,7 +66,19 @@ async function request(path, { method = 'GET', body, params } = {}) {
     let detail = ''
     try {
       const data = await response.json()
-      if (typeof data.detail === 'string') detail = data.detail
+      if (typeof data.detail === 'string') {
+        detail = data.detail
+      } else if (Array.isArray(data.detail)) {
+        // FastAPI віддає помилки валідації масивом обʼєктів. Без розбору
+        // оператор бачив би «Помилка 422» і не знав, яке поле виправляти.
+        detail = data.detail
+          .map((item) => {
+            const field = (item.loc || []).filter((p) => p !== 'body').join(' → ')
+            return field ? `${field}: ${item.msg}` : item.msg
+          })
+          .filter(Boolean)
+          .join('; ')
+      }
     } catch { /* тіло не JSON */ }
 
     if (!detail) {
