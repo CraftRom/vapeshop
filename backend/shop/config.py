@@ -66,6 +66,11 @@ class Settings(BaseSettings):
     shop_name: str = "Lux Opt"
     currency: str = "грн"
     min_age: int = 18
+    referral_enabled: bool = True
+    bonus_enabled: bool = True
+    volume_discount_enabled: bool = False
+    volume_discount_min: float = 0
+    volume_discount_percent: float = 0
     referral_percent: float = 5.0       # % від суми замовлення рефералу
     bonus_max_percent: float = 30.0     # макс. частка замовлення, яку можна закрити бонусами
     card_number: str = "0000 0000 0000 0000"

@@ -145,6 +145,8 @@ class Order:
     payment_method: str | None = None
     receipt_file_id: str | None = None
     contact_name: str | None = None
+    contact_surname: str | None = None
+    contact_patronymic: str | None = None
     contact_phone: str | None = None
     delivery_city: str | None = None
     delivery_address: str | None = None

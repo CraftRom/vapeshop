@@ -77,6 +77,7 @@ def _order(row, with_user: bool = False) -> Order | None:
         bonus_used=_dec(row.bonus_used), total=_dec(row.total),
         promo_code_id=row.promo_code_id, payment_method=row.payment_method,
         receipt_file_id=row.receipt_file_id, contact_name=row.contact_name,
+        contact_surname=row.contact_surname, contact_patronymic=row.contact_patronymic,
         contact_phone=row.contact_phone, delivery_city=row.delivery_city,
         delivery_address=row.delivery_address, comment=row.comment,
         admin_note=row.admin_note, tracking_number=row.tracking_number,

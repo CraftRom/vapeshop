@@ -167,7 +167,12 @@ class Order(Base):
     payment_method: Mapped[str | None] = mapped_column(String(32))   # card | cod
     receipt_file_id: Mapped[str | None] = mapped_column(String(255))
 
+    # contact_name лишається повним ПІБ одним рядком — на нього спираються
+    # пошук, сповіщення й уся наявна історія. Складові зберігаємо окремо,
+    # бо служби доставки вимагають їх роздільно.
     contact_name: Mapped[str | None] = mapped_column(String(255))
+    contact_surname: Mapped[str | None] = mapped_column(String(128))
+    contact_patronymic: Mapped[str | None] = mapped_column(String(128))
     contact_phone: Mapped[str | None] = mapped_column(String(32))
     delivery_city: Mapped[str | None] = mapped_column(String(255))
     delivery_address: Mapped[str | None] = mapped_column(String(512))

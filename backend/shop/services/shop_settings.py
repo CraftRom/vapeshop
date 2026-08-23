@@ -28,8 +28,18 @@ class ShopSettings:
     shop_name: str
     currency: str
     min_age: int
+    # Модулі лояльності. Вимкнений модуль має бути невидимим для клієнта,
+    # а не просто неактивним: інакше в профілі висять нулі, а в оформленні —
+    # перемикач, який нічого не робить.
+    referral_enabled: bool
     referral_percent: Decimal
+    bonus_enabled: bool
     bonus_max_percent: Decimal
+    # Автоматична знижка за суму: від volume_discount_min дається
+    # volume_discount_percent. Нульовий поріг або відсоток = модуль вимкнено.
+    volume_discount_enabled: bool
+    volume_discount_min: Decimal
+    volume_discount_percent: Decimal
     card_number: str
     card_holder: str
     # Telegram-група
@@ -46,8 +56,13 @@ class ShopSettings:
             shop_name=settings.shop_name,
             currency=settings.currency,
             min_age=settings.min_age,
+            referral_enabled=settings.referral_enabled,
             referral_percent=Decimal(str(settings.referral_percent)),
+            bonus_enabled=settings.bonus_enabled,
             bonus_max_percent=Decimal(str(settings.bonus_max_percent)),
+            volume_discount_enabled=settings.volume_discount_enabled,
+            volume_discount_min=Decimal(str(settings.volume_discount_min)),
+            volume_discount_percent=Decimal(str(settings.volume_discount_percent)),
             card_number=settings.card_number,
             card_holder=settings.card_holder,
             admin_chat_id=settings.admin_chat_id,
@@ -56,6 +71,17 @@ class ShopSettings:
             miniapp_short_name=settings.miniapp_short_name,
             public_url=settings.public_url,
         )
+
+    def volume_discount_for(self, subtotal: Decimal) -> Decimal:
+        """Автоматична знижка за суму замовлення. Нуль — якщо не діє."""
+        if not self.volume_discount_enabled:
+            return Decimal(0)
+        if self.volume_discount_min <= 0 or self.volume_discount_percent <= 0:
+            return Decimal(0)
+        if subtotal < self.volume_discount_min:
+            return Decimal(0)
+        raw = subtotal * self.volume_discount_percent / Decimal(100)
+        return min(raw.quantize(Decimal("0.01")), subtotal)
 
     @property
     def admin_id_list(self) -> list[int]:
@@ -82,10 +108,20 @@ class ShopSettings:
             if f.name not in raw:
                 continue
             value = raw[f.name]
+            # Тип визначаємо з анотації поля, а не з переліку імен: інакше
+            # кожне нове числове налаштування мовчки лишалося б рядком
+            # і падало при першому ж порівнянні
+            annotation = f.type if not isinstance(f.type, str) else {
+                "int": int, "bool": bool, "Decimal": Decimal, "str": str,
+            }.get(f.type, str)
             try:
-                if f.name in ("min_age", "admin_chat_id"):
+                if annotation is bool:
+                    # У базі все рядками, тож «False» треба розпізнати явно
+                    setattr(base, f.name, str(value).strip().lower()
+                            in ("1", "true", "yes", "on", "так"))
+                elif annotation is int:
                     setattr(base, f.name, int(value))
-                elif f.name in ("referral_percent", "bonus_max_percent"):
+                elif annotation is Decimal:
                     setattr(base, f.name, Decimal(str(value)))
                 else:
                     setattr(base, f.name, str(value))

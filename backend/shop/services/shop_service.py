@@ -129,6 +129,8 @@ def max_bonus_for(subtotal: Decimal, balance: Decimal, percent=None) -> Decimal:
 
 async def max_bonus_for_repo(repo, subtotal: Decimal, balance: Decimal) -> Decimal:
     shop = await get_shop_settings(repo)
+    if not shop.bonus_enabled:
+        return Decimal(0)
     return max_bonus_for(subtotal, balance, shop.bonus_max_percent)
 
 
@@ -136,6 +138,7 @@ async def create_order(
     repo: Repository, user: User, *, contact_name: str, contact_phone: str,
     city: str, address: str, payment_method: str, comment: str | None = None,
     promo_code: str | None = None, use_bonus: bool = False,
+    contact_surname: str | None = None, contact_patronymic: str | None = None,
 ) -> tuple[Order | None, str | None]:
     lines = await repo.get_cart(user.id)
     if not lines:
@@ -147,24 +150,46 @@ async def create_order(
 
     subtotal = sum((line.line_total for line in lines), Decimal(0))
 
-    discount = Decimal(0)
+    shop = await get_shop_settings(repo)
+
+    promo_discount = Decimal(0)
     promo_id = None
     if promo_code:
         result = await check_promo(repo, promo_code, user.id, subtotal)
         if not result.ok:
             return None, result.error
-        discount, promo_id = result.discount, result.promo.id
+        promo_discount, promo_id = result.discount, result.promo.id
+
+    # Знижка за суму й промокод не додаються, а конкурують: діє більша.
+    # Складання давало б несподівані подарунки на великих чеках, і власник
+    # магазину помітив би це вже за виторгом.
+    volume_discount = shop.volume_discount_for(subtotal)
+    discount = max(promo_discount, volume_discount)
+    if discount == volume_discount and volume_discount > promo_discount:
+        promo_id = None  # промокод не застосувався, лічильник використань не рухаємо
 
     bonus_used = (
         await max_bonus_for_repo(repo, subtotal - discount, user.bonus_balance)
-        if use_bonus else Decimal(0)
+        if use_bonus and shop.bonus_enabled else Decimal(0)
     )
     total = max(Decimal(0), subtotal - discount - bonus_used)
+
+    # Повний ПІБ одним рядком: на нього спираються пошук менеджера,
+    # сповіщення і вся наявна історія замовлень
+    full_name = " ".join(
+        part for part in (
+            (contact_surname or "").strip(),
+            (contact_name or "").strip(),
+            (contact_patronymic or "").strip(),
+        ) if part
+    ) or contact_name
 
     draft = Order(
         id=0, user_id=user.id, subtotal=subtotal, discount=discount,
         bonus_used=bonus_used, total=total, promo_code_id=promo_id,
-        payment_method=payment_method, contact_name=contact_name,
+        payment_method=payment_method, contact_name=full_name,
+        contact_surname=(contact_surname or "").strip() or None,
+        contact_patronymic=(contact_patronymic or "").strip() or None,
         contact_phone=contact_phone, delivery_city=city,
         delivery_address=address, comment=comment,
     )
@@ -282,6 +307,10 @@ async def _pay_referral(repo: Repository, order: Order) -> Decimal | None:
         return None
 
     shop = await get_shop_settings(repo)
+    if not shop.referral_enabled or not shop.bonus_enabled:
+        # Винагорода нараховується бонусами, тож вимкнені бонуси вимикають
+        # і реферальну програму — інакше нарахування нікуди не подінеться
+        return None
     reward = (order.total * shop.referral_percent / Decimal(100)).quantize(Decimal("0.01"))
     if reward > 0:
         await repo.add_bonus(user.referrer_id, reward, "referral", order.id)
