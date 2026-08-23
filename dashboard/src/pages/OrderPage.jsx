@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 
 import { api, getToken } from '../api'
-import { ErrorBar, Field, Loading, money, useToast } from '../components/ui'
+import { ErrorBar, Field, Loading, Modal, money, useToast } from '../components/ui'
 
 const STATUS_FLOW = [
   { value: 'new', label: 'Нове' },
@@ -98,6 +98,52 @@ function Attachment({ orderId, message }) {
   )
 }
 
+/** Вікно введення накладної.
+ *
+ * Раніше оператор мусив спершу вписати номер у поле нижче, а тоді натиснути
+ * «Відправлено» — і без цього отримував відмову. Порядок неочевидний, тож
+ * запитуємо номер саме тоді, коли він потрібен.
+ */
+function TrackingModal({ initial, onCancel, onConfirm }) {
+  const [value, setValue] = useState(initial || '')
+  const [busy, setBusy] = useState(false)
+
+  const confirm = async () => {
+    setBusy(true)
+    await onConfirm(value.trim())
+    setBusy(false)
+  }
+
+  return (
+    <Modal
+      title="Відправлення замовлення"
+      onClose={onCancel}
+      footer={
+        <>
+          <button className="btn ghost" onClick={onCancel}>Скасувати</button>
+          <button className="btn" onClick={confirm} disabled={busy || !value.trim()}>
+            {busy ? 'Надсилаємо…' : 'Відправити й надіслати ТТН'}
+          </button>
+        </>
+      }
+    >
+      <Field
+        label="Номер накладної"
+        hint="Клієнт отримає його в Telegram одразу після підтвердження"
+      >
+        <input
+          className="input"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          placeholder="20450912345678"
+          autoFocus
+          onKeyDown={(e) => e.key === 'Enter' && value.trim() && confirm()}
+        />
+      </Field>
+    </Modal>
+  )
+}
+
 function Chat({ orderId, messages, onSent }) {
   const notify = useToast()
   const [text, setText] = useState('')
@@ -179,6 +225,7 @@ function Chat({ orderId, messages, onSent }) {
 export default function OrderPage() {
   const { id } = useParams()
   const navigate = useNavigate()
+  const [params, setParams] = useSearchParams()
   const notify = useToast()
 
   const [order, setOrder] = useState(null)
@@ -187,6 +234,7 @@ export default function OrderPage() {
   const [tracking, setTracking] = useState('')
   const [note, setNote] = useState('')
   const [busy, setBusy] = useState(false)
+  const [askTracking, setAskTracking] = useState(false)
 
   const load = useCallback(async () => {
     try {
@@ -206,6 +254,14 @@ export default function OrderPage() {
   useEffect(() => {
     load()
   }, [load])
+
+  // Прийшли зі списку по кнопці «Відпр.» — одразу питаємо накладну
+  useEffect(() => {
+    if (order && params.get('ship') === '1' && order.status !== 'shipped') {
+      setAskTracking(true)
+      setParams({}, { replace: true })
+    }
+  }, [order, params, setParams])
 
   // Відповідь клієнта приходить у бот, а не в панель — тож підтягуємо самі
   useEffect(() => {
@@ -238,16 +294,21 @@ export default function OrderPage() {
   }
 
   const changeStatus = async (status) => {
-    if (status === 'shipped' && !tracking.trim()) {
-      notify('Спочатку впишіть номер накладної — клієнт отримає його автоматично', 'bad')
+    // Накладну питаємо у вікні: це єдиний статус, який без неї не має сенсу
+    if (status === 'shipped') {
+      setAskTracking(true)
       return
     }
+    await patch({ status }, 'Статус змінено')
+  }
+
+  const confirmShipping = async (value) => {
+    setTracking(value)
     await patch(
-      status === 'shipped'
-        ? { status, tracking_number: tracking.trim() }
-        : { status },
-      status === 'shipped' ? 'Відправлено, ТТН надіслано клієнту' : 'Статус змінено',
+      { status: 'shipped', tracking_number: value },
+      'Відправлено, ТТН надіслано клієнту',
     )
+    setAskTracking(false)
   }
 
   if (error && !order) return <ErrorBar error={error} />
@@ -398,6 +459,14 @@ export default function OrderPage() {
           <Chat orderId={id} messages={messages} onSent={load} />
         </div>
       </div>
+
+      {askTracking && (
+        <TrackingModal
+          initial={tracking}
+          onCancel={() => setAskTracking(false)}
+          onConfirm={confirmShipping}
+        />
+      )}
     </>
   )
 }

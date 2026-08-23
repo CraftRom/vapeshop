@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 
 import { api } from '../api'
 import StatusRail, { STATUS_LABELS } from '../components/StatusRail'
@@ -104,6 +104,7 @@ function OrderDetails({ order, onClose, onSaved }) {
 }
 
 export default function Orders() {
+  const navigate = useNavigate()
   const notify = useToast()
   const [orders, setOrders] = useState(null)
   const [status, setStatus] = useState('')
@@ -143,6 +144,12 @@ export default function Orders() {
   }, [])
 
   const changeStatus = async (order, next) => {
+    // Відправлення потребує накладної, а вікно для неї — на сторінці
+    // замовлення. Без цього оператор тиснув би тут і отримував відмову.
+    if (next === 'shipped') {
+      navigate(`/orders/${order.id}?ship=1`)
+      return
+    }
     const previous = orders
     setOrders((list) => list.map((o) => (o.id === order.id ? { ...o, status: next } : o)))
     try {
