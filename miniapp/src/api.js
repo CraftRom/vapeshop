@@ -51,4 +51,10 @@ export const api = {
   profile: () => request('/profile'),
   orders: () => request('/orders'),
   checkout: (data) => request('/checkout', { method: 'POST', body: data }),
+
+  chat: {
+    list: (orderId) => request(`/orders/${orderId}/chat`),
+    send: (orderId, text) =>
+      request(`/orders/${orderId}/chat`, { method: 'POST', body: { text } }),
+  },
 }

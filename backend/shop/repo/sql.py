@@ -39,6 +39,7 @@ def _user(row: m.User | None) -> User | None:
         id=row.id, tg_id=row.tg_id, referral_code=row.referral_code,
         username=row.username, first_name=row.first_name, phone=row.phone,
         full_name=row.full_name, age_confirmed=row.age_confirmed,
+        chat_order_id=row.chat_order_id,
         is_blocked=row.is_blocked, referrer_id=row.referrer_id,
         bonus_balance=_dec(row.bonus_balance), orders_count=row.orders_count,
         total_spent=_dec(row.total_spent), referrals_count=row.referrals_count,
@@ -79,6 +80,7 @@ def _order(row, with_user: bool = False) -> Order | None:
         contact_phone=row.contact_phone, delivery_city=row.delivery_city,
         delivery_address=row.delivery_address, comment=row.comment,
         admin_note=row.admin_note, tracking_number=row.tracking_number,
+        operator_id=row.operator_id, operator_name=row.operator_name or "",
         referral_paid=row.referral_paid,
         created_at=row.created_at, search_key=row.search_key or "",
         items=[
@@ -682,6 +684,12 @@ class SqlRepository(Repository):
 
     # -------------------------------------------------- чат замовлення
 
+    async def set_chat_order(self, user_id, order_id) -> None:
+        await self.s.execute(
+            update(m.User).where(m.User.id == user_id).values(chat_order_id=order_id)
+        )
+        await self.s.commit()
+
     async def add_order_message(self, data: dict) -> OrderMessage:
         row = m.OrderMessage(**data)
         self.s.add(row)
@@ -779,4 +787,5 @@ def _order_message(row) -> OrderMessage:
         id=row.id, order_id=row.order_id, user_id=row.user_id,
         direction=row.direction, author=row.author or "", text=row.text,
         tg_message_id=row.tg_message_id, is_read=row.is_read, created_at=row.created_at,
+        file_id=row.file_id, file_kind=row.file_kind, file_name=row.file_name,
     )

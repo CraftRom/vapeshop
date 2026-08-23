@@ -6,6 +6,7 @@ import { haptic, openLink } from '../telegram'
 const STATUS = {
   new: 'Нове',
   confirmed: 'Підтверджено',
+  accepted: 'Прийнято в роботу',
   paid: 'Оплачено',
   shipped: 'Відправлено',
   done: 'Виконано',

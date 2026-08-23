@@ -54,6 +54,9 @@ class User(Base):
     full_name: Mapped[str | None] = mapped_column(String(255))
 
     age_confirmed: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Замовлення, у контексті якого клієнт зараз пише в бот. Зберігається в
+    # базі, а не в FSM: у serverless стан між викликами не переживає
+    chat_order_id: Mapped[int | None] = mapped_column(Integer)
     is_blocked: Mapped[bool] = mapped_column(Boolean, default=False)
 
     referral_code: Mapped[str] = mapped_column(String(12), unique=True, index=True)
@@ -162,6 +165,9 @@ class Order(Base):
     comment: Mapped[str | None] = mapped_column(Text)
     admin_note: Mapped[str | None] = mapped_column(Text)
     tracking_number: Mapped[str | None] = mapped_column(String(64))
+    # Хто веде замовлення — показується клієнту після «Прийнято»
+    operator_id: Mapped[int | None] = mapped_column(Integer)
+    operator_name: Mapped[str] = mapped_column(String(128), default="")
 
     referral_paid: Mapped[bool] = mapped_column(Boolean, default=False)
     search_key: Mapped[str] = mapped_column(String(320), default="")   # ім'я + телефон, нижній регістр
@@ -290,6 +296,11 @@ class OrderMessage(Base):
     # id повідомлення в Telegram: за ним відповідь клієнта зіставляється
     # із замовленням, коли їх у нього кілька
     tg_message_id: Mapped[int | None] = mapped_column(BigInteger, index=True)
+    # Вкладення лишаємо як file_id Telegram: сам файл не зберігаємо,
+    # панель тягне його через бекенд лише коли оператор відкриває стрічку
+    file_id: Mapped[str | None] = mapped_column(String(255))
+    file_kind: Mapped[str | None] = mapped_column(String(16))   # photo, document, video, voice
+    file_name: Mapped[str | None] = mapped_column(String(255))
     is_read: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
 

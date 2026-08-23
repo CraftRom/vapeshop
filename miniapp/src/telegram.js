@@ -108,6 +108,23 @@ export function launchParamNames() {
 }
 
 /** Звідки саме взялися дані — потрібно для екрана діагностики. */
+/** Параметр startapp: за ним відкриваємо потрібний екран одразу.
+ *
+ * Кнопка «Відкрити чат» у боті веде на /app/?chat=7, а пряме посилання
+ * Mini App передає те саме через tgWebAppStartParam. Перевіряємо обидва.
+ */
+export function startTarget() {
+  const fromQuery = new URLSearchParams(window.location.search).get('chat')
+  if (fromQuery && /^\d+$/.test(fromQuery)) return { screen: 'chat', orderId: Number(fromQuery) }
+
+  const param = tg?.initDataUnsafe?.start_param || ''
+  const match = /^chat[-_](\d+)$/.exec(param)
+  if (match) return { screen: 'chat', orderId: Number(match[1]) }
+
+  return null
+}
+
+
 export function initDataSource() {
   if (tg?.initData) return 'SDK'
   if (fromHash()) return 'адреса сторінки'

@@ -128,6 +128,8 @@ class OrderMessageOut(BaseModel):
     author: str
     text: str
     is_read: bool
+    file_kind: str | None = None
+    file_name: str | None = None
     created_at: datetime | None = None
 
 

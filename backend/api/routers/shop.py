@@ -21,6 +21,7 @@ from api.webapp_auth import require_webapp_user
 from shop.entities import User
 from shop.repo.base import Repository
 from shop.repo.factory import get_repo
+from shop.services import order_chat as svc_chat
 from shop.services import shop_service as svc
 from shop.services.notifications import notify_new_order
 from shop.services.shop_settings import get_shop_settings
@@ -242,6 +243,71 @@ async def profile(
     )
 
 
+class ChatMessageOut(BaseModel):
+    id: int
+    direction: str
+    author: str
+    text: str
+    file_kind: str | None = None
+    file_name: str | None = None
+    created_at: object | None = None
+
+
+class ChatSendIn(BaseModel):
+    text: str = Field(..., min_length=1, max_length=2000)
+
+
+async def _own_order(repo: Repository, user: User, order_id: int):
+    order = await repo.get_order(order_id)
+    if not order or order.user_id != user.id:
+        raise HTTPException(404, "Замовлення не знайдено")
+    return order
+
+
+@router.get("/orders/{order_id}/chat", response_model=list[ChatMessageOut])
+async def order_chat_log(
+    order_id: int,
+    user: User = Depends(require_webapp_user),
+    repo: Repository = Depends(get_repo),
+):
+    _require_age(user)
+    await _own_order(repo, user, order_id)
+    return await repo.list_order_messages(order_id)
+
+
+@router.post("/orders/{order_id}/chat", response_model=ChatMessageOut, status_code=201)
+async def order_chat_send(
+    order_id: int,
+    data: ChatSendIn,
+    user: User = Depends(require_webapp_user),
+    repo: Repository = Depends(get_repo),
+):
+    """Повідомлення клієнта з вітрини.
+
+    Дублює шлях через бота, але зручніше: тут видно всю історію саме цього
+    замовлення, без плутанини між кількома одночасними.
+    """
+    _require_age(user)
+    order = await _own_order(repo, user, order_id)
+
+    text = data.text.strip()
+    if not text:
+        raise HTTPException(422, "Повідомлення не може бути порожнім")
+
+    bot = None
+    try:
+        from api.routers.telegram import _instances
+
+        bot, _ = _instances()
+    except Exception:
+        log.warning("Бот недоступний — команда не отримає сповіщення", exc_info=True)
+
+    await svc_chat.save_incoming(repo, order, user, text, bot=bot)
+    await repo.set_chat_order(user.id, order.id)
+    messages = await repo.list_order_messages(order_id)
+    return messages[-1]
+
+
 @router.get("/orders")
 async def my_orders(
     user: User = Depends(require_webapp_user), repo: Repository = Depends(get_repo)
@@ -252,6 +318,9 @@ async def my_orders(
         {
             "id": o.id, "status": o.status.value, "total": o.total,
             "created_at": o.created_at,
+            "operator_name": o.operator_name,
+            "tracking_number": o.tracking_number,
+            "is_open": o.status in svc_chat.OPEN_STATUSES,
             "items": [{"name": i.name, "qty": i.qty, "price": i.price} for i in o.items],
         }
         for o in orders

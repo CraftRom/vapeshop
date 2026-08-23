@@ -130,6 +130,9 @@ export const api = {
     sendMessage: (id, text) =>
       request(`/orders/${id}/messages`, { method: 'POST', body: { text } }),
     unread: () => request('/orders/unread/counts'),
+    // Вкладення тягнеться через бекенд, а не напряму з Telegram:
+    // пряме посилання містило б токен бота у відкритому вигляді
+    fileUrl: (orderId, messageId) => `${BASE}/orders/${orderId}/files/${messageId}`,
   },
 
   customers: {

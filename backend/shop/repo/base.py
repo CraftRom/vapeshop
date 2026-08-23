@@ -242,6 +242,10 @@ class Repository(ABC):
     # -------------------------------------------------- чат замовлення
 
     @abstractmethod
+    async def set_chat_order(self, user_id: int, order_id: int | None) -> None:
+        """Яке замовлення клієнт зараз обговорює в боті."""
+
+    @abstractmethod
     async def add_order_message(self, data: dict) -> OrderMessage: ...
 
     @abstractmethod

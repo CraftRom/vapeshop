@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 
-import { api } from '../api'
+import { api, getToken } from '../api'
 import { ErrorBar, Field, Loading, money, useToast } from '../components/ui'
 
 const STATUS_FLOW = [
   { value: 'new', label: 'Нове' },
   { value: 'confirmed', label: 'Підтверджено' },
+  { value: 'accepted', label: 'Прийнято' },
   { value: 'paid', label: 'Оплачено' },
   { value: 'shipped', label: 'Відправлено' },
   { value: 'done', label: 'Виконано' },
@@ -20,6 +21,70 @@ function timestamp(value) {
   return new Date(value).toLocaleString('uk-UA', {
     day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
   })
+}
+
+const FILE_LABEL = {
+  photo: 'Фото', document: 'Документ', video: 'Відео', voice: 'Голосове',
+}
+
+/** Вкладення з Telegram.
+ *
+ * Файл віддає бекенд, і запит потребує токена — тож картинку не можна
+ * просто підставити в src. Тягнемо як blob і показуємо з обʼєктного URL.
+ */
+function Attachment({ orderId, message }) {
+  const [url, setUrl] = useState(null)
+  const [failed, setFailed] = useState(false)
+
+  useEffect(() => {
+    let revoked = null
+    let cancelled = false
+    fetch(api.orders.fileUrl(orderId, message.id), {
+      headers: { Authorization: `Bearer ${getToken()}` },
+    })
+      .then((r) => (r.ok ? r.blob() : Promise.reject(new Error(String(r.status)))))
+      .then((blob) => {
+        if (cancelled) return
+        revoked = URL.createObjectURL(blob)
+        setUrl(revoked)
+      })
+      .catch(() => !cancelled && setFailed(true))
+    return () => {
+      cancelled = true
+      if (revoked) URL.revokeObjectURL(revoked)
+    }
+  }, [orderId, message.id])
+
+  const label = FILE_LABEL[message.file_kind] || 'Файл'
+
+  if (failed) {
+    return (
+      <div className="faint" style={{ fontSize: 12.5 }}>
+        {label} недоступний — Telegram видаляє старі вкладення
+      </div>
+    )
+  }
+  if (!url) return <div className="faint" style={{ fontSize: 12.5 }}>{label} завантажується…</div>
+
+  if (message.file_kind === 'photo') {
+    return (
+      <a href={url} target="_blank" rel="noreferrer">
+        <img src={url} alt={label} className="bubble-photo" />
+      </a>
+    )
+  }
+  if (message.file_kind === 'voice') {
+    return <audio controls src={url} style={{ width: '100%', marginTop: 6 }} />
+  }
+  if (message.file_kind === 'video') {
+    return <video controls src={url} className="bubble-photo" />
+  }
+  return (
+    <a href={url} download={message.file_name || 'file'} className="btn ghost small"
+       style={{ marginTop: 6, display: 'inline-block' }}>
+      ↓ {message.file_name || label}
+    </a>
+  )
 }
 
 function Chat({ orderId, messages, onSent }) {
@@ -75,7 +140,8 @@ function Chat({ orderId, messages, onSent }) {
                 {' · '}
                 {timestamp(m.created_at)}
               </div>
-              <div className="bubble-text">{m.text}</div>
+              {m.text && <div className="bubble-text">{m.text}</div>}
+              {m.file_kind && <Attachment orderId={orderId} message={m} />}
             </div>
           ))
         )}

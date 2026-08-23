@@ -18,6 +18,8 @@ from decimal import Decimal
 class OrderStatus(str, enum.Enum):
     NEW = "new"
     CONFIRMED = "confirmed"
+    # Оператор узяв замовлення в роботу і назвався клієнту
+    ACCEPTED = "accepted"
     PAID = "paid"
     SHIPPED = "shipped"
     DONE = "done"
@@ -41,6 +43,7 @@ PAID_STATUSES = (OrderStatus.PAID, OrderStatus.SHIPPED, OrderStatus.DONE)
 STATUS_LABELS = {
     OrderStatus.NEW: "Нове",
     OrderStatus.CONFIRMED: "Підтверджене",
+    OrderStatus.ACCEPTED: "Прийняте в роботу",
     OrderStatus.PAID: "Оплачене",
     OrderStatus.SHIPPED: "Відправлене",
     OrderStatus.DONE: "Виконане",
@@ -58,6 +61,7 @@ class User:
     phone: str | None = None
     full_name: str | None = None
     age_confirmed: bool = False
+    chat_order_id: int | None = None
     is_blocked: bool = False
     referrer_id: int | None = None
     bonus_balance: Decimal = Decimal(0)
@@ -147,6 +151,8 @@ class Order:
     comment: str | None = None
     admin_note: str | None = None
     tracking_number: str | None = None
+    operator_id: int | None = None
+    operator_name: str = ""
     referral_paid: bool = False
     created_at: datetime | None = None
     items: list[OrderLine] = field(default_factory=list)
@@ -235,6 +241,9 @@ class OrderMessage:
     author: str
     text: str
     tg_message_id: int | None = None
+    file_id: str | None = None
+    file_kind: str | None = None
+    file_name: str | None = None
     is_read: bool = False
     created_at: datetime | None = None
 

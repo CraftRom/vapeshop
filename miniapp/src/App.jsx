@@ -3,10 +3,11 @@ import { useCallback, useEffect, useState } from 'react'
 import { api } from './api'
 import { AgeGate, Catalog } from './screens/Catalog'
 import { Cart, Checkout } from './screens/Checkout'
+import { ChatList, ChatRoom } from './screens/Chat'
 import { Profile } from './screens/Profile'
 import {
   applyTheme, backButton, getInitData, hideMainButton, initDataSource, isTelegram,
-  launchParamNames, onThemeChange, ready,
+  launchParamNames, onThemeChange, ready, startTarget,
 } from './telegram'
 
 export default function App() {
@@ -15,6 +16,9 @@ export default function App() {
   const [profile, setProfile] = useState(null)
   const [tab, setTab] = useState('catalog')
   const [checkingOut, setCheckingOut] = useState(false)
+  const [orders, setOrders] = useState([])
+  // Відкрите замовлення в чаті. Кнопка з бота веде сюди напряму.
+  const [chatOrder, setChatOrder] = useState(null)
   const [fatal, setFatal] = useState('')
 
   useEffect(() => {
@@ -37,20 +41,35 @@ export default function App() {
   useEffect(load, [load])
 
   const refresh = useCallback(async () => {
-    const [c, p] = await Promise.all([api.cart(), api.profile()])
+    const [c, p, o] = await Promise.all([
+      api.cart(), api.profile(), api.orders().catch(() => []),
+    ])
     setCart(c)
     setProfile(p)
+    setOrders(o)
   }, [])
 
   useEffect(() => {
     if (config?.age_confirmed) refresh().catch(() => {})
   }, [config?.age_confirmed, refresh])
 
+  // Кнопка «Відкрити чат» у боті веде одразу на потрібну розмову
+  useEffect(() => {
+    const target = startTarget()
+    if (!target || chatOrder || orders.length === 0) return
+    const found = orders.find((o) => o.id === target.orderId)
+    if (found) {
+      setTab('chat')
+      setChatOrder(found)
+    }
+  }, [orders, chatOrder])
+
   // Системна кнопка «назад» веде з оформлення до кошика, а не закриває вікно
   useEffect(() => {
-    if (!checkingOut) return backButton(null)
-    return backButton(() => setCheckingOut(false))
-  }, [checkingOut])
+    if (checkingOut) return backButton(() => setCheckingOut(false))
+    if (chatOrder) return backButton(() => setChatOrder(null))
+    return backButton(null)
+  }, [checkingOut, chatOrder])
 
   useEffect(() => hideMainButton, [])
 
@@ -159,6 +178,14 @@ initData: ${getInitData() ? `${getInitData().length} символів` : 'пор
         <button
           className="tab"
           role="tab"
+          aria-selected={tab === 'chat'}
+          onClick={() => setTab('chat')}
+        >
+          Чат
+        </button>
+        <button
+          className="tab"
+          role="tab"
           aria-selected={tab === 'profile'}
           onClick={() => setTab('profile')}
         >
@@ -172,10 +199,16 @@ initData: ${getInitData() ? `${getInitData().length} символів` : 'пор
       {tab === 'cart' && (
         <Cart config={config} cart={cart} onCartChange={changeCart} />
       )}
+      {tab === 'chat' && (
+        chatOrder
+          ? <ChatRoom config={config} order={chatOrder} onBack={() => setChatOrder(null)} />
+          : <ChatList config={config} orders={orders} onOpen={setChatOrder} />
+      )}
       {tab === 'profile' && <Profile config={config} profile={profile} />}
 
       {/* Панель тримається внизу на всіх вкладках: сума завжди перед очима */}
-      <div className="bar" hidden={count === 0}>
+      {/* У чаті панель кошика перекрила б поле вводу */}
+      <div className="bar" hidden={count === 0 || tab === 'chat'}>
         <div className="bar-info">
           <strong className="num">
             {subtotal.toFixed(0)} {config.currency}

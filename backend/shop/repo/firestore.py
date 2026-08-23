@@ -79,6 +79,7 @@ def _user(d: dict | None) -> User | None:
         username=d.get("username"), first_name=d.get("first_name"),
         phone=d.get("phone"), full_name=d.get("full_name"),
         age_confirmed=d.get("age_confirmed", False),
+        chat_order_id=d.get("chat_order_id"),
         is_blocked=d.get("is_blocked", False), referrer_id=d.get("referrer_id"),
         bonus_balance=from_cents(d.get("bonus_balance_cents")),
         orders_count=d.get("orders_count", 0),
@@ -116,6 +117,7 @@ def _order(d: dict | None) -> Order | None:
         contact_phone=d.get("contact_phone"), delivery_city=d.get("delivery_city"),
         delivery_address=d.get("delivery_address"), comment=d.get("comment"),
         admin_note=d.get("admin_note"), tracking_number=d.get("tracking_number"),
+        operator_id=d.get("operator_id"), operator_name=d.get("operator_name", ""),
         referral_paid=d.get("referral_paid", False),
         created_at=_dt(d.get("created_at")), search_key=d.get("search_key", ""),
         items=[
@@ -437,6 +439,7 @@ class FirestoreRepository(Repository):
             "contact_phone": order.contact_phone, "delivery_city": order.delivery_city,
             "delivery_address": order.delivery_address, "comment": order.comment,
             "admin_note": None, "tracking_number": None, "referral_paid": False,
+            "operator_id": None, "operator_name": "",
             "search_key": f"{order.contact_name or ''} {order.contact_phone or ''}".lower(),
             "created_at": _iso(_now()),
             # Позиції — вкладений масив: замовлення завжди читається цілком,
@@ -750,6 +753,9 @@ class FirestoreRepository(Repository):
 
     # -------------------------------------------------- чат замовлення
 
+    async def set_chat_order(self, user_id, order_id) -> None:
+        await self.db.update(USERS, user_id, {"chat_order_id": order_id})
+
     async def add_order_message(self, data: dict) -> OrderMessage:
         doc_id = await self.db.next_id(ORDER_MESSAGES)
         payload = {
@@ -856,5 +862,6 @@ def _order_message(doc) -> OrderMessage:
         id=doc["id"], order_id=doc["order_id"], user_id=doc["user_id"],
         direction=doc["direction"], author=doc.get("author", ""), text=doc["text"],
         tg_message_id=doc.get("tg_message_id"), is_read=doc.get("is_read", False),
+        file_id=doc.get("file_id"), file_kind=doc.get("file_kind"), file_name=doc.get("file_name"),
         created_at=doc.get("created_at"),
     )

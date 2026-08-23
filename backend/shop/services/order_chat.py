@@ -11,7 +11,9 @@ from __future__ import annotations
 import logging
 from html import escape
 
-from aiogram.types import ForceReply, InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import (
+    ForceReply, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo,
+)
 
 from shop.entities import Order, OrderStatus
 from shop.repo.base import Repository
@@ -21,7 +23,8 @@ log = logging.getLogger(__name__)
 # Статуси, за яких листування ще має сенс. Виконане чи скасоване
 # замовлення закривається — інакше стрічка ніколи не порожніє.
 OPEN_STATUSES = (
-    OrderStatus.NEW, OrderStatus.CONFIRMED, OrderStatus.PAID, OrderStatus.SHIPPED,
+    OrderStatus.NEW, OrderStatus.CONFIRMED, OrderStatus.ACCEPTED,
+    OrderStatus.PAID, OrderStatus.SHIPPED,
 )
 
 
@@ -31,6 +34,56 @@ def esc(value) -> str:
 
 def _header(order_id: int) -> str:
     return f"💬 <b>Замовлення №{order_id}</b>"
+
+
+def chat_keyboard(order_id: int) -> InlineKeyboardMarkup | None:
+    """Кнопка, що відкриває вітрину одразу на чаті цього замовлення.
+
+    Без адреси сайту кнопку не побудувати — тоді клієнт просто відповідає
+    в чаті з ботом, і це теж робочий шлях.
+    """
+    from shop.services.shop_settings import current
+
+    public_url = (current().public_url or "").rstrip("/")
+    if not public_url.startswith("https://"):
+        return None
+    return InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(
+            text="💬 Відкрити чат",
+            web_app=WebAppInfo(url=f"{public_url}/app/?chat={order_id}"),
+        )
+    ]])
+
+
+async def announce_accepted(bot, repo: Repository, order: Order, operator_name: str) -> bool:
+    """Повідомляє, хто саме взяв замовлення в роботу.
+
+    Знеособлене «статус змінено» нічого не дає клієнту. Ім'я оператора
+    перетворює це на початок розмови з конкретною людиною.
+    """
+    user = order.user or await repo.get_user(order.user_id)
+    if not user:
+        return False
+
+    who = esc(operator_name) or "Наш оператор"
+    text = (
+        f"✅ <b>Замовлення №{order.id} прийнято в роботу</b>\n\n"
+        f"Ним займається {who}.\n"
+        "Питання щодо доставки чи оплати пишіть прямо сюди — "
+        "відповідь надійде в цей чат."
+    )
+    try:
+        sent = await bot.send_message(user.tg_id, text, reply_markup=chat_keyboard(order.id))
+    except Exception:
+        log.warning("Не вдалося повідомити про прийняття №%s", order.id, exc_info=True)
+        return False
+
+    await repo.add_order_message({
+        "order_id": order.id, "user_id": order.user_id, "direction": "out",
+        "author": "Система", "text": f"Замовлення прийняв {operator_name}",
+        "tg_message_id": sent.message_id, "is_read": True,
+    })
+    return True
 
 
 async def send_to_client(
@@ -44,12 +97,16 @@ async def send_to_client(
 
     signature = f"\n\n<i>{esc(author)}</i>" if author else ""
     try:
+        # Кнопка вітрини корисніша за ForceReply: у ній видно всю історію
+        # саме цього замовлення. ForceReply лишається запасним шляхом, коли
+        # адреса сайту не налаштована.
+        markup = chat_keyboard(order.id) or ForceReply(
+            input_field_placeholder=f"Відповідь щодо №{order.id}"
+        )
         sent = await bot.send_message(
             user.tg_id,
             f"{_header(order.id)}\n\n{esc(text)}{signature}",
-            # ForceReply відкриває поле з цитатою: відповідь клієнта
-            # гарантовано принесе reply_to_message
-            reply_markup=ForceReply(input_field_placeholder=f"Відповідь щодо №{order.id}"),
+            reply_markup=markup,
         )
     except Exception:
         log.warning("Не вдалося доставити повідомлення клієнту (замовлення №%s)",
@@ -76,7 +133,7 @@ async def send_tracking(bot, repo: Repository, order: Order, tracking: str) -> b
         "Натисніть на номер, щоб скопіювати."
     )
     try:
-        sent = await bot.send_message(user.tg_id, text)
+        sent = await bot.send_message(user.tg_id, text, reply_markup=chat_keyboard(order.id))
     except Exception:
         log.warning("Не вдалося надіслати ТТН по замовленню №%s", order.id, exc_info=True)
         return False
@@ -108,6 +165,13 @@ async def route_incoming(repo: Repository, user, message) -> int | None:
             return order_id
 
     open_orders = await open_orders_for(repo, user.id)
+    open_ids = {o.id for o in open_orders}
+
+    # Замовлення, яке клієнт обрав кнопкою. Зберігається в базі, тож
+    # переживає холодний старт функції — на відміну від стану FSM.
+    if user.chat_order_id in open_ids:
+        return user.chat_order_id
+
     if len(open_orders) == 1:
         return open_orders[0].id
     return None
@@ -125,8 +189,30 @@ def pick_order_keyboard(orders: list[Order]) -> InlineKeyboardMarkup:
     ])
 
 
+def describe_attachment(message) -> dict | None:
+    """Витягує вкладення з повідомлення Telegram.
+
+    Зберігаємо лише file_id: сам файл лишається у Telegram, панель тягне
+    його через бекенд і тільки коли оператор відкриває стрічку.
+    """
+    if getattr(message, "photo", None):
+        # Останній елемент — найбільший доступний розмір
+        return {"file_id": message.photo[-1].file_id, "file_kind": "photo",
+                "file_name": "Фото"}
+    if getattr(message, "document", None):
+        return {"file_id": message.document.file_id, "file_kind": "document",
+                "file_name": message.document.file_name or "Документ"}
+    if getattr(message, "video", None):
+        return {"file_id": message.video.file_id, "file_kind": "video",
+                "file_name": "Відео"}
+    if getattr(message, "voice", None):
+        return {"file_id": message.voice.file_id, "file_kind": "voice",
+                "file_name": "Голосове"}
+    return None
+
+
 async def save_incoming(
-    repo: Repository, order: Order, user, text: str, bot=None
+    repo: Repository, order: Order, user, text: str, bot=None, attachment: dict | None = None
 ) -> None:
     """Зберігає відповідь клієнта і сповіщає команду.
 
@@ -137,6 +223,7 @@ async def save_incoming(
         "order_id": order.id, "user_id": user.id, "direction": "in",
         "author": user.first_name or user.username or f"id{user.tg_id}",
         "text": text, "tg_message_id": None, "is_read": False,
+        **(attachment or {}),
     })
 
     if bot is None:

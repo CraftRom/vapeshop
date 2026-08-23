@@ -7,6 +7,7 @@
 export const STAGES = [
   { key: 'new', label: 'Нове' },
   { key: 'confirmed', label: 'Підтв.' },
+  { key: 'accepted', label: 'Прийн.' },
   { key: 'paid', label: 'Оплач.' },
   { key: 'shipped', label: 'Відпр.' },
   { key: 'done', label: 'Викон.' },
@@ -15,6 +16,7 @@ export const STAGES = [
 export const STATUS_LABELS = {
   new: 'Нове',
   confirmed: 'Підтверджене',
+  accepted: 'Прийняте в роботу',
   paid: 'Оплачене',
   shipped: 'Відправлене',
   done: 'Виконане',
