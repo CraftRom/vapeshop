@@ -14,7 +14,7 @@ from abc import ABC, abstractmethod
 from decimal import Decimal
 
 from shop.entities import (
-    Operator,
+    Operator, OrderMessage,
     Broadcast, BroadcastStatus, CartLine, Category, Order, OrderLine,
     OrderStatus, Product, Promo, Stats, User,
 )
@@ -238,6 +238,26 @@ class Repository(ABC):
 
     @abstractmethod
     async def stats_top_products(self, days: int, limit: int) -> list[dict]: ...
+
+    # -------------------------------------------------- чат замовлення
+
+    @abstractmethod
+    async def add_order_message(self, data: dict) -> OrderMessage: ...
+
+    @abstractmethod
+    async def list_order_messages(self, order_id: int, limit: int = 200) -> list[OrderMessage]: ...
+
+    @abstractmethod
+    async def find_order_by_tg_message(self, tg_message_id: int) -> int | None:
+        """Замовлення, до якого належить повідомлення бота. Для розбору відповідей."""
+
+    @abstractmethod
+    async def mark_messages_read(self, order_id: int) -> int:
+        """Позначає вхідні прочитаними. Повертає, скільки було непрочитаних."""
+
+    @abstractmethod
+    async def unread_counts(self) -> dict[int, int]:
+        """Скільки непрочитаних у кожного замовлення: {order_id: кількість}."""
 
     # ------------------------------------------------------ оператори
 

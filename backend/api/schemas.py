@@ -94,6 +94,7 @@ class OrderOut(ORMModel):
     delivery_address: str | None
     comment: str | None
     admin_note: str | None
+    tracking_number: str | None = None
     created_at: datetime | None = None
     items: list[OrderItemOut] = []
     user: OrderCustomer | None = None
@@ -102,6 +103,38 @@ class OrderOut(ORMModel):
 class OrderPatch(BaseModel):
     status: OrderStatus | None = None
     admin_note: str | None = None
+    tracking_number: str | None = Field(None, max_length=64)
+
+
+class OrderMessageIn(BaseModel):
+    text: str = Field(..., min_length=1, max_length=2000)
+
+    @field_validator("text", mode="after")
+    @classmethod
+    def _not_blank(cls, value: str) -> str:
+        # min_length рахує й пробіли: без цього клієнт отримав би порожню бульбашку
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("Повідомлення не може бути порожнім")
+        return cleaned
+
+
+class OrderMessageOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    order_id: int
+    direction: str
+    author: str
+    text: str
+    is_read: bool
+    created_at: datetime | None = None
+
+
+class OrderMessageResult(BaseModel):
+    message: OrderMessageOut
+    delivered: bool
+    warning: str | None = None
 
 
 # --------------------------------------------------------------------- клієнти

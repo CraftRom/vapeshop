@@ -15,6 +15,7 @@ const Promos = lazy(() => import('./pages/Promos'))
 const Broadcasts = lazy(() => import('./pages/Broadcasts'))
 const Settings = lazy(() => import('./pages/Settings'))
 const Operators = lazy(() => import('./pages/Operators'))
+const OrderPage = lazy(() => import('./pages/OrderPage'))
 
 const NAV = [
   { to: '/', label: 'Огляд', end: true },
@@ -99,6 +100,7 @@ export default function App() {
         <Route path="/login" element={<Login />} />
         <Route path="/" element={<Protected><Overview /></Protected>} />
         <Route path="/orders" element={<Protected><Orders /></Protected>} />
+        <Route path="/orders/:id" element={<Protected><OrderPage /></Protected>} />
         <Route path="/catalog" element={<Protected><Catalog /></Protected>} />
         <Route path="/customers" element={<Protected><Customers /></Protected>} />
         <Route path="/promos" element={<Protected><Promos /></Protected>} />

@@ -161,6 +161,7 @@ class Order(Base):
     delivery_address: Mapped[str | None] = mapped_column(String(512))
     comment: Mapped[str | None] = mapped_column(Text)
     admin_note: Mapped[str | None] = mapped_column(Text)
+    tracking_number: Mapped[str | None] = mapped_column(String(64))
 
     referral_paid: Mapped[bool] = mapped_column(Boolean, default=False)
     search_key: Mapped[str] = mapped_column(String(320), default="")   # ім'я + телефон, нижній регістр
@@ -267,3 +268,30 @@ class Operator(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class OrderMessage(Base):
+    """Листування оператора з клієнтом у межах одного замовлення.
+
+    Прив'язка саме до замовлення, а не до клієнта: у людини може бути кілька
+    відкритих замовлень одночасно, і змішувати їх в одну стрічку означало б
+    плутанину і для оператора, і для клієнта.
+    """
+
+    __tablename__ = "order_messages"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    order_id: Mapped[int] = mapped_column(ForeignKey("orders.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    # "out" — від оператора клієнту, "in" — від клієнта
+    direction: Mapped[str] = mapped_column(String(4))
+    author: Mapped[str] = mapped_column(String(128), default="")
+    text: Mapped[str] = mapped_column(Text)
+    # id повідомлення в Telegram: за ним відповідь клієнта зіставляється
+    # із замовленням, коли їх у нього кілька
+    tg_message_id: Mapped[int | None] = mapped_column(BigInteger, index=True)
+    is_read: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
+Index("ix_order_messages_order_created", OrderMessage.order_id, OrderMessage.created_at)

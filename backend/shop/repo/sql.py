@@ -12,7 +12,7 @@ from sqlalchemy.orm import selectinload
 
 from shop import models as m
 from shop.entities import (
-    Operator, OperatorRole,
+    Operator, OperatorRole, OrderMessage,
     PAID_STATUSES, Broadcast, BroadcastStatus, CartLine, Category, Order,
     OrderLine, OrderStatus, Product, Promo, Stats, User,
 )
@@ -78,7 +78,8 @@ def _order(row, with_user: bool = False) -> Order | None:
         receipt_file_id=row.receipt_file_id, contact_name=row.contact_name,
         contact_phone=row.contact_phone, delivery_city=row.delivery_city,
         delivery_address=row.delivery_address, comment=row.comment,
-        admin_note=row.admin_note, referral_paid=row.referral_paid,
+        admin_note=row.admin_note, tracking_number=row.tracking_number,
+        referral_paid=row.referral_paid,
         created_at=row.created_at, search_key=row.search_key or "",
         items=[
             OrderLine(id=i.id, product_id=i.product_id, name=i.name,
@@ -679,6 +680,50 @@ class SqlRepository(Repository):
         await self.s.commit()
         return True
 
+    # -------------------------------------------------- чат замовлення
+
+    async def add_order_message(self, data: dict) -> OrderMessage:
+        row = m.OrderMessage(**data)
+        self.s.add(row)
+        await self.s.commit()
+        await self.s.refresh(row)
+        return _order_message(row)
+
+    async def list_order_messages(self, order_id, limit: int = 200) -> list[OrderMessage]:
+        rows = await self.s.scalars(
+            select(m.OrderMessage)
+            .where(m.OrderMessage.order_id == order_id)
+            .order_by(m.OrderMessage.created_at, m.OrderMessage.id)
+            .limit(limit)
+        )
+        return [_order_message(r) for r in rows]
+
+    async def find_order_by_tg_message(self, tg_message_id: int) -> int | None:
+        return await self.s.scalar(
+            select(m.OrderMessage.order_id).where(m.OrderMessage.tg_message_id == tg_message_id)
+        )
+
+    async def mark_messages_read(self, order_id) -> int:
+        result = await self.s.execute(
+            update(m.OrderMessage)
+            .where(
+                m.OrderMessage.order_id == order_id,
+                m.OrderMessage.direction == "in",
+                m.OrderMessage.is_read.is_(False),
+            )
+            .values(is_read=True)
+        )
+        await self.s.commit()
+        return int(result.rowcount or 0)
+
+    async def unread_counts(self) -> dict[int, int]:
+        rows = await self.s.execute(
+            select(m.OrderMessage.order_id, func.count(m.OrderMessage.id))
+            .where(m.OrderMessage.direction == "in", m.OrderMessage.is_read.is_(False))
+            .group_by(m.OrderMessage.order_id)
+        )
+        return {order_id: count for order_id, count in rows}
+
     # ------------------------------------------------------ оператори
 
     async def create_operator(self, data: dict) -> Operator:
@@ -726,4 +771,12 @@ def _operator(row) -> Operator | None:
         role=OperatorRole(row.role), is_active=row.is_active,
         created_at=row.created_at, last_login_at=row.last_login_at,
         password_hash=row.password_hash,
+    )
+
+
+def _order_message(row) -> OrderMessage:
+    return OrderMessage(
+        id=row.id, order_id=row.order_id, user_id=row.user_id,
+        direction=row.direction, author=row.author or "", text=row.text,
+        tg_message_id=row.tg_message_id, is_read=row.is_read, created_at=row.created_at,
     )

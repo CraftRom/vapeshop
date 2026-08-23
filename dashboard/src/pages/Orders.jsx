@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 
 import { api } from '../api'
 import StatusRail, { STATUS_LABELS } from '../components/StatusRail'
@@ -109,6 +110,8 @@ export default function Orders() {
   const [search, setSearch] = useState('')
   const [error, setError] = useState('')
   const [selected, setSelected] = useState(null)
+  // Клієнт відповідає в боті, тож панель має сама помічати нові повідомлення
+  const [unread, setUnread] = useState({})
 
   const load = useCallback(async () => {
     setError('')
@@ -123,6 +126,18 @@ export default function Orders() {
     const timer = setTimeout(load, search ? 350 : 0)
     return () => clearTimeout(timer)
   }, [load, search])
+
+  // Клієнт відповідає в боті, а не в панелі — тож лічильник опитуємо самі
+  useEffect(() => {
+    const poll = () => api.orders.unread().then(setUnread).catch(() => {})
+    poll()
+    const timer = setInterval(poll, 20000)
+    document.addEventListener('visibilitychange', poll)
+    return () => {
+      clearInterval(timer)
+      document.removeEventListener('visibilitychange', poll)
+    }
+  }, [])
 
   const changeStatus = async (order, next) => {
     const previous = orders
@@ -187,7 +202,16 @@ export default function Orders() {
                 {orders.map((order) => (
                   <tr key={order.id}>
                     <td>
-                      <span className="id-tag">#{order.id}</span>
+                      <Link to={`/orders/${order.id}`} className="id-tag">#{order.id}</Link>
+                      {unread[order.id] > 0 && (
+                        <span
+                          className="chip"
+                          style={{ marginLeft: 6 }}
+                          title="Непрочитані повідомлення від клієнта"
+                        >
+                          💬 {unread[order.id]}
+                        </span>
+                      )}
                       <div className="faint">{dateTime(order.created_at)}</div>
                     </td>
                     <td>
@@ -202,9 +226,14 @@ export default function Orders() {
                       <StatusRail status={order.status} onChange={(next) => changeStatus(order, next)} />
                     </td>
                     <td>
-                      <button className="btn ghost small" onClick={() => setSelected(order)}>
-                        Деталі
-                      </button>
+                      <div className="row">
+                        <Link className="btn ghost small" to={`/orders/${order.id}`}>
+                          Відкрити
+                        </Link>
+                        <button className="btn ghost small" onClick={() => setSelected(order)}>
+                          Швидкий перегляд
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}

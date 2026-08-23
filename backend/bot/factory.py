@@ -45,7 +45,9 @@ def build_storage():
 
 
 def build_dispatcher() -> Dispatcher:
-    from bot.handlers import admin, cart, catalog, checkout, group, profile, start
+    from bot.handlers import (
+        admin, cart, catalog, chat, checkout, group, profile, start,
+    )
     from bot.middlewares import (
         AgeGateMiddleware, BlockedUserMiddleware, PrivateOnlyMiddleware,
         RepositoryMiddleware,
@@ -68,6 +70,8 @@ def build_dispatcher() -> Dispatcher:
     dp.include_router(cart.router)
     dp.include_router(checkout.router)
     dp.include_router(profile.router)
+    # Чат із оператором — останнім: ловить лише те, що не розібрали інші
+    dp.include_router(chat.router)
 
     return dp
 

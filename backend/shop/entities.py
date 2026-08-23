@@ -146,6 +146,7 @@ class Order:
     delivery_address: str | None = None
     comment: str | None = None
     admin_note: str | None = None
+    tracking_number: str | None = None
     referral_paid: bool = False
     created_at: datetime | None = None
     items: list[OrderLine] = field(default_factory=list)
@@ -223,3 +224,20 @@ class Operator:
     @property
     def is_admin(self) -> bool:
         return self.role == OperatorRole.ADMIN
+
+
+@dataclass
+class OrderMessage:
+    id: int
+    order_id: int
+    user_id: int
+    direction: str          # "out" — оператор клієнту, "in" — клієнт оператору
+    author: str
+    text: str
+    tg_message_id: int | None = None
+    is_read: bool = False
+    created_at: datetime | None = None
+
+    @property
+    def from_operator(self) -> bool:
+        return self.direction == "out"

@@ -400,3 +400,45 @@ textarea.input { resize: vertical; min-height: 88px; }
   .main { padding: 18px 14px 40px; }
   .grid.k4 { grid-template-columns: 1fr; }
 }
+
+
+/* ------------------------------------------------ сторінка замовлення */
+
+.order-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+
+@media (max-width: 1100px) {
+  .order-grid { grid-template-columns: 1fr; }
+}
+
+.chat-log {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 420px;
+  overflow-y: auto;
+  margin-bottom: 12px;
+  padding-right: 4px;
+}
+
+.bubble {
+  max-width: 82%;
+  padding: 9px 12px;
+  border-radius: 12px;
+  background: var(--panel-2, rgba(255, 255, 255, 0.04));
+}
+
+/* Репліки оператора притиснуті праворуч — щоб стрічку читали як діалог,
+   а не як журнал подій */
+.bubble.mine {
+  align-self: flex-end;
+  background: rgba(124, 106, 247, 0.16);
+}
+
+.bubble-head { margin-bottom: 3px; font-size: 11.5px; }
+
+.bubble-text { white-space: pre-wrap; word-break: break-word; font-size: 14px; }

@@ -20,7 +20,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 from shop.entities import (
-    Operator, OperatorRole,
+    Operator, OperatorRole, OrderMessage,
     PAID_STATUSES, Broadcast, BroadcastStatus, CartLine, Category, Order,
     OrderLine, OrderStatus, Product, Promo, PromoType, Stats, User,
 )
@@ -35,6 +35,7 @@ CARTS, ORDERS, PROMOS = "carts", "orders", "promos"
 PROMO_USES, BONUS_TX, BROADCASTS = "promo_uses", "bonus_tx", "broadcasts"
 SETTINGS, SETTINGS_DOC = "settings", "shop"
 OPERATORS = "operators"
+ORDER_MESSAGES = "order_messages"
 
 # Найбільша кодова точка — межа префіксного діапазону в Firestore
 PREFIX_END = "\uf8ff"
@@ -114,7 +115,8 @@ def _order(d: dict | None) -> Order | None:
         receipt_file_id=d.get("receipt_file_id"), contact_name=d.get("contact_name"),
         contact_phone=d.get("contact_phone"), delivery_city=d.get("delivery_city"),
         delivery_address=d.get("delivery_address"), comment=d.get("comment"),
-        admin_note=d.get("admin_note"), referral_paid=d.get("referral_paid", False),
+        admin_note=d.get("admin_note"), tracking_number=d.get("tracking_number"),
+        referral_paid=d.get("referral_paid", False),
         created_at=_dt(d.get("created_at")), search_key=d.get("search_key", ""),
         items=[
             OrderLine(name=i["name"], price=from_cents(i["price_cents"]),
@@ -434,7 +436,7 @@ class FirestoreRepository(Repository):
             "receipt_file_id": None, "contact_name": order.contact_name,
             "contact_phone": order.contact_phone, "delivery_city": order.delivery_city,
             "delivery_address": order.delivery_address, "comment": order.comment,
-            "admin_note": None, "referral_paid": False,
+            "admin_note": None, "tracking_number": None, "referral_paid": False,
             "search_key": f"{order.contact_name or ''} {order.contact_phone or ''}".lower(),
             "created_at": _iso(_now()),
             # Позиції — вкладений масив: замовлення завжди читається цілком,
@@ -746,6 +748,49 @@ class FirestoreRepository(Repository):
         await self.db.delete(PROMOS, promo_id)
         return True
 
+    # -------------------------------------------------- чат замовлення
+
+    async def add_order_message(self, data: dict) -> OrderMessage:
+        doc_id = await self.db.next_id(ORDER_MESSAGES)
+        payload = {
+            "id": doc_id, "order_id": data["order_id"], "user_id": data["user_id"],
+            "direction": data["direction"], "author": data.get("author", ""),
+            "text": data["text"], "tg_message_id": data.get("tg_message_id"),
+            "is_read": data.get("is_read", False), "created_at": _now(),
+        }
+        await self.db.set(ORDER_MESSAGES, doc_id, payload)
+        return _order_message(payload)
+
+    async def list_order_messages(self, order_id, limit: int = 200) -> list[OrderMessage]:
+        rows = await self.db.query(
+            ORDER_MESSAGES, [("order_id", "==", order_id)],
+            order_by=[("created_at", "asc")], limit=limit,
+        )
+        return [_order_message(r) for r in rows]
+
+    async def find_order_by_tg_message(self, tg_message_id: int) -> int | None:
+        rows = await self.db.query(
+            ORDER_MESSAGES, [("tg_message_id", "==", tg_message_id)], limit=1
+        )
+        return rows[0]["order_id"] if rows else None
+
+    async def mark_messages_read(self, order_id) -> int:
+        rows = await self.db.query(ORDER_MESSAGES, [
+            ("order_id", "==", order_id), ("direction", "==", "in"), ("is_read", "==", False),
+        ])
+        for row in rows:
+            await self.db.update(ORDER_MESSAGES, row["id"], {"is_read": True})
+        return len(rows)
+
+    async def unread_counts(self) -> dict[int, int]:
+        rows = await self.db.query(ORDER_MESSAGES, [
+            ("direction", "==", "in"), ("is_read", "==", False),
+        ])
+        counts: dict[int, int] = {}
+        for row in rows:
+            counts[row["order_id"]] = counts.get(row["order_id"], 0) + 1
+        return counts
+
     # ------------------------------------------------------ оператори
 
     async def create_operator(self, data: dict) -> Operator:
@@ -803,4 +848,13 @@ def _operator(doc) -> Operator | None:
         is_active=doc.get("is_active", True),
         created_at=doc.get("created_at"), last_login_at=doc.get("last_login_at"),
         password_hash=doc.get("password_hash", ""),
+    )
+
+
+def _order_message(doc) -> OrderMessage:
+    return OrderMessage(
+        id=doc["id"], order_id=doc["order_id"], user_id=doc["user_id"],
+        direction=doc["direction"], author=doc.get("author", ""), text=doc["text"],
+        tg_message_id=doc.get("tg_message_id"), is_read=doc.get("is_read", False),
+        created_at=doc.get("created_at"),
     )
