@@ -10,8 +10,8 @@ from api.schemas import OrderMessageIn, OrderMessageOut, OrderMessageResult, Ord
 from shop.entities import STATUS_LABELS, OrderStatus
 from shop.repo.base import Repository
 from shop.repo.factory import get_repo
-from shop.services.order_chat import announce_accepted, send_to_client, send_tracking
-from shop.services.shop_service import change_order_status
+from shop.services.order_chat import send_tracking_update, announce_accepted, send_to_client, send_tracking
+from shop.services.shop_service import change_order_status, transition_error
 from shop.telegram import notify_user
 
 log = logging.getLogger(__name__)
@@ -57,6 +57,19 @@ async def patch_order(
     if patch:
         await repo.update_order(order_id, patch)
 
+    # Накладну виправили, коли замовлення вже в дорозі — клієнт має дізнатися
+    new_tracking = (data.tracking_number or "").strip()
+    if (
+        new_tracking
+        and order.status == OrderStatus.SHIPPED
+        and new_tracking != (order.tracking_number or "")
+        and data.status is None
+    ):
+        bot = _bot()
+        if bot:
+            fresh = await repo.get_order(order_id)
+            await send_tracking_update(bot, repo, fresh, new_tracking)
+
     # Перехід у «Відправлено» без накладної залишив би клієнта без
     # найпотрібнішої інформації, тож просимо її одразу
     tracking = (data.tracking_number or order.tracking_number or "").strip()
@@ -64,6 +77,10 @@ async def patch_order(
         raise HTTPException(422, "Вкажіть номер накладної — він потрібен клієнту")
 
     if data.status and data.status != order.status:
+        problem = transition_error(order.status, data.status)
+        if problem:
+            raise HTTPException(409, problem)
+
         # «Прийнято» закріплює замовлення за оператором: клієнт має знати,
         # з ким саме він спілкується
         if data.status == OrderStatus.ACCEPTED:

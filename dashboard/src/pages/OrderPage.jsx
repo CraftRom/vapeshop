@@ -11,10 +11,21 @@ const STATUS_FLOW = [
   { value: 'paid', label: 'Оплачено' },
   { value: 'shipped', label: 'Відправлено' },
   { value: 'done', label: 'Виконано' },
-  { value: 'cancelled', label: 'Скасовано' },
 ]
 
 const PAYMENT = { card: 'На картку', cod: 'Накладений платіж' }
+
+// Дзеркало ALLOWED_TRANSITIONS з бекенду: кнопки недоступних переходів
+// гасимо, щоб оператор не тицяв навмання й не ловив 409
+const ALLOWED = {
+  new: ['confirmed', 'cancelled'],
+  confirmed: ['accepted', 'cancelled'],
+  accepted: ['paid', 'shipped', 'cancelled'],
+  paid: ['shipped', 'cancelled'],
+  shipped: ['done', 'cancelled'],
+  done: [],
+  cancelled: [],
+}
 
 function timestamp(value) {
   if (!value) return ''
@@ -198,10 +209,18 @@ export default function OrderPage() {
 
   // Відповідь клієнта приходить у бот, а не в панель — тож підтягуємо самі
   useEffect(() => {
-    const timer = setInterval(() => {
+    // Прихована вкладка нічого не показує, а кожен запит на Vercel —
+    // це виклик функції. Опитуємо лише коли на сторінку дивляться.
+    const poll = () => {
+      if (document.hidden) return
       api.orders.messages(id).then(setMessages).catch(() => {})
-    }, 15000)
-    return () => clearInterval(timer)
+    }
+    const timer = setInterval(poll, 15000)
+    document.addEventListener('visibilitychange', poll)
+    return () => {
+      clearInterval(timer)
+      document.removeEventListener('visibilitychange', poll)
+    }
   }, [id])
 
   const patch = async (payload, okText) => {
@@ -246,6 +265,7 @@ export default function OrderPage() {
           <h1 style={{ marginTop: 8 }}>Замовлення №{order.id}</h1>
           <p>
             {timestamp(order.created_at)} · {PAYMENT[order.payment_method] || order.payment_method}
+            {order.operator_name && ` · веде ${order.operator_name}`}
           </p>
         </div>
       </div>
@@ -257,17 +277,42 @@ export default function OrderPage() {
           <div className="card" style={{ marginBottom: 18 }}>
             <h2 style={{ marginTop: 0 }}>Статус</h2>
             <div className="row" style={{ flexWrap: 'wrap', gap: 8 }}>
-              {STATUS_FLOW.map((s) => (
-                <button
-                  key={s.value}
-                  className={order.status === s.value ? 'btn small' : 'btn ghost small'}
-                  disabled={busy || order.status === s.value}
-                  onClick={() => changeStatus(s.value)}
-                >
-                  {s.label}
-                </button>
-              ))}
+              {STATUS_FLOW.map((s) => {
+                const current = order.status === s.value
+                const reachable = (ALLOWED[order.status] || []).includes(s.value)
+                return (
+                  <button
+                    key={s.value}
+                    className={current ? 'btn small' : 'btn ghost small'}
+                    disabled={busy || current || !reachable}
+                    title={
+                      current ? 'Поточний статус'
+                        : reachable ? '' : 'Недоступно з поточного статусу'
+                    }
+                    onClick={() => changeStatus(s.value)}
+                  >
+                    {s.label}
+                  </button>
+                )
+              })}
             </div>
+
+            {(ALLOWED[order.status] || []).includes('cancelled') && (
+              <button
+                className="btn danger small"
+                style={{ marginTop: 10 }}
+                disabled={busy}
+                onClick={() => {
+                  // Скасування необоротне: повертає залишки й бонуси,
+                  // а зворотного шляху зі скасованого немає
+                  if (confirm(`Скасувати замовлення №${order.id}? Це необоротно.`)) {
+                    changeStatus('cancelled')
+                  }
+                }}
+              >
+                Скасувати замовлення
+              </button>
+            )}
 
             <Field
               label="Номер накладної"

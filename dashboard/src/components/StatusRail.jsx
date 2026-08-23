@@ -23,18 +23,37 @@ export const STATUS_LABELS = {
   cancelled: 'Скасоване',
 }
 
+// Дзеркало ALLOWED_TRANSITIONS з бекенду. Без нього доріжка пропонувала б
+// переходи, які сервер відхилить — оператор бачив би 409 після кліку.
+const ALLOWED = {
+  new: ['confirmed', 'cancelled'],
+  confirmed: ['accepted', 'cancelled'],
+  accepted: ['paid', 'shipped', 'cancelled'],
+  paid: ['shipped', 'cancelled'],
+  shipped: ['done', 'cancelled'],
+  done: [],
+  cancelled: [],
+}
+
 export default function StatusRail({ status, onChange, disabled = false }) {
   if (status === 'cancelled') {
+    // Повернути скасоване не можна: скасування вже повернуло залишки
+    // на склад і бонуси клієнту, а повторне списання зіпсувало б облік
     return (
       <div className="rail">
         <button className="cancelled" disabled style={{ borderRadius: 8 }}>
           Скасоване
         </button>
-        {!disabled && (
-          <button onClick={() => onChange('new')} title="Повернути в роботу" style={{ flex: '0 0 34px' }}>
-            ↺
-          </button>
-        )}
+      </div>
+    )
+  }
+
+  if (status === 'done') {
+    return (
+      <div className="rail">
+        <button className="passed" disabled style={{ borderRadius: 8 }}>
+          Виконане
+        </button>
       </div>
     )
   }
@@ -45,13 +64,20 @@ export default function StatusRail({ status, onChange, disabled = false }) {
     <div className="rail">
       {STAGES.map((stage, index) => {
         const state = index < currentIndex ? 'passed' : index === currentIndex ? 'current' : ''
+        const reachable = (ALLOWED[status] || []).includes(stage.key)
         return (
           <button
             key={stage.key}
             className={state}
-            disabled={disabled || index === currentIndex}
+            disabled={disabled || index === currentIndex || !reachable}
             onClick={() => onChange(stage.key)}
-            title={`Перевести в «${STATUS_LABELS[stage.key]}»`}
+            title={
+              index === currentIndex
+                ? 'Поточний статус'
+                : reachable
+                  ? `Перевести в «${STATUS_LABELS[stage.key]}»`
+                  : 'Недоступно з поточного статусу'
+            }
           >
             {stage.label}
           </button>

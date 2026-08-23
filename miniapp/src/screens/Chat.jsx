@@ -80,8 +80,14 @@ export function ChatRoom({ config, order, onBack }) {
 
   // Оператор відповідає з панелі, тож стрічку доводиться підтягувати самим
   useEffect(() => {
-    const timer = setInterval(() => load(true), 12000)
-    return () => clearInterval(timer)
+    // Згорнутий Mini App не показує стрічку — не витрачаємо на нього запити
+    const poll = () => !document.hidden && load(true)
+    const timer = setInterval(poll, 12000)
+    document.addEventListener('visibilitychange', poll)
+    return () => {
+      clearInterval(timer)
+      document.removeEventListener('visibilitychange', poll)
+    }
   }, [load])
 
   useEffect(() => {

@@ -95,6 +95,8 @@ class OrderOut(ORMModel):
     comment: str | None
     admin_note: str | None
     tracking_number: str | None = None
+    operator_id: int | None = None
+    operator_name: str = ""
     created_at: datetime | None = None
     items: list[OrderItemOut] = []
     user: OrderCustomer | None = None

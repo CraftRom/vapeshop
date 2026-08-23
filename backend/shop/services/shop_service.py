@@ -12,7 +12,9 @@ from decimal import Decimal
 
 from shop.config import settings
 from shop.services.shop_settings import get_shop_settings
-from shop.entities import Order, OrderLine, OrderStatus, Promo, PromoType, User
+from shop.entities import (
+    STATUS_LABELS, Order, OrderLine, OrderStatus, Promo, PromoType, User,
+)
 from shop.repo.base import Repository
 
 
@@ -184,6 +186,41 @@ async def create_order(
 
     await repo.clear_cart(user.id)
     return order, None
+
+
+# Куди можна перейти з кожного статусу.
+#
+# Перевірка потрібна не заради формальності: перехід одразу у «Виконано»
+# нараховує реферальну винагороду й списує залишки повз оплату, а зворотний
+# шлях із закритого замовлення повернув би бонуси й товар удруге.
+ALLOWED_TRANSITIONS: dict[OrderStatus, set[OrderStatus]] = {
+    OrderStatus.NEW: {OrderStatus.CONFIRMED, OrderStatus.CANCELLED},
+    OrderStatus.CONFIRMED: {OrderStatus.ACCEPTED, OrderStatus.CANCELLED},
+    OrderStatus.ACCEPTED: {OrderStatus.PAID, OrderStatus.SHIPPED, OrderStatus.CANCELLED},
+    OrderStatus.PAID: {OrderStatus.SHIPPED, OrderStatus.CANCELLED},
+    OrderStatus.SHIPPED: {OrderStatus.DONE, OrderStatus.CANCELLED},
+    OrderStatus.DONE: set(),
+    OrderStatus.CANCELLED: set(),
+}
+
+
+def transition_error(current: OrderStatus, target: OrderStatus) -> str | None:
+    """Пояснення, чому перехід неможливий. None — якщо дозволений."""
+    if current == target:
+        return None
+    allowed = ALLOWED_TRANSITIONS.get(current, set())
+    if target in allowed:
+        return None
+
+    if not allowed:
+        return (
+            f"Замовлення вже {STATUS_LABELS[current].lower()} — змінити статус не можна."
+        )
+    names = ", ".join(f"«{STATUS_LABELS[s]}»" for s in
+                      sorted(allowed, key=lambda x: x.value))
+    return (
+        f"Зі статусу «{STATUS_LABELS[current]}» можна перейти лише в {names}."
+    )
 
 
 async def change_order_status(

@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timedelta
 from html import escape
 
 from aiogram.types import (
@@ -20,12 +21,17 @@ from shop.repo.base import Repository
 
 log = logging.getLogger(__name__)
 
-# Статуси, за яких листування ще має сенс. Виконане чи скасоване
-# замовлення закривається — інакше стрічка ніколи не порожніє.
+# Статуси, за яких листування триває без обмежень.
 OPEN_STATUSES = (
     OrderStatus.NEW, OrderStatus.CONFIRMED, OrderStatus.ACCEPTED,
     OrderStatus.PAID, OrderStatus.SHIPPED,
 )
+
+# Скільки днів після закриття замовлення розмова ще доступна.
+# Без цього клієнт, який щойно отримав посилку і хоче щось уточнити,
+# упирався б у «немає активних замовлень» — саме тоді, коли питання
+# найімовірніші: недостача, брак, повернення.
+CLOSED_GRACE_DAYS = 7
 
 
 def esc(value) -> str:
@@ -146,8 +152,61 @@ async def send_tracking(bot, repo: Repository, order: Order, tracking: str) -> b
     return True
 
 
+def is_chattable(order: Order) -> bool:
+    """Чи можна ще писати щодо цього замовлення."""
+    if order.status in OPEN_STATUSES:
+        return True
+    if not order.created_at:
+        return False
+    closed_for = datetime.now(order.created_at.tzinfo) - order.created_at
+    return closed_for <= timedelta(days=CLOSED_GRACE_DAYS)
+
+
+async def send_tracking_update(bot, repo: Repository, order: Order, tracking: str) -> bool:
+    """Накладну виправили вже після відправлення.
+
+    Мовчазна заміна лишила б клієнта зі старим номером, за яким посилка
+    не знаходиться — і він вважав би, що її не відправили.
+    """
+    user = order.user or await repo.get_user(order.user_id)
+    if not user:
+        return False
+    try:
+        sent = await bot.send_message(
+            user.tg_id,
+            f"📦 <b>Замовлення №{order.id}: накладну оновлено</b>\n\n"
+            f"Новий номер:\n<code>{esc(tracking)}</code>\n\n"
+            "Попередній номер більше не актуальний.",
+            reply_markup=chat_keyboard(order.id),
+        )
+    except Exception:
+        log.warning("Не вдалося повідомити про заміну ТТН №%s", order.id, exc_info=True)
+        return False
+
+    await repo.add_order_message({
+        "order_id": order.id, "user_id": order.user_id, "direction": "out",
+        "author": "Система", "text": f"Накладну змінено на {tracking}",
+        "tg_message_id": sent.message_id, "is_read": True,
+    })
+    return True
+
+
 async def open_orders_for(repo: Repository, user_id: int) -> list[Order]:
-    """Замовлення клієнта, у межах яких листування ще актуальне."""
+    """Усе, про що ще можна писати — разом із закритими в межах грейс-періоду.
+
+    Використовується для показу списку й вибору кнопкою.
+    """
+    orders = await repo.list_orders(user_id=user_id, limit=20)
+    return [o for o in orders if is_chattable(o)]
+
+
+async def active_orders_for(repo: Repository, user_id: int) -> list[Order]:
+    """Лише незакриті замовлення — для автовизначення адресата.
+
+    Грейс-період навмисно не враховується: інакше щойно виконане замовлення
+    робило б вибір неоднозначним, і клієнта питали б кнопками навіть тоді,
+    коли активне замовлення в нього одне.
+    """
     orders = await repo.list_orders(user_id=user_id, limit=20)
     return [o for o in orders if o.status in OPEN_STATUSES]
 
@@ -164,16 +223,17 @@ async def route_incoming(repo: Repository, user, message) -> int | None:
         if order_id:
             return order_id
 
-    open_orders = await open_orders_for(repo, user.id)
-    open_ids = {o.id for o in open_orders}
-
     # Замовлення, яке клієнт обрав кнопкою. Зберігається в базі, тож
     # переживає холодний старт функції — на відміну від стану FSM.
-    if user.chat_order_id in open_ids:
+    # Дозволяємо й закриті в межах грейс-періоду: клієнт міг свідомо
+    # обрати щойно виконане, щоб уточнити щось по ньому.
+    chattable = {o.id for o in await open_orders_for(repo, user.id)}
+    if user.chat_order_id in chattable:
         return user.chat_order_id
 
-    if len(open_orders) == 1:
-        return open_orders[0].id
+    active = await active_orders_for(repo, user.id)
+    if len(active) == 1:
+        return active[0].id
     return None
 
 

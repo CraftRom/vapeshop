@@ -129,7 +129,10 @@ export default function Orders() {
 
   // Клієнт відповідає в боті, а не в панелі — тож лічильник опитуємо самі
   useEffect(() => {
-    const poll = () => api.orders.unread().then(setUnread).catch(() => {})
+    const poll = () => {
+      if (document.hidden) return
+      api.orders.unread().then(setUnread).catch(() => {})
+    }
     poll()
     const timer = setInterval(poll, 20000)
     document.addEventListener('visibilitychange', poll)
