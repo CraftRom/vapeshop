@@ -227,6 +227,8 @@ class StatsOut(BaseModel):
     customers_total: int
     customers_period: int
     avg_check: Decimal
+    avg_check_period: Decimal = Decimal(0)
+    orders_period: int = 0
     low_stock: int
 
 

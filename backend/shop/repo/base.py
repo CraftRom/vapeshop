@@ -161,7 +161,8 @@ class Repository(ABC):
     @abstractmethod
     async def list_orders(
         self, status: OrderStatus | None = None, search: str | None = None,
-        user_id: int | None = None, limit: int = 100, offset: int = 0,
+        user_id: int | None = None, date_from: str | None = None,
+        date_to: str | None = None, limit: int = 100, offset: int = 0,
     ) -> list[Order]: ...
 
     @abstractmethod
@@ -239,6 +240,15 @@ class Repository(ABC):
     @abstractmethod
     async def stats_top_products(self, days: int, limit: int) -> list[dict]: ...
 
+    @abstractmethod
+    async def stats_by_operator(self, days: int) -> list[dict]:
+        """Виторг у розрізі операторів: {operator_name, orders, revenue, avg_check}.
+
+        Рахуються замовлення, які оператор узяв у роботу. Замовлення без
+        оператора зводяться в окремий рядок — інакше сума розрізу не збіглася б
+        із загальним виторгом, і це виглядало б як помилка.
+        """
+
     # -------------------------------------------------- чат замовлення
 
     @abstractmethod
@@ -280,6 +290,14 @@ class Repository(ABC):
 
     @abstractmethod
     async def update_operator(self, operator_id: int, data: dict) -> Operator | None: ...
+
+    @abstractmethod
+    async def purge_operator(self, operator_id: int) -> bool:
+        """Стирає обліковий запис назавжди.
+
+        Замовлення зберігають імʼя оператора рядком, тож історія лишається
+        читабельною; обнуляється лише посилання на видалений запис.
+        """
 
     @abstractmethod
     async def delete_operator(self, operator_id: int) -> bool:

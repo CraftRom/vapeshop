@@ -110,6 +110,7 @@ export const api = {
   login: (login, password) => request('/auth/login', { method: 'POST', body: { login, password } }),
 
   stats: {
+    byOperator: (days) => request('/stats/by-operator', { params: { days } }),
     summary: (days = 30) => request('/stats/summary', { params: { days } }),
     series: (days = 30) => request('/stats/series', { params: { days } }),
     topProducts: (days = 30) => request('/stats/top-products', { params: { days } }),
@@ -166,6 +167,7 @@ export const api = {
     create: (data) => request('/operators', { method: 'POST', body: data }),
     update: (id, data) => request(`/operators/${id}`, { method: 'PUT', body: data }),
     remove: (id) => request(`/operators/${id}`, { method: 'DELETE' }),
+    purge: (id) => request(`/operators/${id}/purge`, { method: 'DELETE' }),
   },
 
   settings: {

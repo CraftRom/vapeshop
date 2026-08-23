@@ -20,7 +20,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 from shop.entities import (
-    Operator, OperatorRole, OrderMessage,
+    Operator, OperatorRole, OrderMessage, operator_stats_rows,
     PAID_STATUSES, Broadcast, BroadcastStatus, CartLine, Category, Order,
     OrderLine, OrderStatus, Product, Promo, PromoType, Stats, User,
 )
@@ -468,16 +468,29 @@ class FirestoreRepository(Repository):
             entity.user = await self.get_user(entity.user_id)
         return entity
 
-    async def list_orders(self, status=None, search=None, user_id=None, limit=100, offset=0):
+    async def list_orders(self, status=None, search=None, user_id=None,
+                          date_from=None, date_to=None, limit=100, offset=0):
         filters = []
         if status:
             filters.append(("status", "==", status.value))
         if user_id:
             filters.append(("user_id", "==", user_id))
+        # Діапазон дат відсіюємо в памʼяті: сортування вже йде по created_at,
+        # а додавати нерівності у фільтр означало б ще один складений індекс
+        # під кожну комбінацію зі статусом і клієнтом.
+        narrowing = bool(search or date_from or date_to)
         rows = await self.db.query(
             ORDERS, filters, order_by=[("created_at", "desc")],
-            limit=None if search else limit, offset=0 if search else offset,
+            limit=None if narrowing else limit, offset=0 if narrowing else offset,
         )
+        if date_from:
+            start = str(date_from)[:10]
+            rows = [r for r in rows if (r.get("created_at") or "")[:10] >= start]
+        if date_to:
+            end = str(date_to)[:10]
+            rows = [r for r in rows if (r.get("created_at") or "")[:10] <= end]
+        if not search and narrowing:
+            rows = rows[offset:offset + limit]
         if search:
             needle = search.lower()
             rows = [r for r in rows if needle in r.get("search_key", "")][offset:offset + limit]
@@ -497,6 +510,10 @@ class FirestoreRepository(Repository):
         for key, value in data.items():
             if key == "status":
                 payload["status"] = value.value if hasattr(value, "value") else value
+            elif isinstance(value, datetime):
+                # Дати тут зберігаються рядками ISO; datetime у документі
+                # ламав би подальші порівняння в статистиці
+                payload[key] = _iso(value)
             elif key.endswith("_cents") or not isinstance(value, Decimal):
                 payload[key] = value
             else:
@@ -663,13 +680,13 @@ class FirestoreRepository(Repository):
     # ------------------------------------------------------------ stats
 
     async def stats_summary(self, days: int) -> Stats:
-        since = _iso(_now() - timedelta(days=days))
+        # days <= 0 — за весь час
+        since = _iso(_now() - timedelta(days=days)) if days > 0 else ""
         paid = await self.db.query(ORDERS, [("status", "in", PAID_VALUES)])
 
         revenue_total = sum(r.get("total_cents", 0) for r in paid)
-        revenue_period = sum(
-            r.get("total_cents", 0) for r in paid if (r.get("created_at") or "") >= since
-        )
+        in_period = [r for r in paid if (r.get("created_at") or "") >= since]
+        revenue_period = sum(r.get("total_cents", 0) for r in in_period)
         users = await self.db.query(USERS)
 
         return Stats(
@@ -680,8 +697,29 @@ class FirestoreRepository(Repository):
             customers_total=len(users),
             customers_period=sum(1 for u in users if (u.get("created_at") or "") >= since),
             avg_check=from_cents(revenue_total // len(paid)) if paid else Decimal(0),
+            avg_check_period=(
+                from_cents(revenue_period // len(in_period)) if in_period else Decimal(0)
+            ),
+            orders_period=len(in_period),
             low_stock=await self.count_low_stock(),
         )
+
+    async def stats_by_operator(self, days: int) -> list[dict]:
+        since = _iso(_now() - timedelta(days=days)) if days > 0 else ""
+        rows = await self.db.query(ORDERS, [("status", "in", PAID_VALUES)])
+
+        totals: dict[str, list] = {}
+        for row in rows:
+            if (row.get("created_at") or "") < since:
+                continue
+            name = row.get("operator_name") or ""
+            bucket = totals.setdefault(name, [0, 0])
+            bucket[0] += 1
+            bucket[1] += row.get("total_cents", 0)
+
+        return operator_stats_rows([
+            (name, count, from_cents(cents)) for name, (count, cents) in totals.items()
+        ])
 
     async def stats_series(self, days: int) -> list[dict]:
         since = _iso(_now() - timedelta(days=days))
@@ -840,6 +878,14 @@ class FirestoreRepository(Repository):
         if not await self.db.update(OPERATORS, operator_id, dict(data)):
             return None
         return _operator(await self.db.get(OPERATORS, operator_id))
+
+    async def purge_operator(self, operator_id) -> bool:
+        if not await self.db.get(OPERATORS, operator_id):
+            return False
+        for row in await self.db.query(ORDERS, [("operator_id", "==", operator_id)]):
+            await self.db.update(ORDERS, row["id"], {"operator_id": None})
+        await self.db.delete(OPERATORS, operator_id)
+        return True
 
     async def delete_operator(self, operator_id) -> bool:
         return bool(await self.db.update(OPERATORS, operator_id, {"is_active": False}))

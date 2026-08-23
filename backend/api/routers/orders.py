@@ -23,11 +23,17 @@ router = APIRouter(dependencies=[Depends(require_staff)])
 async def list_orders(
     status: OrderStatus | None = None,
     search: str | None = None,
+    # Дати у форматі YYYY-MM-DD, обидві межі включно
+    date_from: str | None = Query(None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    date_to: str | None = Query(None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
     limit: int = Query(100, le=500),
     offset: int = 0,
     repo: Repository = Depends(get_repo),
 ):
-    return await repo.list_orders(status=status, search=search, limit=limit, offset=offset)
+    return await repo.list_orders(
+        status=status, search=search, date_from=date_from, date_to=date_to,
+        limit=limit, offset=offset,
+    )
 
 
 @router.get("/{order_id}", response_model=OrderOut)

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 
 import { api } from '../api'
-import { Empty, ErrorBar, Field, Loading, Modal, useToast } from '../components/ui'
+import { Empty, ErrorBar, Field, Loading, Modal, confirmPurge, useToast } from '../components/ui'
 
 const ROLE_LABEL = { admin: 'Адміністратор', operator: 'Оператор' }
 
@@ -139,6 +139,17 @@ export default function Operators() {
     }
   }
 
+  const purge = async (operator) => {
+    if (!confirmPurge(operator.login, 'Обліковий запис зникне назавжди.')) return
+    try {
+      await api.operators.purge(operator.id)
+      notify('Обліковий запис стерто')
+      load()
+    } catch (err) {
+      notify(err.message, 'bad')
+    }
+  }
+
   if (error && !rows) return <ErrorBar error={error} />
   if (!rows) return <Loading />
 
@@ -199,8 +210,16 @@ export default function Operators() {
                       <button
                         className={o.is_active ? 'btn danger small' : 'btn small ghost'}
                         onClick={() => toggle(o)}
+                        title="Доступ закривається, історія дій лишається"
                       >
                         {o.is_active ? 'Вимкнути' : 'Увімкнути'}
+                      </button>
+                      <button
+                        className="btn danger small"
+                        onClick={() => purge(o)}
+                        title="Стерти запис назавжди. Імʼя в замовленнях збережеться"
+                      >
+                        Стерти
                       </button>
                     </div>
                   </td>

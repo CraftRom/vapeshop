@@ -10,9 +10,19 @@ from shop.repo.factory import get_repo
 router = APIRouter(dependencies=[Depends(require_staff)])
 
 
+# days=0 — за весь час. Окремий прапорець замість магічного числа зробив би
+# API незручним для фронтенду, де період вибирається одним селектом.
 @router.get("/summary", response_model=StatsOut)
-async def summary(days: int = Query(30, ge=1, le=365), repo: Repository = Depends(get_repo)):
+async def summary(days: int = Query(30, ge=0, le=3650), repo: Repository = Depends(get_repo)):
     return await repo.stats_summary(days)
+
+
+@router.get("/by-operator")
+async def by_operator(
+    days: int = Query(30, ge=0, le=3650), repo: Repository = Depends(get_repo)
+):
+    """Виторг у розрізі операторів за період."""
+    return await repo.stats_by_operator(days)
 
 
 @router.get("/series", response_model=list[SeriesPoint])
@@ -22,7 +32,7 @@ async def series(days: int = Query(30, ge=7, le=365), repo: Repository = Depends
 
 @router.get("/top-products", response_model=list[TopProduct])
 async def top_products(
-    days: int = Query(30, ge=1, le=365),
+    days: int = Query(30, ge=0, le=3650),
     limit: int = Query(10, le=50),
     repo: Repository = Depends(get_repo),
 ):

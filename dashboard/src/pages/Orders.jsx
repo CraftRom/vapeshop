@@ -108,6 +108,8 @@ export default function Orders() {
   const notify = useToast()
   const [orders, setOrders] = useState(null)
   const [status, setStatus] = useState('')
+  const [dateFrom, setDateFrom] = useState('')
+  const [dateTo, setDateTo] = useState('')
   const [search, setSearch] = useState('')
   const [error, setError] = useState('')
   const [selected, setSelected] = useState(null)
@@ -117,11 +119,16 @@ export default function Orders() {
   const load = useCallback(async () => {
     setError('')
     try {
-      setOrders(await api.orders.list({ status, search }))
+      setOrders(await api.orders.list({
+        status, search,
+        // Порожнє поле не надсилаємо: бекенд перевіряє формат дати
+        date_from: dateFrom || undefined,
+        date_to: dateTo || undefined,
+      }))
     } catch (err) {
       setError(err.message)
     }
-  }, [status, search])
+  }, [status, search, dateFrom, dateTo])
 
   useEffect(() => {
     const timer = setTimeout(load, search ? 350 : 0)
@@ -182,6 +189,32 @@ export default function Orders() {
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
+        <input
+          className="input"
+          type="date"
+          value={dateFrom}
+          max={dateTo || undefined}
+          onChange={(e) => setDateFrom(e.target.value)}
+          title="Від дати"
+          style={{ maxWidth: 160 }}
+        />
+        <input
+          className="input"
+          type="date"
+          value={dateTo}
+          min={dateFrom || undefined}
+          onChange={(e) => setDateTo(e.target.value)}
+          title="По дату включно"
+          style={{ maxWidth: 160 }}
+        />
+        {(dateFrom || dateTo) && (
+          <button
+            className="btn ghost small"
+            onClick={() => { setDateFrom(''); setDateTo('') }}
+          >
+            Скинути дати
+          </button>
+        )}
         <div className="spacer" />
         <button className="btn ghost small" onClick={load}>Оновити</button>
       </div>

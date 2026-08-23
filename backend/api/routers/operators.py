@@ -73,6 +73,30 @@ async def update_operator(
     return await repo.update_operator(operator_id, payload)
 
 
+@router.delete("/{operator_id}/purge", status_code=204)
+async def purge_operator(
+    operator_id: int,
+    who: Principal = Depends(require_admin),
+    repo: Repository = Depends(get_repo),
+):
+    """Остаточне видалення. Історія замовлень зберігає імʼя рядком."""
+    if who.operator_id == operator_id:
+        raise HTTPException(409, "Не можна стерти власний обліковий запис")
+
+    target = await repo.get_operator(operator_id)
+    if not target:
+        raise HTTPException(404, "Оператора не знайдено")
+
+    # Останнього адміністратора стерти нікому: система лишилась би без
+    # доступу до керування, якби пароль із .env теж загубився
+    if target.is_admin:
+        admins = [o for o in await repo.list_operators() if o.is_admin and o.is_active]
+        if len(admins) <= 1:
+            raise HTTPException(409, "Це єдиний адміністратор — спершу призначте іншого")
+
+    await repo.purge_operator(operator_id)
+
+
 @router.delete("/{operator_id}", status_code=204)
 async def delete_operator(
     operator_id: int,

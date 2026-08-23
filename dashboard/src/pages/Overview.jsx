@@ -6,10 +6,22 @@ import { ErrorBar, Loading, money } from '../components/ui'
 
 const RevenueChart = lazy(() => import('../components/RevenueChart'))
 
+/** Днів від початку поточного календарного місяця, включно з сьогодні.
+ *
+ * «Цей місяць» ≠ «30 днів»: власник звіряється з календарем, а не з
+ * ковзним вікном, і 3 березня має бачити три дні, а не місяць.
+ */
+function daysThisMonth() {
+  const now = new Date()
+  return now.getDate()
+}
+
 const PERIODS = [
+  { days: 1, label: 'Сьогодні' },
   { days: 7, label: '7 днів' },
-  { days: 30, label: '30 днів' },
+  { days: daysThisMonth(), label: 'Цей місяць' },
   { days: 90, label: '90 днів' },
+  { days: 0, label: 'Весь час' },
 ]
 
 function Metric({ label, value, sub, tone }) {
@@ -34,12 +46,14 @@ export default function Overview() {
 
     Promise.all([
       api.stats.summary(days),
-      api.stats.series(Math.max(days, 7)),
+      // Графік завжди хоча б за тиждень: на одній точці він безглуздий
+      api.stats.series(days === 0 ? 90 : Math.max(days, 7)),
       api.stats.topProducts(days),
       api.stats.breakdown(),
+      api.stats.byOperator(days),
     ])
-      .then(([summary, series, top, breakdown]) => {
-        if (!cancelled) setData({ summary, series, top, breakdown })
+      .then(([summary, series, top, breakdown, operators]) => {
+        if (!cancelled) setData({ summary, series, top, breakdown, operators })
       })
       .catch((err) => !cancelled && setError(err.message))
 
@@ -82,13 +96,13 @@ export default function Overview() {
             <Metric
               label="Нові замовлення"
               value={data.summary.orders_new}
-              sub={`Усього замовлень: ${data.summary.orders_total}`}
+              sub={`Оплачених за період: ${data.summary.orders_period}`}
               tone={data.summary.orders_new > 0 ? 'warn' : ''}
             />
             <Metric
-              label="Середній чек"
-              value={money(data.summary.avg_check)}
-              sub="За оплаченими замовленнями"
+              label="Середній чек за період"
+              value={money(data.summary.avg_check_period)}
+              sub={`За весь час: ${money(data.summary.avg_check)}`}
             />
             <Metric
               label="Клієнтів"
@@ -162,6 +176,36 @@ export default function Overview() {
                 {data.breakdown.length === 0 && <p className="muted">Замовлень ще немає.</p>}
               </div>
             </div>
+          </div>
+
+          <div className="card">
+            <h2>Оператори за період</h2>
+            {data.operators.length === 0 ? (
+              <p className="muted">За цей період оплачених замовлень немає.</p>
+            ) : (
+              <div className="table-wrap" style={{ marginTop: 12 }}>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Оператор</th>
+                      <th className="num">Замовлень</th>
+                      <th className="num">Виручка</th>
+                      <th className="num">Середній чек</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.operators.map((o) => (
+                      <tr key={o.operator_name}>
+                        <td>{o.operator_name}</td>
+                        <td className="num">{o.orders}</td>
+                        <td className="num">{money(o.revenue)}</td>
+                        <td className="num">{money(o.avg_check)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         </div>
       )}

@@ -12,7 +12,7 @@ from sqlalchemy.orm import selectinload
 
 from shop import models as m
 from shop.entities import (
-    Operator, OperatorRole, OrderMessage,
+    Operator, OperatorRole, OrderMessage, operator_stats_rows,
     PAID_STATUSES, Broadcast, BroadcastStatus, CartLine, Category, Order,
     OrderLine, OrderStatus, Product, Promo, Stats, User,
 )
@@ -416,7 +416,8 @@ class SqlRepository(Repository):
         )
         return _order(row, with_user=True)
 
-    async def list_orders(self, status=None, search=None, user_id=None, limit=100, offset=0):
+    async def list_orders(self, status=None, search=None, user_id=None,
+                          date_from=None, date_to=None, limit=100, offset=0):
         query = (
             select(m.Order)
             .options(selectinload(m.Order.items), selectinload(m.Order.user))
@@ -428,6 +429,12 @@ class SqlRepository(Repository):
             query = query.where(m.Order.user_id == user_id)
         if search:
             query = query.where(m.Order.search_key.like(f"%{search.lower()}%"))
+        if date_from:
+            query = query.where(m.Order.created_at >= _day_start(date_from))
+        if date_to:
+            # Кінець доби включно: інакше фільтр «по сьогодні» відкидав би
+            # усе, що оформили сьогодні після півночі
+            query = query.where(m.Order.created_at < _day_end(date_to))
         return [_order(r, with_user=True) for r in await self.s.scalars(query)]
 
     async def update_order(self, order_id, data: dict) -> Order | None:
@@ -577,7 +584,12 @@ class SqlRepository(Repository):
     # ------------------------------------------------------------ stats
 
     async def stats_summary(self, days: int) -> Stats:
-        since = datetime.now(timezone.utc) - timedelta(days=days)
+        # days <= 0 означає «за весь час»: без цього не було б як подивитись
+        # підсумок магазину, лише останні N днів
+        since = (
+            datetime.now(timezone.utc) - timedelta(days=days)
+            if days > 0 else datetime.fromtimestamp(0, tz=timezone.utc)
+        )
         paid = m.Order.status.in_(PAID_SQL)
 
         revenue_total = await self.s.scalar(
@@ -586,6 +598,8 @@ class SqlRepository(Repository):
             select(func.coalesce(func.sum(m.Order.total), 0))
             .where(paid, m.Order.created_at >= since))
         paid_count = await self.s.scalar(select(func.count(m.Order.id)).where(paid)) or 0
+        period_count = await self.s.scalar(
+            select(func.count(m.Order.id)).where(paid, m.Order.created_at >= since)) or 0
 
         return Stats(
             revenue_total=_dec(revenue_total),
@@ -597,8 +611,29 @@ class SqlRepository(Repository):
                 select(func.count(m.User.id)).where(m.User.created_at >= since)) or 0,
             avg_check=(_dec(revenue_total) / paid_count).quantize(Decimal("0.01"))
             if paid_count else Decimal(0),
+            avg_check_period=(_dec(revenue_period) / period_count).quantize(Decimal("0.01"))
+            if period_count else Decimal(0),
+            orders_period=period_count,
             low_stock=await self.count_low_stock(),
         )
+
+    async def stats_by_operator(self, days: int) -> list[dict]:
+        since = (
+            datetime.now(timezone.utc) - timedelta(days=days)
+            if days > 0 else datetime.fromtimestamp(0, tz=timezone.utc)
+        )
+        rows = await self.s.execute(
+            select(
+                m.Order.operator_name,
+                func.count(m.Order.id),
+                func.coalesce(func.sum(m.Order.total), 0),
+            )
+            .where(m.Order.status.in_(PAID_SQL), m.Order.created_at >= since)
+            .group_by(m.Order.operator_name)
+        )
+        return operator_stats_rows([
+            (name or "", count, _dec(revenue)) for name, count, revenue in rows
+        ])
 
     async def stats_series(self, days: int) -> list[dict]:
         since = datetime.now(timezone.utc) - timedelta(days=days)
@@ -776,6 +811,19 @@ class SqlRepository(Repository):
         await self.s.refresh(row)
         return _operator(row)
 
+    async def purge_operator(self, operator_id) -> bool:
+        row = await self.s.get(m.Operator, operator_id)
+        if not row:
+            return False
+        # Імʼя в замовленні — знімок, воно лишається; прибираємо тільки звʼязок
+        await self.s.execute(
+            update(m.Order).where(m.Order.operator_id == operator_id)
+            .values(operator_id=None)
+        )
+        await self.s.delete(row)
+        await self._commit()
+        return True
+
     async def delete_operator(self, operator_id) -> bool:
         row = await self.s.get(m.Operator, operator_id)
         if not row:
@@ -803,3 +851,11 @@ def _order_message(row) -> OrderMessage:
         tg_message_id=row.tg_message_id, is_read=row.is_read, created_at=row.created_at,
         file_id=row.file_id, file_kind=row.file_kind, file_name=row.file_name,
     )
+
+
+def _day_start(value: str) -> datetime:
+    return datetime.fromisoformat(str(value)[:10]).replace(tzinfo=timezone.utc)
+
+
+def _day_end(value: str) -> datetime:
+    return _day_start(value) + timedelta(days=1)

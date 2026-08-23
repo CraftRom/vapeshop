@@ -203,7 +203,11 @@ class Stats:
     orders_new: int = 0
     customers_total: int = 0
     customers_period: int = 0
+    # avg_check рахується за весь час, avg_check_period — за обраний період.
+    # Різниця важлива: власник дивиться, чи росте чек, а не яким він був колись.
     avg_check: Decimal = Decimal(0)
+    avg_check_period: Decimal = Decimal(0)
+    orders_period: int = 0
     low_stock: int = 0
 
 
@@ -252,3 +256,24 @@ class OrderMessage:
     @property
     def from_operator(self) -> bool:
         return self.direction == "out"
+
+
+def operator_stats_rows(raw: list[tuple[str, int, Decimal]]) -> list[dict]:
+    """Приводить розріз по операторах до єдиного вигляду для обох баз.
+
+    Замовлення без оператора не викидаються, а зводяться в рядок
+    «Без оператора»: інакше сума розрізу не збігалася б із загальним
+    виторгом, і це виглядало б як втрачені гроші.
+    """
+    rows = []
+    for name, orders, revenue in raw:
+        if not orders:
+            continue
+        rows.append({
+            "operator_name": name or "Без оператора",
+            "orders": orders,
+            "revenue": revenue,
+            "avg_check": (revenue / orders).quantize(Decimal("0.01")) if orders else Decimal(0),
+        })
+    rows.sort(key=lambda r: r["revenue"], reverse=True)
+    return rows
