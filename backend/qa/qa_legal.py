@@ -36,4 +36,13 @@ print("\n--- вік у документах ---")
 c.put("/api/settings", json={"min_age":21}, headers=A)
 cfg = c.get("/api/shop/config", headers=H).json()
 r.check(cfg["min_age"] == 21, "вік для оферти береться з налаштувань", cfg["min_age"])
+# --- списки бажаного доступні одразу після відкриття вітрини ---
+print("\n--- збережене ---")
+c.post("/api/shop/age-confirm", headers=H)   # каталог і списки за бар'єром 18+
+wl = c.get("/api/shop/wishlists", headers=H)
+r.check(wl.status_code == 200, "списки віддаються", f"{wl.status_code} {wl.text[:120]}")
+r.check(isinstance(wl.json(), list) and len(wl.json()) >= 1, "список за замовчуванням є", wl.json())
+b = c.get("/api/shop/bootstrap", headers=H)
+r.check(b.status_code == 200 and "wishlists" in b.json(), "bootstrap несе списки", b.status_code)
+
 sys.exit(1 if r.done() else 0)

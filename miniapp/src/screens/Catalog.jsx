@@ -49,7 +49,7 @@ function stockLabel(stock) {
   return <span className="stock">В наявності</span>
 }
 
-function ProductCard({ product, qty, currency, onChange, onOpen }) {
+function ProductCard({ product, qty, currency, onChange, onOpen, saved, onSave }) {
   const out = product.stock <= 0
   const atMax = qty >= product.stock
   const oldPrice = Number(product.old_price || 0)
@@ -71,6 +71,9 @@ function ProductCard({ product, qty, currency, onChange, onOpen }) {
         </div>
       </button>
 
+      {/* Права колонка: спершу дія з кошиком, під нею — відкласти.
+          Так обидві кнопки під великим пальцем і не конкурують за увагу */}
+      <div className="card-actions">
       {qty > 0 ? (
         <div className="stepper">
           <button onClick={() => onChange(product, -1)} aria-label="Прибрати одну штуку">
@@ -90,11 +93,23 @@ function ProductCard({ product, qty, currency, onChange, onOpen }) {
           {out ? 'Немає' : 'У кошик'}
         </button>
       )}
+
+      {onSave && (
+        <button
+          className={`heart small ${saved ? 'on' : ''}`}
+          onClick={() => onSave(product)}
+          aria-label={saved ? 'У списку бажаного' : 'Відкласти'}
+          title={saved ? 'У списку бажаного' : 'Відкласти'}
+        >
+          {saved ? '♥' : '♡'}
+        </button>
+      )}
+      </div>
     </div>
   )
 }
 
-export function Catalog({ config, cart, onCartChange, seed, onOpenProduct }) {
+export function Catalog({ config, cart, onCartChange, seed, onOpenProduct, wishlists, onSave }) {
   const [categories, setCategories] = useState(seed?.categories || [])
   const [products, setProducts] = useState(seed?.products || null)
   const [active, setActive] = useState(null)
@@ -139,6 +154,8 @@ export function Catalog({ config, cart, onCartChange, seed, onOpenProduct }) {
   }
 
   const qtyOf = (id) => cart?.lines?.find((l) => l.product_id === id)?.qty || 0
+  // Один набір на весь список замість пошуку по кожній картці
+  const savedIds = new Set((wishlists || []).flatMap((w) => w.product_ids || []))
 
   return (
     <>
@@ -201,6 +218,8 @@ export function Catalog({ config, cart, onCartChange, seed, onOpenProduct }) {
               currency={config.currency}
               onChange={change}
               onOpen={onOpenProduct}
+              saved={savedIds.has(p.id)}
+              onSave={onSave}
             />
           ))}
         </div>

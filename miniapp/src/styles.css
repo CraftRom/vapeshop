@@ -841,3 +841,37 @@ textarea.input { min-height: 74px; resize: vertical; }
   font-size: inherit;
   text-decoration: underline;
 }
+
+
+/* -------------------------------- дії в картці каталогу й на сторінці
+ *
+ * Кнопка «відкласти» стоїть під дією з кошиком, а не в шапці екрана:
+ * рішення купити й відкласти приймають в один момент, тож обидві кнопки
+ * мають бути поруч і під великим пальцем.
+ */
+
+.card-actions {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+}
+
+.card-actions .add,
+.card-actions .stepper { width: 100%; }
+
+.heart.small {
+  width: 100%;
+  padding: 5px 0;
+  font-size: 15px;
+}
+
+/* На сторінці товару сердечко — квадратна кнопка ліворуч від головної дії */
+.product-action .heart {
+  flex: 0 0 auto;
+  margin-left: 0;
+  width: 50px;
+  padding: 14px 0;
+  text-align: center;
+}

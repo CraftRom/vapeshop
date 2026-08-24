@@ -114,8 +114,25 @@ check(len(migs) == 6, f"міграцій: {len(migs)}")
 idx = json.loads(read("firestore.indexes.json"))["indexes"]
 check(len(idx) >= 25, f"індексів Firestore: {len(idx)}")
 cols = {i["collectionGroup"] for i in idx}
-for c in ["orders","products","categories","users","order_messages","carts","broadcasts","promo_uses"]:
-    check(c in cols, f"індекси для колекції {c}")
+# Колекції беремо з коду, а не зі списку в тесті: доданий репозиторієм
+# запит без індексу інакше знову проліз би непоміченим
+fs = read("backend/shop/repo/firestore.py")
+declared = set(re.findall(r'^([A-Z_]+) = "([a-z_]+)"', fs, re.M) and [])
+consts = dict(re.findall(r'^([A-Z_]+(?:, [A-Z_]+)*) = (.+)$', fs, re.M))
+queried = set()
+for m in re.finditer(r'self\.db\.query\(\s*([A-Z_]+),\s*\[([^\]]*)\]([^)]*)', fs):
+    name, filters, tail = m.groups()
+    # запит із фільтром і сортуванням завжди потребує складеного індексу
+    if filters.strip() and "order_by" in tail:
+        queried.add(name)
+name_to_coll = dict(re.findall(r'^([A-Z_]+) = "([a-z_]+)"', fs, re.M))
+for line in re.findall(r'^([A-Z_, ]+) = (.+)$', fs, re.M):
+    names = [n.strip() for n in line[0].split(",")]
+    vals = re.findall(r'"([a-z_]+)"', line[1])
+    if len(names) == len(vals):
+        name_to_coll.update(dict(zip(names, vals)))
+missing_idx = sorted({name_to_coll.get(n, n) for n in queried} - cols)
+check(not missing_idx, "кожна відфільтрована й відсортована колекція має індекс", missing_idx)
 
 print("\n=== РОЗГОРТАННЯ НА СВОЄМУ СЕРВЕРІ ===")
 compose = read("deploy/docker-compose.prod.yml")

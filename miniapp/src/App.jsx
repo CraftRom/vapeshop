@@ -250,14 +250,6 @@ initData: ${getInitData() ? `${getInitData().length} символів` : 'пор
         <button
           className="tab"
           role="tab"
-          aria-selected={tab === 'saved'}
-          onClick={() => setTab('saved')}
-        >
-          ♡
-        </button>
-        <button
-          className="tab"
-          role="tab"
           aria-selected={tab === 'chat'}
           onClick={() => setTab('chat')}
         >
@@ -285,16 +277,6 @@ initData: ${getInitData() ? `${getInitData().length} символів` : 'пор
       {tab === 'cart' && (
         <Cart config={config} cart={cart} onCartChange={changeCart} />
       )}
-      {tab === 'saved' && (
-        <Wishlists
-          config={config}
-          wishlists={wishlists}
-          cart={cart}
-          onChanged={onWishlistChanged}
-          onOpenProduct={setOpenProduct}
-          onCartChange={(product, delta) => changeCart(product.id, delta)}
-        />
-      )}
       {tab === 'chat' && (
         chatOrder
           ? <ChatRoom config={config} order={chatOrder} onBack={() => setChatOrder(null)} />
@@ -303,6 +285,16 @@ initData: ${getInitData() ? `${getInitData().length} символів` : 'пор
       {tab === 'profile' && (
         <>
           <Profile config={config} profile={profile} />
+          {/* Збережене живе в профілі, а не окремою вкладкою: у навігації
+              лишаються тільки ті розділи, куди заходять під час покупки */}
+          <Wishlists
+            config={config}
+            wishlists={wishlists}
+            cart={cart}
+            onChanged={onWishlistChanged}
+            onOpenProduct={setOpenProduct}
+            onCartChange={(product, delta) => changeCart(product.id, delta)}
+          />
           <Footer onLegal={() => setLegal(true)} />
         </>
       )}
