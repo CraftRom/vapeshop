@@ -109,7 +109,7 @@ const EMPTY_FORM = {
   use_bonus: false,
 }
 
-export function Checkout({ config, cart, profile, onDone }) {
+export function Checkout({ config, cart, profile, onDone, onLegal }) {
   const [form, setForm] = useState(EMPTY_FORM)
   const [promo, setPromo] = useState(null)
   const [checking, setChecking] = useState(false)
@@ -345,6 +345,22 @@ export function Checkout({ config, cart, profile, onDone }) {
           </span>
         </div>
       </div>
+
+      {/* Згода з офертою — умова укладення договору за ст. 633 ЦК України,
+          тож посилання має бути саме тут, перед підтвердженням */}
+      <p className="hint" style={{ padding: '0 14px 10px' }}>
+        Підтверджуючи замовлення, ви приймаєте{' '}
+        <button className="inline-link" onClick={() => onLegal?.('offer')}>
+          умови публічної оферти
+        </button>{' '}
+        і погоджуєтесь на{' '}
+        <button className="inline-link" onClick={() => onLegal?.('privacy')}>
+          обробку персональних даних
+        </button>. Умови{' '}
+        <button className="inline-link" onClick={() => onLegal?.('returns')}>
+          повернення та обміну
+        </button>.
+      </p>
 
       <div className="field">
         <button

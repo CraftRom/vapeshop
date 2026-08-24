@@ -775,3 +775,69 @@ textarea.input { min-height: 74px; resize: vertical; }
 }
 
 .wl-actions .add { white-space: nowrap; }
+
+/* ------------------------------------------------- документи та підвал */
+
+.legal { padding-bottom: 28px; }
+
+.legal-title { margin: 12px 0 2px; font-size: 20px; font-weight: 700; }
+
+.legal-h {
+  margin: 20px 0 6px;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+/* Переноси зберігаємо: у документах є переліки з маркерами й реквізити
+   стовпчиком, які без цього злиплися б в один абзац */
+.legal-p {
+  margin: 0 0 10px;
+  font-size: 14.5px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.legal-row {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  margin-bottom: 8px;
+  padding: 14px;
+  border: 0;
+  border-radius: var(--radius);
+  background: var(--tg-secondary-bg);
+  color: var(--tg-text);
+  font-size: 15px;
+  text-align: left;
+}
+
+.legal-row .grow { flex: 1; }
+
+.footer {
+  padding: 22px 14px calc(22px + env(safe-area-inset-bottom, 0px));
+  text-align: center;
+  border-top: 1px solid var(--tg-secondary-bg);
+  margin-top: 18px;
+}
+
+.footer-link {
+  display: block;
+  width: 100%;
+  margin-bottom: 8px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font-size: 14px;
+}
+
+/* Посилання всередині абзацу: кнопка, бо відкриває екран, а не адресу */
+.inline-link {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font-size: inherit;
+  text-decoration: underline;
+}

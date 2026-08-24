@@ -464,3 +464,13 @@ textarea.input { resize: vertical; min-height: 88px; }
   justify-content: space-between;
   gap: 10px;
 }
+
+/* Підвал бічної панелі: версія й автор. Ведеться окремо від вітрини —
+   це різні застосунки з різним циклом випусків. */
+.app-footer {
+  margin-top: 10px;
+  color: var(--muted, #6b6880);
+  font-size: 11.5px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}

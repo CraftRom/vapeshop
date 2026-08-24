@@ -49,6 +49,9 @@ class ShopConfigOut(BaseModel):
     volume_discount_enabled: bool
     volume_discount_min: Decimal
     volume_discount_percent: Decimal
+    # Реквізити для юридичних документів. Порожні поля вітрина показує
+    # як незаповнені — щоб недороблену оферту не можна було проґавити.
+    seller: dict
 
 
 class CartLineOut(BaseModel):
@@ -126,6 +129,15 @@ def _config(shop, user) -> ShopConfigOut:
         volume_discount_enabled=shop.volume_discount_enabled,
         volume_discount_min=shop.volume_discount_min,
         volume_discount_percent=shop.volume_discount_percent,
+        seller={
+            "SELLER_NAME": shop.seller_name,
+            "SELLER_CODE": shop.seller_code,
+            "SELLER_ADDRESS": shop.seller_address,
+            "SELLER_EMAIL": shop.seller_email,
+            "SELLER_PHONE": shop.seller_phone,
+            "MIN_AGE": str(shop.min_age),
+            "CURRENCY": shop.currency,
+        },
     )
 
 

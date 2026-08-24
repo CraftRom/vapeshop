@@ -2,6 +2,7 @@ import { Suspense, lazy, useEffect, useState } from 'react'
 import { NavLink, Navigate, Route, Routes, useNavigate } from 'react-router-dom'
 
 import { api, clearToken, getSession, getToken, isAdmin } from './api'
+import { APP_VERSION, AUTHOR } from './version'
 import { Loading, ToastProvider } from './components/ui'
 import Login from './pages/Login'
 
@@ -80,6 +81,11 @@ function Shell({ children }) {
           <button className="btn ghost small" onClick={logout} style={{ width: '100%' }}>
             Вийти
           </button>
+
+          {/* Версія панелі ведеться окремо від вітрини Mini App */}
+          <div className="app-footer">
+            v{APP_VERSION} · {AUTHOR}
+          </div>
         </div>
       </aside>
       <main className="main">

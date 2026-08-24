@@ -42,6 +42,12 @@ class ShopSettings:
     volume_discount_percent: Decimal
     card_number: str
     card_holder: str
+    # Реквізити продавця для оферти й політики обробки даних
+    seller_name: str
+    seller_code: str
+    seller_address: str
+    seller_email: str
+    seller_phone: str
     # Telegram-група
     admin_chat_id: int
     admin_ids: str
@@ -65,6 +71,11 @@ class ShopSettings:
             volume_discount_percent=Decimal(str(settings.volume_discount_percent)),
             card_number=settings.card_number,
             card_holder=settings.card_holder,
+            seller_name=settings.seller_name,
+            seller_code=settings.seller_code,
+            seller_address=settings.seller_address,
+            seller_email=settings.seller_email,
+            seller_phone=settings.seller_phone,
             admin_chat_id=settings.admin_chat_id,
             admin_ids=settings.admin_ids,
             bot_username=settings.bot_username,

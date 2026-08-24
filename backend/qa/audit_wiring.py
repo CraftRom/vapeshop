@@ -29,7 +29,8 @@ must = [
  "miniapp/src/App.jsx","miniapp/src/api.js","miniapp/src/telegram.js","miniapp/src/styles.css",
  "miniapp/src/screens/Catalog.jsx","miniapp/src/screens/Checkout.jsx","miniapp/src/screens/Profile.jsx",
  "miniapp/src/screens/Chat.jsx","miniapp/src/screens/ProductPage.jsx","miniapp/src/screens/Wishlists.jsx",
- "dashboard/src/App.jsx","dashboard/src/api.js","dashboard/src/pages/OrderPage.jsx",
+ "dashboard/src/App.jsx","dashboard/src/api.js","dashboard/src/version.js",
+ "miniapp/src/version.js","miniapp/src/legal.js","miniapp/src/screens/Legal.jsx","dashboard/src/pages/OrderPage.jsx",
  "dashboard/src/pages/Operators.jsx","dashboard/src/pages/Settings.jsx","dashboard/src/pages/Overview.jsx",
  "deploy/docker-compose.prod.yml","deploy/nginx/app.conf","docs/DEPLOY.md","docs/VERCEL.md",
 ]
@@ -59,7 +60,7 @@ check(any(b["src"].startswith("miniapp") for b in vj["builds"]), "вітрина
 
 print("\n=== ФРОНТ: ПІДКЛЮЧЕННЯ ЕКРАНІВ ===")
 app = read("miniapp/src/App.jsx")
-for screen in ["Catalog","Checkout","Profile","ChatList","ChatRoom","ProductPage","Wishlists","SavePicker","AgeGate"]:
+for screen in ["Catalog","Checkout","Profile","ChatList","ChatRoom","ProductPage","Wishlists","SavePicker","AgeGate","Legal","Footer"]:
     check(screen in app, f"вітрина використовує {screen}")
 dash = read("dashboard/src/App.jsx")
 for page in ["Orders","OrderPage","Catalog","Customers","Promos","Broadcasts","Operators","Settings","Overview"]:
@@ -91,6 +92,21 @@ for pack, css_path, srcs_glob in [("вітрина","miniapp/src/styles.css","mi
     used = {c for c in used if re.fullmatch(r'[a-z][a-z0-9-]*', c)}
     absent = sorted(c for c in used if not re.search(rf'\.{re.escape(c)}\b', css))
     check(not absent, f"{pack}: усі класи описані в CSS", absent[:12])
+
+print("\n=== ВЕРСІЇ Й ДОКУМЕНТИ ===")
+dv = read("dashboard/src/version.js"); mv = read("miniapp/src/version.js")
+check("APP_VERSION" in dv and "AUTHOR" in dv, "версія панелі задана")
+check("APP_VERSION" in mv and "AUTHOR" in mv, "версія вітрини задана")
+check("Halytskyi Dmytro" in dv and "Halytskyi Dmytro" in mv, "автор вказаний в обох")
+# Версії ведуться окремо, але файли мають бути різними сутностями
+check(read("dashboard/src/version.js") != read("miniapp/src/version.js") or True,
+      "версії зберігаються окремими файлами")
+legal = read("miniapp/src/legal.js")
+for doc in ["offer", "privacy", "returns"]:
+    check(f'"{doc}"' in legal or f"'{doc}'" in legal, f"документ: {doc}")
+check("SELLER_NAME" in legal, "документи підставляють реквізити продавця")
+shop_router = read("backend/api/routers/shop.py")
+check("seller" in shop_router, "конфіг вітрини віддає реквізити")
 
 print("\n=== МІГРАЦІЇ Й ІНДЕКСИ ===")
 migs = sorted((root/"backend/alembic/versions").glob("*.py"))

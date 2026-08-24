@@ -5,6 +5,7 @@ import { AgeGate, Catalog } from './screens/Catalog'
 import { Cart, Checkout } from './screens/Checkout'
 import { ChatList, ChatRoom } from './screens/Chat'
 import { ProductPage } from './screens/ProductPage'
+import { Legal, Footer } from './screens/Legal'
 import { SavePicker, Wishlists, isSaved } from './screens/Wishlists'
 import { Profile } from './screens/Profile'
 import {
@@ -27,6 +28,8 @@ export default function App() {
   const [wishlists, setWishlists] = useState([])
   // Товар, для якого відкрито вибір списку
   const [saving, setSaving] = useState(null)
+  // Екран документів: відкривається з підвалу й з оформлення
+  const [legal, setLegal] = useState(null)
   const [fatal, setFatal] = useState('')
 
   useEffect(() => {
@@ -77,10 +80,11 @@ export default function App() {
   // Системна кнопка «назад» веде з оформлення до кошика, а не закриває вікно
   useEffect(() => {
     if (checkingOut) return backButton(() => setCheckingOut(false))
+    if (legal) return backButton(() => setLegal(null))
     if (openProduct) return backButton(() => setOpenProduct(null))
     if (chatOrder) return backButton(() => setChatOrder(null))
     return backButton(null)
-  }, [checkingOut, chatOrder, openProduct])
+  }, [checkingOut, chatOrder, openProduct, legal])
 
   useEffect(() => hideMainButton, [])
 
@@ -170,6 +174,18 @@ initData: ${getInitData() ? `${getInitData().length} символів` : 'пор
   const count = cart?.lines?.reduce((sum, l) => sum + l.qty, 0) || 0
   const subtotal = Number(cart?.subtotal || 0)
 
+  if (legal) {
+    return (
+      <div className="app">
+        <Legal
+          config={config}
+          initial={legal === true ? null : legal}
+          onBack={() => setLegal(null)}
+        />
+      </div>
+    )
+  }
+
   if (openProduct) {
     return (
       <div className="app">
@@ -201,6 +217,7 @@ initData: ${getInitData() ? `${getInitData().length} символів` : 'пор
           config={config}
           cart={cart}
           profile={profile}
+          onLegal={(key) => setLegal(key)}
           onDone={() => {
             setCheckingOut(false)
             refresh().catch(() => {})
@@ -283,7 +300,12 @@ initData: ${getInitData() ? `${getInitData().length} символів` : 'пор
           ? <ChatRoom config={config} order={chatOrder} onBack={() => setChatOrder(null)} />
           : <ChatList config={config} orders={orders} onOpen={setChatOrder} />
       )}
-      {tab === 'profile' && <Profile config={config} profile={profile} />}
+      {tab === 'profile' && (
+        <>
+          <Profile config={config} profile={profile} />
+          <Footer onLegal={() => setLegal(true)} />
+        </>
+      )}
 
       {/* Панель тримається внизу на всіх вкладках: сума завжди перед очима */}
       {/* У чаті панель кошика перекрила б поле вводу */}

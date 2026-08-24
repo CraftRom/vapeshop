@@ -79,6 +79,15 @@ class Settings(BaseSettings):
     card_number: str = "0000 0000 0000 0000"
     card_holder: str = ""
 
+    # Реквізити продавця для юридичних документів вітрини.
+    # Без них оферта й політика обробки даних не мають сили, тому вітрина
+    # показує попередження, поки поля порожні.
+    seller_name: str = ""
+    seller_code: str = ""
+    seller_address: str = ""
+    seller_email: str = ""
+    seller_phone: str = ""
+
     @model_validator(mode="before")
     @classmethod
     def _ignore_empty_values(cls, data):
