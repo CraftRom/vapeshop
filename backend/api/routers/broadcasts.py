@@ -76,6 +76,14 @@ async def send_broadcast(
     return await repo.get_broadcast(broadcast_id)
 
 
+@router.get("/{broadcast_id}", response_model=BroadcastOut)
+async def get_broadcast(broadcast_id: int, repo: Repository = Depends(get_repo)):
+    found = await repo.get_broadcast(broadcast_id)
+    if not found:
+        raise HTTPException(404, "Розсилку не знайдено")
+    return found
+
+
 @router.delete("/{broadcast_id}", status_code=204)
 async def delete_broadcast(broadcast_id: int, repo: Repository = Depends(get_repo)):
     broadcast = await repo.get_broadcast(broadcast_id)

@@ -85,7 +85,7 @@ export function Cart({ config, cart, onCartChange, onCheckout }) {
       </div>
 
       <div className="field">
-        <button className="gate-like secondary" onClick={clear} style={{
+        <button className="secondary" onClick={clear} style={{
           width: '100%', padding: 12, border: 0, borderRadius: 10,
           background: 'transparent', color: 'var(--tg-hint)',
         }}>

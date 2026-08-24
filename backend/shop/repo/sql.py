@@ -12,7 +12,7 @@ from sqlalchemy.orm import selectinload
 
 from shop import models as m
 from shop.entities import (
-    Operator, OperatorRole, OrderMessage, operator_stats_rows,
+    Operator, OperatorRole, OrderMessage, Wishlist, operator_stats_rows,
     PAID_STATUSES, Broadcast, BroadcastStatus, CartLine, Category, Order,
     OrderLine, OrderStatus, Product, Promo, Stats, User,
 )
@@ -781,6 +781,53 @@ class SqlRepository(Repository):
         )
         return {order_id: count for order_id, count in rows}
 
+    # ---------------------------------------------------- списки бажаного
+
+    async def list_wishlists(self, user_id) -> list[Wishlist]:
+        rows = await self.s.scalars(
+            select(m.Wishlist).where(m.Wishlist.user_id == user_id)
+            .order_by(m.Wishlist.id)
+        )
+        return [_wishlist(r) for r in rows]
+
+    async def get_wishlist(self, wishlist_id) -> Wishlist | None:
+        return _wishlist(await self.s.get(m.Wishlist, wishlist_id))
+
+    async def create_wishlist(self, user_id, name: str) -> Wishlist:
+        row = m.Wishlist(user_id=user_id, name=name, product_ids=[])
+        self.s.add(row)
+        await self.s.commit()
+        await self.s.refresh(row)
+        return _wishlist(row)
+
+    async def rename_wishlist(self, wishlist_id, name: str) -> Wishlist | None:
+        row = await self.s.get(m.Wishlist, wishlist_id)
+        if not row:
+            return None
+        row.name = name
+        await self.s.commit()
+        await self.s.refresh(row)
+        return _wishlist(row)
+
+    async def delete_wishlist(self, wishlist_id) -> bool:
+        row = await self.s.get(m.Wishlist, wishlist_id)
+        if not row:
+            return False
+        await self.s.delete(row)
+        await self.s.commit()
+        return True
+
+    async def set_wishlist_items(self, wishlist_id, product_ids: list[int]) -> Wishlist | None:
+        row = await self.s.get(m.Wishlist, wishlist_id)
+        if not row:
+            return None
+        # Новий список, а не мутація на місці: SQLAlchemy не помічає зміну
+        # всередині JSON-колонки й не збереже її
+        row.product_ids = list(product_ids)
+        await self.s.commit()
+        await self.s.refresh(row)
+        return _wishlist(row)
+
     # ------------------------------------------------------ оператори
 
     async def create_operator(self, data: dict) -> Operator:
@@ -859,3 +906,11 @@ def _day_start(value: str) -> datetime:
 
 def _day_end(value: str) -> datetime:
     return _day_start(value) + timedelta(days=1)
+
+def _wishlist(row) -> Wishlist | None:
+    if row is None:
+        return None
+    return Wishlist(
+        id=row.id, user_id=row.user_id, name=row.name,
+        product_ids=list(row.product_ids or []), created_at=row.created_at,
+    )

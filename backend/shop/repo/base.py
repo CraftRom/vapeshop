@@ -14,7 +14,7 @@ from abc import ABC, abstractmethod
 from decimal import Decimal
 
 from shop.entities import (
-    Operator, OrderMessage,
+    Operator, OrderMessage, Wishlist,
     Broadcast, BroadcastStatus, CartLine, Category, Order, OrderLine,
     OrderStatus, Product, Promo, Stats, User,
 )
@@ -248,6 +248,27 @@ class Repository(ABC):
         оператора зводяться в окремий рядок — інакше сума розрізу не збіглася б
         із загальним виторгом, і це виглядало б як помилка.
         """
+
+    # ---------------------------------------------------- списки бажаного
+
+    @abstractmethod
+    async def list_wishlists(self, user_id: int) -> list[Wishlist]: ...
+
+    @abstractmethod
+    async def get_wishlist(self, wishlist_id: int) -> Wishlist | None: ...
+
+    @abstractmethod
+    async def create_wishlist(self, user_id: int, name: str) -> Wishlist: ...
+
+    @abstractmethod
+    async def rename_wishlist(self, wishlist_id: int, name: str) -> Wishlist | None: ...
+
+    @abstractmethod
+    async def delete_wishlist(self, wishlist_id: int) -> bool: ...
+
+    @abstractmethod
+    async def set_wishlist_items(self, wishlist_id: int, product_ids: list[int]) -> Wishlist | None:
+        """Перезаписує склад списку. Додавання й вилучення робить сервіс."""
 
     # -------------------------------------------------- чат замовлення
 

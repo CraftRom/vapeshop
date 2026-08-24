@@ -120,8 +120,10 @@ async def setup_webhook(token: str = ""):
 
     Викликати після деплою: /api/telegram-setup?token=<CRON_SECRET>
     """
+    # 404, а не 401: службовий маршрут не має підтверджувати своє існування
+    # тому, хто не знає токена
     if not settings.cron_secret or token != settings.cron_secret:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Невірний токен")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
     if not settings.public_url or not settings.webhook_secret:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Задайте PUBLIC_URL і WEBHOOK_SECRET")
 

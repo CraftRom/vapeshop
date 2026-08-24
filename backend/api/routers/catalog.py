@@ -20,6 +20,14 @@ async def create_category(data: CategoryIn, repo: Repository = Depends(get_repo)
     return await repo.create_category(data.model_dump())
 
 
+@router.get("/categories/{category_id}", response_model=CategoryOut)
+async def get_category(category_id: int, repo: Repository = Depends(get_repo)):
+    found = await repo.get_category(category_id)
+    if not found:
+        raise HTTPException(404, "Категорію не знайдено")
+    return found
+
+
 @router.put("/categories/{category_id}", response_model=CategoryOut)
 async def update_category(
     category_id: int, data: CategoryIn, repo: Repository = Depends(get_repo)
@@ -75,6 +83,14 @@ async def create_product(data: ProductIn, repo: Repository = Depends(get_repo)):
     if not await repo.get_category(data.category_id):
         raise HTTPException(400, "Такої категорії немає")
     return await repo.create_product(data.model_dump())
+
+
+@router.get("/products/{product_id}", response_model=ProductOut)
+async def get_product(product_id: int, repo: Repository = Depends(get_repo)):
+    found = await repo.get_product(product_id)
+    if not found:
+        raise HTTPException(404, "Товар не знайдено")
+    return found
 
 
 @router.put("/products/{product_id}", response_model=ProductOut)

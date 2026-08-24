@@ -179,7 +179,9 @@ class PromoIn(BaseModel):
     code: str = Field(min_length=2, max_length=32)
     type: PromoType = PromoType.PERCENT
     value: Decimal = Field(gt=0)
-    min_order: Decimal = Field(ge=0, default=0)
+    # Дефолт саме Decimal: ціле 0 доходило до бази як int і псувало
+    # серіалізацію відповіді попередженням pydantic
+    min_order: Decimal = Field(ge=0, default=Decimal(0))
     max_uses: int | None = None
     per_user_limit: int = Field(ge=1, default=1)
     expires_at: datetime | None = None

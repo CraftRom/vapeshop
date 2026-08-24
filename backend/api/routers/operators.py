@@ -38,6 +38,14 @@ async def create_operator(data: OperatorCreate, repo: Repository = Depends(get_r
     })
 
 
+@router.get("/{operator_id}", response_model=OperatorOut)
+async def get_operator(operator_id: int, repo: Repository = Depends(get_repo)):
+    found = await repo.get_operator(operator_id)
+    if not found:
+        raise HTTPException(404, "Оператора не знайдено")
+    return found
+
+
 @router.put("/{operator_id}", response_model=OperatorOut)
 async def update_operator(
     operator_id: int,

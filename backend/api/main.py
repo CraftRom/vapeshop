@@ -61,7 +61,21 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title=f"{settings.shop_name} — Dashboard API", version="1.0", lifespan=lifespan)
+# Документація закрита за замовчуванням.
+#
+# Відкритий /openapi.json — це готова карта атаки: усі адмінські маршрути,
+# назви полів і формати. Розробнику вона потрібна, тож вмикається явно
+# змінною ENABLE_API_DOCS=true, і тільки в неробочому середовищі.
+_docs_on = settings.enable_api_docs
+
+app = FastAPI(
+    title=f"{settings.shop_name} — Dashboard API",
+    version="1.0",
+    lifespan=lifespan,
+    docs_url="/docs" if _docs_on else None,
+    redoc_url=None,
+    openapi_url="/openapi.json" if _docs_on else None,
+)
 
 app.add_middleware(
     CORSMiddleware,

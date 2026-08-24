@@ -320,3 +320,15 @@ class OrderMessage(Base):
 
 
 Index("ix_order_messages_order_created", OrderMessage.order_id, OrderMessage.created_at)
+
+
+class Wishlist(Base):
+    __tablename__ = "wishlists"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    name: Mapped[str] = mapped_column(String(64))
+    # Масив id товарів. Окрема таблиця звʼязків тут нічого не дала б:
+    # список завжди читається й пишеться цілком.
+    product_ids: Mapped[list] = mapped_column(JsonType, default=list)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

@@ -450,3 +450,17 @@ textarea.input { resize: vertical; min-height: 88px; }
   margin-top: 6px;
   border-radius: 8px;
 }
+
+
+/* Рядок «підпис ліворуч, значення праворуч».
+ *
+ * Використовується в підсумках замовлення й у шапках блоків налаштувань.
+ * Без цього правила елементи ставали одне під одним, і перемикач модуля
+ * з'їжджав під заголовок.
+ */
+.row-between {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}

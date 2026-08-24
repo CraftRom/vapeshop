@@ -35,4 +35,16 @@ from shop.config import settings
 missing=[f.name for f in dfields(ShopSettings) if not hasattr(settings, f.name)]
 check(not missing, "у .env є дефолт для кожного налаштування", missing)
 
+# Репозиторії мають реалізовувати весь контракт.
+#
+# Метод, який через помилку відступу опинився поза класом, лишається
+# абстрактним: код імпортується, тести на Firestore зелені, а на Postgres
+# репозиторій просто не створюється — застосунок мертвий цілком.
+from shop.repo.sql import SqlRepository
+from shop.repo.firestore import FirestoreRepository
+
+for cls in (SqlRepository, FirestoreRepository):
+    missing = sorted(getattr(cls, "__abstractmethods__", set()))
+    check(not missing, f"{cls.__name__}: контракт реалізовано повністю", missing)
+
 print(f"\n{'ПРОВАЛЕНО: '+str(len(fails)) if fails else 'усі контракти узгоджені'}")

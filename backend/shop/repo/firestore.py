@@ -20,7 +20,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 from shop.entities import (
-    Operator, OperatorRole, OrderMessage, operator_stats_rows,
+    Operator, OperatorRole, OrderMessage, Wishlist, operator_stats_rows,
     PAID_STATUSES, Broadcast, BroadcastStatus, CartLine, Category, Order,
     OrderLine, OrderStatus, Product, Promo, PromoType, Stats, User,
 )
@@ -36,6 +36,7 @@ PROMO_USES, BONUS_TX, BROADCASTS = "promo_uses", "bonus_tx", "broadcasts"
 SETTINGS, SETTINGS_DOC = "settings", "shop"
 OPERATORS = "operators"
 ORDER_MESSAGES = "order_messages"
+WISHLISTS = "wishlists"
 
 # Найбільша кодова точка — межа префіксного діапазону в Firestore
 PREFIX_END = "\uf8ff"
@@ -757,9 +758,11 @@ class FirestoreRepository(Repository):
         if not doc:
             return False
 
-        # Кошики: рядок більше не має на що посилатись
+        # Кошики: рядок більше не має на що посилатись.
+        # Ключ документа складається з user_id і product_id — власного поля
+        # "id" у нього немає, і звертання до нього раніше валило стирання.
         for line in await self.db.query(CARTS, [("product_id", "==", product_id)]):
-            await self.db.delete(CARTS, line["id"])
+            await self.db.delete(CARTS, self._cart_id(line["user_id"], product_id))
 
         # Історія: позиції зберігають знімок назви й ціни, обнуляємо лише посилання
         for order in await self.db.query(ORDERS):
@@ -797,6 +800,43 @@ class FirestoreRepository(Repository):
             await self.db.update(ORDERS, order["id"], {"promo_code_id": None})
         await self.db.delete(PROMOS, promo_id)
         return True
+
+    # ---------------------------------------------------- списки бажаного
+
+    async def list_wishlists(self, user_id) -> list[Wishlist]:
+        rows = await self.db.query(
+            WISHLISTS, [("user_id", "==", user_id)], order_by=[("id", "asc")]
+        )
+        return [_wishlist(r) for r in rows]
+
+    async def get_wishlist(self, wishlist_id) -> Wishlist | None:
+        doc = await self.db.get(WISHLISTS, wishlist_id)
+        return _wishlist(doc) if doc else None
+
+    async def create_wishlist(self, user_id, name: str) -> Wishlist:
+        doc_id = await self.db.next_id(WISHLISTS)
+        payload = {
+            "id": doc_id, "user_id": user_id, "name": name,
+            "product_ids": [], "created_at": _now(),
+        }
+        await self.db.set(WISHLISTS, doc_id, payload)
+        return _wishlist(payload)
+
+    async def rename_wishlist(self, wishlist_id, name: str) -> Wishlist | None:
+        if not await self.db.update(WISHLISTS, wishlist_id, {"name": name}):
+            return None
+        return _wishlist(await self.db.get(WISHLISTS, wishlist_id))
+
+    async def delete_wishlist(self, wishlist_id) -> bool:
+        if not await self.db.get(WISHLISTS, wishlist_id):
+            return False
+        await self.db.delete(WISHLISTS, wishlist_id)
+        return True
+
+    async def set_wishlist_items(self, wishlist_id, product_ids: list[int]) -> Wishlist | None:
+        if not await self.db.update(WISHLISTS, wishlist_id, {"product_ids": list(product_ids)}):
+            return None
+        return _wishlist(await self.db.get(WISHLISTS, wishlist_id))
 
     # -------------------------------------------------- чат замовлення
 
@@ -923,5 +963,15 @@ def _order_message(doc) -> OrderMessage:
         direction=doc["direction"], author=doc.get("author", ""), text=doc["text"],
         tg_message_id=doc.get("tg_message_id"), is_read=doc.get("is_read", False),
         file_id=doc.get("file_id"), file_kind=doc.get("file_kind"), file_name=doc.get("file_name"),
+        created_at=doc.get("created_at"),
+    )
+
+
+def _wishlist(doc) -> Wishlist | None:
+    if not doc:
+        return None
+    return Wishlist(
+        id=doc["id"], user_id=doc["user_id"], name=doc.get("name", ""),
+        product_ids=list(doc.get("product_ids") or []),
         created_at=doc.get("created_at"),
     )

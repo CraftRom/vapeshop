@@ -5,6 +5,7 @@ import { AgeGate, Catalog } from './screens/Catalog'
 import { Cart, Checkout } from './screens/Checkout'
 import { ChatList, ChatRoom } from './screens/Chat'
 import { ProductPage } from './screens/ProductPage'
+import { SavePicker, Wishlists, isSaved } from './screens/Wishlists'
 import { Profile } from './screens/Profile'
 import {
   applyTheme, backButton, getInitData, hideMainButton, initDataSource, isTelegram,
@@ -23,6 +24,9 @@ export default function App() {
   const [openProduct, setOpenProduct] = useState(null)
   // Каталог із bootstrap: перший екран малюється без додаткового запиту
   const [seed, setSeed] = useState(null)
+  const [wishlists, setWishlists] = useState([])
+  // Товар, для якого відкрито вибір списку
+  const [saving, setSaving] = useState(null)
   const [fatal, setFatal] = useState('')
 
   useEffect(() => {
@@ -80,6 +84,16 @@ export default function App() {
 
   useEffect(() => hideMainButton, [])
 
+  const onWishlistChanged = useCallback((updated) => {
+    // toggle і rename повертають один список — підміняємо його на місці;
+    // створення й видалення міняють склад, тож перечитуємо повністю
+    if (updated?.id) {
+      setWishlists((prev) => prev.map((w) => (w.id === updated.id ? updated : w)))
+      return
+    }
+    api.wishlists.list().then(setWishlists).catch(() => {})
+  }, [])
+
   const changeCart = useCallback(
     async (productId, delta, opts = {}) => {
       const next = opts.clear
@@ -98,7 +112,16 @@ export default function App() {
       <div className="empty">
         <h2>Не вдалося відкрити магазин</h2>
         <p>{fatal}</p>
-        {!isTelegram && (
+        {saving && (
+        <SavePicker
+          product={saving}
+          wishlists={wishlists}
+          onClose={() => setSaving(null)}
+          onChanged={onWishlistChanged}
+        />
+      )}
+
+      {!isTelegram && (
           <p style={{ marginTop: 10 }}>
             Застосунок відкрито поза Telegram. Скористайтесь кнопкою «Відкрити
             магазин» у чаті з ботом.
@@ -156,7 +179,17 @@ initData: ${getInitData() ? `${getInitData().length} символів` : 'пор
           cart={cart}
           onCartChange={changeCart}
           onBack={() => setOpenProduct(null)}
+          saved={isSaved(wishlists, openProduct.id)}
+          onSave={() => setSaving(openProduct)}
         />
+        {saving && (
+          <SavePicker
+            product={saving}
+            wishlists={wishlists}
+            onClose={() => setSaving(null)}
+            onChanged={onWishlistChanged}
+          />
+        )}
       </div>
     )
   }
@@ -200,6 +233,14 @@ initData: ${getInitData() ? `${getInitData().length} символів` : 'пор
         <button
           className="tab"
           role="tab"
+          aria-selected={tab === 'saved'}
+          onClick={() => setTab('saved')}
+        >
+          ♡
+        </button>
+        <button
+          className="tab"
+          role="tab"
           aria-selected={tab === 'chat'}
           onClick={() => setTab('chat')}
         >
@@ -226,6 +267,16 @@ initData: ${getInitData() ? `${getInitData().length} символів` : 'пор
       )}
       {tab === 'cart' && (
         <Cart config={config} cart={cart} onCartChange={changeCart} />
+      )}
+      {tab === 'saved' && (
+        <Wishlists
+          config={config}
+          wishlists={wishlists}
+          cart={cart}
+          onChanged={onWishlistChanged}
+          onOpenProduct={setOpenProduct}
+          onCartChange={(product, delta) => changeCart(product.id, delta)}
+        />
       )}
       {tab === 'chat' && (
         chatOrder

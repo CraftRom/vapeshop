@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# Повний цикл тестування. Запуск: bash qa/run_all.sh
+#
+# Провалом вважається лише позначка ✗ або рядок ПРОВАЛЕНО. Трейсбеки в
+# логах не рахуються: частина наборів навмисно імітує збої Telegram і бази,
+# і виняток там — очікуваний результат, а не поломка.
+set -u
+cd "$(dirname "$0")/.."
+export PYTHONPATH="$PWD:$PWD/qa"
+PY="${PY:-python3}"
+fail=0
+
+run() {
+  printf '  %-13s ' "$1"
+  rm -f /tmp/qa_*.db 2>/dev/null
+  out=$($PY "$2" 2>&1)
+  summary=$(echo "$out" | grep -E '^[A-ZА-Я]+: [0-9]+/[0-9]+|Всього провалено|усі контракти' | tail -1)
+  if echo "$out" | grep -qE '✗|ПРОВАЛЕНО'; then
+    echo "ПРОВАЛ — ${summary:-див. деталі}"
+    echo "$out" | grep -E '✗' | head -5 | sed 's/^/      /'
+    fail=1
+  else
+    echo "${summary:-ok}"
+  fi
+}
+
+echo "Комплектність"
+printf '  %-13s ' "wiring"
+if out=$($PY qa/audit_wiring.py 2>&1) && ! echo "$out" | grep -q "✗"; then
+  echo "усі рівні звʼязані"
+else
+  echo "ПРОВАЛ"; echo "$out" | grep "✗" | head -5 | sed 's/^/      /'; fail=1
+fi
+
+echo
+echo "Контракти й дані"
+run contracts tests_contracts.py
+run repo tests_repo.py
+echo
+echo "Рівні тестування"
+run smoke qa/qa_smoke.py
+run negative qa/qa_negative.py
+run security qa/qa_security.py
+run database qa/qa_db.py
+run e2e qa/qa_e2e.py
+run performance qa/qa_perf.py
+
+echo
+[ $fail -eq 0 ] && echo "Усі набори пройдено" || echo "Є провали — див. вище"
+exit $fail

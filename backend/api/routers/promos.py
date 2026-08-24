@@ -22,6 +22,14 @@ async def create_promo(data: PromoIn, repo: Repository = Depends(get_repo)):
     return await repo.create_promo(data.model_dump())
 
 
+@router.get("/{promo_id}", response_model=PromoOut)
+async def get_promo(promo_id: int, repo: Repository = Depends(get_repo)):
+    found = await repo.get_promo(promo_id)
+    if not found:
+        raise HTTPException(404, "Промокод не знайдено")
+    return found
+
+
 @router.put("/{promo_id}", response_model=PromoOut)
 async def update_promo(promo_id: int, data: PromoIn, repo: Repository = Depends(get_repo)):
     promo = await repo.update_promo(promo_id, data.model_dump())

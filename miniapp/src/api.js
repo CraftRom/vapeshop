@@ -60,6 +60,16 @@ export const api = {
   orders: () => request('/orders'),
   checkout: (data) => request('/checkout', { method: 'POST', body: data }),
 
+  wishlists: {
+    list: () => request('/wishlists'),
+    create: (name) => request('/wishlists', { method: 'POST', body: { name } }),
+    rename: (id, name) => request(`/wishlists/${id}`, { method: 'PUT', body: { name } }),
+    remove: (id) => request(`/wishlists/${id}`, { method: 'DELETE' }),
+    // Один ендпоінт і додає, і прибирає — стан кнопки завжди відповідає серверу
+    toggle: (id, productId) =>
+      request(`/wishlists/${id}/items`, { method: 'POST', body: { product_id: productId } }),
+  },
+
   chat: {
     list: (orderId) => request(`/orders/${orderId}/chat`),
     send: (orderId, text) =>

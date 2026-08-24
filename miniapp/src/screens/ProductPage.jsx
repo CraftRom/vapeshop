@@ -48,7 +48,7 @@ function stockNote(stock) {
   return { text: 'В наявності', tone: '' }
 }
 
-export function ProductPage({ config, product, cart, onCartChange, onBack }) {
+export function ProductPage({ config, product, cart, onCartChange, onBack, saved, onSave }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
 
@@ -73,10 +73,21 @@ export function ProductPage({ config, product, cart, onCartChange, onBack }) {
 
   return (
     <div className="product-page">
-      <div className="head">
-        <button className="chip" onClick={onBack} style={{ marginBottom: 10 }}>
+      {/* Рядком, щоб сердечко стало праворуч від кнопки повернення */}
+      <div className="head row" style={{ alignItems: 'center', gap: 10 }}>
+        <button className="chip" onClick={onBack}>
           ← Каталог
         </button>
+        {onSave && (
+          <button
+            className={`heart ${saved ? 'on' : ''}`}
+            onClick={onSave}
+            aria-label={saved ? 'У списку бажаного' : 'Зберегти в список'}
+            title={saved ? 'У списку бажаного' : 'Зберегти в список'}
+          >
+            {saved ? '♥' : '♡'}
+          </button>
+        )}
       </div>
 
       <Photo product={product} />

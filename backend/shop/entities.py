@@ -277,3 +277,28 @@ def operator_stats_rows(raw: list[tuple[str, int, Decimal]]) -> list[dict]:
         })
     rows.sort(key=lambda r: r["revenue"], reverse=True)
     return rows
+
+
+@dataclass
+class Wishlist:
+    """Список бажаного покупця.
+
+    Товари зберігаються масивом ідентифікаторів усередині списку, а не
+    окремою таблицею звʼязків: список завжди читається цілком, а так це
+    одне читання замість двох на обох базах.
+    """
+
+    id: int
+    user_id: int
+    name: str
+    product_ids: list[int] = field(default_factory=list)
+    created_at: datetime | None = None
+    # Заповнюється при показі, у сховищі не зберігається
+    products: list[Product] = field(default_factory=list)
+
+    @property
+    def size(self) -> int:
+        return len(self.product_ids)
+
+
+DEFAULT_WISHLIST_NAME = "Обране"

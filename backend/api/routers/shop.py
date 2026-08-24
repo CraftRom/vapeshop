@@ -13,7 +13,7 @@ import logging
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Response
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from api.schemas import CategoryOut, ProductOut
 from shop.links import app_link
@@ -24,6 +24,7 @@ from shop.repo.factory import get_repo
 from shop.services import order_chat as svc_chat
 from shop.services import shop_service as svc
 from shop.services.notifications import notify_new_order
+from shop.services import wishlist as wl
 from shop.services.shop_settings import get_shop_settings
 
 log = logging.getLogger(__name__)
@@ -145,6 +146,7 @@ class BootstrapOut(BaseModel):
     categories: list[CategoryOut] = []
     products: list[ProductOut] = []
     orders: list[dict] = []
+    wishlists: list[WishlistOut] = []
 
 
 @router.get("/bootstrap", response_model=BootstrapOut)
@@ -172,9 +174,11 @@ async def bootstrap(
     categories = await repo.list_categories(only_active=True)
     products = await repo.list_products(only_active=True)
     orders = await _orders_payload(repo, user.id)
+    lists = await wl.hydrate(repo, await wl.ensure_lists(repo, user.id))
     return BootstrapOut(
         config=config, cart=cart, profile=profile_data,
         categories=categories, products=products, orders=orders,
+        wishlists=[_wl_out(x) for x in lists],
     )
 
 
@@ -360,6 +364,107 @@ async def profile(
     user: User = Depends(require_webapp_user), repo: Repository = Depends(get_repo)
 ):
     return await _profile_payload(repo, await get_shop_settings(repo), user)
+
+
+# ------------------------------------------------------- списки бажаного
+
+
+class WishlistOut(BaseModel):
+    id: int
+    name: str
+    size: int
+    product_ids: list[int]
+    products: list[ProductOut] = []
+
+
+class WishlistIn(BaseModel):
+    name: str = Field(..., min_length=1, max_length=64)
+
+    @field_validator("name", mode="after")
+    @classmethod
+    def _not_blank(cls, value: str) -> str:
+        # min_length рахує й пробіли: інакше зʼявився б список без назви
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("Назва списку не може бути порожньою")
+        return cleaned
+
+
+class WishlistItemIn(BaseModel):
+    product_id: int
+
+
+def _wl_out(wl) -> WishlistOut:
+    return WishlistOut(
+        id=wl.id, name=wl.name, size=wl.size, product_ids=wl.product_ids,
+        products=[ProductOut.model_validate(p) for p in wl.products],
+    )
+
+
+@router.get("/wishlists", response_model=list[WishlistOut])
+async def wishlists(
+    user: User = Depends(require_webapp_user), repo: Repository = Depends(get_repo)
+):
+    _require_age(user)
+    lists = await wl.hydrate(repo, await wl.ensure_lists(repo, user.id))
+    return [_wl_out(x) for x in lists]
+
+
+@router.post("/wishlists", response_model=WishlistOut, status_code=201)
+async def create_wishlist(
+    data: WishlistIn,
+    user: User = Depends(require_webapp_user),
+    repo: Repository = Depends(get_repo),
+):
+    _require_age(user)
+    try:
+        return _wl_out(await wl.create(repo, user.id, data.name))
+    except wl.WishlistError as exc:
+        raise HTTPException(409, str(exc))
+
+
+@router.put("/wishlists/{wishlist_id}", response_model=WishlistOut)
+async def rename_wishlist(
+    wishlist_id: int,
+    data: WishlistIn,
+    user: User = Depends(require_webapp_user),
+    repo: Repository = Depends(get_repo),
+):
+    _require_age(user)
+    try:
+        await wl.owned(repo, wishlist_id, user.id)
+    except wl.WishlistError as exc:
+        raise HTTPException(404, str(exc))
+    return _wl_out(await repo.rename_wishlist(wishlist_id, data.name.strip()))
+
+
+@router.delete("/wishlists/{wishlist_id}", status_code=204)
+async def delete_wishlist(
+    wishlist_id: int,
+    user: User = Depends(require_webapp_user),
+    repo: Repository = Depends(get_repo),
+):
+    _require_age(user)
+    try:
+        await wl.drop(repo, wishlist_id, user.id)
+    except wl.WishlistError as exc:
+        raise HTTPException(404, str(exc))
+
+
+@router.post("/wishlists/{wishlist_id}/items", response_model=WishlistOut)
+async def toggle_wishlist_item(
+    wishlist_id: int,
+    data: WishlistItemIn,
+    user: User = Depends(require_webapp_user),
+    repo: Repository = Depends(get_repo),
+):
+    """Додає товар або прибирає його, якщо він уже в списку."""
+    _require_age(user)
+    try:
+        updated, _ = await wl.toggle(repo, wishlist_id, user.id, data.product_id)
+    except wl.WishlistError as exc:
+        raise HTTPException(409, str(exc))
+    return _wl_out((await wl.hydrate(repo, [updated]))[0])
 
 
 class ChatMessageOut(BaseModel):
