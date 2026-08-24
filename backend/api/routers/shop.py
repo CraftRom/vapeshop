@@ -12,7 +12,7 @@ from __future__ import annotations
 import logging
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, Field
 
 from api.schemas import CategoryOut, ProductOut
@@ -213,6 +213,58 @@ async def products(
     _require_age(user)
     return await repo.list_products(
         category_id=category_id, search=search, only_active=True
+    )
+
+
+@router.get("/products/{product_id}", response_model=ProductOut)
+async def product(
+    product_id: int,
+    user: User = Depends(require_webapp_user),
+    repo: Repository = Depends(get_repo),
+):
+    """Один товар — для сторінки з повним описом."""
+    _require_age(user)
+    found = await repo.get_product(product_id)
+    if not found or not found.is_active:
+        raise HTTPException(404, "Товар не знайдено")
+    return found
+
+
+@router.get("/products/{product_id}/photo")
+async def product_photo(
+    product_id: int,
+    user: User = Depends(require_webapp_user),
+    repo: Repository = Depends(get_repo),
+):
+    """Фото товару, завантажене через бота.
+
+    Пряме посилання на Telegram містить токен бота у відкритому вигляді,
+    тож віддаємо файл через себе. Товари з photo_url сюди не потрапляють —
+    вітрина показує таку адресу напряму.
+    """
+    _require_age(user)
+    found = await repo.get_product(product_id)
+    if not found or not found.photo_file_id:
+        raise HTTPException(404, "Фото немає")
+
+    from api.routers.orders import _bot
+
+    bot = _bot()
+    if not bot:
+        raise HTTPException(503, "Бот недоступний — фото не отримати")
+    try:
+        info = await bot.get_file(found.photo_file_id)
+        content = await bot.download_file(info.file_path)
+    except Exception:
+        log.warning("Не вдалося отримати фото товару %s", product_id, exc_info=True)
+        raise HTTPException(502, "Telegram не віддав фото")
+
+    data = content.read() if hasattr(content, "read") else content
+    return Response(
+        content=data,
+        media_type="image/jpeg",
+        # Фото товару змінюється рідко — хай браузер тримає його добу
+        headers={"Cache-Control": "private, max-age=86400"},
     )
 
 

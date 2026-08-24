@@ -49,21 +49,27 @@ function stockLabel(stock) {
   return <span className="stock">В наявності</span>
 }
 
-function ProductCard({ product, qty, currency, onChange }) {
+function ProductCard({ product, qty, currency, onChange, onOpen }) {
   const out = product.stock <= 0
   const atMax = qty >= product.stock
+  const oldPrice = Number(product.old_price || 0)
 
   return (
     <div className="card">
-      <div className="card-body">
+      {/* Тіло картки — кнопка: дотик по назві чи опису відкриває товар,
+          а лічильник праворуч лишається окремою дією */}
+      <button className="card-body card-open" onClick={() => onOpen(product)}>
         <p className="card-title">{product.name}</p>
-        {product.description && <p className="card-note">{product.description}</p>}
+        {product.description && <p className="card-note clamp">{product.description}</p>}
         <div className="price num">
           {Number(product.price).toFixed(0)} <small>{currency}</small>
+          {oldPrice > Number(product.price) && (
+            <span className="old-price num"> {oldPrice.toFixed(0)}</span>
+          )}
           {'  '}
           {stockLabel(product.stock)}
         </div>
-      </div>
+      </button>
 
       {qty > 0 ? (
         <div className="stepper">
@@ -88,7 +94,7 @@ function ProductCard({ product, qty, currency, onChange }) {
   )
 }
 
-export function Catalog({ config, cart, onCartChange, seed }) {
+export function Catalog({ config, cart, onCartChange, seed, onOpenProduct }) {
   const [categories, setCategories] = useState(seed?.categories || [])
   const [products, setProducts] = useState(seed?.products || null)
   const [active, setActive] = useState(null)
@@ -194,6 +200,7 @@ export function Catalog({ config, cart, onCartChange, seed }) {
               qty={qtyOf(p.id)}
               currency={config.currency}
               onChange={change}
+              onOpen={onOpenProduct}
             />
           ))}
         </div>

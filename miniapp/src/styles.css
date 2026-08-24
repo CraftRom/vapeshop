@@ -556,3 +556,118 @@ textarea.input { min-height: 74px; resize: vertical; }
 }
 
 .chat-compose .input { flex: 1; }
+
+/* ------------------------------------------------------- картка товару
+ *
+ * Опис у списку показуємо двома рядками замість одного: одна обрізана
+ * стрічка не давала зрозуміти, що це за смак і скільки затяжок, і
+ * покупцеві доводилось відкривати кожен товар наосліп.
+ */
+
+.card-open {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.card-note.clamp {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  white-space: normal;
+  line-height: 1.35;
+  max-height: 2.7em;
+}
+
+/* --------------------------------------------------------- сторінка товару */
+
+.product-page {
+  padding-bottom: calc(96px + env(safe-area-inset-bottom, 0px));
+}
+
+.product-photo {
+  display: block;
+  width: 100%;
+  max-height: 320px;
+  object-fit: cover;
+  background: var(--tg-secondary-bg);
+}
+
+/* Заглушка тієї ж висоти, що й фото: без неї сторінка смикається,
+   коли зображення нарешті приходить */
+.product-photo.skeleton {
+  height: 220px;
+  border-radius: 0;
+}
+
+.product-page .price {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 6px 0;
+  font-size: 26px;
+  font-weight: 700;
+}
+
+.product-page .price small {
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--tg-hint);
+}
+
+.old-price {
+  color: var(--tg-hint);
+  font-size: 17px;
+  font-weight: 500;
+  text-decoration: line-through;
+}
+
+.product-description {
+  margin: 14px 0 0;
+  font-size: 15px;
+  line-height: 1.55;
+  /* Переноси зберігаємо: менеджер часто вписує характеристики списком */
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* Дія притиснута донизу: рішення «додати» приймають після опису,
+   і кнопка має бути під великим пальцем, а не десь угорі */
+.product-action {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px calc(12px + env(safe-area-inset-bottom, 0px));
+  background: var(--tg-secondary-bg);
+  border-top: 1px solid var(--tg-bg);
+}
+
+.product-action .add,
+.product-action .primary {
+  flex: 1;
+  padding: 14px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: var(--accent);
+  color: var(--tg-bg);
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.product-action .add:disabled {
+  background: var(--tg-bg);
+  color: var(--tg-hint);
+}
+
+.product-action .stepper { flex: 0 0 auto; }

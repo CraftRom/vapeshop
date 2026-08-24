@@ -4,6 +4,7 @@ import { api } from './api'
 import { AgeGate, Catalog } from './screens/Catalog'
 import { Cart, Checkout } from './screens/Checkout'
 import { ChatList, ChatRoom } from './screens/Chat'
+import { ProductPage } from './screens/ProductPage'
 import { Profile } from './screens/Profile'
 import {
   applyTheme, backButton, getInitData, hideMainButton, initDataSource, isTelegram,
@@ -19,6 +20,7 @@ export default function App() {
   const [orders, setOrders] = useState([])
   // Відкрите замовлення в чаті. Кнопка з бота веде сюди напряму.
   const [chatOrder, setChatOrder] = useState(null)
+  const [openProduct, setOpenProduct] = useState(null)
   // Каталог із bootstrap: перший екран малюється без додаткового запиту
   const [seed, setSeed] = useState(null)
   const [fatal, setFatal] = useState('')
@@ -71,9 +73,10 @@ export default function App() {
   // Системна кнопка «назад» веде з оформлення до кошика, а не закриває вікно
   useEffect(() => {
     if (checkingOut) return backButton(() => setCheckingOut(false))
+    if (openProduct) return backButton(() => setOpenProduct(null))
     if (chatOrder) return backButton(() => setChatOrder(null))
     return backButton(null)
-  }, [checkingOut, chatOrder])
+  }, [checkingOut, chatOrder, openProduct])
 
   useEffect(() => hideMainButton, [])
 
@@ -144,6 +147,20 @@ initData: ${getInitData() ? `${getInitData().length} символів` : 'пор
   const count = cart?.lines?.reduce((sum, l) => sum + l.qty, 0) || 0
   const subtotal = Number(cart?.subtotal || 0)
 
+  if (openProduct) {
+    return (
+      <div className="app">
+        <ProductPage
+          config={config}
+          product={openProduct}
+          cart={cart}
+          onCartChange={changeCart}
+          onBack={() => setOpenProduct(null)}
+        />
+      </div>
+    )
+  }
+
   if (checkingOut) {
     return (
       <div className="app" style={{ paddingBottom: 24 }}>
@@ -199,7 +216,13 @@ initData: ${getInitData() ? `${getInitData().length} символів` : 'пор
       </div>
 
       {tab === 'catalog' && (
-        <Catalog config={config} cart={cart} onCartChange={changeCart} seed={seed} />
+        <Catalog
+          config={config}
+          cart={cart}
+          onCartChange={changeCart}
+          seed={seed}
+          onOpenProduct={setOpenProduct}
+        />
       )}
       {tab === 'cart' && (
         <Cart config={config} cart={cart} onCartChange={changeCart} />

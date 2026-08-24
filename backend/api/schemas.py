@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from decimal import Decimal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator
 
 from shop.entities import BroadcastStatus, OperatorRole, OrderStatus, PromoType
 
@@ -55,6 +55,14 @@ class ProductIn(BaseModel):
 class ProductOut(ORMModel, ProductIn):
     id: int
     category_name: str | None = None
+    # Сам ідентифікатор файлу назовні не потрібен: фото віддає наш проксі.
+    # Клієнту достатньо знати, що воно є.
+    photo_file_id: str | None = Field(None, exclude=True)
+
+    @computed_field
+    @property
+    def has_photo(self) -> bool:
+        return bool(self.photo_file_id or self.photo_url)
 
 
 class StockIn(BaseModel):
