@@ -42,6 +42,8 @@ run smoke qa/qa_smoke.py
 run negative qa/qa_negative.py
 run security qa/qa_security.py
 run database qa/qa_db.py
+run faq qa/qa_faq.py
+run faq-flow qa/qa_faq_flow.py
 run legal qa/qa_legal.py
 run e2e qa/qa_e2e.py
 run performance qa/qa_perf.py

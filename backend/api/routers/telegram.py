@@ -13,7 +13,7 @@ from aiogram.types import Update
 from fastapi import APIRouter, HTTPException, Request, status
 
 from bot.factory import bot_id, build_bot, build_dispatcher, webhook_path
-from aiogram.types import MenuButtonWebApp, WebAppInfo
+from aiogram.types import BotCommand, MenuButtonWebApp, WebAppInfo
 
 from shop.config import settings
 
@@ -142,6 +142,14 @@ async def setup_webhook(token: str = ""):
         menu_set = True
 
     me = await bot.get_me()
+    # Перелік команд у меню біля поля вводу. Без нього користувач не знає,
+    # що бот узагалі щось розуміє, крім /start.
+    await bot.set_my_commands([
+        BotCommand(command="shop", description="Відкрити магазин"),
+        BotCommand(command="orders", description="Мої замовлення"),
+        BotCommand(command="help", description="Довідка"),
+    ])
+
     info = await bot.get_webhook_info()
     return {
         "bot": f"@{me.username}",

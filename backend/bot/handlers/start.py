@@ -63,6 +63,23 @@ async def age_no(callback: CallbackQuery, repo: Repository) -> None:
 
 
 @router.message(F.text == "ℹ️ Довідка")
+@router.message(Command("shop", "magazin", "katalog"))
+async def cmd_shop(message: Message, repo: Repository, user: User) -> None:
+    """Головна команда магазину.
+
+    Окремо від /start: /start у Telegram — це «почати спочатку», його
+    натискають раз. Для повернення в магазин потрібна своя команда, яка
+    видно в меню поруч із полем вводу.
+    """
+    shop = await get_shop_settings(repo)
+    if not user.age_confirmed:
+        await message.answer(texts.age_gate(shop.min_age), reply_markup=kb.age_gate())
+        return
+    await message.answer(
+        texts.WELCOME.format(shop=shop.shop_name), reply_markup=kb.main_menu()
+    )
+
+
 @router.message(Command("help"))
 async def cmd_help(message: Message) -> None:
     await message.answer(texts.HELP, reply_markup=kb.main_menu())

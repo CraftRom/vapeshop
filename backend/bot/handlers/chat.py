@@ -15,7 +15,10 @@ from aiogram.types import CallbackQuery, Message
 
 from shop.entities import STATUS_LABELS, User
 from shop.repo.base import Repository
+from bot import faq
+from bot import keyboards as kb
 from shop.services import order_chat as chat
+from shop.services.shop_settings import get_shop_settings
 
 router = Router(name="chat")
 
@@ -107,6 +110,20 @@ async def incoming(
         )
         return
 
+    # Відповідь на цитату — це свідоме звернення до оператора, туди й веде.
+    # На решту спершу пробуємо відповісти самі: типові питання не мають
+    # чекати на людину, а оператор не має відповідати на них удвадцяте.
+    quoted = getattr(message, "reply_to_message", None) is not None
+    if not quoted:
+        shop = await get_shop_settings(repo)
+        rule = faq.match(text, shop)
+        if rule:
+            await message.answer(
+                faq.render(rule, shop),
+                reply_markup=kb.faq_reply(with_shop=rule.with_shop),
+            )
+            return
+
     order_id = await chat.route_incoming(repo, user, message)
     if order_id:
         await message.answer(await _deliver(repo, user, text, order_id, message.bot))
@@ -128,6 +145,28 @@ async def incoming(
         "повідомлення, і надішліть його ще раз.",
         reply_markup=chat.pick_order_keyboard(open_orders),
     )
+
+
+@router.callback_query(F.data == "faq:human")
+async def ask_human(callback: CallbackQuery, repo: Repository, user: User) -> None:
+    """Клієнт хоче людину. Показуємо, куди писати, а не мовчимо."""
+    open_orders = await chat.open_orders_for(repo, user.id)
+    if not open_orders:
+        await callback.message.answer(
+            "Напишіть питання сюди — оператор відповість. Якщо воно про "
+            "конкретне замовлення, спершу оформіть його в магазині."
+        )
+    elif len(open_orders) == 1:
+        await repo.set_chat_order(user.id, open_orders[0].id)
+        await callback.message.answer(
+            f"Пишіть — передамо оператору щодо замовлення №{open_orders[0].id}."
+        )
+    else:
+        await callback.message.answer(
+            "Оберіть замовлення, про яке питання:",
+            reply_markup=chat.pick_order_keyboard(open_orders),
+        )
+    await callback.answer()
 
 
 @router.callback_query(F.data.startswith("chat:"))
