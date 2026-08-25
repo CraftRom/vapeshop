@@ -50,4 +50,24 @@ for field in ["bot_token","jwt_secret","webhook_secret","cron_secret","database_
     changed = getattr(current(), field, None)
     r.check(changed is None, f"{field} не потрапляє в налаштування", changed)
 
+print("\n--- сміття при копіюванні значень ---")
+from shop.config import Settings as _S
+PASTED = [
+    ("firebase_database", "%28default%29", ""),
+    ("firebase_database", "(default)", ""),
+    ("bot_token", '"777001:ABC"', "777001:ABC"),
+    ("bot_token", " 777001:ABC ", "777001:ABC"),
+    ("public_url", "https://www.elfar.pp.ua/", "https://www.elfar.pp.ua"),
+    ("bot_username", "@elfar1_bot", "elfar1_bot"),
+    ("miniapp_short_name", "/elfar/", "elfar"),
+    ("firebase_project", " elfar-54b0c ", "elfar-54b0c"),
+]
+for field, raw, expect in PASTED:
+    got = getattr(_S(**{field: raw}), field)
+    r.check(got == expect, f"{field}: {raw!r} → {expect!r}", repr(got))
+
+# пробіли всередині значень зберігаються
+r.check(_S(dashboard_password="  два слова  ").dashboard_password == "два слова",
+        "пробіли всередині пароля вціліли")
+
 sys.exit(1 if r.done() else 0)

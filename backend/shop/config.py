@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     # sql — Postgres/SQLite (власний сервер); firestore — Firebase (Vercel)
     db_backend: str = "sql"
     firebase_project: str = ""
+    # Ідентифікатор бази Firestore. Порожньо — база за замовчуванням.
     firebase_database: str = ""
 
     # --- База (для db_backend=sql) ---
@@ -131,6 +132,65 @@ class Settings(BaseSettings):
     @property
     def cors_list(self) -> list[str]:
         return [x.strip() for x in self.cors_origins.split(",") if x.strip()]
+
+
+    @model_validator(mode="before")
+    @classmethod
+    def _trim_pasted_values(cls, data):
+        """Прибирає сміття, яке чіпляється при копіюванні значень.
+
+        Змінні оточення заповнюють вручну: копіюють токен із BotFather,
+        адресу з панелі хостингу, ідентифікатор із консолі. Разом зі
+        значенням приїжджають пробіли, лапки з .env-файлу, слеш на кінці
+        адреси. Кожен такий символ дає збій, у якому значення виглядає
+        правильним — а помилка вилазить десь далеко, як «невірний токен»
+        або «база не знайдена».
+        """
+        if not isinstance(data, dict):
+            return data
+
+        cleaned = {}
+        for key, value in data.items():
+            if isinstance(value, str):
+                value = value.strip().strip('"').strip("'").strip()
+            cleaned[key] = value
+        return cleaned
+
+
+    @field_validator("public_url", mode="after")
+    @classmethod
+    def _clean_url(cls, value: str) -> str:
+        # Слеш на кінці подвоївся б при склеюванні шляхів: «//app/»
+        return value.rstrip("/") if value else value
+
+    @field_validator("bot_username", "miniapp_short_name", mode="after")
+    @classmethod
+    def _clean_handle(cls, value: str) -> str:
+        # «@bot» і «/app» копіюють просто з адреси або з профілю
+        return value.lstrip("@").strip("/") if value else value
+
+    @field_validator("firebase_database", mode="after")
+    @classmethod
+    def _clean_database_id(cls, value: str) -> str:
+        """Нормалізує ідентифікатор бази Firestore.
+
+        З адреси консолі Firebase значення копіюється закодованим:
+        «%28default%29» замість «(default)». Firestore такий рядок не приймає
+        і відповідає «400 Invalid database id» — а падає при цьому кожен
+        запит до бази, тобто застосунок цілком.
+
+        Форми «(default)» і «default» означають базу за замовчуванням: для
+        неї клієнт має отримати None, а не рядок.
+        """
+        if not value:
+            return ""
+
+        from urllib.parse import unquote
+
+        cleaned = unquote(value).strip()
+        if cleaned.lower() in ("(default)", "default"):
+            return ""
+        return cleaned
 
 
     def missing_required(self) -> list[str]:
