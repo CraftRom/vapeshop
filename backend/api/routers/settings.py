@@ -7,11 +7,11 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from api.auth import Principal, require_staff
+from api.auth import Principal, require_admin, require_staff
 from api.schemas import ShopSettingsIn, ShopSettingsOut
 from shop.repo.base import Repository
 from shop.repo.factory import get_repo
-from shop.services.shop_settings import get_shop_settings, save_shop_settings
+from shop.services.shop_settings import current, get_shop_settings, save_shop_settings
 
 router = APIRouter(dependencies=[Depends(require_staff)])
 
@@ -28,6 +28,20 @@ OPERATOR_FIELDS = {
 @router.get("", response_model=ShopSettingsOut)
 async def read_settings(repo: Repository = Depends(get_repo)):
     return await get_shop_settings(repo)
+
+
+@router.get("/environment")
+async def environment(who: Principal = Depends(require_admin)):
+    """Стан змінних оточення: задані чи ні. Значень не розкриваємо.
+
+    Лише для адміністратора: перелік того, що налаштовано на сервері, —
+    підказка для того, хто шукає діру в захисті.
+    """
+    from shop.config import settings as env
+
+    # Передаємо чинні налаштування: адреса сайту й імʼя бота можуть бути
+    # задані в панелі, а не в оточенні
+    return {"items": env.environment_report(current())}
 
 
 @router.put("", response_model=ShopSettingsOut)

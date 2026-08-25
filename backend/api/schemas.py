@@ -280,6 +280,7 @@ class ShopSettingsIn(BaseModel):
     bot_username: str | None = Field(None, max_length=64)
     miniapp_short_name: str | None = Field(None, max_length=64)
     public_url: str | None = Field(None, max_length=255)
+    jwt_ttl_hours: int | None = Field(None, ge=1, le=720)
 
     @field_validator("bot_username", "miniapp_short_name", mode="after")
     @classmethod

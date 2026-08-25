@@ -55,6 +55,9 @@ class ShopSettings:
     bot_username: str
     miniapp_short_name: str
     public_url: str
+    # Скільки годин живе вхід у панель. Політика, а не інфраструктура,
+    # тож місце їй тут, а не в змінних оточення
+    jwt_ttl_hours: int
 
     @classmethod
     def from_env(cls) -> ShopSettings:
@@ -81,6 +84,7 @@ class ShopSettings:
             bot_username=settings.bot_username,
             miniapp_short_name=settings.miniapp_short_name,
             public_url=settings.public_url,
+            jwt_ttl_hours=settings.jwt_ttl_hours,
         )
 
     def volume_discount_for(self, subtotal: Decimal) -> Decimal:

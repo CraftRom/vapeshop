@@ -16,6 +16,7 @@ from bot.factory import bot_id, build_bot, build_dispatcher, webhook_path
 from aiogram.types import BotCommand, MenuButtonWebApp, WebAppInfo
 
 from shop.config import settings
+from shop.services.shop_settings import current
 
 router = APIRouter()
 log = logging.getLogger("webhook")
@@ -124,16 +125,20 @@ async def setup_webhook(token: str = ""):
     # тому, хто не знає токена
     if not settings.cron_secret or token != settings.cron_secret:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
-    if not settings.public_url or not settings.webhook_secret:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Задайте PUBLIC_URL і WEBHOOK_SECRET")
+    # Адреса береться з налаштувань панелі, а не з оточення: інакше
+    # адміністратор змінює домен у панелі, запускає цей виклик — і вебхук
+    # мовчки реєструється на старий, а кнопка магазину веде не туди
+    public_url = (current().public_url or settings.public_url or "").rstrip("/")
+    if not public_url or not settings.webhook_secret:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Задайте адресу сайту і WEBHOOK_SECRET")
 
     bot, _ = _instances()
-    url = settings.public_url.rstrip("/") + webhook_path()
+    url = public_url + webhook_path()
     await bot.set_webhook(url, drop_pending_updates=True)
 
     # Синя кнопка біля поля вводу — головний вхід у вітрину.
     # Telegram вимагає https, тож на локальному хості вона не зʼявиться.
-    shop_url = settings.public_url.rstrip("/") + "/app/"
+    shop_url = public_url + "/app/"
     menu_set = False
     if shop_url.startswith("https://"):
         await bot.set_chat_menu_button(

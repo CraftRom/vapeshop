@@ -11,6 +11,7 @@ from dataclasses import dataclass
 
 from shop.config import settings
 from shop.entities import OperatorRole
+from shop.services.shop_settings import current
 from shop.services.passwords import verify_password
 
 security = HTTPBearer(auto_error=False)
@@ -45,13 +46,16 @@ class Principal:
         return self.role == OperatorRole.ADMIN
 
 
-def create_token(login: str, role: OperatorRole, operator_id: int = 0, name: str = "") -> str:
+def create_token(login: str, role: OperatorRole, operator_id: int = 0, name: str = "",
+                 ttl_hours: int | None = None) -> str:
+    """ttl_hours=None — беремо чинне значення з налаштувань панелі."""
+    hours = ttl_hours or current().jwt_ttl_hours or settings.jwt_ttl_hours
     payload = {
         "sub": login,
         "role": role.value,
         "oid": operator_id,
         "name": name,
-        "exp": datetime.now(timezone.utc) + timedelta(hours=settings.jwt_ttl_hours),
+        "exp": datetime.now(timezone.utc) + timedelta(hours=hours),
         "iat": datetime.now(timezone.utc),
     }
     return jwt.encode(payload, settings.jwt_secret, algorithm="HS256")

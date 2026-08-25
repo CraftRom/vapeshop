@@ -45,6 +45,7 @@ run database qa/qa_db.py
 run faq qa/qa_faq.py
 run faq-flow qa/qa_faq_flow.py
 run faq-public qa/qa_faq_public.py
+run env qa/qa_env.py
 run docs qa/qa_docs.py
 run legal qa/qa_legal.py
 run e2e qa/qa_e2e.py

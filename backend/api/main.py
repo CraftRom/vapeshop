@@ -13,6 +13,7 @@ from api.routers import (
 )
 from api.schemas import LoginIn, TokenOut
 from shop.config import settings
+from shop.services.shop_settings import current
 from shop.repo.factory import get_repo
 from shop.db import init_db
 
@@ -118,7 +119,9 @@ async def health():
         "shop": settings.shop_name,
         "db_backend": settings.db_backend,
         "serverless": settings.serverless,
-        "webhook_configured": bool(settings.webhook_secret and settings.public_url),
+        "webhook_configured": bool(
+            settings.webhook_secret and (current().public_url or settings.public_url)
+        ),
         "missing_env": problems,
     }
 

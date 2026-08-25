@@ -106,6 +106,13 @@ const FIELDS = [
               'не відкриватимуть вітрину напряму',
       },
       {
+        key: 'jwt_ttl_hours',
+        label: 'Тривалість сесії в панелі, годин',
+        type: 'number',
+        hint: 'Через стільки годин доведеться увійти знову. Менше значення — ' +
+              'безпечніше, якщо панеллю користуються зі спільного компʼютера',
+      },
+      {
         key: 'public_url',
         label: 'Адреса сайту',
         hint: 'Обовʼязково https:// і точно той домен, що віддає сайт — ' +
@@ -134,6 +141,69 @@ const FIELDS = [
     ],
   },
 ]
+
+const LEVEL = {
+  critical: { label: 'критично', tone: 'bad' },
+  important: { label: 'важливо', tone: 'warn' },
+  optional: { label: 'необовʼязково', tone: '' },
+}
+
+/** Стан змінних оточення.
+ *
+ * Показує, що задано на сервері, і ніколи — самі значення. Без цього
+ * екрана про незадану змінну дізнаються тоді, коли щось перестає
+ * працювати, і причину шукають у логах.
+ */
+function EnvironmentCard() {
+  const [items, setItems] = useState(null)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    api.settings
+      .environment()
+      .then((data) => setItems(data.items))
+      .catch((err) => setError(err.message))
+  }, [])
+
+  if (error) return <ErrorBar error={error} />
+  if (!items) return null
+
+  const problems = items.filter((i) => !i.ok && i.level !== 'optional')
+
+  return (
+    <div className="card" style={{ marginBottom: 18 }}>
+      <div className="row-between">
+        <h2 style={{ margin: 0 }}>Стан оточення</h2>
+        <span className={`chip ${problems.length ? '' : 'ok'}`}>
+          {problems.length ? `потребує уваги: ${problems.length}` : 'усе задано'}
+        </span>
+      </div>
+      <p className="faint">
+        Значення не показуються — лише те, задана змінна чи ні. Змінюються
+        на сервері, у налаштуваннях розгортання.
+      </p>
+
+      <div className="table-wrap">
+        <table>
+          <tbody>
+            {items.map((i) => (
+              <tr key={i.key} style={{ opacity: i.ok ? 0.6 : 1 }}>
+                <td style={{ width: 28 }}>{i.ok ? '✓' : '✗'}</td>
+                <td><code>{i.key}</code></td>
+                <td className="faint">{i.note}</td>
+                <td>
+                  {!i.ok && (
+                    <span className="chip">{LEVEL[i.level]?.label || i.level}</span>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
 
 export default function Settings() {
   const notify = useToast()
@@ -239,6 +309,8 @@ export default function Settings() {
           </p>
         </div>
       )}
+
+      {isAdmin() && <EnvironmentCard />}
 
       {isAdmin() && (
       <div className="card" style={{ marginBottom: 18 }}>

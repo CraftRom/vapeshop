@@ -1,3 +1,4 @@
+import os
 from functools import lru_cache
 from urllib.parse import quote_plus
 
@@ -146,6 +147,74 @@ class Settings(BaseSettings):
         if self.db_backend not in ("sql", "firestore"):
             problems.append("DB_BACKEND (має бути sql або firestore)")
         return problems
+
+
+    def environment_report(self, runtime=None) -> list[dict]:
+        """Стан змінних оточення для панелі. Значень не розкриваємо.
+
+        Показуємо саме інфраструктуру й секрети — усе, що не редагується
+        з панелі. Без цього адміністратор дізнається про незадану змінну
+        лише тоді, коли щось перестане працювати, і шукатиме причину
+        в логах замість одного екрана.
+        """
+        serverless = self.serverless
+        firestore = self.db_backend == "firestore"
+
+        # Частина значень задається і в оточенні, і в панелі; панель має
+        # пріоритет. Без цього адміністратор, який заповнив адресу сайту
+        # в налаштуваннях, бачив би тут «не задано» і шукав неіснуючу проблему.
+        def effective(name):
+            value = getattr(runtime, name, None) if runtime is not None else None
+            return value or getattr(self, name)
+
+        def entry(key, ok, level, note):
+            return {"key": key, "ok": bool(ok), "level": level, "note": note}
+
+        report = [
+            entry("BOT_TOKEN", self.bot_token, "critical",
+                  "Без нього бот не працює зовсім"),
+            entry("JWT_SECRET", self.jwt_secret not in ("", "change-me"), "critical",
+                  "Дефолтне значення означає, що вхід у панель можна підробити"),
+            entry("DASHBOARD_PASSWORD", self.dashboard_password not in ("", "admin"), "critical",
+                  "Дефолтний пароль відомий будь-кому"),
+            entry("WEBHOOK_SECRET", self.webhook_secret, "critical" if serverless else "optional",
+                  "Адреса, на яку Telegram шле оновлення. Потрібен у serverless"),
+            entry("Адреса сайту", str(effective("public_url")).startswith("https://"), "critical",
+                  "Обовʼязково https і точний домен. Редагується в налаштуваннях"),
+            entry("Юзернейм бота",
+                  effective("bot_username") and effective("bot_username") != "your_shop_bot",
+                  "important", "Потрібен для кнопки переходу з групи в особистий чат"),
+            entry("Коротка назва Mini App", effective("miniapp_short_name"), "important",
+                  "Без неї реферальні посилання не відкривають вітрину напряму"),
+            entry("CRON_SECRET", self.cron_secret, "important",
+                  "Захищає службові точки: setup вебхука й запуск розсилок"),
+            entry("REDIS_URL", self.redis_url, "important" if serverless else "optional",
+                  "Без нього оформлення в чаті бота може обірватися на середині"),
+            entry("DB_BACKEND", self.db_backend in ("sql", "firestore"), "critical",
+                  "Має бути sql або firestore"),
+        ]
+
+        if firestore:
+            report.append(entry("FIREBASE_PROJECT", self.firebase_project, "critical",
+                                "Ідентифікатор проєкту Firestore"))
+            report.append(entry(
+                "GOOGLE_APPLICATION_CREDENTIALS_JSON",
+                os.environ.get("GOOGLE_APPLICATION_CREDENTIALS_JSON")
+                or os.environ.get("GOOGLE_APPLICATION_CREDENTIALS"),
+                "critical", "Ключ сервісного акаунта для доступу до бази",
+            ))
+        else:
+            report.append(entry("DATABASE_URL", self.db_url, "critical",
+                                "Адреса Postgres"))
+
+        report.append(entry("ADMIN_CHAT_ID", self.admin_chat_id, "important",
+                            "Чат, куди падають нові замовлення. Задається й у панелі"))
+        return report
+
+    def environment_problems(self) -> list[dict]:
+        """Лише те, що справді потребує уваги."""
+        return [e for e in self.environment_report()
+                if not e["ok"] and e["level"] != "optional"]
 
 
 @lru_cache
