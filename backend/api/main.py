@@ -17,6 +17,8 @@ from shop.services.shop_settings import current
 from shop.repo.factory import get_repo
 from shop.db import init_db
 
+from shop.build import BUILD as _BUILD
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)-8s %(name)s: %(message)s")
 
 
@@ -119,11 +121,10 @@ async def health():
     # «%28default%29», а в effective те саме — у продакшені старий код.
     # Не секрет: це ідентифікатор бази, а не доступ до неї.
     import os as _os
-    from shop.build import BUILD
 
     return {
         "status": "ok" if not problems else "misconfigured",
-        "build": BUILD,
+        "build": _BUILD,
         "shop": settings.shop_name,
         "db_backend": settings.db_backend,
         "serverless": settings.serverless,
@@ -136,6 +137,63 @@ async def health():
         ),
         "missing_env": problems,
     }
+
+
+@app.get("/api/debug/firestore", tags=["service"])
+async def debug_firestore():
+    """Що насправді бачить клієнт Firestore.
+
+    Досі про причину «Invalid database id» доводилося здогадуватись: логи
+    показують текст помилки, але не показують, з яким ідентифікатором бази
+    клієнт був створений і які версії бібліотек реально стоять у збірці.
+    Тут — і те, і те, плюс один найдешевший реальний запит до бази.
+
+    Без авторизації, як і /api/health: коли база лежить, у панель не увійти,
+    а саме тоді ця сторінка й потрібна. Секретів не віддає — лише
+    ідентифікатори проєкту та бази й номери версій.
+    """
+    result: dict = {"build": _BUILD}
+
+    try:
+        from shop.repo.factory import _get_firestore_store
+
+        store = _get_firestore_store()
+        client = store.client
+        result["client"] = {
+            # Приватні атрибути читаємо навмисно: публічного способу спитати
+            # клієнта про його базу SDK не дає, а саме це нас і цікавить.
+            "project": getattr(client, "project", None),
+            "database": getattr(client, "_database", None),
+            "database_string": getattr(client, "_database_string", None),
+        }
+    except Exception as exc:
+        result["client"] = {"error": f"{type(exc).__name__}: {exc}"}
+
+    try:
+        import google.api_core.version as _api_core_version
+        import grpc as _grpc
+        from google.cloud.firestore import __version__ as _fs_version
+
+        result["versions"] = {
+            "google-cloud-firestore": _fs_version,
+            "google-api-core": _api_core_version.__version__,
+            "grpcio": _grpc.__version__,
+        }
+    except Exception as exc:
+        result["versions"] = {"error": f"{type(exc).__name__}: {exc}"}
+
+    # Найдешевший можливий запит: один документ із колекції, якої може й не
+    # бути. Порожня відповідь — теж успіх, нас цікавить сам факт зʼєднання.
+    try:
+        from shop.repo.factory import _get_firestore_store
+
+        store = _get_firestore_store()
+        await store.client.collection("__diag__").limit(1).get()
+        result["probe"] = {"ok": True}
+    except Exception as exc:
+        result["probe"] = {"ok": False, "error": f"{type(exc).__name__}: {exc}"[:400]}
+
+    return result
 
 
 @app.get("/api/debug/routing", tags=["service"])
