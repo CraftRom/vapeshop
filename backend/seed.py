@@ -1,7 +1,6 @@
 """Наповнює каталог демо-даними.
 
-Працює з будь-якою базою: DB_BACKEND визначає, куди саме писати.
-    docker compose exec bot python seed.py
+    docker compose -f docker-compose.prod.yml exec api python seed.py
 """
 from __future__ import annotations
 
@@ -41,9 +40,9 @@ PROMOS = [
 
 
 async def main() -> None:
-    if settings.db_backend == "sql":
-        from shop.db import init_db
-        await init_db()
+    from shop.db import init_db
+
+    await init_db()
 
     async with open_repo() as repo:
         if await repo.list_categories():
@@ -65,7 +64,7 @@ async def main() -> None:
             await repo.create_promo(promo | {"is_active": True})
 
         print(f"Готово: {len(CATALOG)} категорій, {len(PROMOS)} промокоди "
-              f"(база: {settings.db_backend}).")
+              "(база: Postgres).")
 
 
 if __name__ == "__main__":

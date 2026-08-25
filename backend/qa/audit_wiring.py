@@ -14,12 +14,11 @@ def read(p):
 
 print("=== ФАЙЛИ ===")
 must = [
- "firestore.indexes.json","firestore.rules","backend/requirements.txt",
+ "backend/requirements.txt","deploy/bootstrap.sh","deploy/elfar.service",
  "deploy/docker-compose.prod.yml","deploy/deploy.sh","deploy/backup.sh","deploy/restore.sh",
  "backend/Dockerfile","backend/scheduler/__main__.py","backend/scheduler/tasks.py",
  "backend/shop/entities.py","backend/shop/models.py","backend/shop/config.py","backend/shop/links.py",
- "backend/shop/repo/base.py","backend/shop/repo/sql.py","backend/shop/repo/firestore.py",
- "backend/shop/repo/docstore.py","backend/shop/repo/firestore_store.py",
+ "backend/shop/repo/base.py","backend/shop/repo/sql.py",
  "backend/shop/services/shop_service.py","backend/shop/services/shop_settings.py",
  "backend/shop/services/order_chat.py","backend/shop/services/notifications.py",
  "backend/shop/services/wishlist.py","backend/shop/services/passwords.py","backend/shop/services/broadcast.py",
@@ -59,6 +58,14 @@ for service in ["db:", "redis:", "migrate:", "api:", "bot:", "scheduler:", "ngin
     check(service in compose, f"сервіс у compose: {service.rstrip(':')}")
 check("python -m scheduler" in compose, "планувальник запускається як окремий процес")
 check("postgresql-client" in read("backend/Dockerfile"), "pg_dump є в образі — інакше бекап мовчки не працює")
+
+unit = read("deploy/elfar.service")
+check("WantedBy=multi-user.target" in unit, "unit вмикається при завантаженні системи")
+check("Requires=docker.service" in unit, "unit чекає на docker, а не стартує наосліп")
+check("__REPO_DIR__" in unit and "__USER__" in unit, "unit — шаблон, шляхи підставляє bootstrap")
+boot = read("deploy/bootstrap.sh")
+check("systemctl enable" in boot, "bootstrap вмикає автозапуск")
+check("systemctl enable --now docker" in boot, "bootstrap вмикає сам docker — без цього автозапуск марний")
 
 nginx = read("deploy/nginx/app.conf")
 for location in ["/api/", "/app"]:
@@ -127,29 +134,9 @@ for m in migs:
             revises.add(line.split("=")[-1].strip().strip('"\'').replace("None", ""))
 check(len(migs) == len(heads), f"міграцій: {len(migs)}, унікальних ревізій: {len(heads)}")
 check("a1c74e35b806" in heads, "міграція відкладених розсилок на місці")
-idx = json.loads(read("firestore.indexes.json"))["indexes"]
-check(len(idx) >= 25, f"індексів Firestore: {len(idx)}")
-cols = {i["collectionGroup"] for i in idx}
-# Колекції беремо з коду, а не зі списку в тесті: доданий репозиторієм
-# запит без індексу інакше знову проліз би непоміченим
-fs = read("backend/shop/repo/firestore.py")
-declared = set(re.findall(r'^([A-Z_]+) = "([a-z_]+)"', fs, re.M) and [])
-consts = dict(re.findall(r'^([A-Z_]+(?:, [A-Z_]+)*) = (.+)$', fs, re.M))
-queried = set()
-for m in re.finditer(r'self\.db\.query\(\s*([A-Z_]+),\s*\[([^\]]*)\]([^)]*)', fs):
-    name, filters, tail = m.groups()
-    # запит із фільтром і сортуванням завжди потребує складеного індексу
-    if filters.strip() and "order_by" in tail:
-        queried.add(name)
-name_to_coll = dict(re.findall(r'^([A-Z_]+) = "([a-z_]+)"', fs, re.M))
-for line in re.findall(r'^([A-Z_, ]+) = (.+)$', fs, re.M):
-    names = [n.strip() for n in line[0].split(",")]
-    vals = re.findall(r'"([a-z_]+)"', line[1])
-    if len(names) == len(vals):
-        name_to_coll.update(dict(zip(names, vals)))
-missing_idx = sorted({name_to_coll.get(n, n) for n in queried} - cols)
-check(not missing_idx, "кожна відфільтрована й відсортована колекція має індекс", missing_idx)
-
+# Індекси Firestore перевіряти більше нема потреби: бекенд один — Postgres,
+# а його індекси описані в моделях і накочуються міграціями, які перевіряє
+# окремий набір qa_db.
 print("\n=== РОЗГОРТАННЯ НА СВОЄМУ СЕРВЕРІ ===")
 compose = read("deploy/docker-compose.prod.yml")
 for svc in ["api","bot","dashboard","miniapp","nginx","db","redis"]:

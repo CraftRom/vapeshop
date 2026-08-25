@@ -26,18 +26,8 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)-8s %(na
 async def lifespan(app: FastAPI):
     log = logging.getLogger("api")
 
-    if settings.db_backend == "firestore":
-        log.info("База: Firestore (проєкт %s)", settings.firebase_project or "за замовчуванням")
-        log.info("Дашборд очікує логін: %r", settings.dashboard_login)
-        yield
-        return
-
-    if settings.serverless:
-        # На Vercel схему накочує Alembic окремою командою, а не кожен інстанс
-        log.info("Serverless-режим: init_db пропущено")
-        yield
-        return
-
+    # Схему накочує окремий сервіс migrate до старту API, а не кожен
+    # інстанс на старті: інакше два воркери перегоняли б Alembic одночасно.
     try:
         await init_db()
     except Exception as exc:
@@ -117,21 +107,10 @@ async def health():
     """
     problems = settings.missing_required()
     # Сире значення змінної поруч із тим, що з нього вийшло після очистки.
-    # Якщо ці два поля розходяться — очистка працює; якщо в raw лежить
-    # «%28default%29», а в effective те саме — у продакшені старий код.
-    # Не секрет: це ідентифікатор бази, а не доступ до неї.
-    import os as _os
-
     return {
         "status": "ok" if not problems else "misconfigured",
         "build": _BUILD,
         "shop": settings.shop_name,
-        "db_backend": settings.db_backend,
-        "serverless": settings.serverless,
-        "firebase_database": {
-            "raw": _os.environ.get("FIREBASE_DATABASE", ""),
-            "effective": settings.firebase_database,
-        },
         "webhook_configured": bool(
             settings.webhook_secret and (current().public_url or settings.public_url)
         ),
@@ -139,61 +118,37 @@ async def health():
     }
 
 
-@app.get("/api/debug/firestore", tags=["service"])
-async def debug_firestore():
-    """Що насправді бачить клієнт Firestore.
+@app.get("/api/debug/database", tags=["service"])
+async def debug_database():
+    """Чи жива база просто зараз.
 
-    Досі про причину «Invalid database id» доводилося здогадуватись: логи
-    показують текст помилки, але не показують, з яким ідентифікатором бази
-    клієнт був створений і які версії бібліотек реально стоять у збірці.
-    Тут — і те, і те, плюс один найдешевший реальний запит до бази.
-
-    Без авторизації, як і /api/health: коли база лежить, у панель не увійти,
-    а саме тоді ця сторінка й потрібна. Секретів не віддає — лише
-    ідентифікатори проєкту та бази й номери версій.
+    Без авторизації, як і /api/health: коли база лягла, у панель не увійти,
+    а саме тоді ця сторінка й потрібна. Адреси й паролі не віддає — лише
+    факт зʼєднання, версію сервера й час найдешевшого запиту.
     """
-    result: dict = {"build": _BUILD}
+    import time
 
+    from sqlalchemy import text
+
+    from shop.db import SessionMaker
+
+    started = time.monotonic()
     try:
-        from shop.repo.factory import _get_firestore_store
-
-        store = _get_firestore_store()
-        client = store.client
-        result["client"] = {
-            # Приватні атрибути читаємо навмисно: публічного способу спитати
-            # клієнта про його базу SDK не дає, а саме це нас і цікавить.
-            "project": getattr(client, "project", None),
-            "database": getattr(client, "_database", None),
-            "database_string": getattr(client, "_database_string", None),
+        async with SessionMaker() as session:
+            version = (await session.execute(text("SELECT version()"))).scalar_one()
+            await session.execute(text("SELECT 1"))
+        return {
+            "build": _BUILD,
+            "ok": True,
+            "server": str(version)[:80],
+            "latency_ms": round((time.monotonic() - started) * 1000, 1),
         }
     except Exception as exc:
-        result["client"] = {"error": f"{type(exc).__name__}: {exc}"}
-
-    try:
-        import google.api_core.version as _api_core_version
-        import grpc as _grpc
-        from google.cloud.firestore import __version__ as _fs_version
-
-        result["versions"] = {
-            "google-cloud-firestore": _fs_version,
-            "google-api-core": _api_core_version.__version__,
-            "grpcio": _grpc.__version__,
+        return {
+            "build": _BUILD,
+            "ok": False,
+            "error": f"{type(exc).__name__}: {exc}"[:400],
         }
-    except Exception as exc:
-        result["versions"] = {"error": f"{type(exc).__name__}: {exc}"}
-
-    # Найдешевший можливий запит: один документ із колекції, якої може й не
-    # бути. Порожня відповідь — теж успіх, нас цікавить сам факт зʼєднання.
-    try:
-        from shop.repo.factory import _get_firestore_store
-
-        store = _get_firestore_store()
-        await store.client.collection("__diag__").limit(1).get()
-        result["probe"] = {"ok": True}
-    except Exception as exc:
-        result["probe"] = {"ok": False, "error": f"{type(exc).__name__}: {exc}"[:400]}
-
-    return result
 
 
 @app.get("/api/debug/routing", tags=["service"])

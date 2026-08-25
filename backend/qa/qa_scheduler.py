@@ -128,6 +128,30 @@ async def scenario():
     again = await run_due_broadcasts()
     r.check(again == 0, "повторний тік не перезапускає надіслане", again)
 
+    print("\n--- час запуску переживає читання з бази ---")
+    # Поле легко втратити в мапінгу рядок → сутність: запис проходить,
+    # вибірка дозрілих теж (вона читає стовпець напряму), а от у панель
+    # приїжджає None — і адміністратор бачить «Заплановано» без дати.
+    async with open_repo() as repo:
+        moment = datetime.now(timezone.utc) + timedelta(days=3)
+        made = await repo.create_broadcast({
+            "title": "Перевірка поля", "text": "текст",
+            "status": BroadcastStatus.SCHEDULED, "scheduled_at": moment,
+        })
+        r.check(made.scheduled_at is not None, "create повертає час запуску")
+
+        read_back = await repo.get_broadcast(made.id)
+        r.check(read_back.scheduled_at is not None, "get_broadcast повертає час запуску")
+
+        listed = {b.id: b for b in await repo.list_broadcasts()}
+        r.check(listed[made.id].scheduled_at is not None,
+                "list_broadcasts повертає час запуску")
+
+        cleared = await repo.update_broadcast(made.id, {
+            "status": BroadcastStatus.DRAFT, "scheduled_at": None,
+        })
+        r.check(cleared.scheduled_at is None, "зняття з черги очищає час")
+
     print("\n--- ретенція бекапів ---")
     from pathlib import Path
 

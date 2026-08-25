@@ -109,7 +109,7 @@ async def run_backup_if_due(state: dict) -> bool:
     Перезапуск контейнера скидає її, тому додатково перевіряємо, чи файл
     за сьогодні вже не лежить на диску.
     """
-    if not settings.backup_enabled or settings.db_backend != "sql":
+    if not settings.backup_enabled:
         return False
 
     async with open_repo() as repo:

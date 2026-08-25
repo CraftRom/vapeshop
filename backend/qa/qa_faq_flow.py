@@ -74,9 +74,6 @@ async def run(repo, label):
           "перехід до оператора пояснено", cb.message.replies)
 
 async def main():
-    from shop.repo.docstore import InMemoryDocStore
-    from shop.repo.firestore import FirestoreRepository
-    await run(FirestoreRepository(InMemoryDocStore()),"Firestore")
     from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
     from shop.models import Base
     from shop.repo.sql import SqlRepository

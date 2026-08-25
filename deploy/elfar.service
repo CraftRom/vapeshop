@@ -1,0 +1,41 @@
+# Автозапуск магазину після перезавантаження сервера.
+#
+# Шаблон: bootstrap.sh підставляє __REPO_DIR__ і __USER__ і кладе файл
+# у /etc/systemd/system/elfar.service.
+#
+# Чому окремий unit, якщо в compose уже стоїть restart: always.
+# `restart: always` піднімає контейнер, який упав, але не піднімає стек,
+# якщо його зупинили командою `docker compose down` — а саме так виглядає
+# коректне вимкнення сервера. Після ребуту такі контейнери лишаються
+# зупиненими. Unit прибирає цю діру: систему цікавить стан «стек має
+# працювати», а не стан окремих контейнерів.
+
+[Unit]
+Description=Магазин ELFAR (Docker Compose)
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User=__USER__
+WorkingDirectory=__REPO_DIR__/deploy
+
+# Міграції накочуються до старту решти: сервіс migrate у compose
+# позначений як залежність з умовою service_completed_successfully.
+ExecStart=/usr/bin/docker compose -f docker-compose.prod.yml up -d --remove-orphans
+ExecStop=/usr/bin/docker compose -f docker-compose.prod.yml down
+ExecReload=/usr/bin/docker compose -f docker-compose.prod.yml up -d --remove-orphans
+
+# Збірка образів на повільному сервері легко займає кілька хвилин.
+# Дефолтні 90 секунд обірвали б перший запуск на середині.
+TimeoutStartSec=900
+TimeoutStopSec=120
+
+# Якщо docker ще не готовий у момент старту — пробуємо ще, а не здаємось.
+Restart=on-failure
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target

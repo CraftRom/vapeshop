@@ -5,7 +5,7 @@
 відповів користувачу на кожному кроці.
 
 Сценарій ганяється через обидві бази: те, що бот однаково працює на Postgres
-і на Firestore, має підтверджуватись, а не матись на увазі.
+має підтверджуватись, а не матись на увазі.
 
 Запуск:  python tests_bot.py
 """
@@ -189,32 +189,15 @@ async def run(backend: str) -> None:
 
     for name in [m for m in list(sys.modules) if m.startswith(("shop", "bot"))]:
         del sys.modules[name]
-    os.environ["DB_BACKEND"] = backend
-
-    if backend == "sql":
-        if os.path.exists("/tmp/bot_test.db"):
-            os.remove("/tmp/bot_test.db")
-    else:
-        # Реальний Firestore тут недоступний — підміняємо сховище на пам'ять
-        import shop.repo.factory as factory
-        from contextlib import asynccontextmanager
-        from shop.repo.docstore import InMemoryDocStore
-        from shop.repo.firestore import FirestoreRepository
-
-        store = InMemoryDocStore()
-
-        @asynccontextmanager
-        async def fake_repo():
-            yield FirestoreRepository(store)
-
-        factory.open_repo = fake_repo
+    if os.path.exists("/tmp/bot_test.db"):
+        os.remove("/tmp/bot_test.db")
 
     from bot.factory import build_dispatcher
     from shop.repo.factory import open_repo
 
-    if backend == "sql":
-        from shop.db import init_db
-        await init_db()
+    from shop.db import init_db
+
+    await init_db()
 
     async with open_repo() as repo:
         category = await repo.create_category(
@@ -313,7 +296,10 @@ async def run(backend: str) -> None:
     print("\n4. Оформлення замовлення")
 
     await feed(callback_update(bot, "checkout"))
-    check("запитано ім'я", "звертатися" in session.all_text(),
+    # Перевіряємо «одержувач», а не точне формулювання: текст запиту вже
+    # переписували (раніше було «як до вас звертатися»), і тест мовчки
+    # відʼїхав від коду. Прив'язка до суті питання переживає редактуру.
+    check("запитано ім'я", "одержувача" in session.all_text(),
           session.all_text()[:80])
 
     await feed(message_update(bot, "О"))
@@ -477,8 +463,7 @@ async def run(backend: str) -> None:
 
 
 async def main() -> None:
-    for backend in ("sql", "firestore"):
-        await run(backend)
+    await run("sql")
 
     total_failed = 0
     print(f"\n{'=' * 52}")
@@ -486,17 +471,6 @@ async def main() -> None:
         bad = [c for c in checks if not c[1]]
         total_failed += len(bad)
         print(f"{backend:12} пройдено {len(checks) - len(bad)} з {len(checks)}")
-
-    backends = list(results.values())
-    if len(backends) == 2:
-        mismatches = [a[0] for a, b in zip(backends[0], backends[1]) if a[1] != b[1]]
-        if mismatches:
-            print(f"\nРОЗБІЖНОСТІ МІЖ БАЗАМИ ({len(mismatches)}):")
-            for label in mismatches:
-                print(f"  • {label}")
-            total_failed += len(mismatches)
-        else:
-            print("Бот поводиться однаково на обох базах ✓")
 
     print(f"{'=' * 52}\nВсього провалено: {total_failed}\n")
     raise SystemExit(1 if total_failed else 0)

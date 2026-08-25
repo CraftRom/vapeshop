@@ -1,11 +1,10 @@
-"""Контрактні тести: один сценарій — дві бази.
+"""Контрактні тести репозиторію.
 
-Сенс у тому, що кожна перевірка виконується двічі: через SqlRepository
-(SQLite) і через FirestoreRepository (InMemoryDocStore). Якщо реалізації
-почнуть розходитись — тест це покаже одразу, а не в продакшені.
+Один сценарій проти SqlRepository на SQLite. Раніше той самий сценарій
+ганявся ще й через Firestore, щоб зловити розходження реалізацій; Firestore
+прибрано, і потреба відпала разом з ним.
 
 Запуск:  python tests_repo.py
-Проти справжнього Firestore:  FIRESTORE_EMULATOR_HOST=localhost:8080 python tests_repo.py --real
 """
 from __future__ import annotations
 
@@ -22,8 +21,6 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine  # no
 
 from shop.entities import OrderStatus, PromoType  # noqa: E402
 from shop.models import Base  # noqa: E402
-from shop.repo.docstore import InMemoryDocStore  # noqa: E402
-from shop.repo.firestore import FirestoreRepository  # noqa: E402
 from shop.repo.sql import SqlRepository  # noqa: E402
 from shop.services import shop_service as svc  # noqa: E402
 
@@ -244,27 +241,8 @@ async def run_sql() -> None:
     await engine.dispose()
 
 
-async def run_firestore() -> None:
-    global current
-    current = "Firestore (in-memory)"
-    await scenario(FirestoreRepository(InMemoryDocStore()))
-
-
-async def run_firestore_real() -> None:
-    global current
-    current = "Firestore (емулятор)"
-    from shop.repo.firestore_store import FirestoreDocStore
-    store = FirestoreDocStore(project=os.environ.get("FIREBASE_PROJECT", "demo-shop"))
-    await scenario(FirestoreRepository(store))
-    await store.close()
-
-
 async def main() -> None:
     await run_sql()
-    if "--real" in sys.argv:
-        await run_firestore_real()
-    else:
-        await run_firestore()
 
     total_failed = 0
     for backend, checks in results.items():

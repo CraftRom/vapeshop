@@ -1,239 +1,18 @@
-# Розгортання: повний посібник
+# Розгортання
 
-Два сценарії. Обирайте один — вони не поєднуються.
+Магазин розгортається на власному сервері з Ubuntu. Усе своє: Postgres
+у контейнері поруч, власний планувальник розсилок, власні бекапи. Зовнішніх
+залежностей, крім Telegram і Let's Encrypt, немає.
 
-| | **Vercel** | **Власний сервер** |
-|---|---|---|
-| База | Firestore | Postgres |
-| Бот | вебхук | polling |
-| Розсилки | порціями, планувальник | фоном, без пауз |
-| Складність | нижча | вища |
-| Ціна на старті | 0 | від $5/міс за VPS |
-| Коли обирати | перевірити ідею | бойовий магазин |
+> **Найшвидший шлях — `sudo bash deploy/bootstrap.sh` на чистому сервері.**
+> Він робить усе з частини 2 нижче за один прохід. Читайте далі, щоб
+> розуміти, що саме він зробив і де шукати, якщо щось пішло не так.
 
-Обидва сценарії — **один домен для панелі й API**. Це принципово: інакше
-панель не знаходить бекенд і ви бачите «API недоступний».
+Повний довідник із поясненнями рішень — [SERVER.md](SERVER.md).
 
----
+# Покроково
 
-# ЧАСТИНА 1. Vercel
-
-## 1.1. Готуємо облікові записи
-
-Знадобляться три безкоштовні сервіси:
-
-- **[Firebase](https://console.firebase.google.com)** — база даних
-- **[Upstash](https://upstash.com)** — Redis для стану оформлення замовлення
-- **[cron-job.org](https://cron-job.org)** — планувальник розсилок
-
-## 1.2. Firestore
-
-1. [console.firebase.google.com](https://console.firebase.google.com) →
-   **Create project** → назва → Google Analytics можна вимкнути
-2. **Build → Firestore Database → Create database**
-3. Режим **Production mode**, регіон **`europe-central2`** (Варшава)
-4. **Project settings** (шестерня) → **Service accounts** →
-   **Generate new private key** → завантажиться JSON
-
-Цей JSON — ключ від бази. Поводьтесь як із паролем: не комітьте в репозиторій.
-
-Накотіть індекси й правила з кореня проєкту:
-
-```bash
-npm install -g firebase-tools
-firebase login
-firebase use --add          # оберіть щойно створений проєкт
-firebase deploy --only firestore:indexes,firestore:rules
-```
-
-Без індексів Firestore відмовляє в запитах, а назовні це виглядає як 500 у
-панелі або **порожній каталог у боті** — помилка ловиться й показується
-порожнім списком, тож причина неочевидна.
-
-У `firestore.indexes.json` 22 індекси, виведені з коду `shop/repo/firestore.py`:
-Firestore не має універсального індексу, кожна комбінація «фільтри плюс
-сортування» вимагає власного. У консолі (Firestore → Indexes) вони спершу
-мають статус *Building*; поки не стане *Enabled*, запити відхиляються.
-
-> Додаєте новий запит у `firestore.py` — одразу дописуйте індекс у цей файл.
-> Створений вручну за посиланням з логів у файл не потрапляє, і на новому
-> проєкті все повториться.
-
-## 1.3. Redis
-
-[Upstash](https://upstash.com) → **Create Database** → регіон ближче до Європи
-→ скопіюйте **`rediss://`** URL з розділу Redis Connect.
-
-Без Redis багатокрокове оформлення замовлення розсиплеться: кожен крок може
-потрапити в інший процес, який не пам'ятає попереднього.
-
-## 1.4. Бот у Telegram
-
-1. [@BotFather](https://t.me/BotFather) → `/newbot` → назва → юзернейм
-2. Збережіть **токен** виду `1234567890:AA...`
-3. Створіть **групу** для замовлень, додайте туди свого бота
-4. Додайте в групу [@getmyid_bot](https://t.me/getmyid_bot) — він покаже
-   **ID групи** (від'ємне число виду `-1001234567890`), потім приберіть його
-5. Напишіть [@userinfobot](https://t.me/userinfobot) — він покаже **ваш ID**
-
-## 1.5. Проєкт на Vercel
-
-**Це найважливіший крок — саме тут виникає помилка «API недоступний».**
-
-New Project → імпорт репозиторію → у **Root Directory** має бути **корінь
-репозиторію**, а не `dashboard` і не `backend`.
-
-> Якщо Root Directory вказує на `dashboard`, Vercel бачить лише статику,
-> кореневий `vercel.json` ігнорується, функцій API немає — і панель отримує 404.
-> Це виправляється в **Settings → General → Root Directory** вже після
-> створення проєкту.
-
-`vercel.json` у корені вже налаштований: збирає панель із `dashboard/`
-і піднімає `api/index.py` як serverless-функцію на тому самому домені.
-
-## 1.6. Змінні оточення
-
-**Settings → Environment Variables.** Додайте всі одразу — без них функція
-працює, але не пускає в панель.
-
-```
-SERVERLESS=true
-DB_BACKEND=firestore
-
-FIREBASE_PROJECT=ваш-проєкт-id
-GOOGLE_APPLICATION_CREDENTIALS_JSON=<увесь вміст JSON ключа одним рядком>
-
-BOT_TOKEN=1234567890:AA...
-BOT_USERNAME=your_shop_bot
-ADMIN_CHAT_ID=-1001234567890
-ADMIN_IDS=123456789
-
-REDIS_URL=rediss://...upstash...
-
-JWT_SECRET=<openssl rand -hex 32>
-DASHBOARD_LOGIN=admin
-DASHBOARD_PASSWORD=<надійний пароль>
-
-WEBHOOK_SECRET=<openssl rand -hex 16>
-CRON_SECRET=<openssl rand -hex 32>
-PUBLIC_URL=https://ваш-домен
-
-SHOP_NAME=Назва магазину
-CARD_NUMBER=0000 0000 0000 0000
-CARD_HOLDER=Прізвище Імя
-```
-
-`CORS_ORIGINS` і `VITE_API_URL` **не потрібні** — усе на одному домені.
-
-`PUBLIC_URL` заповніть після першого деплою, коли Vercel видасть адресу
-(або підключите свій домен), і задеплойте ще раз.
-
-Генерація секретів:
-
-```bash
-openssl rand -hex 32
-```
-
-## 1.7. Перша перевірка
-
-```bash
-curl https://ваш-домен/api/health
-```
-
-Очікується:
-
-```json
-{"status":"ok","db_backend":"firestore","missing_env":[]}
-```
-
-Що означають інші відповіді:
-
-| Відповідь | Причина | Дія |
-|---|---|---|
-| 404 | Функцій API немає | Root Directory → корінь (крок 1.5) |
-| `"status":"misconfigured"` | Бракує змінних | Дивіться `missing_env`, додайте, передеплойте |
-| 500 | Функція падає | Vercel → Logs, найчастіше ключ Firebase |
-
-Панель на `https://ваш-домен` тепер сама покаже причину, якщо щось не так,
-і не дасть натиснути «Увійти», поки бекенд не готовий.
-
-## 1.8. Каталог
-
-```bash
-cd backend && pip install -r requirements.txt
-DB_BACKEND=firestore \
-  FIREBASE_PROJECT=ваш-проєкт \
-  GOOGLE_APPLICATION_CREDENTIALS=/шлях/до/ключа.json \
-  PYTHONPATH=$PWD python seed.py
-```
-
-Або просто додайте товари вручну через панель.
-
-## 1.9. Підключення бота
-
-Бот на Vercel працює **лише через вебхук** — довгих процесів там немає.
-Реєстрація одноразова:
-
-```bash
-curl "https://ваш-домен/api/telegram-setup?token=<CRON_SECRET>"
-```
-
-Очікується:
-
-```json
-{
-  "webhook_url": "https://ваш-домен/api/telegram/<WEBHOOK_SECRET>",
-  "pending_updates": 0,
-  "shop_url": "https://ваш-домен/app",
-  "menu_button": "встановлено"
-}
-```
-
-Цей же виклик ставить синю кнопку «Магазин» біля поля вводу — вхід у вітрину
-Mini App. Якщо в полі `menu_button` написано «пропущено: потрібен https»,
-перевірте `PUBLIC_URL`: Telegram приймає Mini App лише по HTTPS.
-
-Перевірка: напишіть боту `/start` — має відповісти підтвердженням віку,
-а в меню з'явиться кнопка «🛍 Відкрити магазин».
-
-## 1.10. Планувальник розсилок
-
-Вбудований cron Vercel на тарифі Hobby спрацьовує **раз на добу** — для
-розсилок замало. Візьміть зовнішній:
-
-[cron-job.org](https://cron-job.org) → Create cronjob:
-
-- **URL:** `https://ваш-домен/api/cron/broadcast-tick`
-- **Метод:** GET
-- **Заголовок:** `Authorization: Bearer <CRON_SECRET>`
-- **Інтервал:** кожні 2 хвилини
-
-Кожен виклик відправляє до 100 повідомлень і рухає курсор. Розсилка на
-1000 осіб займе близько 20 хвилин — це нормально й безпечно щодо лімітів
-Telegram.
-
-На тарифі Pro можна лишити вбудований cron, замінивши в `vercel.json`
-розклад на `*/2 * * * *`.
-
-## 1.11. Фінальна перевірка
-
-```bash
-DOMAIN=https://ваш-домен
-
-curl $DOMAIN/api/health                     # status: ok
-curl $DOMAIN/api/debug/routing              # routing_ok: true
-curl $DOMAIN/api/cron/broadcast-tick \
-     -H "Authorization: Bearer <CRON_SECRET>"   # status: idle
-```
-
-Далі в боті: `/start` → підтвердити вік → каталог → додати товар → оформити.
-Замовлення має впасти в адмін-групу з кнопками статусів і з'явитись у панелі.
-
----
-
-# ЧАСТИНА 2. Власний сервер
-
-## 2.1. Сервер
+## 1. Сервер
 
 Мінімум: 2 vCPU, 2 ГБ RAM, 20 ГБ диска, Ubuntu 22.04/24.04.
 
@@ -251,7 +30,7 @@ ufw --force enable
 
 Домен: A-запис на IP сервера. Перевірка: `dig +short ваш-домен.com`.
 
-## 2.2. Код і конфігурація
+## 2. Код і конфігурація
 
 ```bash
 su - shop
@@ -297,7 +76,7 @@ CARD_HOLDER=Прізвище Імя
 sed -i 's/example\.com/ваш-домен.com/g' deploy/nginx/app.conf
 ```
 
-## 2.3. Сертифікат
+## 3. Сертифікат
 
 nginx із блоком `443` не стартує без сертифіката, тому спершу піднімаємо
 тільки HTTP:
@@ -322,7 +101,7 @@ docker compose -f docker-compose.prod.yml restart nginx
 
 Далі сертифікат оновлюється сам — сервіс `certbot` перевіряє двічі на добу.
 
-## 2.4. Запуск
+## 4. Запуск
 
 ```bash
 ./deploy.sh
@@ -338,7 +117,7 @@ docker compose -f docker-compose.prod.yml restart nginx
 docker compose -f docker-compose.prod.yml exec api python seed.py
 ```
 
-## 2.5. Перевірка
+## 5. Перевірка
 
 ```bash
 curl https://ваш-домен.com/api/health          # бекенд
@@ -373,7 +152,7 @@ curl "https://api.telegram.org/bot<BOT_TOKEN>/deleteWebhook"
 docker compose -f docker-compose.prod.yml restart bot
 ```
 
-## 2.6. Бекапи
+## 6. Бекапи
 
 ```bash
 crontab -e
@@ -395,23 +174,24 @@ crontab -e
 ```
               Telegram
                  │
-      ┌──────────┴──────────┐
-      │                     │
- вебхук (Vercel)      polling (сервер)
-      │                     │
-      └──────────┬──────────┘
+          polling / вебхук
+                 │
                  ▼
         ┌─────────────────┐        ┌──────────────┐
         │   Хендлери      │───────▶│  Repository  │
         │   бота          │        │  (інтерфейс) │
         └─────────────────┘        └──────┬───────┘
                                           │
-        ┌─────────────────┐               ├──▶ Firestore  (Vercel)
-        │  API + панель   │──────────────▶│
-        └─────────────────┘               └──▶ Postgres   (сервер)
-                 ▲
-                 │
-          планувальник ──▶ /api/cron/broadcast-tick
+        ┌─────────────────┐               │
+        │  API + панель   │──────────────▶├──▶ Postgres (свій контейнер)
+        └─────────────────┘               │
+                 ▲                        │
+        ┌─────────────────┐               │
+        │  Планувальник   │──────────────▶┘
+        │  розсилки,бекап │
+        └─────────────────┘
+
+   усе в одному docker compose, автозапуск — systemd (elfar.service)
 ```
 
 Бот і панель працюють з однією базою через спільний інтерфейс `Repository`.
@@ -424,27 +204,29 @@ crontab -e
 
 | Симптом | Причина | Виправлення |
 |---|---|---|
-| «Бекенд не знайдено», 404 | Root Directory = `dashboard` | Змінити на корінь, передеплоїти |
 | «Бекенд не налаштований» | Бракує змінних | Дивіться список у самому повідомленні |
-| Бекенд відповідає 500 | Зламаний ключ Firebase або `DATABASE_URL` | Логи функції / `docker compose logs api` |
-| Не пускає з правильним паролем | Змінна не перечиталась | Vercel: передеплой. Сервер: `up -d --force-recreate api` |
-| Бот мовчить (Vercel) | Вебхук не зареєстровано | Крок 1.9 |
-| Бот мовчить (сервер) | Лишився активний вебхук | `deleteWebhook`, перезапуск бота |
+| Бекенд відповідає 500 | База недоступна | `curl /api/debug/database`, далі `docker compose logs api db` |
+| Не пускає з правильним паролем | Змінна не перечиталась | `docker compose up -d --force-recreate api` |
+| Бот мовчить | Лишився активний вебхук | `deleteWebhook`, перезапуск бота |
 | Бот забуває крок оформлення | Немає `REDIS_URL` | Додати Redis |
 | Замовлення не падають у групу | Невірний `ADMIN_CHAT_ID` | Має бути від'ємне число |
 | Кнопки статусів не працюють | Ваш ID не в `ADMIN_IDS` | Додати через кому |
-| Розсилка висить у «Надсилається» | Планувальник не налаштований | Крок 1.10 |
-| Firestore: помилка про індекс | Індекси не накочені | `firebase deploy --only firestore:indexes` |
+| Розсилка висить у «Надсилається» | Планувальник не працює | `docker compose logs scheduler` |
+| Відкладена не стартувала | Тихі години або ще не настав тік | Планувальник тікає раз на годину |
+| Після ребуту нічого не піднялось | Юніт вимкнено | `systemctl enable --now elfar`, `systemctl is-enabled docker` |
 
 ## Діагностика
 
 ```bash
-curl https://ваш-домен/api/health          # конфігурація
-curl https://ваш-домен/api/debug/routing   # маршрутизація
+curl https://ваш-домен/api/health           # конфігурація й версія збірки
+curl https://ваш-домен/api/debug/database   # чи жива база просто зараз
+curl https://ваш-домен/api/debug/routing    # маршрутизація
 ```
 
-Vercel: **проєкт → Logs**.
-Сервер: `docker compose -f docker-compose.prod.yml logs -f api bot`.
+```bash
+systemctl status elfar
+docker compose -f docker-compose.prod.yml logs -f api bot scheduler
+```
 
 При невдалому вході API пише в лог, який логін очікує й яка довжина пароля
 підвантажилась — сам пароль у логи не потрапляє.

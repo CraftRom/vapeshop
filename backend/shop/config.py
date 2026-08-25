@@ -24,12 +24,6 @@ class Settings(BaseSettings):
     admin_chat_id: int = 0          # куди падають нові замовлення
     admin_ids: str = ""             # "123,456" — хто має доступ до /admin у боті
 
-    # --- Вибір бази ---
-    # sql — Postgres/SQLite (власний сервер); firestore — Firebase (Vercel)
-    db_backend: str = "sql"
-    firebase_project: str = ""
-    # Ідентифікатор бази Firestore. Порожньо — база за замовчуванням.
-    firebase_database: str = ""
 
     # --- Розсилки й планувальник ---
     # Дефолти; редагуються з панелі й перекриваються значеннями з бази.
@@ -52,7 +46,7 @@ class Settings(BaseSettings):
     # контейнер Postgres, інакше pg_dump писав би в порожнечу.
     backup_dir: str = "/backups"
 
-    # --- База (для db_backend=sql) ---
+    # --- База ---
     # DATABASE_URL можна не задавати — тоді збереться з POSTGRES_*.
     # Так пароль БД зберігається в одному місці й не розходиться.
     postgres_user: str = "shop"
@@ -190,30 +184,6 @@ class Settings(BaseSettings):
         # «@bot» і «/app» копіюють просто з адреси або з профілю
         return value.lstrip("@").strip("/") if value else value
 
-    @field_validator("firebase_database", mode="after")
-    @classmethod
-    def _clean_database_id(cls, value: str) -> str:
-        """Нормалізує ідентифікатор бази Firestore.
-
-        З адреси консолі Firebase значення копіюється закодованим:
-        «%28default%29» замість «(default)». Firestore такий рядок не приймає
-        і відповідає «400 Invalid database id» — а падає при цьому кожен
-        запит до бази, тобто застосунок цілком.
-
-        Форми «(default)» і «default» означають базу за замовчуванням: для
-        неї клієнт має отримати None, а не рядок.
-        """
-        if not value:
-            return ""
-
-        from urllib.parse import unquote
-
-        cleaned = unquote(value).strip()
-        if cleaned.lower() in ("(default)", "default"):
-            return ""
-        return cleaned
-
-
     def missing_required(self) -> list[str]:
         """Змінні, без яких магазин не працюватиме. Значень не розкриваємо."""
         problems = []
@@ -223,10 +193,8 @@ class Settings(BaseSettings):
             problems.append("JWT_SECRET")
         if self.dashboard_password in ("", "admin"):
             problems.append("DASHBOARD_PASSWORD")
-        if self.db_backend == "firestore" and not self.firebase_project:
-            problems.append("FIREBASE_PROJECT")
-        if self.db_backend not in ("sql", "firestore"):
-            problems.append("DB_BACKEND (має бути sql або firestore)")
+        if not self.db_url:
+            problems.append("DATABASE_URL")
         return problems
 
 
@@ -239,7 +207,6 @@ class Settings(BaseSettings):
         в логах замість одного екрана.
         """
         serverless = self.serverless
-        firestore = self.db_backend == "firestore"
 
         # Частина значень задається і в оточенні, і в панелі; панель має
         # пріоритет. Без цього адміністратор, який заповнив адресу сайту
@@ -271,35 +238,10 @@ class Settings(BaseSettings):
                   "Захищає службові точки: setup і видалення вебхука"),
             entry("REDIS_URL", self.redis_url, "important" if serverless else "optional",
                   "Без нього оформлення в чаті бота може обірватися на середині"),
-            entry("DB_BACKEND", self.db_backend in ("sql", "firestore"), "critical",
-                  "Має бути sql або firestore"),
         ]
 
-        if firestore:
-            report.append(entry("FIREBASE_PROJECT", self.firebase_project, "critical",
-                                "Ідентифікатор проєкту Firestore"))
-            # Найдорожча змінна в списку: невалідне значення кладе не окрему
-            # функцію, а весь застосунок — кожен запит до бази йде в помилку.
-            # Типова причина — значення, скопійоване з адреси консолі Firebase
-            # у вигляді «%28default%29».
-            raw_db = os.environ.get("FIREBASE_DATABASE", "")
-            report.append(entry(
-                "FIREBASE_DATABASE",
-                raw_db == self.firebase_database,
-                "critical",
-                "Для бази за замовчуванням лишіть порожнім. "
-                f"Зараз в оточенні: {raw_db!r}" if raw_db else
-                "Порожньо — база за замовчуванням, це правильно",
-            ))
-            report.append(entry(
-                "GOOGLE_APPLICATION_CREDENTIALS_JSON",
-                os.environ.get("GOOGLE_APPLICATION_CREDENTIALS_JSON")
-                or os.environ.get("GOOGLE_APPLICATION_CREDENTIALS"),
-                "critical", "Ключ сервісного акаунта для доступу до бази",
-            ))
-        else:
-            report.append(entry("DATABASE_URL", self.db_url, "critical",
-                                "Адреса Postgres"))
+        report.append(entry("DATABASE_URL", self.db_url, "critical",
+                            "Адреса Postgres"))
 
         report.append(entry("ADMIN_CHAT_ID", self.admin_chat_id, "important",
                             "Чат, куди падають нові замовлення. Задається й у панелі"))

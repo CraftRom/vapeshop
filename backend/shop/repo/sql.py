@@ -113,7 +113,8 @@ def _broadcast(row) -> Broadcast | None:
         button_text=row.button_text, button_url=row.button_url,
         segment=row.segment or {}, status=BroadcastStatus(row.status.value),
         sent_count=row.sent_count, failed_count=row.failed_count,
-        cursor_id=row.cursor_id, created_at=row.created_at, finished_at=row.finished_at,
+        cursor_id=row.cursor_id, scheduled_at=row.scheduled_at,
+        created_at=row.created_at, finished_at=row.finished_at,
     )
 
 

@@ -41,40 +41,11 @@ def run_suite(backend: str) -> None:
     for name in [m for m in list(sys.modules) if m.startswith(("shop", "api", "bot"))]:
         del sys.modules[name]
 
-    os.environ["DB_BACKEND"] = backend
-    if backend == "sql":
-        os.environ["DATABASE_URL"] = "sqlite+aiosqlite:////tmp/api_test.db"
-        if os.path.exists("/tmp/api_test.db"):
-            os.remove("/tmp/api_test.db")
-
-    if backend == "firestore":
-        # Підміняємо сховище на пам'ять — реальний Firestore тут недоступний
-        import shop.repo.factory as factory
-        from shop.repo.docstore import InMemoryDocStore
-        from shop.repo.firestore import FirestoreRepository
-        from contextlib import asynccontextmanager
-
-        store = InMemoryDocStore()
-
-        @asynccontextmanager
-        async def fake_repo():
-            yield FirestoreRepository(store)
-
-        factory.open_repo = fake_repo
-
-        async def dep():
-            async with fake_repo() as repo:
-                yield repo
-
-        factory.get_repo = dep
-        import api.routers.catalog, api.routers.orders, api.routers.customers
-        import api.routers.promos, api.routers.stats, api.routers.broadcasts, api.routers.cron
+    os.environ["DATABASE_URL"] = "sqlite+aiosqlite:////tmp/api_test.db"
+    if os.path.exists("/tmp/api_test.db"):
+        os.remove("/tmp/api_test.db")
 
     from api.main import app
-
-    if backend == "firestore":
-        from shop.repo.factory import get_repo as real_get_repo
-        app.dependency_overrides[real_get_repo] = dep
 
     asyncio.run(_suite(app, backend))
     app.dependency_overrides.clear()
@@ -92,9 +63,9 @@ async def _suite(app, backend: str) -> None:
     from shop.repo.factory import open_repo
     from shop.services import shop_service as svc
 
-    if backend == "sql":
-        from shop.db import init_db
-        await init_db()
+    from shop.db import init_db
+
+    await init_db()
 
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
@@ -133,9 +104,37 @@ async def _suite(app, backend: str) -> None:
                                 headers=headers, json={"stock": 7})
         check("залишок оновлено", response.json()["stock"] == 7)
 
-        response = await client.delete(f"/api/catalog/categories/{category_id}", headers=headers)
-        check("категорію з товарами не видалити", response.status_code == 409,
+        # DELETE категорії — це м'яке видалення: категорія та її товари
+        # зникають з бота, але лишаються в базі. Тест раніше очікував 409,
+        # тобто заборону — поведінка змінилась, а перевірка ні, і сценарій
+        # мовчки ховав товар, з яким далі мав збиратися кошик.
+        #
+        # Видаляємо окрему категорію, а не робочу: перевірка не має ламати
+        # те, що йде після неї.
+        response = await client.post("/api/catalog/categories", headers=headers,
+                               json={"name": "Тимчасова", "sort_order": 9, "is_active": True})
+        spare_id = response.json()["id"]
+        response = await client.post("/api/catalog/products", headers=headers, json={
+            "category_id": spare_id, "name": "Тимчасовий товар",
+            "price": 100, "stock": 5, "is_active": True,
+        })
+        spare_product = response.json()["id"]
+
+        response = await client.delete(f"/api/catalog/categories/{spare_id}", headers=headers)
+        check("категорія прихована разом із товарами", response.status_code == 200,
               f"{response.status_code}")
+        check("приховано рівно один товар", response.json()["hidden_products"] == 1,
+              response.text[:120])
+
+        response = await client.get(f"/api/catalog/products/{spare_product}", headers=headers)
+        check("прихований товар лишився в базі", response.status_code == 200,
+              f"{response.status_code}")
+        check("але вже неактивний", response.json()["is_active"] is False,
+              response.text[:120])
+
+        response = await client.get("/api/catalog/products", headers=headers,
+                              params={"search": "elf"})
+        check("робочий товар не зачеплено", len(response.json()) == 1, response.text[:120])
 
         # --- промокоди
         response = await client.post("/api/promos", headers=headers, json={
@@ -169,6 +168,19 @@ async def _suite(app, backend: str) -> None:
         response = await client.get("/api/orders", headers=headers,
                               params={"search": "0671112233"})
         check("пошук замовлення за телефоном", len(response.json()) == 1)
+
+        # Статуси йдуть ланцюгом, стрибки заборонені: «Нове» → «Оплачене»
+        # напряму не існує. Тест раніше стрибав одразу в paid — правило
+        # додали пізніше, а перевірку не оновили.
+        response = await client.patch(f"/api/orders/{order.id}", headers=headers,
+                                json={"status": "paid"})
+        check("стрибок через статуси відхилено", response.status_code == 409,
+              f"{response.status_code}")
+
+        for step in ("confirmed", "accepted"):
+            response = await client.patch(f"/api/orders/{order.id}", headers=headers,
+                                    json={"status": step})
+            check(f"перехід у «{step}»", response.status_code == 200, response.text[:120])
 
         response = await client.patch(f"/api/orders/{order.id}", headers=headers,
                                 json={"status": "paid", "admin_note": "перевірено"})
@@ -209,19 +221,43 @@ async def _suite(app, backend: str) -> None:
         check("розсилка створена", response.status_code == 201, response.text[:120])
         broadcast_id = response.json()["id"]
 
-        response = await client.get("/api/cron/broadcast-tick")
-        check("cron без секрета відхилено", response.status_code == 401)
+        # Ендпоінта /api/cron більше немає: порції крутить власний
+        # планувальник, а не зовнішній тікер. Замість нього перевіряємо
+        # планування — те, що прийшло йому на зміну.
+        from datetime import datetime, timedelta, timezone
 
-        cron_headers = {"Authorization": "Bearer cron-secret"}
-        response = await client.get("/api/cron/broadcast-tick", headers=cron_headers)
-        check("cron без активних розсилок", response.json()["status"] == "idle",
+        moment = datetime.now(timezone.utc) + timedelta(days=1)
+        response = await client.post(f"/api/broadcasts/{broadcast_id}/schedule",
+                               headers=headers,
+                               json={"scheduled_at": moment.isoformat()})
+        check("розсилку заплановано", response.status_code == 200, response.text[:120])
+        check("статус став scheduled", response.json()["status"] == "scheduled",
               response.text[:120])
+        check("час округлено до цілої години",
+              response.json()["scheduled_at"][14:16] == "00", response.json()["scheduled_at"])
+
+        past = datetime.now(timezone.utc) - timedelta(days=1)
+        response = await client.post(f"/api/broadcasts/{broadcast_id}/schedule",
+                               headers=headers, json={"scheduled_at": past.isoformat()})
+        check("час у минулому відхилено", response.status_code == 422,
+              f"{response.status_code}")
+
+        response = await client.post(f"/api/broadcasts/{broadcast_id}/unschedule",
+                               headers=headers)
+        check("знято з черги", response.json()["status"] == "draft", response.text[:120])
 
         # --- вебхук
-        check("вебхук з невірним секретом",
-              (await client.post("/api/telegram/nope", json={})).status_code == 404)
-        check("вебхук з правильним секретом",
+        # Адреса вебхука тепер містить ще й ідентифікатор бота. Стара адреса
+        # відповідає 410, а не 404, і це не дрібниця: саме так виглядає
+        # ситуація, коли в попереднього бота лишився зареєстрований вебхук
+        # і він продовжує слати апдейти на ту саму адресу.
+        check("стара адреса вебхука відхилена як застаріла",
               (await client.post("/api/telegram/hook-secret",
+                                 json={"update_id": 1})).status_code == 410)
+        check("невірний секрет не приймається",
+              (await client.post("/api/telegram/nope/1", json={})).status_code == 404)
+        check("вебхук з правильним секретом і ботом",
+              (await client.post("/api/telegram/hook-secret/1",
                                  json={"update_id": 1})).status_code == 200)
 
         response = await client.delete(f"/api/broadcasts/{broadcast_id}", headers=headers)
@@ -229,7 +265,6 @@ async def _suite(app, backend: str) -> None:
 
 
 if __name__ == "__main__":
-    for backend in ("sql", "firestore"):
-        run_suite(backend)
+    run_suite("sql")
     print(f"\n{'=' * 50}\nAPI: пройдено {passed}, провалено {failed}\n{'=' * 50}")
     raise SystemExit(1 if failed else 0)

@@ -1,0 +1,155 @@
+#!/usr/bin/env bash
+# Первинне розгортання на чистій Ubuntu 22.04/24.04.
+#
+# Запускати від root на свіжому сервері:
+#   bash deploy/bootstrap.sh
+#
+# Скрипт ідемпотентний: повторний запуск нічого не ламає й не перезаписує
+# вже заповнений .env. Це навмисно — перший запуск рідко проходить з першого
+# разу, і скрипт, який при повторі стирає конфіг, гірший за його відсутність.
+set -euo pipefail
+
+REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+SERVICE_USER="${SERVICE_USER:-shop}"
+UNIT_NAME="elfar"
+
+say()  { printf '\n\033[1m==> %s\033[0m\n' "$*"; }
+warn() { printf '\033[33m    %s\033[0m\n' "$*"; }
+die()  { printf '\033[31mПомилка: %s\033[0m\n' "$*" >&2; exit 1; }
+
+[[ $EUID -eq 0 ]] || die "потрібні права root: sudo bash deploy/bootstrap.sh"
+
+
+say "Перевірка системи"
+. /etc/os-release 2>/dev/null || die "не вдалося визначити дистрибутив"
+[[ "${ID:-}" == "ubuntu" ]] || warn "очікувалась Ubuntu, знайдено ${PRETTY_NAME:-невідомо} — продовжую"
+
+mem_mb=$(awk '/MemTotal/ {print int($2/1024)}' /proc/meminfo)
+disk_gb=$(df -BG --output=avail / | tail -1 | tr -dc '0-9')
+(( mem_mb >= 1800 )) || warn "мало памʼяті: ${mem_mb} МБ, рекомендовано 2 ГБ"
+(( disk_gb >= 15 ))  || warn "мало диска: ${disk_gb} ГБ, рекомендовано 20 ГБ"
+
+
+say "Пакети та Docker"
+export DEBIAN_FRONTEND=noninteractive
+apt-get update -qq
+apt-get install -y -qq ca-certificates curl ufw >/dev/null
+
+if command -v docker >/dev/null 2>&1; then
+    echo "    Docker уже встановлено: $(docker --version)"
+else
+    curl -fsSL https://get.docker.com | sh >/dev/null
+    echo "    Docker встановлено: $(docker --version)"
+fi
+
+# Docker має підніматися сам після ребуту — без цього автозапуск стека
+# не спрацює, скільки б restart-політик не стояло в compose.
+systemctl enable --now docker >/dev/null 2>&1 || true
+
+
+say "Користувач ${SERVICE_USER}"
+if id "$SERVICE_USER" >/dev/null 2>&1; then
+    echo "    Користувач уже існує"
+else
+    adduser --disabled-password --gecos "" "$SERVICE_USER" >/dev/null
+    echo "    Створено"
+fi
+usermod -aG docker "$SERVICE_USER"
+chown -R "$SERVICE_USER:$SERVICE_USER" "$REPO_DIR"
+
+
+say "Фаєрвол"
+ufw allow OpenSSH >/dev/null
+ufw allow 80/tcp  >/dev/null
+ufw allow 443/tcp >/dev/null
+# Postgres і Redis назовні не відкриваємо: вони живуть у внутрішній мережі
+# Docker, і порти назовні їм не потрібні.
+ufw --force enable >/dev/null
+echo "    Відкриті: SSH, 80, 443"
+
+
+say "Конфігурація"
+if [[ -f "$REPO_DIR/.env" ]]; then
+    echo "    .env уже є — не чіпаю"
+else
+    cp "$REPO_DIR/.env.example" "$REPO_DIR/.env"
+    # Секрети генеруємо одразу: залишений «change-me» — найпоширеніша
+    # причина відкритої назовні панелі.
+    jwt=$(openssl rand -hex 32)
+    pgpass=$(openssl rand -hex 16)
+    dashpass=$(openssl rand -base64 12 | tr -d '/+=' | cut -c1-16)
+    cron=$(openssl rand -hex 16)
+    hook=$(openssl rand -hex 16)
+
+    sed -i \
+        -e "s|^JWT_SECRET=.*|JWT_SECRET=${jwt}|" \
+        -e "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=${pgpass}|" \
+        -e "s|^DATABASE_URL=.*|DATABASE_URL=postgresql+asyncpg://shop:${pgpass}@db:5432/shop|" \
+        -e "s|^DASHBOARD_PASSWORD=.*|DASHBOARD_PASSWORD=${dashpass}|" \
+        -e "s|^CRON_SECRET=.*|CRON_SECRET=${cron}|" \
+        -e "s|^WEBHOOK_SECRET=.*|WEBHOOK_SECRET=${hook}|" \
+        "$REPO_DIR/.env"
+    chmod 600 "$REPO_DIR/.env"
+    chown "$SERVICE_USER:$SERVICE_USER" "$REPO_DIR/.env"
+
+    printf '\n    Згенеровано секрети. Пароль панелі: \033[1m%s\033[0m\n' "$dashpass"
+    echo "    Запишіть його — у файлі він теж є, але .env закритий від сторонніх."
+fi
+
+# Порожнє значення — не єдиний спосіб лишити змінну незаповненою: у
+# .env.example стоять приклади-заглушки (1234567890:AAxx…, -1001234567890),
+# і перевірка «чи не порожньо» їх би пропустила, а магазин піднявся б
+# з неробочим токеном.
+missing=()
+env_value() { grep -E "^${1}=" "$REPO_DIR/.env" | head -1 | cut -d= -f2- || true; }
+
+value=$(env_value BOT_TOKEN)
+[[ -z "$value" || "$value" == 1234567890:* ]] && missing+=(BOT_TOKEN)
+
+value=$(env_value ADMIN_CHAT_ID)
+[[ -z "$value" || "$value" == "-1001234567890" || "$value" == "0" ]] && missing+=(ADMIN_CHAT_ID)
+
+value=$(env_value PUBLIC_URL)
+[[ "$value" != https://* ]] && missing+=(PUBLIC_URL)
+
+
+say "Служба автозапуску"
+install -m 644 "$REPO_DIR/deploy/${UNIT_NAME}.service" "/etc/systemd/system/${UNIT_NAME}.service"
+sed -i \
+    -e "s|__REPO_DIR__|${REPO_DIR}|g" \
+    -e "s|__USER__|${SERVICE_USER}|g" \
+    "/etc/systemd/system/${UNIT_NAME}.service"
+systemctl daemon-reload
+systemctl enable "${UNIT_NAME}.service" >/dev/null
+echo "    ${UNIT_NAME}.service увімкнено — стек підніметься сам після ребуту"
+
+
+if (( ${#missing[@]} )); then
+    say "Лишилось заповнити вручну"
+    for key in "${missing[@]}"; do echo "    • $key"; done
+    cat <<EOF
+
+    nano $REPO_DIR/.env
+
+    Далі:
+      systemctl start ${UNIT_NAME}      # підняти стек
+      systemctl status ${UNIT_NAME}     # перевірити
+EOF
+    exit 0
+fi
+
+
+say "Запуск"
+systemctl start "${UNIT_NAME}.service"
+
+cat <<EOF
+
+Готово.
+
+  Панель:      $(grep -E '^PUBLIC_URL=' "$REPO_DIR/.env" | cut -d= -f2-)
+  Стан:        systemctl status ${UNIT_NAME}
+  Логи:        journalctl -u ${UNIT_NAME} -f
+  Оновлення:   sudo -u ${SERVICE_USER} ${REPO_DIR}/deploy/deploy.sh
+
+Перевірка ребуту: reboot, потім systemctl status ${UNIT_NAME}
+EOF

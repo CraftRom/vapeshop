@@ -46,8 +46,8 @@ async def tick(state: dict) -> None:
 
 async def main() -> None:
     log.info(
-        "Планувальник запущено: тік кожні %s с, база %s, часова зона %s",
-        TICK_SECONDS, settings.db_backend, settings.timezone,
+        "Планувальник запущено: тік кожні %s с, часова зона %s",
+        TICK_SECONDS, settings.timezone,
     )
 
     stopping = asyncio.Event()

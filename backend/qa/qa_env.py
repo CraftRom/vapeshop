@@ -15,7 +15,7 @@ print("\n--- класифікація ---")
 runtime = {f.name for f in dfields(ShopSettings)}
 SECRETS = {"bot_token","jwt_secret","dashboard_password","dashboard_login","webhook_secret",
            "cron_secret","redis_url","database_url","postgres_password"}
-INFRA = {"db_backend","serverless","firebase_project","firebase_database","postgres_host",
+INFRA = {"serverless","postgres_host",
          "postgres_port","postgres_user","postgres_db","enable_api_docs","cors_origins",
          "backup_dir","scheduler_interval_seconds"}
 unclassified = sorted(set(Settings.model_fields) - runtime - SECRETS - INFRA)
@@ -54,14 +54,11 @@ for field in ["bot_token","jwt_secret","webhook_secret","cron_secret","database_
 print("\n--- сміття при копіюванні значень ---")
 from shop.config import Settings as _S
 PASTED = [
-    ("firebase_database", "%28default%29", ""),
-    ("firebase_database", "(default)", ""),
     ("bot_token", '"777001:ABC"', "777001:ABC"),
     ("bot_token", " 777001:ABC ", "777001:ABC"),
     ("public_url", "https://www.elfar.pp.ua/", "https://www.elfar.pp.ua"),
     ("bot_username", "@elfar1_bot", "elfar1_bot"),
     ("miniapp_short_name", "/elfar/", "elfar"),
-    ("firebase_project", " elfar-54b0c ", "elfar-54b0c"),
 ]
 for field, raw, expect in PASTED:
     got = getattr(_S(**{field: raw}), field)
