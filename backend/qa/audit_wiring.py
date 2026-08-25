@@ -66,6 +66,18 @@ check("__REPO_DIR__" in unit and "__USER__" in unit, "unit — шаблон, ш�
 boot = read("deploy/bootstrap.sh")
 check("systemctl enable" in boot, "bootstrap вмикає автозапуск")
 check("systemctl enable --now docker" in boot, "bootstrap вмикає сам docker — без цього автозапуск марний")
+check("APP_UID" in boot, "bootstrap прописує UID користувача для контейнерів")
+check("install -d -o" in boot, "bootstrap створює backups із правильним власником")
+
+dockerfile = read("backend/Dockerfile")
+check("USER shop" in dockerfile, "бекенд працює не від root")
+check(dockerfile.index("pip install") < dockerfile.index("USER shop"),
+      "залежності ставляться до перемикання користувача")
+check("APP_UID" in compose, "UID передається у збірку через compose")
+
+restore = read("deploy/restore.sh")
+check(".dump" in restore and ".sql.gz" in restore,
+      "restore розуміє формат, у якому пише планувальник")
 
 nginx = read("deploy/nginx/app.conf")
 for location in ["/api/", "/app"]:

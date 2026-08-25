@@ -96,6 +96,23 @@ else
     echo "    Запишіть його — у файлі він теж є, але .env закритий від сторонніх."
 fi
 
+# UID/GID користувача shop прописуємо завжди, а не лише при створенні .env:
+# за ними збирається образ бекенду, і процеси в контейнерах працюють від того
+# самого числового користувача. Без цього дампи в ./backups належали б чужому
+# UID, і власник сервера не зміг би їх ні прочитати, ні видалити без sudo.
+#
+# Це поза гілкою «створюємо .env» навмисно: файл міг приїхати з репозиторію
+# або з іншого сервера, де UID інший.
+uid=$(id -u "$SERVICE_USER")
+gid=$(id -g "$SERVICE_USER")
+if grep -q '^APP_UID=' "$REPO_DIR/.env"; then
+    sed -i -e "s|^APP_UID=.*|APP_UID=${uid}|" -e "s|^APP_GID=.*|APP_GID=${gid}|" "$REPO_DIR/.env"
+else
+    printf '\nAPP_UID=%s\nAPP_GID=%s\n' "$uid" "$gid" >> "$REPO_DIR/.env"
+fi
+echo "    Процеси в контейнерах працюватимуть від UID ${uid}:${gid} (${SERVICE_USER})"
+
+
 # Порожнє значення — не єдиний спосіб лишити змінну незаповненою: у
 # .env.example стоять приклади-заглушки (1234567890:AAxx…, -1001234567890),
 # і перевірка «чи не порожньо» їх би пропустила, а магазин піднявся б
@@ -111,6 +128,11 @@ value=$(env_value ADMIN_CHAT_ID)
 
 value=$(env_value PUBLIC_URL)
 [[ "$value" != https://* ]] && missing+=(PUBLIC_URL)
+
+
+say "Каталог бекапів"
+install -d -o "$SERVICE_USER" -g "$SERVICE_USER" -m 750 "$REPO_DIR/deploy/backups"
+echo "    $REPO_DIR/deploy/backups (власник ${SERVICE_USER}, режим 750)"
 
 
 say "Служба автозапуску"

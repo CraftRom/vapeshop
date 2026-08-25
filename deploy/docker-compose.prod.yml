@@ -9,6 +9,15 @@
 #   • власний планувальник замість зовнішнього cron: відкладені розсилки
 #     й нічні бекапи живуть у тому ж коді, що й магазин
 
+# Збірка бекенду. Один і той самий образ для migrate, api, bot і scheduler —
+# різниця лише в команді. UID/GID приходять із .env і мають збігатися
+# з користувачем shop на хості, інакше бекапи в ./backups стануть чужими.
+x-backend-build: &backend-build
+  context: ../backend
+  args:
+    APP_UID: ${APP_UID:-1000}
+    APP_GID: ${APP_GID:-1000}
+
 x-logging: &default-logging
   driver: json-file
   options:
@@ -25,7 +34,6 @@ services:
       POSTGRES_DB: ${POSTGRES_DB}
     volumes:
       - pgdata:/var/lib/postgresql/data
-      - ./backups:/backups
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 10s
@@ -50,7 +58,7 @@ services:
 
   # Накочує міграції й завершується. Решта сервісів чекає на успішний вихід.
   migrate:
-    build: ../backend
+    build: *backend-build
     command: alembic upgrade head
     env_file: ../.env
     depends_on:
@@ -61,7 +69,7 @@ services:
     networks: [internal]
 
   api:
-    build: ../backend
+    build: *backend-build
     restart: always
     command: >
       uvicorn api.main:app
@@ -86,7 +94,7 @@ services:
     networks: [internal]
 
   bot:
-    build: ../backend
+    build: *backend-build
     restart: always
     command: python -m bot
     env_file: ../.env
@@ -107,7 +115,7 @@ services:
   # при кожному деплої і масштабується воркерами, і розсилка або поїхала б
   # двічі, або обірвалася б посеред черги.
   scheduler:
-    build: ../backend
+    build: *backend-build
     command: python -m scheduler
     restart: always
     env_file: ../.env
