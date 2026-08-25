@@ -16,6 +16,7 @@ const Promos = lazy(() => import('./pages/Promos'))
 const Broadcasts = lazy(() => import('./pages/Broadcasts'))
 const Settings = lazy(() => import('./pages/Settings'))
 const Operators = lazy(() => import('./pages/Operators'))
+const Instructions = lazy(() => import('./pages/Instructions'))
 const OrderPage = lazy(() => import('./pages/OrderPage'))
 
 const NAV = [
@@ -27,6 +28,7 @@ const NAV = [
   { to: '/broadcasts', label: 'Розсилки' },
   { to: '/operators', label: 'Оператори', adminOnly: true },
   { to: '/settings', label: 'Налаштування' },
+  { to: '/instructions', label: 'Інструкції' },
 ]
 
 function Shell({ children }) {
@@ -113,6 +115,7 @@ export default function App() {
         <Route path="/broadcasts" element={<Protected><Broadcasts /></Protected>} />
         <Route path="/settings" element={<Protected><Settings /></Protected>} />
         <Route path="/operators" element={<Protected><Operators /></Protected>} />
+        <Route path="/instructions" element={<Protected><Instructions /></Protected>} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </ToastProvider>

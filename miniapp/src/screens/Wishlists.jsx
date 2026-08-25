@@ -142,8 +142,14 @@ export function Wishlists({ config, wishlists, cart, onChanged, onOpenProduct, o
   }
 
   const create = async () => {
+    // Шукаємо вільний номер, а не беремо кількість списків: після видалення
+    // «Список 2» кількість знову дорівнює одиниці, і сервер відхиляв
+    // створення через збіг назв
+    const taken = new Set((wishlists || []).map((w) => w.name.toLowerCase()))
+    let n = 1
+    while (taken.has(`список ${n}`)) n += 1
     try {
-      onChanged(await api.wishlists.create(`Список ${(wishlists?.length || 0) + 1}`))
+      onChanged(await api.wishlists.create(`Список ${n}`))
     } catch (err) {
       setError(err.message)
     }

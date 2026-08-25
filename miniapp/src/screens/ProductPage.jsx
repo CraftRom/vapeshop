@@ -123,18 +123,6 @@ export function ProductPage({ config, product, cart, onCartChange, onBack, saved
       {/* Панель дії тримається внизу: рішення «купити» має бути під пальцем
           незалежно від того, наскільки довгий опис */}
       <div className="product-action">
-        {/* Сердечко поруч із головною дією: рішення «купити» і «відкласти»
-            приймають в один момент, тож і кнопки мають бути поруч */}
-        {onSave && (
-          <button
-            className={`heart ${saved ? 'on' : ''}`}
-            onClick={onSave}
-            aria-label={saved ? 'У списку бажаного' : 'Зберегти в список'}
-            title={saved ? 'У списку бажаного' : 'Зберегти в список'}
-          >
-            {saved ? '♥' : '♡'}
-          </button>
-        )}
         {qty > 0 ? (
           <>
             <div className="stepper" style={{ flex: 1, justifyContent: 'center' }}>
@@ -162,6 +150,19 @@ export function ProductPage({ config, product, cart, onCartChange, onBack, saved
             onClick={() => change(1)}
           >
             {out ? 'Немає в наявності' : 'Додати в кошик'}
+          </button>
+        )}
+
+        {/* Сердечко праворуч від головної дії: основна кнопка лишається
+            найширшою й найпомітнішою, а «відкласти» поруч, під тим же пальцем */}
+        {onSave && (
+          <button
+            className={`heart ${saved ? 'on' : ''}`}
+            onClick={onSave}
+            aria-label={saved ? 'У списку бажаного' : 'Зберегти в список'}
+            title={saved ? 'У списку бажаного' : 'Зберегти в список'}
+          >
+            {saved ? '♥' : '♡'}
           </button>
         )}
       </div>

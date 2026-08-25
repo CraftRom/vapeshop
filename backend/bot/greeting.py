@@ -23,6 +23,17 @@ log = logging.getLogger(__name__)
 GREETING_COMMANDS = ("/start", "/shop", "/magazin")
 
 
+def is_command_trigger(text: str | None) -> bool:
+    """Явна команда: на неї завжди відповідаємо привітанням."""
+    if not text:
+        return False
+    lowered = text.strip().lower()
+    for command in GREETING_COMMANDS:
+        if lowered == command or lowered.startswith(command + " ") or lowered.startswith(command + "@"):
+            return True
+    return False
+
+
 def is_greeting_trigger(text: str | None) -> bool:
     """Чи варто відповідати на це повідомлення в групі."""
     if not text:

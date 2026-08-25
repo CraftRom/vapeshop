@@ -272,6 +272,8 @@ initData: ${getInitData() ? `${getInitData().length} символів` : 'пор
           onCartChange={changeCart}
           seed={seed}
           onOpenProduct={setOpenProduct}
+          wishlists={wishlists}
+          onSave={setSaving}
         />
       )}
       {tab === 'cart' && (

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -8,11 +10,15 @@ from aiogram.types import CallbackQuery, Message, TelegramObject
 
 from bot import keyboards as kb
 from bot import texts
-from bot.greeting import is_greeting_trigger, send_greeting
+from bot import faq
+from bot.greeting import is_command_trigger, send_greeting
 from shop.config import settings
 from shop.services.shop_settings import current, get_shop_settings
 from shop.repo.factory import open_repo
 from shop.services.shop_service import get_or_create_user
+
+
+log = logging.getLogger(__name__)
 
 
 class RepositoryMiddleware(BaseMiddleware):
@@ -80,10 +86,53 @@ class PrivateOnlyMiddleware(BaseMiddleware):
         # Привітання шлемо лише коли бота явно покликали: командою /start
         # або згадкою. На решту реплік у чаті бот мовчить, інакше він
         # засмічував би розмову відповіддю на кожне повідомлення.
-        if isinstance(event, Message) and is_greeting_trigger(event.text or event.caption):
+        if not isinstance(event, Message):
+            return None
+
+        text = event.text or event.caption or ""
+
+        # Команда — це прохання показати магазин, відповідаємо привітанням
+        if is_command_trigger(text):
             await send_greeting(event)
+            return None
+
+        # Згадка: спершу пробуємо відповісти по суті й лише потім вітаємось.
+        # Інакше на «@бот яка доставка» людина отримала б загальне «ласкаво
+        # просимо» — формально відповідь, а насправді ні.
+        #
+        # Відповідаємо лише загальними правилами: персональне (статус
+        # замовлення, бонуси, реферальне посилання) у публічний чат не йде
+        # взагалі, бо його побачили б усі присутні.
+        if _mentions_bot(event):
+            rule = faq.match(text, current(), public=True)
+            if rule:
+                await _reply_public(event, rule)
+            else:
+                await send_greeting(event)
 
         return None
+
+
+def _mentions_bot(event) -> bool:
+    """Чи покликали саме нашого бота."""
+    username = (current().bot_username or "").lstrip("@").lower()
+    text = (event.text or event.caption or "").lower()
+    return bool(username) and f"@{username}" in text
+
+
+async def _reply_public(event, rule) -> None:
+    """Відповідь у групу: загальний текст плюс кнопка в особистий чат."""
+    from bot import keyboards as kb
+
+    try:
+        await event.answer(
+            faq.render(rule, current()) +
+            "\n\n<i>Замовлення й особисті питання — в особистому чаті.</i>",
+            reply_markup=kb.to_private_chat(),
+        )
+    except Exception:
+        # У каналі бот може не мати права писати — це не збій застосунку
+        log.info("Не вдалося відповісти в публічному чаті", exc_info=True)
 
 
 class AgeGateMiddleware(BaseMiddleware):

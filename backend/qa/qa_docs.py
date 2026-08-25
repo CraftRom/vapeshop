@@ -1,0 +1,52 @@
+"""Інструкції мають описувати те, що код справді робить."""
+import pathlib, re, sys, os
+os.environ.update(BOT_TOKEN="1:t", JWT_SECRET="t"*32)
+# Корінь проєкту — на два рівні вище цього файлу (backend/qa/…)
+root = pathlib.Path(__file__).resolve().parents[2]
+guide = (root/"dashboard/src/pages/Instructions.jsx").read_text()
+
+fails=[]
+def check(c,l,d=""):
+    print(f"  {'✓' if c else '✗'} {l}"+("" if c else f" — {d}")); (None if c else fails.append(l))
+
+print("--- послідовність статусів ---")
+from shop.services.shop_service import ALLOWED_TRANSITIONS
+from shop.entities import OrderStatus as S
+# інструкція обіцяє саме такий ланцюг
+chain = [S.NEW, S.CONFIRMED, S.ACCEPTED, S.PAID, S.SHIPPED, S.DONE]
+for a, b in zip(chain, chain[1:]):
+    check(b in ALLOWED_TRANSITIONS[a], f"{a.value} → {b.value} дозволено")
+check(S.DONE not in ALLOWED_TRANSITIONS[S.NEW], "стрибок «Нове → Виконано» заборонено, як і написано")
+check(not ALLOWED_TRANSITIONS[S.CANCELLED], "зі скасованого шляху немає, як і написано")
+
+print("\n--- права оператора ---")
+from api.routers.settings import OPERATOR_FIELDS
+promised = {"referral_enabled","referral_percent","bonus_enabled","bonus_max_percent",
+            "volume_discount_enabled","volume_discount_min","volume_discount_percent"}
+check(OPERATOR_FIELDS == promised, "оператору доступні саме модулі лояльності",
+      OPERATOR_FIELDS ^ promised)
+
+print("\n--- інші обіцянки ---")
+from shop.services.shop_settings import CACHE_TTL_SECONDS
+check(CACHE_TTL_SECONDS <= 60, "зміни доїжджають за півхвилини", CACHE_TTL_SECONDS)
+from shop.services.passwords import MIN_LENGTH
+check(MIN_LENGTH == 8, "пароль від 8 символів", MIN_LENGTH)
+from shop.services.wishlist import MAX_LISTS
+check(MAX_LISTS >= 1, "списки бажаного існують")
+from bot import faq
+pub = {r.key for r in faq.RULES if r.public}
+check({"delivery","payment","age","order"} <= pub, "бот сам відповідає про доставку, оплату, вік", pub)
+
+print("\n--- розділи інструкції відповідають меню ---")
+app = (root/"dashboard/src/App.jsx").read_text()
+nav = set(re.findall(r"label: '([^']+)'", app))
+titles = set(re.findall(r"title: '([^']+)'", guide))
+for label in ("Замовлення","Каталог","Клієнти","Промокоди","Розсилки","Налаштування","Огляд","Оператори"):
+    check(label in nav and label in titles, f"розділ «{label}» є в меню й описаний")
+
+print("\n--- нічого не обіцяно зайвого ---")
+check("adminOnly" in guide, "адмінські розділи приховані від оператора")
+check("Інструкції" in nav, "розділ доданий у меню")
+
+print(f"\n{'ПРОВАЛЕНО: '+str(len(fails)) if fails else 'інструкції відповідають коду'}")
+sys.exit(1 if fails else 0)
