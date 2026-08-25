@@ -257,6 +257,19 @@ class Settings(BaseSettings):
         if firestore:
             report.append(entry("FIREBASE_PROJECT", self.firebase_project, "critical",
                                 "Ідентифікатор проєкту Firestore"))
+            # Найдорожча змінна в списку: невалідне значення кладе не окрему
+            # функцію, а весь застосунок — кожен запит до бази йде в помилку.
+            # Типова причина — значення, скопійоване з адреси консолі Firebase
+            # у вигляді «%28default%29».
+            raw_db = os.environ.get("FIREBASE_DATABASE", "")
+            report.append(entry(
+                "FIREBASE_DATABASE",
+                raw_db == self.firebase_database,
+                "critical",
+                "Для бази за замовчуванням лишіть порожнім. "
+                f"Зараз в оточенні: {raw_db!r}" if raw_db else
+                "Порожньо — база за замовчуванням, це правильно",
+            ))
             report.append(entry(
                 "GOOGLE_APPLICATION_CREDENTIALS_JSON",
                 os.environ.get("GOOGLE_APPLICATION_CREDENTIALS_JSON")

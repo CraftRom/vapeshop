@@ -20,12 +20,32 @@ log = logging.getLogger("firestore")
 DIRECTIONS = {"asc": "ASCENDING", "desc": "DESCENDING"}
 
 
+def clean_database_id(value: str | None) -> str | None:
+    """Останній фільтр ідентифікатора бази перед SDK.
+
+    Той самий розбір є у валідаторі налаштувань, і дублювання тут навмисне:
+    невалідний ідентифікатор кладе кожен запит до бази, тобто застосунок
+    цілком. Ціна дубля — п'ять рядків, ціна пропуску — повний простій.
+    """
+    if not value:
+        return None
+
+    from urllib.parse import unquote
+
+    cleaned = unquote(str(value)).strip().strip('"').strip("'")
+    if cleaned.lower() in ("(default)", "default", ""):
+        return None
+    return cleaned
+
+
 class FirestoreDocStore(DocStore):
     def __init__(self, project: str | None = None, database: str | None = None) -> None:
         kwargs: dict = {}
         if project:
             kwargs["project"] = project
+        database = clean_database_id(database)
         if database:
+            log.info("Firestore: база %r", database)
             kwargs["database"] = database
         self.client = AsyncClient(**kwargs)
 

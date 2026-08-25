@@ -114,11 +114,23 @@ async def health():
     лише назви тих, яких бракує.
     """
     problems = settings.missing_required()
+    # Сире значення змінної поруч із тим, що з нього вийшло після очистки.
+    # Якщо ці два поля розходяться — очистка працює; якщо в raw лежить
+    # «%28default%29», а в effective те саме — у продакшені старий код.
+    # Не секрет: це ідентифікатор бази, а не доступ до неї.
+    import os as _os
+    from shop.build import BUILD
+
     return {
         "status": "ok" if not problems else "misconfigured",
+        "build": BUILD,
         "shop": settings.shop_name,
         "db_backend": settings.db_backend,
         "serverless": settings.serverless,
+        "firebase_database": {
+            "raw": _os.environ.get("FIREBASE_DATABASE", ""),
+            "effective": settings.firebase_database,
+        },
         "webhook_configured": bool(
             settings.webhook_secret and (current().public_url or settings.public_url)
         ),
