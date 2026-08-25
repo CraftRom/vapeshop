@@ -14,7 +14,9 @@ def read(p):
 
 print("=== ФАЙЛИ ===")
 must = [
- "vercel.json","firestore.indexes.json","firestore.rules","requirements.txt","api/index.py",
+ "firestore.indexes.json","firestore.rules","backend/requirements.txt",
+ "deploy/docker-compose.prod.yml","deploy/deploy.sh","deploy/backup.sh","deploy/restore.sh",
+ "backend/Dockerfile","backend/scheduler/__main__.py","backend/scheduler/tasks.py",
  "backend/shop/entities.py","backend/shop/models.py","backend/shop/config.py","backend/shop/links.py",
  "backend/shop/repo/base.py","backend/shop/repo/sql.py","backend/shop/repo/firestore.py",
  "backend/shop/repo/docstore.py","backend/shop/repo/firestore_store.py",
@@ -32,7 +34,7 @@ must = [
  "dashboard/src/App.jsx","dashboard/src/api.js","dashboard/src/version.js",
  "miniapp/src/version.js","miniapp/src/legal.js","miniapp/src/screens/Legal.jsx","dashboard/src/pages/OrderPage.jsx",
  "dashboard/src/pages/Operators.jsx","dashboard/src/pages/Settings.jsx","dashboard/src/pages/Overview.jsx",
- "deploy/docker-compose.prod.yml","deploy/nginx/app.conf","docs/DEPLOY.md","docs/VERCEL.md",
+ "deploy/docker-compose.prod.yml","deploy/nginx/app.conf","docs/DEPLOY.md",
 ]
 missing = [m for m in must if not (root/m).exists()]
 check(not missing, f"усі {len(must)} ключових файлів на місці", missing)
@@ -40,7 +42,7 @@ check(not missing, f"усі {len(must)} ключових файлів на мі�
 print("\n=== РОУТЕРИ API ===")
 main = read("backend/api/main.py")
 for r in ["catalog","orders","customers","promos","broadcasts","stats","operators",
-          "settings as settings_router","shop as shop_router","cron","telegram"]:
+          "settings as settings_router","shop as shop_router","telegram"]:
     check(r.split()[0] in main, f"роутер підключено: {r.split()[0]}")
 
 print("\n=== БОТ ===")
@@ -51,12 +53,16 @@ for m in ["PrivateOnlyMiddleware","RepositoryMiddleware","BlockedUserMiddleware"
     check(m in factory, f"мідлвар: {m}")
 check("bot_id()" in factory, "адреса вебхука містить ідентифікатор бота")
 
-print("\n=== МАРШРУТИ VERCEL ===")
-vj = json.loads(read("vercel.json"))
-srcs = [r.get("src") for r in vj["routes"] if "src" in r]
-for s in ["/api/(.*)", "/app", "/app/", "/app/(.+)"]:
-    check(s in srcs, f"маршрут {s}")
-check(any(b["src"].startswith("miniapp") for b in vj["builds"]), "вітрина збирається на Vercel")
+print("\n=== РОЗГОРТАННЯ НА ВЛАСНОМУ СЕРВЕРІ ===")
+compose = read("deploy/docker-compose.prod.yml")
+for service in ["db:", "redis:", "migrate:", "api:", "bot:", "scheduler:", "nginx:"]:
+    check(service in compose, f"сервіс у compose: {service.rstrip(':')}")
+check("python -m scheduler" in compose, "планувальник запускається як окремий процес")
+check("postgresql-client" in read("backend/Dockerfile"), "pg_dump є в образі — інакше бекап мовчки не працює")
+
+nginx = read("deploy/nginx/app.conf")
+for location in ["/api/", "/app"]:
+    check(location in nginx, f"nginx проксює {location}")
 
 print("\n=== ФРОНТ: ПІДКЛЮЧЕННЯ ЕКРАНІВ ===")
 app = read("miniapp/src/App.jsx")
@@ -110,7 +116,17 @@ check("seller" in shop_router, "конфіг вітрини віддає рек�
 
 print("\n=== МІГРАЦІЇ Й ІНДЕКСИ ===")
 migs = sorted((root/"backend/alembic/versions").glob("*.py"))
-check(len(migs) == 6, f"міграцій: {len(migs)}")
+# Число звіряємо з ланцюгом, а не з константою: константу забувають підняти
+# разом із міграцією, і перевірка починає ловити саму себе.
+heads = {m.stem.split("_")[0] for m in migs}
+revises = set()
+for m in migs:
+    body = m.read_text()
+    for line in body.splitlines():
+        if line.startswith("down_revision"):
+            revises.add(line.split("=")[-1].strip().strip('"\'').replace("None", ""))
+check(len(migs) == len(heads), f"міграцій: {len(migs)}, унікальних ревізій: {len(heads)}")
+check("a1c74e35b806" in heads, "міграція відкладених розсилок на місці")
 idx = json.loads(read("firestore.indexes.json"))["indexes"]
 check(len(idx) >= 25, f"індексів Firestore: {len(idx)}")
 cols = {i["collectionGroup"] for i in idx}

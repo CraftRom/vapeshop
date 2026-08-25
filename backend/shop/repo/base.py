@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from datetime import datetime
 from decimal import Decimal
 
 from shop.entities import (
@@ -216,6 +217,9 @@ class Repository(ABC):
 
     @abstractmethod
     async def next_pending_broadcast(self) -> Broadcast | None: ...
+
+    @abstractmethod
+    async def due_broadcasts(self, now: datetime) -> list[Broadcast]: ...
 
     # --------------------------------------------------------- segments
 

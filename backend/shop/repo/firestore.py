@@ -640,6 +640,20 @@ class FirestoreRepository(Repository):
         )
         return _broadcast(rows[0]) if rows else None
 
+    async def due_broadcasts(self, now: datetime) -> list[Broadcast]:
+        """Заплановані розсилки, чий час уже настав.
+
+        Фільтр по scheduled_at тут один, тож складений індекс не потрібен:
+        рівність по status плюс нерівність по одному полю Firestore закриває
+        одноключовим індексом, який створюється сам.
+        """
+        rows = await self.db.query(
+            BROADCASTS,
+            [("status", "==", BroadcastStatus.SCHEDULED.value), ("scheduled_at", "<=", now)],
+            order_by=[("scheduled_at", "asc")],
+        )
+        return [_broadcast(row) for row in rows]
+
     # --------------------------------------------------------- segments
 
     def _segment_filters(self, segment: dict) -> list:

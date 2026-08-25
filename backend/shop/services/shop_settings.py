@@ -59,6 +59,31 @@ class ShopSettings:
     # тож місце їй тут, а не в змінних оточення
     jwt_ttl_hours: int
 
+    # --- Розсилки ---
+    # Часовий пояс, у якому адміністратор задає час запуску й тихі години.
+    # Зберігається як назва зони IANA, а не зсув: зсув ламається двічі на рік
+    # на переході, і розсилка о 9:00 поїхала б на 8:00.
+    timezone: str
+    # Швидкість відправки. Telegram ріже приблизно на 30 повідомленнях за
+    # секунду; менше значення — довша розсилка, але менший ризик 429.
+    broadcast_rate_per_second: int
+    # Тихі години: у цей проміжок розсилки не йдуть, дозрілі чекають ранку.
+    # Рівні значення = тихих годин немає.
+    quiet_hours_enabled: bool
+    quiet_hours_start: int
+    quiet_hours_end: int
+
+    # --- Сервер ---
+    # Нічний дамп бази. Робить планувальник — окремий cron на хості не
+    # потрібен, і бекап не залежить від того, чи не зламався crontab.
+    backup_enabled: bool
+    backup_hour: int
+    backup_retention_days: int
+    # Скільки днів тримати файли логів застосунку
+    log_retention_days: int
+    # Верхня межа на порцію розсилки за один прохід
+    broadcast_chunk: int
+
     @classmethod
     def from_env(cls) -> ShopSettings:
         return cls(
@@ -85,6 +110,16 @@ class ShopSettings:
             miniapp_short_name=settings.miniapp_short_name,
             public_url=settings.public_url,
             jwt_ttl_hours=settings.jwt_ttl_hours,
+            timezone=settings.timezone,
+            broadcast_rate_per_second=settings.broadcast_rate_per_second,
+            quiet_hours_enabled=settings.quiet_hours_enabled,
+            quiet_hours_start=settings.quiet_hours_start,
+            quiet_hours_end=settings.quiet_hours_end,
+            backup_enabled=settings.backup_enabled,
+            backup_hour=settings.backup_hour,
+            backup_retention_days=settings.backup_retention_days,
+            log_retention_days=settings.log_retention_days,
+            broadcast_chunk=settings.broadcast_chunk,
         )
 
     def volume_discount_for(self, subtotal: Decimal) -> Decimal:
@@ -97,6 +132,45 @@ class ShopSettings:
             return Decimal(0)
         raw = subtotal * self.volume_discount_percent / Decimal(100)
         return min(raw.quantize(Decimal("0.01")), subtotal)
+
+    @property
+    def tz(self):
+        """Обʼєкт часової зони. Незнайома назва не має валити розсилку."""
+        from datetime import timezone as _utc
+        from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+        try:
+            return ZoneInfo(self.timezone or "UTC")
+        except (ZoneInfoNotFoundError, ValueError):
+            return _utc.utc
+
+    def in_quiet_hours(self, moment) -> bool:
+        """Чи потрапляє момент у тихі години (за часом магазину).
+
+        Проміжок може перетинати північ — 22→8 означає «з десятої вечора до
+        восьмої ранку», і саме цей випадок на практиці і потрібен.
+        """
+        if not self.quiet_hours_enabled:
+            return False
+        start, end = self.quiet_hours_start, self.quiet_hours_end
+        if start == end:
+            return False
+        hour = moment.astimezone(self.tz).hour
+        if start < end:
+            return start <= hour < end
+        return hour >= start or hour < end
+
+    def next_active_moment(self, moment):
+        """Найближчий час, коли розсилати вже можна."""
+        if not self.in_quiet_hours(moment):
+            return moment
+        local = moment.astimezone(self.tz)
+        target = local.replace(hour=self.quiet_hours_end, minute=0, second=0, microsecond=0)
+        if target <= local:
+            from datetime import timedelta
+
+            target += timedelta(days=1)
+        return target.astimezone(moment.tzinfo) if moment.tzinfo else target
 
     @property
     def admin_id_list(self) -> list[int]:

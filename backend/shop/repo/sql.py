@@ -547,6 +547,24 @@ class SqlRepository(Repository):
             .order_by(m.Broadcast.created_at).limit(1)
         ))
 
+    async def due_broadcasts(self, now: datetime) -> list[Broadcast]:
+        """Заплановані розсилки, чий час уже настав.
+
+        Беремо всі дозрілі, а не одну: якщо планувальник стояв (рестарт
+        сервера, збій), пропущені розсилки мають піти після відновлення,
+        а не загубитися до наступного збігу хвилини.
+        """
+        rows = await self.s.scalars(
+            select(m.Broadcast)
+            .where(
+                m.Broadcast.status == BroadcastStatus.SCHEDULED,
+                m.Broadcast.scheduled_at.is_not(None),
+                m.Broadcast.scheduled_at <= now,
+            )
+            .order_by(m.Broadcast.scheduled_at)
+        )
+        return [_broadcast(row) for row in rows]
+
     # --------------------------------------------------------- segments
 
     def _segment_query(self, segment: dict):

@@ -10,4 +10,10 @@ pyjwt==2.10.1
 httpx==0.28.1
 python-multipart==0.0.20
 redis==5.2.1
+# Firestore лишається як альтернативний бекенд; на власному сервері
+# використовується Postgres. api-core пінимо окремо: у 2.35.0 функція
+# path_template.expand() почала URL-кодувати підстановки, через що
+# ідентифікатор бази «(default)» перетворювався на «%28default%29»
+# і кожен запит до Firestore падав з 400 Invalid database id.
 google-cloud-firestore==2.28.1
+google-api-core[grpc]==2.34.0

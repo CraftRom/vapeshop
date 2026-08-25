@@ -33,6 +33,10 @@ class PromoType(str, enum.Enum):
 
 class BroadcastStatus(str, enum.Enum):
     DRAFT = "draft"
+    # Час запуску заданий, черга чекає. Окремий статус, а не «чернетка з
+    # датою»: чернетку можна редагувати як завгодно, а заплановану розсилку
+    # планувальник будь-якої миті може взяти в роботу.
+    SCHEDULED = "scheduled"
     SENDING = "sending"
     SENT = "sent"
     FAILED = "failed"
@@ -191,6 +195,8 @@ class Broadcast:
     sent_count: int = 0
     failed_count: int = 0
     cursor_id: int = 0
+    # Коли запустити. None — розсилка ручна.
+    scheduled_at: datetime | None = None
     created_at: datetime | None = None
     finished_at: datetime | None = None
 

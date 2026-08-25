@@ -5,9 +5,23 @@ import { Empty, ErrorBar, Field, Loading, Modal, dateTime, useToast } from '../c
 
 const STATUS_CHIP = {
   draft: { label: 'Чернетка', cls: '' },
+  scheduled: { label: 'Заплановано', cls: 'warn' },
   sending: { label: 'Надсилається', cls: 'warn' },
   sent: { label: 'Надіслано', cls: 'ok' },
   failed: { label: 'Помилка', cls: 'bad' },
+}
+
+/** Найближча ціла година в майбутньому, у форматі для datetime-local.
+ *
+ * Планувальник має годинну точність, тож пропонувати хвилини було б
+ * обіцянкою, якої система не виконує.
+ */
+function nextHourLocal() {
+  const d = new Date()
+  d.setMinutes(0, 0, 0)
+  d.setHours(d.getHours() + 1)
+  const pad = (n) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:00`
 }
 
 const NEEDS_DAYS = ['inactive']
@@ -26,6 +40,7 @@ function BroadcastForm({ segments, onClose, onSaved }) {
   const [reach, setReach] = useState(null)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const [when, setWhen] = useState(nextHourLocal)
 
   const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }))
 
@@ -46,7 +61,7 @@ function BroadcastForm({ segments, onClose, onSaved }) {
     return () => { cancelled = true }
   }, [payloadSegment])
 
-  const save = async (sendNow) => {
+  const save = async (mode) => {
     setBusy(true)
     setError('')
     try {
@@ -58,9 +73,14 @@ function BroadcastForm({ segments, onClose, onSaved }) {
         button_url: form.button_url || null,
         segment: payloadSegment(),
       })
-      if (sendNow) {
+      if (mode === 'send') {
         await api.broadcasts.send(created.id)
         notify(`Розсилка стартувала — ${reach ?? 0} отримувачів`)
+      } else if (mode === 'schedule') {
+        // Час із поля — локальний; toISOString переводить його в UTC,
+        // у якому живе планувальник.
+        await api.broadcasts.schedule(created.id, new Date(when).toISOString())
+        notify(`Заплановано на ${new Date(when).toLocaleString('uk-UA')}`)
       } else {
         notify('Чернетку збережено')
       }
@@ -82,11 +102,18 @@ function BroadcastForm({ segments, onClose, onSaved }) {
       footer={
         <>
           <button className="btn ghost" onClick={onClose}>Скасувати</button>
-          <button className="btn ghost" onClick={() => save(false)} disabled={busy || !valid}>
+          <button className="btn ghost" onClick={() => save('draft')} disabled={busy || !valid}>
             Зберегти чернетку
           </button>
-          <button className="btn" onClick={() => save(true)} disabled={busy || !valid || !reach}>
-            Надіслати
+          <button
+            className="btn ghost"
+            onClick={() => save('schedule')}
+            disabled={busy || !valid || !reach || !when}
+          >
+            Запланувати
+          </button>
+          <button className="btn" onClick={() => save('send')} disabled={busy || !valid || !reach}>
+            Надіслати зараз
           </button>
         </>
       }
@@ -114,6 +141,23 @@ function BroadcastForm({ segments, onClose, onSaved }) {
             <input className="input" value={form.button_url} onChange={set('button_url')} />
           </Field>
         </div>
+
+        <Field
+          label="Час запуску"
+          hint={
+            'Для кнопки «Запланувати». Планувальник перевіряє чергу раз на годину, ' +
+            'тож хвилини округляються вниз. У тихі години розсилка не піде — ' +
+            'дочекається ранку й стартує тоді.'
+          }
+        >
+          <input
+            className="input"
+            type="datetime-local"
+            step="3600"
+            value={when}
+            onChange={(e) => setWhen(e.target.value)}
+          />
+        </Field>
 
         <Field label="Кому надсилати">
           <select
@@ -193,6 +237,16 @@ export default function Broadcasts() {
     const timer = setInterval(load, 4000)
     return () => clearInterval(timer)
   }, [items, load])
+
+  const unschedule = async (broadcast) => {
+    try {
+      await api.broadcasts.unschedule(broadcast.id)
+      notify('Розсилку знято з черги — повернулась у чернетки')
+      load()
+    } catch (err) {
+      setError(err.message)
+    }
+  }
 
   const send = async (broadcast) => {
     if (!confirm(`Надіслати «${broadcast.title}»? Скасувати вже не вийде.`)) return
@@ -274,12 +328,24 @@ export default function Broadcasts() {
                           <span className="faint"> · {b.failed_count} не дійшло</span>
                         )}
                       </td>
-                      <td><span className={`chip ${chip.cls}`}>{chip.label}</span></td>
+                      <td>
+                        <span className={`chip ${chip.cls}`}>{chip.label}</span>
+                        {b.status === 'scheduled' && b.scheduled_at && (
+                          <div className="faint">{dateTime(b.scheduled_at)}</div>
+                        )}
+                      </td>
                       <td className="faint">{dateTime(b.created_at)}</td>
                       <td>
                         <div className="row">
-                          {b.status === 'draft' && (
-                            <button className="btn small" onClick={() => send(b)}>Надіслати</button>
+                          {(b.status === 'draft' || b.status === 'scheduled') && (
+                            <button className="btn small" onClick={() => send(b)}>
+                              Надіслати зараз
+                            </button>
+                          )}
+                          {b.status === 'scheduled' && (
+                            <button className="btn ghost small" onClick={() => unschedule(b)}>
+                              Зняти з черги
+                            </button>
                           )}
                           {b.status !== 'sending' && (
                             <button className="btn danger small" onClick={() => remove(b)}>Видалити</button>

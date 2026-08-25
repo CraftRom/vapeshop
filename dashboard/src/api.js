@@ -183,6 +183,12 @@ export const api = {
     preview: (segment) => request('/broadcasts/preview', { method: 'POST', body: segment }),
     create: (data) => request('/broadcasts', { method: 'POST', body: data }),
     send: (id) => request(`/broadcasts/${id}/send`, { method: 'POST' }),
+    schedule: (id, scheduledAt) =>
+      request(`/broadcasts/${id}/schedule`, {
+        method: 'POST',
+        body: { scheduled_at: scheduledAt },
+      }),
+    unschedule: (id) => request(`/broadcasts/${id}/unschedule`, { method: 'POST' }),
     remove: (id) => request(`/broadcasts/${id}`, { method: 'DELETE' }),
   },
 }

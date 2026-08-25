@@ -16,7 +16,8 @@ runtime = {f.name for f in dfields(ShopSettings)}
 SECRETS = {"bot_token","jwt_secret","dashboard_password","dashboard_login","webhook_secret",
            "cron_secret","redis_url","database_url","postgres_password"}
 INFRA = {"db_backend","serverless","firebase_project","firebase_database","postgres_host",
-         "postgres_port","postgres_user","postgres_db","enable_api_docs","cors_origins"}
+         "postgres_port","postgres_user","postgres_db","enable_api_docs","cors_origins",
+         "backup_dir","scheduler_interval_seconds"}
 unclassified = sorted(set(Settings.model_fields) - runtime - SECRETS - INFRA)
 r.check(not unclassified, "кожна змінна віднесена до категорії", unclassified)
 

@@ -31,6 +31,27 @@ class Settings(BaseSettings):
     # Ідентифікатор бази Firestore. Порожньо — база за замовчуванням.
     firebase_database: str = ""
 
+    # --- Розсилки й планувальник ---
+    # Дефолти; редагуються з панелі й перекриваються значеннями з бази.
+    timezone: str = "Europe/Kyiv"
+    broadcast_rate_per_second: int = 25
+    quiet_hours_enabled: bool = True
+    quiet_hours_start: int = 22
+    quiet_hours_end: int = 9
+    broadcast_chunk: int = 100
+    # Як часто планувальник перевіряє чергу, у секундах. Година — компроміс
+    # між точністю запуску й навантаженням на базу.
+    scheduler_interval_seconds: int = 3600
+
+    # --- Обслуговування сервера ---
+    backup_enabled: bool = True
+    backup_hour: int = 4
+    backup_retention_days: int = 14
+    log_retention_days: int = 30
+    # Куди планувальник кладе дампи. Той самий каталог, що монтується в
+    # контейнер Postgres, інакше pg_dump писав би в порожнечу.
+    backup_dir: str = "/backups"
+
     # --- База (для db_backend=sql) ---
     # DATABASE_URL можна не задавати — тоді збереться з POSTGRES_*.
     # Так пароль БД зберігається в одному місці й не розходиться.
@@ -57,7 +78,7 @@ class Settings(BaseSettings):
     serverless: bool = False
     public_url: str = ""            # https://your-app.vercel.app — для вебхука
     webhook_secret: str = ""        # секрет у шляху вебхука, згенеруйте випадковий
-    cron_secret: str = ""           # Bearer-токен для /api/cron/*
+    cron_secret: str = ""           # Bearer-токен для службових точок (setup вебхука)
     redis_url: str = ""             # якщо задано — FSM переживає рестарт бота
 
     # --- Дашборд ---
@@ -247,7 +268,7 @@ class Settings(BaseSettings):
             entry("Коротка назва Mini App", effective("miniapp_short_name"), "important",
                   "Без неї реферальні посилання не відкривають вітрину напряму"),
             entry("CRON_SECRET", self.cron_secret, "important",
-                  "Захищає службові точки: setup вебхука й запуск розсилок"),
+                  "Захищає службові точки: setup і видалення вебхука"),
             entry("REDIS_URL", self.redis_url, "important" if serverless else "optional",
                   "Без нього оформлення в чаті бота може обірватися на середині"),
             entry("DB_BACKEND", self.db_backend in ("sql", "firestore"), "critical",

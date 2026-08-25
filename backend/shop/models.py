@@ -44,6 +44,11 @@ class PromoType(str, enum.Enum):
 
 class BroadcastStatus(str, enum.Enum):
     DRAFT = "draft"
+    # Мусить збігатися з shop.entities.BroadcastStatus: тут — тип стовпця,
+    # там — доменна модель. Розходження не ловиться ні тестами моделі, ні
+    # тестами сервісу: воно виринає лише коли SQLAlchemy читає з бази рядок,
+    # якого немає в enum'і, і падає з LookupError уже в продакшені.
+    SCHEDULED = "scheduled"
     SENDING = "sending"
     SENT = "sent"
     FAILED = "failed"
@@ -250,6 +255,7 @@ class BonusTx(Base):
 
 class Broadcast(Base):
     __tablename__ = "broadcasts"
+    __table_args__ = (Index("ix_broadcasts_due", "status", "scheduled_at"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     title: Mapped[str] = mapped_column(String(255))
@@ -264,6 +270,10 @@ class Broadcast(Base):
     cursor_id: Mapped[int] = mapped_column(Integer, default=0)
     sent_count: Mapped[int] = mapped_column(Integer, default=0)
     failed_count: Mapped[int] = mapped_column(Integer, default=0)
+    # Індекс саме по (status, scheduled_at): планувальник щогодини питає
+    # «що вже дозріло», і без індексу це був би повний скан таблиці розсилок
+    # на кожен тік.
+    scheduled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 

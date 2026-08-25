@@ -2,8 +2,8 @@
 
 Один код на обидва сценарії:
   • власний сервер — фонове завдання крутить порції поспіль до кінця;
-  • serverless — планувальник смикає /api/cron/broadcast-tick, і кожен виклик
-    відпрацьовує одну порцію в межах ліміту часу функції.
+  • планувальник (`python -m scheduler`) бере розсилки, чий час настав,
+    і докручує їх тим самим кодом.
 
 Курсор зберігається в самій розсилці, тому процес можна обірвати будь-коли
 й продовжити з того ж місця.
@@ -20,8 +20,12 @@ from shop.telegram import send_broadcast_message
 
 log = logging.getLogger("broadcast")
 
-RATE_PER_SECOND = 25       # Telegram пропускає ~30/с, тримаємось нижче межі
+RATE_PER_SECOND = 25       # запасне значення, якщо налаштування недоступні
 CONCURRENCY = 8            # паралельні відправки в межах порції
+# Telegram пропускає близько 30 повідомлень на секунду на бота. Вище цієї
+# межі починаються 429 з Retry-After, і сумарно розсилка йде повільніше,
+# ніж якби ми з самого початку трималися нижче.
+MAX_RATE_PER_SECOND = 30
 
 
 async def send_chunk(repo: Repository, broadcast: Broadcast, size: int) -> tuple[int, bool]:
@@ -34,6 +38,13 @@ async def send_chunk(repo: Repository, broadcast: Broadcast, size: int) -> tuple
             "finished_at": datetime.now(timezone.utc),
         })
         return 0, True
+
+    # Темп береться з налаштувань магазину, а не з константи: у різних
+    # ботів різні ліміти, і підбирати їх редеплоєм — надто дорого.
+    from shop.services.shop_settings import get_shop_settings
+
+    shop = await get_shop_settings(repo)
+    rate = min(max(int(shop.broadcast_rate_per_second or RATE_PER_SECOND), 1), MAX_RATE_PER_SECOND)
 
     semaphore = asyncio.Semaphore(CONCURRENCY)
 
@@ -49,12 +60,12 @@ async def send_chunk(repo: Repository, broadcast: Broadcast, size: int) -> tuple
 
     sent = failed = 0
     # Ріжемо порцію на секундні пачки: паралелимо всередині, але не перевищуємо ліміт
-    for start in range(0, len(recipients), RATE_PER_SECOND):
-        batch = recipients[start:start + RATE_PER_SECOND]
+    for start in range(0, len(recipients), rate):
+        batch = recipients[start:start + rate]
         outcomes = await asyncio.gather(*(deliver(tg_id) for _, tg_id in batch))
         sent += sum(outcomes)
         failed += len(outcomes) - sum(outcomes)
-        if start + RATE_PER_SECOND < len(recipients):
+        if start + rate < len(recipients):
             await asyncio.sleep(1)
 
     cursor = recipients[-1][0]

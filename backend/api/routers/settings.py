@@ -24,6 +24,15 @@ OPERATOR_FIELDS = {
     "volume_discount_enabled", "volume_discount_min", "volume_discount_percent",
 }
 
+# Параметри інфраструктури: розклад бекапів, ретенція, темп розсилки.
+# Оператору вони не потрібні, а помилка в них дорога — окрема перевірка
+# нижче тримає їх за адміністратором навіть якщо перелік вище розростеться.
+INFRA_FIELDS = {
+    "timezone", "broadcast_rate_per_second", "broadcast_chunk",
+    "quiet_hours_enabled", "quiet_hours_start", "quiet_hours_end",
+    "backup_enabled", "backup_hour", "backup_retention_days",
+}
+
 
 @router.get("", response_model=ShopSettingsOut)
 async def read_settings(repo: Repository = Depends(get_repo)):
@@ -54,7 +63,7 @@ async def write_settings(
     payload = data.model_dump(exclude_unset=True)
 
     if not who.is_admin:
-        forbidden = sorted(set(payload) - OPERATOR_FIELDS)
+        forbidden = sorted(set(payload) - (OPERATOR_FIELDS - INFRA_FIELDS))
         if forbidden:
             raise HTTPException(
                 403,

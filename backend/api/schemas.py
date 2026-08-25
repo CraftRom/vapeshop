@@ -209,6 +209,13 @@ class BroadcastIn(BaseModel):
     button_text: str | None = None
     button_url: str | None = None
     segment: SegmentIn = SegmentIn()
+    # Точність — година: планувальник прокидається рідше, ніж раз на хвилину,
+    # і обіцяти хвилинну точність було б неправдою.
+    scheduled_at: datetime | None = None
+
+
+class ScheduleIn(BaseModel):
+    scheduled_at: datetime
 
 
 class BroadcastOut(ORMModel):
@@ -223,6 +230,7 @@ class BroadcastOut(ORMModel):
     sent_count: int = 0
     failed_count: int = 0
     cursor_id: int = 0
+    scheduled_at: datetime | None = None
     created_at: datetime | None = None
     finished_at: datetime | None = None
 
@@ -282,6 +290,40 @@ class ShopSettingsIn(BaseModel):
     public_url: str | None = Field(None, max_length=255)
     jwt_ttl_hours: int | None = Field(None, ge=1, le=720)
 
+    # --- розсилки ---
+    timezone: str | None = Field(None, max_length=64)
+    broadcast_rate_per_second: int | None = Field(None, ge=1, le=30)
+    quiet_hours_enabled: bool | None = None
+    quiet_hours_start: int | None = Field(None, ge=0, le=23)
+    quiet_hours_end: int | None = Field(None, ge=0, le=23)
+    broadcast_chunk: int | None = Field(None, ge=10, le=1000)
+
+    # --- сервер ---
+    backup_enabled: bool | None = None
+    backup_hour: int | None = Field(None, ge=0, le=23)
+    backup_retention_days: int | None = Field(None, ge=1, le=365)
+
+    @field_validator("timezone", mode="after")
+    @classmethod
+    def _check_timezone(cls, value):
+        """Незнайома зона не має доїхати до бази.
+
+        Помилка тут — це підказка в панелі; помилка після збереження — це
+        розсилка, що поїхала не в ту годину, і зрозуміти чому буде складно.
+        """
+        if not value:
+            return value
+        from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+        value = value.strip()
+        try:
+            ZoneInfo(value)
+        except (ZoneInfoNotFoundError, ValueError):
+            raise ValueError(
+                f"Невідома часова зона {value!r}. Потрібна назва IANA, як-от Europe/Kyiv"
+            ) from None
+        return value
+
     @field_validator("bot_username", "miniapp_short_name", mode="after")
     @classmethod
     def _clean_name(cls, value):
@@ -337,6 +379,15 @@ class ShopSettingsOut(BaseModel):
     bot_username: str
     miniapp_short_name: str
     public_url: str
+    timezone: str
+    broadcast_rate_per_second: int
+    quiet_hours_enabled: bool
+    quiet_hours_start: int
+    quiet_hours_end: int
+    broadcast_chunk: int
+    backup_enabled: bool
+    backup_hour: int
+    backup_retention_days: int
 
 
 # ------------------------------------------------------------- оператори

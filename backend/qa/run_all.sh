@@ -48,6 +48,7 @@ run faq-public qa/qa_faq_public.py
 run env qa/qa_env.py
 run docs qa/qa_docs.py
 run legal qa/qa_legal.py
+run scheduler qa/qa_scheduler.py
 run e2e qa/qa_e2e.py
 run performance qa/qa_perf.py
 
