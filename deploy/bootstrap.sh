@@ -58,6 +58,57 @@ usermod -aG docker "$SERVICE_USER"
 chown -R "$SERVICE_USER:$SERVICE_USER" "$REPO_DIR"
 
 
+as_user() {
+    if command -v runuser >/dev/null 2>&1; then
+        runuser -u "$SERVICE_USER" -- "$@" 2>/dev/null
+    else
+        su -s /bin/sh "$SERVICE_USER" -c "$(printf '%q ' "$@")" >/dev/null 2>&1
+    fi
+}
+
+say "Доступність каталогу для ${SERVICE_USER}"
+# Права на сам репозиторій ще нічого не гарантують: щоб зайти в нього,
+# користувачу потрібен біт «x» на кожному каталозі шляху. Домівка іншого
+# користувача в Ubuntu має режим 750, тож ~/elfar для shop недосяжний,
+# хоч би файли й належали йому.
+#
+# Ловимо це тут, а не на старті юніта: systemd повідомляє про таке кодом
+# «status=200/CHDIR», за яким причину не видно взагалі.
+blocker=""
+probe="$REPO_DIR"
+while [[ "$probe" != "/" ]]; do
+    # runuser є в util-linux і стоїть скрізь, але на урізаних образах його
+    # може не бути — тоді відкочуємось на su.
+    if ! as_user test -x "$probe"; then
+        blocker="$probe"
+    fi
+    probe="$(dirname "$probe")"
+done
+
+if [[ -n "$blocker" ]]; then
+    mode=$(stat -c '%a' "$blocker")
+    owner=$(stat -c '%U' "$blocker")
+    cat >&2 <<EOF
+
+Помилка: користувач ${SERVICE_USER} не може зайти в ${REPO_DIR}.
+
+    Заважає: ${blocker} (режим ${mode}, власник ${owner})
+
+Найкоротший шлях — перенести проєкт туди, куди доступ є всім:
+
+    systemctl stop ${UNIT_NAME} 2>/dev/null || true
+    mv ${REPO_DIR} /opt/elfar
+    chown -R ${SERVICE_USER}:${SERVICE_USER} /opt/elfar
+    cd /opt/elfar && sudo bash deploy/bootstrap.sh
+
+Не робіть замість цього chmod 755 на ${blocker}: це відкриє домашній
+каталог на читання всім користувачам системи, теперішнім і майбутнім.
+EOF
+    exit 1
+fi
+echo "    Шлях прохідний"
+
+
 say "Фаєрвол"
 ufw allow OpenSSH >/dev/null
 ufw allow 80/tcp  >/dev/null

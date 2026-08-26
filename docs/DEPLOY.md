@@ -36,10 +36,16 @@ dig +short ваш-домен.com     # має вивести IP сервера
 
 ```bash
 ssh root@ваш-сервер
-git clone <ваш-репозиторій> /opt/elfar
+sudo git clone <ваш-репозиторій> /opt/elfar
 cd /opt/elfar
 sudo bash deploy/bootstrap.sh
 ```
+
+**Клонуйте в `/opt`, а не у свою домівку.** Магазин працює від користувача
+`shop`, а домашній каталог в Ubuntu має режим 750 — `shop` не зможе туди
+зайти, навіть якщо файли належать йому. Юніт тоді падає з
+`status=200/CHDIR`, за яким причину не видно взагалі. `bootstrap.sh` це
+перевіряє й попереджає заздалегідь.
 
 Скрипт зупиниться й попросить заповнити `BOT_TOKEN`, `PUBLIC_URL` та
 `ADMIN_CHAT_ID`. Після цього:
@@ -126,11 +132,18 @@ ufw status                       # у списку лише 22, 80, 443
 ## Крок 4. Код і конфігурація
 
 ```bash
+sudo git clone <ваш-репозиторій> /opt/elfar
+sudo chown -R shop:shop /opt/elfar
 su - shop
-git clone <ваш-репозиторій> ~/elfar
-cd ~/elfar
+cd /opt/elfar
 cp .env.example .env
 ```
+
+Шлях має значення. `/home/ubuntu/elfar` виглядає природно, але туди не зайде
+користувач `shop`: домівки в Ubuntu закриті режимом 750. Робити
+`chmod 755 /home/ubuntu` не варто — це відкриє її на читання всім
+користувачам системи, теперішнім і майбутнім. Простіше тримати проєкт
+у `/opt`.
 
 Згенеруйте секрети — не вигадуйте їх руками:
 
@@ -185,7 +198,7 @@ grep -c 'change_this\|1234567890:AA\|-1001234567890' .env    # має бути 0
 ## Крок 5. Перший запуск
 
 ```bash
-cd ~/elfar/deploy
+cd /opt/elfar/deploy
 docker compose -f docker-compose.prod.yml build
 docker compose -f docker-compose.prod.yml run --rm migrate
 docker compose -f docker-compose.prod.yml up -d
@@ -246,10 +259,10 @@ curl -sI https://ваш-домен.com | head -1        # HTTP/2 200
 
 ```bash
 exit    # назад у root
-cd /home/shop/elfar
+cd /opt/elfar
 
 install -m 644 deploy/elfar.service /etc/systemd/system/elfar.service
-sed -i -e "s|__REPO_DIR__|/home/shop/elfar|g" -e "s|__USER__|shop|g" \
+sed -i -e "s|__REPO_DIR__|/opt/elfar|g" -e "s|__USER__|shop|g" \
     /etc/systemd/system/elfar.service
 systemctl daemon-reload
 systemctl enable elfar
@@ -346,7 +359,7 @@ x-backend-build: &backend-build
 **Перевірка:**
 
 ```bash
-cd ~/elfar/deploy
+cd /opt/elfar/deploy
 docker compose -f docker-compose.prod.yml exec api id
 # uid=1000(shop) gid=1000(shop)
 
@@ -379,7 +392,7 @@ docker compose -f docker-compose.prod.yml up -d
 ```bash
 usermod -u 1500 shop
 groupmod -g 1500 shop
-chown -R shop:shop /home/shop/elfar
+chown -R shop:shop /opt/elfar
 ```
 
 Далі оновіть `APP_UID`/`APP_GID` у `.env` і пересоберіть образ.
@@ -390,7 +403,7 @@ chown -R shop:shop /home/shop/elfar
 
 ```bash
 su - shop
-cd ~/elfar
+cd /opt/elfar
 git pull
 deploy/deploy.sh
 ```
@@ -427,7 +440,7 @@ deploy/restore.sh backups/elfar-2026-08-19.dump
 **Копіюйте бекапи за межі сервера.** Диск може померти разом з ними:
 
 ```cron
-30 4 * * * rsync -az /home/shop/elfar/deploy/backups/ user@інший-хост:/backups/elfar/
+30 4 * * * rsync -az /opt/elfar/deploy/backups/ user@інший-хост:/backups/elfar/
 ```
 
 Це єдине, що лишається за системним cron: воно стосується не магазину,
@@ -450,6 +463,8 @@ deploy/restore.sh backups/elfar-2026-08-19.dump
 | Дампи належать root | Образ зібрано без `APP_UID` | `build --no-cache`, див. розділ вище |
 | Відкладена розсилка не пішла | Тихі години або ще не було тіку | Планувальник тікає раз на годину |
 | Після ребуту нічого не піднялось | Юніт або docker вимкнено | `systemctl enable --now elfar docker` |
+| Юніт падає з `status=200/CHDIR` | `shop` не може зайти в каталог проєкту | Перенесіть проєкт у `/opt/elfar`, див. крок 4 |
+| `Permission denied` при `git clone /opt/...` | `/opt` належить root | `sudo git clone`, далі `chown -R shop:shop` |
 
 ### Діагностика
 

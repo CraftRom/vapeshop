@@ -68,6 +68,8 @@ check("systemctl enable" in boot, "bootstrap вмикає автозапуск")
 check("systemctl enable --now docker" in boot, "bootstrap вмикає сам docker — без цього автозапуск марний")
 check("APP_UID" in boot, "bootstrap прописує UID користувача для контейнерів")
 check("install -d -o" in boot, "bootstrap створює backups із правильним власником")
+check("200/CHDIR" in boot, "bootstrap ловить недосяжний шлях до старту юніта")
+check("as_user" in boot, "перевірка доступу йде від імені сервісного користувача")
 
 dockerfile = read("backend/Dockerfile")
 check("USER shop" in dockerfile, "бекенд працює не від root")

@@ -26,10 +26,15 @@ Mini App, `/api/` — бекенд. Розводить їх зовнішній `
 На чистій Ubuntu 22.04/24.04:
 
 ```bash
-git clone <ваш-репозиторій> /opt/elfar
+sudo git clone <ваш-репозиторій> /opt/elfar
 cd /opt/elfar
 sudo bash deploy/bootstrap.sh
 ```
+
+Саме `/opt`, а не домівка: магазин працює від користувача `shop`, а домашні
+каталоги в Ubuntu закриті режимом 750 — `shop` туди не зайде, навіть якщо
+файли належать йому, і юніт упаде з `status=200/CHDIR`. `bootstrap.sh`
+перевіряє прохідність шляху й називає конкретний каталог, який заважає.
 
 Скрипт ставить Docker, створює користувача `shop`, налаштовує фаєрвол,
 генерує всі секрети, вмикає автозапуск і піднімає стек. Він **ідемпотентний**:
@@ -216,7 +221,7 @@ docker compose -f docker-compose.prod.yml logs -f scheduler
 Це єдине, що лишається за системним `cron`, бо стосується не магазину:
 
 ```cron
-30 4 * * * rsync -az /home/shop/shop/deploy/backups/ user@інший-хост:/backups/shop/
+30 4 * * * rsync -az /opt/elfar/deploy/backups/ user@інший-хост:/backups/elfar/
 ```
 
 ### Ротація логів контейнерів
