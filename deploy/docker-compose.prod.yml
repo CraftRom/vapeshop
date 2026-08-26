@@ -158,6 +158,11 @@ services:
     volumes:
       - ./nginx/ratelimit.conf:/etc/nginx/conf.d/00-ratelimit.conf:ro
       - ./nginx/app.conf:/etc/nginx/conf.d/default.conf:ro
+      # Теки-перемикачі. Порожні — сайт віддається по HTTP без HSTS;
+      # certbot-init.sh кладе туди файли, коли зʼявляється справжній
+      # сертифікат. Монтуються на запис, бо їх наповнює скрипт із хоста.
+      - ./nginx/redirect.d:/etc/nginx/redirect.d:ro
+      - ./nginx/hsts.d:/etc/nginx/hsts.d:ro
       - certbot-www:/var/www/certbot:ro
       - certbot-conf:/etc/letsencrypt:ro
     depends_on: [dashboard, miniapp, api]

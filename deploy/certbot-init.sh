@@ -25,10 +25,19 @@ fi
 
 DOMAIN_ARGS=()
 for d in "$@"; do
-    # Захист від скопійованого з чату посилання виду [www.site](https://www.site)
-    if [[ "$d" =~ [][:space:]()] || "$d" == *"://"* ]]; then
-        echo "Домен виглядає зіпсованим: $d" >&2
-        echo "Схоже, скопійовано разом із розміткою посилання. Вкажіть просто www.site.com" >&2
+    # Перевіряємо не «чи немає сміття», а «чи це взагалі схоже на домен».
+    # Перший підхід ловить лише те, про що згадав автор: минулого разу він
+    # пропустив прапорець -v, і той поїхав у certbot як значення для -d,
+    # де впав із невиразним «expected one argument».
+    if [[ ! "$d" =~ ^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)+$ ]]; then
+        echo "Це не схоже на домен: ${d}" >&2
+        echo "" >&2
+        if [[ "$d" == -* ]]; then
+            echo "Схоже на прапорець. Скрипт приймає лише домени:" >&2
+        elif [[ "$d" == *"://"* || "$d" == *"["* ]]; then
+            echo "Схоже на посилання з розміткою. Потрібне саме імʼя домену:" >&2
+        fi
+        echo "    ./certbot-init.sh elfar.pp.ua www.elfar.pp.ua" >&2
         exit 1
     fi
     DOMAIN_ARGS+=(-d "$d")
@@ -136,6 +145,14 @@ $COMPOSE run --rm --entrypoint certbot certbot \
     "${DOMAIN_ARGS[@]}" \
     --email "$EMAIL" --agree-tos --no-eff-email \
     --force-renewal
+
+echo "==> Вмикаю HTTPS-режим"
+# Доки сертифіката не було, сайт віддавався по HTTP. Тепер можна і
+# перенаправляти, і вмикати HSTS. Порядок саме такий: спершу файли,
+# потім перезапуск, інакше nginx підхопить лише половину.
+mkdir -p nginx/redirect.d nginx/hsts.d
+echo 'return 301 https://$host$request_uri;' > nginx/redirect.d/force-https.conf
+echo 'add_header Strict-Transport-Security "max-age=31536000" always;' > nginx/hsts.d/hsts.conf
 
 echo "==> Перезапускаю nginx із сертифікатом"
 $COMPOSE restart nginx

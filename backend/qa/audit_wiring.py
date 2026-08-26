@@ -84,6 +84,15 @@ check("--force-recreate nginx" in cert,
       "nginx перестворюється — зациклений у рестарті контейнер звичайним up не полагодити")
 check("127.0.0.1" in cert,
       "локальна перевірка окремо від зовнішньої")
+check("redirect.d" in cert and "hsts.d" in cert,
+      "HTTPS-режим вмикається лише після справжнього сертифіката")
+nginx_conf = read("deploy/nginx/app.conf")
+http_part = nginx_conf[nginx_conf.index("listen 80;"):nginx_conf.index("listen 443")]
+check("dashboard_static" in http_part,
+      "порт 80 віддає сайт, а не лише редіректить — щоб магазин працював без TLS")
+check("include /etc/nginx/hsts.d" in nginx_conf,
+      "HSTS умовний: інакше браузер заблокує запасний HTTP")
+check(nginx_conf.count("{") == nginx_conf.count("}"), "дужки в конфізі nginx збалансовані")
 
 greeting = read("backend/bot/greeting.py")
 check("/start" not in str(__import__("re").search(r"PUBLIC_COMMANDS = \(([^)]*)\)", greeting).group(1)),
