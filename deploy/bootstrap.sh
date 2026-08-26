@@ -181,6 +181,14 @@ value=$(env_value PUBLIC_URL)
 [[ "$value" != https://* ]] && missing+=(PUBLIC_URL)
 
 
+say "Права на скрипти"
+# Zip не завжди доносить прапорець виконання: залежить від того, чим
+# розпаковували й на якій системі. Виглядає це як «Permission denied» на
+# ./deploy.sh, хоч файл на місці й читається.
+chmod +x "$REPO_DIR"/deploy/*.sh
+echo "    $(ls "$REPO_DIR"/deploy/*.sh | wc -l) скриптів позначено виконуваними"
+
+
 say "Звʼязок compose із .env"
 # docker compose читає два різні набори змінних, і плутанина між ними —
 # класична пастка:

@@ -486,6 +486,7 @@ deploy/restore.sh backups/elfar-2026-08-19.dump
 |---|---|---|
 | `WARN ... variable is not set`, db unhealthy | Немає `deploy/.env` | `ln -sfn ../.env .env`, потім `down -v` і `up -d` |
 | certbot «завис» після Created | Аргументи з'їв entrypoint із циклом | `./certbot-init.sh домен` |
+| `Permission denied` на `deploy/*.sh` | Zip не доніс прапорець виконання | `chmod +x deploy/*.sh` |
 | nginx: cannot load certificate | У `app.conf` лишився `example.com` | Підставте домен, `restart nginx` |
 | `migrate` падає | База ще не готова | `docker compose ps db` — має бути `healthy` |
 | API: password authentication failed | `POSTGRES_PASSWORD` ≠ пароль у `DATABASE_URL` | Вирівняйте, `up -d --force-recreate api db` |

@@ -11,7 +11,7 @@ from aiogram.types import CallbackQuery, Message, TelegramObject
 from bot import keyboards as kb
 from bot import texts
 from bot import faq
-from bot.greeting import is_command_trigger, send_greeting
+from bot.greeting import is_command_trigger, is_private_only_command, send_greeting
 from shop.config import settings
 from shop.services.shop_settings import current, get_shop_settings
 from shop.repo.factory import open_repo
@@ -83,32 +83,40 @@ class PrivateOnlyMiddleware(BaseMiddleware):
             )
             return None
 
-        # Привітання шлемо лише коли бота явно покликали: командою /start
-        # або згадкою. На решту реплік у чаті бот мовчить, інакше він
-        # засмічував би розмову відповіддю на кожне повідомлення.
         if not isinstance(event, Message):
             return None
 
         text = event.text or event.caption or ""
 
-        # Команда — це прохання показати магазин, відповідаємо привітанням
+        # /shop — єдина публічна команда. Відповідаємо завжди: людина
+        # свідомо покликала магазин.
         if is_command_trigger(text):
             await send_greeting(event)
             return None
 
-        # Згадка: спершу пробуємо відповісти по суті й лише потім вітаємось.
-        # Інакше на «@бот яка доставка» людина отримала б загальне «ласкаво
-        # просимо» — формально відповідь, а насправді ні.
+        # Приватна команда в групі (/start, /cart, /profile…). Мовчимо
+        # свідомо: /start у групу надсилає за звичкою чи не кожен новачок,
+        # і відповідь на кожен такий випадок була б спамом.
+        if is_private_only_command(text):
+            log.debug("Приватна команда в публічному чаті %s — ігнорую", chat.id)
+            return None
+
+        # Згадка бота: відповідаємо по суті, якщо є що сказати.
         #
-        # Відповідаємо лише загальними правилами: персональне (статус
-        # замовлення, бонуси, реферальне посилання) у публічний чат не йде
-        # взагалі, бо його побачили б усі присутні.
+        # У публічний чат ідуть лише загальні правила. Персональне — статус
+        # замовлення, бонусний рахунок, реферальне посилання, вміст кошика —
+        # не йде туди взагалі: його побачили б усі присутні, включно з
+        # випадковими людьми й тими, кого додадуть у групу пізніше.
         if _mentions_bot(event):
             rule = faq.match(text, current(), public=True)
             if rule:
                 await _reply_public(event, rule)
-            else:
-                await send_greeting(event)
+            elif _may_speak(chat.id):
+                # Нема чіткої відповіді — коротко переадресовуємо в приватний
+                # чат, але не частіше ніж раз на PUBLIC_COOLDOWN. Інакше
+                # жвава розмова, де бота згадують у кожному повідомленні,
+                # перетворилася б на стрічку однакових реплік.
+                await _reply_public(event, None)
 
         return None
 
@@ -120,16 +128,47 @@ def _mentions_bot(event) -> bool:
     return bool(username) and f"@{username}" in text
 
 
+# Скільки секунд бот мовчить у чаті після відповіді «не знаю».
+# Відповіді по суті це не обмежує: на конкретне питання відповідь потрібна
+# завжди, а от переадресація в приватний чат корисна один раз.
+PUBLIC_COOLDOWN = 300
+_last_fallback: dict[int, float] = {}
+
+
+def _may_speak(chat_id: int) -> bool:
+    """Чи минув час відпочинку після попередньої загальної відповіді."""
+    import time
+
+    now = time.monotonic()
+    previous = _last_fallback.get(chat_id)
+    # Дефолт 0.0 тут був би помилкою: monotonic() відлічує від старту
+    # системи, і в перші хвилини після перезавантаження різниця з нулем
+    # менша за паузу — бот мовчав би на перше ж звернення в кожному чаті.
+    if previous is not None and now - previous < PUBLIC_COOLDOWN:
+        return False
+    _last_fallback[chat_id] = now
+    # Словник живе в памʼяті процесу й не росте безмежно: чатів у магазину
+    # одиниці, а перезапуск просто скидає лічильники.
+    return True
+
+
 async def _reply_public(event, rule) -> None:
-    """Відповідь у групу: загальний текст плюс кнопка в особистий чат."""
+    """Відповідь у групу: загальний текст плюс кнопка в особистий чат.
+
+    rule=None — конкретної відповіді немає, шлемо коротку переадресацію.
+    """
     from bot import keyboards as kb
 
-    try:
-        await event.answer(
-            faq.render(rule, current()) +
-            "\n\n<i>Замовлення й особисті питання — в особистому чаті.</i>",
-            reply_markup=kb.to_private_chat(),
+    if rule is not None:
+        body = (
+            faq.render(rule, current())
+            + "\n\n<i>Замовлення й особисті питання — в особистому чаті.</i>"
         )
+    else:
+        body = texts.PUBLIC_FALLBACK
+
+    try:
+        await event.answer(body, reply_markup=kb.to_private_chat())
     except Exception:
         # У каналі бот може не мати права писати — це не збій застосунку
         log.info("Не вдалося відповісти в публічному чаті", exc_info=True)

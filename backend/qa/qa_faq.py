@@ -55,6 +55,7 @@ check(faq.match("як   замовити") is not None, "зайві пробіл
 check(faq.match("🛍 як замовити") is not None, "емодзі на початку")
 
 import sys
-print(f"\nFAQ: {"+"str(len(CASES)+16-len(fails))"+"}/{"+"str(len(CASES)+16)"+"}")
+total = len(CASES) + 16
+print(f"\nFAQ: {total - len(fails)}/{total}")
 print(f"{'ПРОВАЛЕНО: '+str(len(fails)) if fails else 'усе витримано'}")
 for f in fails: print("  -", f)

@@ -18,20 +18,40 @@ from shop.services.shop_settings import get_shop_settings
 
 log = logging.getLogger(__name__)
 
-# Команди, на які бот відгукується в групі. Список навмисно короткий:
-# усе інше в публічному чаті ігнорується, щоб не було ні спаму, ні витоку.
-GREETING_COMMANDS = ("/start", "/shop", "/magazin")
+# Єдина команда, на яку бот відгукується в групі чи каналі.
+#
+# /start тут навмисно немає. У Telegram кожен новий учасник рано чи пізно
+# надсилає /start у групу за звичкою, і бот відповідав би привітанням на
+# кожен такий випадок — це і є той спам, якого не має бути. У приватному
+# чаті /start працює як завжди: там він адресований саме боту.
+PUBLIC_COMMANDS = ("/shop",)
+
+# Команди, які лишаються приватними. Перелік потрібен, щоб у групі мовчати
+# свідомо, а не через те, що команда невідома.
+PRIVATE_ONLY_COMMANDS = ("/start", "/magazin", "/cart", "/profile", "/orders")
 
 
-def is_command_trigger(text: str | None) -> bool:
-    """Явна команда: на неї завжди відповідаємо привітанням."""
-    if not text:
-        return False
+def _matches(text: str, commands: tuple[str, ...]) -> bool:
+    """Чи є текст однією з команд, із урахуванням форми /shop@bot_name."""
     lowered = text.strip().lower()
-    for command in GREETING_COMMANDS:
+    for command in commands:
         if lowered == command or lowered.startswith(command + " ") or lowered.startswith(command + "@"):
             return True
     return False
+
+
+def is_command_trigger(text: str | None) -> bool:
+    """Публічна команда, на яку відповідаємо в групі."""
+    if not text:
+        return False
+    return _matches(text, PUBLIC_COMMANDS)
+
+
+def is_private_only_command(text: str | None) -> bool:
+    """Приватна команда, надіслана не туди. Причина мовчання, а не незнання."""
+    if not text:
+        return False
+    return _matches(text, PRIVATE_ONLY_COMMANDS)
 
 
 def is_greeting_trigger(text: str | None) -> bool:
@@ -40,10 +60,8 @@ def is_greeting_trigger(text: str | None) -> bool:
         return False
     lowered = text.strip().lower()
 
-    for command in GREETING_COMMANDS:
-        # враховуємо форму /start@bot_name
-        if lowered == command or lowered.startswith(command + " ") or lowered.startswith(command + "@"):
-            return True
+    if _matches(lowered, PUBLIC_COMMANDS):
+        return True
 
     username = (current().bot_username or "").lstrip("@").lower()
     return bool(username) and f"@{username}" in lowered

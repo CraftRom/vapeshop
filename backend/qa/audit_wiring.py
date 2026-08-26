@@ -74,6 +74,14 @@ check("ln -sfn ../.env" in boot, "bootstrap звʼязує deploy/.env — ін�
 check("ln -sfn ../.env" in read("deploy/deploy.sh"), "deploy.sh теж підстраховує симлінк")
 cert = read("deploy/certbot-init.sh")
 check("--entrypoint certbot" in cert, "certbot-init обходить entrypoint із циклом продовження")
+
+greeting = read("backend/bot/greeting.py")
+check("/start" not in str(__import__("re").search(r"PUBLIC_COMMANDS = \(([^)]*)\)", greeting).group(1)),
+      "/start не є публічною командою — інакше кожен новачок у групі збуджує бота")
+check("PUBLIC_COOLDOWN" in read("backend/bot/middlewares.py"),
+      "у публічних чатах є пауза між загальними відповідями")
+check("_is_personal" in read("backend/bot/faq.py"),
+      "персональні питання не отримують відповіді в групі")
 check("example.com" in read("deploy/nginx/app.conf"), "app.conf лишається шаблоном із заглушкою")
 check("example\\.com" in boot or "example.com" in boot, "bootstrap підставляє домен у nginx")
 
