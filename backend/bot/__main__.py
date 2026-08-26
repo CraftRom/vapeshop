@@ -7,6 +7,7 @@ import logging
 from shop.logging_setup import setup as setup_logging
 
 from bot.factory import build_bot, build_dispatcher
+from bot.version import BOT_VERSION
 from shop.db import init_db
 
 setup_logging("bot")
@@ -14,6 +15,8 @@ log = logging.getLogger("bot")
 
 
 async def main() -> None:
+    log.info("Бот %s запускається", BOT_VERSION,
+             extra={"event": "bot.start", "version": BOT_VERSION})
     await init_db()
 
     bot = build_bot()

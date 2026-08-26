@@ -17,6 +17,7 @@ from shop.services.shop_settings import current
 from shop.repo.factory import get_repo
 from shop.db import check_db
 
+from bot.version import BOT_VERSION as _BOT_VERSION
 from shop.build import BUILD as _BUILD
 
 from shop.logging_setup import setup as setup_logging
@@ -69,7 +70,9 @@ _docs_on = settings.enable_api_docs
 
 app = FastAPI(
     title=f"{settings.shop_name} — Dashboard API",
-    version="1.0",
+    # Версія API. Піднімається разом із помітними змінами контракту:
+    # три ролі замість двох і новий розділ журналу — саме такий випадок.
+    version="1.1.0",
     lifespan=lifespan,
     docs_url="/docs" if _docs_on else None,
     redoc_url=None,
@@ -140,6 +143,7 @@ async def health():
     return {
         "status": "ok" if not problems else "misconfigured",
         "build": _BUILD,
+        "botVersion": _BOT_VERSION,
         "shop": settings.shop_name,
         "webhook_configured": bool(
             settings.webhook_secret and (current().public_url or settings.public_url)

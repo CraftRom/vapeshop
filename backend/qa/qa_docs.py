@@ -19,6 +19,27 @@ for a, b in zip(chain, chain[1:]):
 check(S.DONE not in ALLOWED_TRANSITIONS[S.NEW], "стрибок «Нове → Виконано» заборонено, як і написано")
 check(not ALLOWED_TRANSITIONS[S.CANCELLED], "зі скасованого шляху немає, як і написано")
 
+print("\n--- ролі описані так само, як працюють ---")
+from shop.entities import CREATABLE_ROLES, ROLE_TITLES, OperatorRole
+
+for role in OperatorRole:
+    check(ROLE_TITLES[role] in guide,
+          f"роль «{ROLE_TITLES[role]}» згадана в інструкції")
+check("створити тут не можна" in guide or "не можна: його логін" in guide,
+      "інструкція каже, що системного адміністратора в панелі не створюють")
+
+# Розділи, закриті для всіх, крім системного адміністратора, мають бути
+# названі в інструкції — інакше менеджер шукатиме кнопки, яких немає.
+from api.routers.settings import INFRA_FIELDS
+for section in ("Telegram-груп", "Mini App", "розсилк", "тих", "бекап"):
+    check(section.lower() in guide.lower(),
+          f"інструкція згадує закритий розділ: {section}")
+
+print("\n--- сторінка журналу описана ---")
+check("Журнал" in guide, "розділ про журнал є")
+check("requestId" in guide, "інструкція вчить шукати за requestId")
+check("sysadminOnly" in guide, "розділ журналу закритий у самій інструкції")
+
 print("\n--- права менеджера ---")
 from api.routers.settings import OPERATOR_FIELDS
 promised = {"referral_enabled","referral_percent","bonus_enabled","bonus_max_percent",
