@@ -199,10 +199,23 @@ grep -c 'change_this\|1234567890:AA\|-1001234567890' .env    # має бути 0
 
 ```bash
 cd /opt/elfar/deploy
+ln -sfn ../.env .env          # див. пояснення нижче
 docker compose -f docker-compose.prod.yml build
 docker compose -f docker-compose.prod.yml run --rm migrate
 docker compose -f docker-compose.prod.yml up -d
 ```
+
+**Про симлінк.** Compose читає два різні набори змінних, і їх легко
+переплутати:
+
+- `env_file: ../.env` — те, що бачить процес **усередині** контейнера
+- `${POSTGRES_USER}` у самому YAML — підставляється з файлу `.env`
+  **поруч із compose-файлом**, тобто з `deploy/.env`
+
+Без симлінка друге розкривається в порожній рядок. Postgres відмовляється
+ініціалізуватись без пароля, а compose повідомляє лише
+`container deploy-db-1 is unhealthy`, не називаючи причини. `bootstrap.sh`
+створює цей симлінк сам.
 
 Збірка на слабкому сервері займає кілька хвилин — це нормально.
 
@@ -452,6 +465,7 @@ deploy/restore.sh backups/elfar-2026-08-19.dump
 
 | Симптом | Причина | Що робити |
 |---|---|---|
+| `WARN ... variable is not set`, db unhealthy | Немає `deploy/.env` | `ln -sfn ../.env .env`, потім `down -v` і `up -d` |
 | `migrate` падає | База ще не готова | `docker compose ps db` — має бути `healthy` |
 | API: password authentication failed | `POSTGRES_PASSWORD` ≠ пароль у `DATABASE_URL` | Вирівняйте, `up -d --force-recreate api db` |
 | Панель: «Бекенд не налаштований» | Бракує змінних | Список — у самому повідомленні на екрані |

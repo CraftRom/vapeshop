@@ -10,6 +10,19 @@ if [[ ! -f ../.env ]]; then
     exit 1
 fi
 
+# ${VAR} у самому compose-файлі підставляється з .env поруч із ним, а не
+# з env_file. Без цього симлінка POSTGRES_USER стає порожнім рядком, і
+# Postgres падає з невиразним «container is unhealthy».
+[[ -L .env || -f .env ]] || ln -sfn ../.env .env
+
+# Порожня підстановка мовчазна за замовчуванням — ловимо її явно.
+for key in POSTGRES_USER POSTGRES_PASSWORD POSTGRES_DB; do
+    if ! grep -qE "^${key}=.+" ../.env; then
+        echo "У .env не заповнено ${key} — Postgres не стартує." >&2
+        exit 1
+    fi
+done
+
 # Перевіряємо, що дефолтні паролі змінено: інакше панель відкрита всім
 if grep -qE '^(DASHBOARD_PASSWORD=admin|JWT_SECRET=change_this)' ../.env; then
     echo "У .env лишились дефолтні секрети. Змініть DASHBOARD_PASSWORD і JWT_SECRET." >&2

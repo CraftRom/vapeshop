@@ -70,6 +70,8 @@ check("APP_UID" in boot, "bootstrap прописує UID користувача 
 check("install -d -o" in boot, "bootstrap створює backups із правильним власником")
 check("200/CHDIR" in boot, "bootstrap ловить недосяжний шлях до старту юніта")
 check("as_user" in boot, "перевірка доступу йде від імені сервісного користувача")
+check("ln -sfn ../.env" in boot, "bootstrap звʼязує deploy/.env — інакше ${VAR} у compose порожні")
+check("ln -sfn ../.env" in read("deploy/deploy.sh"), "deploy.sh теж підстраховує симлінк")
 
 dockerfile = read("backend/Dockerfile")
 check("USER shop" in dockerfile, "бекенд працює не від root")

@@ -181,6 +181,20 @@ value=$(env_value PUBLIC_URL)
 [[ "$value" != https://* ]] && missing+=(PUBLIC_URL)
 
 
+say "Звʼязок compose із .env"
+# docker compose читає два різні набори змінних, і плутанина між ними —
+# класична пастка:
+#   • env_file: ../.env — те, що бачить процес ВСЕРЕДИНІ контейнера
+#   • ${VAR} у самому YAML — підставляється з файлу .env поруч
+#     із compose-файлом, тобто з deploy/.env
+#
+# Без цього симлінка ${POSTGRES_USER} розкривається в порожній рядок,
+# Postgres відмовляється ініціалізуватись, а compose каже лише
+# «container deploy-db-1 is unhealthy», не називаючи причини.
+ln -sfn ../.env "$REPO_DIR/deploy/.env"
+echo "    deploy/.env → ../.env"
+
+
 say "Каталог бекапів"
 install -d -o "$SERVICE_USER" -g "$SERVICE_USER" -m 750 "$REPO_DIR/deploy/backups"
 echo "    $REPO_DIR/deploy/backups (власник ${SERVICE_USER}, режим 750)"
