@@ -45,6 +45,24 @@ done
 DOMAIN="$1"
 LIVE="/etc/letsencrypt/live/${DOMAIN}"
 
+# Домен у конфізі nginx має збігатися з тим, на який просимо сертифікат.
+# Інакше виходить найгірший різновид помилки: сертифікат успішно видається
+# за шляхом live/<домен>, а nginx уперто шукає live/example.com і падає
+# в нескінченний рестарт, ніяк не натякаючи, що справа в заглушці.
+echo "==> Домен у конфігурації nginx"
+if grep -q 'example\.com' nginx/app.conf; then
+    sed -i "s|example\.com|${DOMAIN}|g" nginx/app.conf
+    echo "    example.com → ${DOMAIN}"
+else
+    configured=$(grep -m1 -oP 'server_name \K[^ ;]+' nginx/app.conf || true)
+    if [[ -n "$configured" && "$configured" != "$DOMAIN" ]]; then
+        echo "У nginx/app.conf налаштований домен ${configured}, а сертифікат просимо на ${DOMAIN}." >&2
+        echo "Або виправте конфіг, або запустіть скрипт із ${configured}." >&2
+        exit 1
+    fi
+    echo "    ${DOMAIN} — уже на місці"
+fi
+
 echo "==> Перевіряю наявність сертифіката"
 if $COMPOSE run --rm --entrypoint sh certbot -c "test -f ${LIVE}/fullchain.pem" 2>/dev/null; then
     echo "    Сертифікат уже є"
@@ -63,17 +81,52 @@ else
     }
 fi
 
-echo "==> Перевіряю, що nginx віддає /.well-known на порту 80"
-$COMPOSE up -d nginx
-sleep 2
-PROBE="${1}"
-if ! curl -fsS --max-time 10 "http://${PROBE}/.well-known/acme-challenge/" -o /dev/null 2>&1; then
-    # 404 тут нормальний — файлу ще немає. Погано, якщо зʼєднання зовсім немає.
-    if ! curl -sS --max-time 10 -o /dev/null -w '%{http_code}' "http://${PROBE}/" | grep -qE '^[2345]'; then
-        echo "Порт 80 на ${PROBE} не відповідає. Перевірте DNS і ufw, перш ніж просити сертифікат." >&2
+echo "==> Піднімаю nginx"
+# --force-recreate, а не просто up: контейнер міг зациклитись у рестарті
+# зі старим конфігом, і звичайний up вважав би, що він уже «запущений».
+$COMPOSE up -d --force-recreate nginx
+
+for attempt in 1 2 3 4 5 6 7 8 9 10; do
+    state=$($COMPOSE ps --format '{{.State}}' nginx 2>/dev/null | head -1)
+    [[ "$state" == "running" ]] && break
+    sleep 2
+done
+
+if [[ "$state" != "running" ]]; then
+    echo "nginx не піднявся. Останні рядки логу:" >&2
+    $COMPOSE logs --tail 15 nginx >&2
+    exit 1
+fi
+echo "    nginx працює"
+
+# Спершу перевіряємо локально: так відокремлюємо «nginx не віддає» від
+# «ззовні не достукатись». Друге буває через фаєрвол провайдера або через
+# те, що A-запис веде на іншу адресу, і плутати ці випадки дорого.
+echo "==> Перевіряю віддачу /.well-known"
+if ! curl -fsS --max-time 5 -H "Host: ${DOMAIN}" \
+        "http://127.0.0.1/.well-known/acme-challenge/probe" -o /dev/null 2>&1; then
+    code=$(curl -sS --max-time 5 -o /dev/null -w '%{http_code}' \
+           -H "Host: ${DOMAIN}" "http://127.0.0.1/" 2>/dev/null || echo 000)
+    if [[ "$code" == "000" ]]; then
+        echo "nginx не відповідає навіть локально — далі йти немає сенсу." >&2
         exit 1
     fi
 fi
+echo "    Локально віддає"
+
+echo "==> Перевіряю доступ ззовні"
+if ! curl -sS --max-time 10 -o /dev/null -w '%{http_code}' "http://${DOMAIN}/" 2>/dev/null | grep -qE '^[2345]'; then
+    echo "Порт 80 на ${DOMAIN} не відповідає ззовні, хоча локально nginx працює." >&2
+    echo "" >&2
+    echo "Що перевірити:" >&2
+    echo "  • чи A-запис веде на IPv4 цього сервера:" >&2
+    echo "      curl -4 -s ifconfig.me     і порівняти з dig +short ${DOMAIN}" >&2
+    echo "  • фаєрвол сервера:  sudo ufw status" >&2
+    echo "  • мережевий фаєрвол OVH у панелі — він працює до сервера" >&2
+    echo "    і про ufw нічого не знає" >&2
+    exit 1
+fi
+echo "    Ззовні доступний"
 
 echo "==> Замовляю сертифікат"
 # --force-renewal: інакше certbot побачить свіжий самопідписаний файл

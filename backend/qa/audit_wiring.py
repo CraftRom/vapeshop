@@ -78,6 +78,12 @@ check("openssl req -x509" in cert,
       "certbot-init кладе тимчасовий сертифікат — інакше nginx не підніметься")
 check("--force-renewal" in cert,
       "справжній сертифікат замінює тимчасовий, а не пропускається")
+check(cert.index("nginx/app.conf") < cert.index("openssl req -x509"),
+      "домен підставляється до створення сертифіката, інакше nginx шукає не той файл")
+check("--force-recreate nginx" in cert,
+      "nginx перестворюється — зациклений у рестарті контейнер звичайним up не полагодити")
+check("127.0.0.1" in cert,
+      "локальна перевірка окремо від зовнішньої")
 
 greeting = read("backend/bot/greeting.py")
 check("/start" not in str(__import__("re").search(r"PUBLIC_COMMANDS = \(([^)]*)\)", greeting).group(1)),
