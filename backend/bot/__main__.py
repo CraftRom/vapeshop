@@ -4,13 +4,12 @@ from __future__ import annotations
 import asyncio
 import logging
 
+from shop.logging_setup import setup as setup_logging
+
 from bot.factory import build_bot, build_dispatcher
 from shop.db import init_db
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)-8s %(name)s: %(message)s",
-)
+setup_logging("bot")
 log = logging.getLogger("bot")
 
 

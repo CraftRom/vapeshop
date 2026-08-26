@@ -69,6 +69,8 @@ services:
     networks: [internal]
 
   api:
+    volumes:
+      - ./logs:/var/log/elfar
     build: *backend-build
     restart: always
     command: >
@@ -94,6 +96,8 @@ services:
     networks: [internal]
 
   bot:
+    volumes:
+      - ./logs:/var/log/elfar
     build: *backend-build
     restart: always
     command: python -m bot
@@ -126,6 +130,7 @@ services:
         condition: service_healthy
     volumes:
       - ./backups:/backups
+      - ./logs:/var/log/elfar
     deploy:
       resources:
         limits: {memory: 256M}

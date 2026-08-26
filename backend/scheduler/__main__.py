@@ -17,15 +17,14 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+
 import signal
 
 from shop.config import settings
+from shop.logging_setup import setup as setup_logging
 from scheduler.tasks import run_backup_if_due, run_due_broadcasts
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)-8s %(name)s: %(message)s",
-)
+setup_logging("scheduler")
 log = logging.getLogger("scheduler")
 
 TICK_SECONDS = max(int(settings.scheduler_interval_seconds), 30)

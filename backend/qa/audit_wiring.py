@@ -89,6 +89,27 @@ check("redirect.d" in cert and "hsts.d" in cert,
 check("--cert-name" in cert,
       "шлях до сертифіката прибитий — інакше certbot створює live/<домен>-0001")
 check("SCRIPT_VERSION" in cert, "скрипт друкує свою версію")
+
+log_setup = read("backend/shop/logging_setup.py")
+check("RotatingFileHandler" in log_setup, "журнал ротується за розміром")
+check("LOG_DIR" in log_setup, "журнал пишеться у файл, а не лише в stdout")
+req_log = read("backend/api/request_log.py")
+for field in ("requestId", "durationMs", "userAgent", "status"):
+    check(field in req_log, f"журнал запитів має поле {field}")
+check("x-forwarded-for" in req_log,
+      "IP береться з-за проксі — інакше в журналі буде адреса nginx")
+compose_src = read("deploy/docker-compose.prod.yml")
+import yaml as _yaml
+_compose = _yaml.safe_load(compose_src)
+for _svc in ("api", "bot", "scheduler"):
+    _vols = " ".join(_compose["services"][_svc].get("volumes") or [])
+    check("/var/log/elfar" in _vols, f"том журналу змонтований у {_svc}")
+# Дубльований ключ volumes YAML мовчки з\'їдає, лишаючи лише останній —
+# перевіряємо, що кожен сервіс оголошений один раз.
+for _svc in ("api", "bot", "scheduler"):
+    check(compose_src.count(f"\n  {_svc}:\n") == 1, f"{_svc} оголошений один раз")
+check("prune_logs" in read("backend/scheduler/tasks.py"),
+      "старі файли журналу прибираються за ретенцією")
 check("rm -f nginx/redirect.d" in cert,
       "невдалий запуск відкочує режим у HTTP, а не лишає nginx мертвим")
 import re as _re

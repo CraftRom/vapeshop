@@ -227,7 +227,8 @@ fi
 
 say "Каталог бекапів"
 install -d -o "$SERVICE_USER" -g "$SERVICE_USER" -m 750 "$REPO_DIR/deploy/backups"
-echo "    $REPO_DIR/deploy/backups (власник ${SERVICE_USER}, режим 750)"
+install -d -o "$SERVICE_USER" -g "$SERVICE_USER" -m 750 "$REPO_DIR/deploy/logs"
+echo "    backups і logs (власник ${SERVICE_USER}, режим 750)"
 
 
 say "Служба автозапуску"

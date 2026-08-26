@@ -142,7 +142,35 @@ async def run_backup_if_due(state: dict) -> bool:
     log.info("Бекап %s готовий: %.1f МБ за %.0f с", target.name, size_mb, time.monotonic() - started)
 
     prune_backups(shop.backup_retention_days)
+    prune_logs(settings.log_retention_days)
     return True
+
+
+def prune_logs(retention_days: int) -> int:
+    """Прибирає ротовані файли журналу, старші за ретенцію.
+
+    Саме ротовані (api.log.1, bot.log.3), а не поточні: активний файл
+    видаляти не можна — процес тримає його відкритим і продовжить писати
+    в неіснуючий inode, після чого журнал зникне мовчки.
+    """
+    directory = os.environ.get("LOG_DIR", "")
+    if not directory or retention_days < 1:
+        return 0
+
+    cutoff = datetime.now(timezone.utc) - timedelta(days=retention_days)
+    removed = 0
+    for item in Path(directory).glob("*.log.*"):
+        try:
+            if datetime.fromtimestamp(item.stat().st_mtime, timezone.utc) < cutoff:
+                item.unlink()
+                removed += 1
+        except OSError:
+            continue
+    if removed:
+        log.info("Видалено старих файлів журналу: %s", removed,
+                 extra={"event": "logs.pruned", "removed": removed,
+                        "retentionDays": retention_days})
+    return removed
 
 
 def prune_backups(retention_days: int) -> int:

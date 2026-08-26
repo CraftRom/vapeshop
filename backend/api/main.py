@@ -19,7 +19,9 @@ from shop.db import check_db
 
 from shop.build import BUILD as _BUILD
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)-8s %(name)s: %(message)s")
+from shop.logging_setup import setup as setup_logging
+
+setup_logging("api")
 
 
 @asynccontextmanager
@@ -74,6 +76,12 @@ app = FastAPI(
     openapi_url="/openapi.json" if _docs_on else None,
 )
 
+from api.request_log import RequestLogMiddleware, client_ip, current_request_id
+
+# Порядок важливий: журнал ставимо першим, щоб він бачив і ті запити,
+# які CORS відхилить, — саме вони найчастіше й спантеличують.
+app.add_middleware(RequestLogMiddleware)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_list,
@@ -84,14 +92,32 @@ app.add_middleware(
 
 
 @app.post("/api/auth/login", response_model=TokenOut, tags=["auth"])
-async def login(data: LoginIn, repo=Depends(get_repo)):
+async def login(request: Request, data: LoginIn, repo=Depends(get_repo)):
+    auth_log = logging.getLogger("api.auth")
+    context = {
+        "requestId": current_request_id.get(),
+        "login": data.login,
+        "ip": client_ip(request),
+        "userAgent": request.headers.get("user-agent", ""),
+    }
+
     principal = await authenticate(repo, data.login, data.password)
     if principal is None:
-        # Логуємо лише логін і довжину пароля — сам пароль у логи не потрапляє
-        logging.getLogger("api").warning(
-            "Невдалий вхід: логін %r, довжина пароля %d", data.login, len(data.password)
+        # Пароль у журнал не потрапляє ніколи — лише його довжина. Цього
+        # досить, щоб відрізнити помилку набору від перебору, і замало,
+        # щоб журнал сам став витоком.
+        auth_log.warning(
+            "Невдалий вхід: %s", data.login,
+            extra={**context, "event": "auth.login.failed",
+                   "passwordLength": len(data.password)},
         )
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Невірний логін або пароль")
+
+    auth_log.info(
+        "Вхід: %s", data.login,
+        extra={**context, "event": "auth.login.ok",
+               "role": principal.role.value, "operatorId": principal.operator_id},
+    )
     return TokenOut(
         access_token=create_token(
             principal.login, principal.role, principal.operator_id, principal.name
