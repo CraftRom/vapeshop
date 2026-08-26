@@ -30,7 +30,7 @@ class OrderStatus(str, enum.Enum):
 
     NEW = "new"                # щойно оформлене
     CONFIRMED = "confirmed"    # менеджер підтвердив
-    ACCEPTED = "accepted"      # оператор узяв у роботу й назвався клієнту
+    ACCEPTED = "accepted"      # менеджер узяв у роботу й назвався клієнту
     PAID = "paid"              # оплата підтверджена
     SHIPPED = "shipped"        # відправлено
     DONE = "done"              # отримано, бонуси нараховані
@@ -286,7 +286,7 @@ class Setting(Base):
 
 
 class Operator(Base):
-    """Оператори панелі. Адміністратор із .env тут не зберігається."""
+    """Менеджери панелі. Адміністратор із .env тут не зберігається."""
 
     __tablename__ = "operators"
 
@@ -301,11 +301,11 @@ class Operator(Base):
 
 
 class OrderMessage(Base):
-    """Листування оператора з клієнтом у межах одного замовлення.
+    """Листування менеджера з клієнтом у межах одного замовлення.
 
     Прив'язка саме до замовлення, а не до клієнта: у людини може бути кілька
     відкритих замовлень одночасно, і змішувати їх в одну стрічку означало б
-    плутанину і для оператора, і для клієнта.
+    плутанину і для менеджера, і для клієнта.
     """
 
     __tablename__ = "order_messages"
@@ -313,7 +313,7 @@ class OrderMessage(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     order_id: Mapped[int] = mapped_column(ForeignKey("orders.id", ondelete="CASCADE"), index=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
-    # "out" — від оператора клієнту, "in" — від клієнта
+    # "out" — від менеджера клієнту, "in" — від клієнта
     direction: Mapped[str] = mapped_column(String(4))
     author: Mapped[str] = mapped_column(String(128), default="")
     text: Mapped[str] = mapped_column(Text)
@@ -321,7 +321,7 @@ class OrderMessage(Base):
     # із замовленням, коли їх у нього кілька
     tg_message_id: Mapped[int | None] = mapped_column(BigInteger, index=True)
     # Вкладення лишаємо як file_id Telegram: сам файл не зберігаємо,
-    # панель тягне його через бекенд лише коли оператор відкриває стрічку
+    # панель тягне його через бекенд лише коли менеджер відкриває стрічку
     file_id: Mapped[str | None] = mapped_column(String(255))
     file_kind: Mapped[str | None] = mapped_column(String(16))   # photo, document, video, voice
     file_name: Mapped[str | None] = mapped_column(String(255))

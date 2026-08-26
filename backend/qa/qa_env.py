@@ -42,7 +42,7 @@ print("\n--- права ---")
 c.post("/api/operators", json={"login":"olena","name":"О","password":"kvitka2026"}, headers=A)
 O = {"Authorization": "Bearer " + c.post("/api/auth/login", json={"login":"olena","password":"kvitka2026"}).json()["access_token"]}
 r.check(c.get("/api/settings/environment", headers=O).status_code == 403,
-        "оператор не бачить стану сервера")
+        "менеджер не бачить стану сервера")
 r.check(c.get("/api/settings/environment").status_code in (401,403), "без токена закрито")
 
 print("\n--- секрети не редагуються з панелі ---")

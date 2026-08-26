@@ -42,7 +42,7 @@ async def create_operator(data: OperatorCreate, repo: Repository = Depends(get_r
 async def get_operator(operator_id: int, repo: Repository = Depends(get_repo)):
     found = await repo.get_operator(operator_id)
     if not found:
-        raise HTTPException(404, "Оператора не знайдено")
+        raise HTTPException(404, "Менеджера не знайдено")
     return found
 
 
@@ -55,7 +55,7 @@ async def update_operator(
 ):
     target = await repo.get_operator(operator_id)
     if not target:
-        raise HTTPException(404, "Оператора не знайдено")
+        raise HTTPException(404, "Менеджера не знайдено")
 
     payload: dict = {}
     if data.name is not None:
@@ -93,7 +93,7 @@ async def purge_operator(
 
     target = await repo.get_operator(operator_id)
     if not target:
-        raise HTTPException(404, "Оператора не знайдено")
+        raise HTTPException(404, "Менеджера не знайдено")
 
     # Останнього адміністратора стерти нікому: система лишилась би без
     # доступу до керування, якби пароль із .env теж загубився
@@ -115,4 +115,4 @@ async def delete_operator(
     if who.operator_id == operator_id:
         raise HTTPException(409, "Не можна вимкнути власний обліковий запис")
     if not await repo.delete_operator(operator_id):
-        raise HTTPException(404, "Оператора не знайдено")
+        raise HTTPException(404, "Менеджера не знайдено")

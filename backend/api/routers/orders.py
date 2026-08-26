@@ -87,7 +87,7 @@ async def patch_order(
         if problem:
             raise HTTPException(409, problem)
 
-        # «Прийнято» закріплює замовлення за оператором: клієнт має знати,
+        # «Прийнято» закріплює замовлення за менеджером: клієнт має знати,
         # з ким саме він спілкується
         if data.status == OrderStatus.ACCEPTED:
             await repo.update_order(order_id, {
@@ -148,9 +148,9 @@ async def send_message(
     who: Principal = Depends(require_staff),
     repo: Repository = Depends(get_repo),
 ):
-    """Повідомлення оператора клієнту.
+    """Повідомлення менеджера клієнту.
 
-    Якщо Telegram недоступний, запис усе одно зберігається: оператор бачить
+    Якщо Telegram недоступний, запис усе одно зберігається: менеджер бачить
     свою репліку в стрічці, а попередження каже, що клієнт її не отримав.
     """
     order = await repo.get_order(order_id)

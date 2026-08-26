@@ -18,7 +18,7 @@ from decimal import Decimal
 class OrderStatus(str, enum.Enum):
     NEW = "new"
     CONFIRMED = "confirmed"
-    # Оператор узяв замовлення в роботу і назвався клієнту
+    # Менеджер узяв замовлення в роботу і назвався клієнту
     ACCEPTED = "accepted"
     PAID = "paid"
     SHIPPED = "shipped"
@@ -258,7 +258,7 @@ class Operator:
     """Обліковий запис для входу в панель.
 
     Адміністратор із .env існує поза цією таблицею — він потрібен, щоб
-    увійти в щойно розгорнуту систему, де операторів ще немає.
+    увійти в щойно розгорнуту систему, де менеджерів ще немає.
     """
 
     id: int
@@ -274,13 +274,23 @@ class Operator:
     def is_admin(self) -> bool:
         return self.role in (OperatorRole.SYSADMIN, OperatorRole.ADMIN)
 
+    @property
+    def role_title(self) -> str:
+        """Назва ролі для інтерфейсу й повідомлень.
+
+        Тут, а не в схемі API: підпис потрібен і боту, і журналу, і листам,
+        а не лише панелі. Порахований в одному місці, він не розійдеться
+        між екранами, коли з'явиться наступна роль.
+        """
+        return ROLE_TITLES.get(self.role, self.role.value)
+
 
 @dataclass
 class OrderMessage:
     id: int
     order_id: int
     user_id: int
-    direction: str          # "out" — оператор клієнту, "in" — клієнт оператору
+    direction: str          # "out" — менеджер клієнту, "in" — клієнт менеджеру
     author: str
     text: str
     tg_message_id: int | None = None
@@ -296,10 +306,10 @@ class OrderMessage:
 
 
 def operator_stats_rows(raw: list[tuple[str, int, Decimal]]) -> list[dict]:
-    """Приводить розріз по операторах до єдиного вигляду для обох баз.
+    """Приводить розріз по менеджерах до єдиного вигляду для обох баз.
 
-    Замовлення без оператора не викидаються, а зводяться в рядок
-    «Без оператора»: інакше сума розрізу не збігалася б із загальним
+    Замовлення без менеджера не викидаються, а зводяться в рядок
+    «Без менеджера»: інакше сума розрізу не збігалася б із загальним
     виторгом, і це виглядало б як втрачені гроші.
     """
     rows = []
@@ -307,7 +317,7 @@ def operator_stats_rows(raw: list[tuple[str, int, Decimal]]) -> list[dict]:
         if not orders:
             continue
         rows.append({
-            "operator_name": name or "Без оператора",
+            "operator_name": name or "Без менеджера",
             "orders": orders,
             "revenue": revenue,
             "avg_check": (revenue / orders).quantize(Decimal("0.01")) if orders else Decimal(0),

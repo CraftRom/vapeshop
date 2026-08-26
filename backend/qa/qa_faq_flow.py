@@ -1,4 +1,4 @@
-"""FAQ у потоці бота: не заважає оператору, не мовчить новачкам."""
+"""FAQ у потоці бота: не заважає менеджеру, не мовчить новачкам."""
 import asyncio, os
 from decimal import Decimal
 os.environ.update(BOT_TOKEN="1:t", JWT_SECRET="t"*32, ADMIN_CHAT_ID="-100111",
@@ -42,21 +42,21 @@ async def run(repo, label):
     await handler.incoming(m, repo=repo, user=await repo.get_user(u.id), state=State())
     check("активне замовлення" not in m.replies[0][0], "жодних відмов на привітання", m.replies[0][0])
 
-    # 3. Клієнт із замовленням: побутове повідомлення йде оператору
+    # 3. Клієнт із замовленням: побутове повідомлення йде менеджеру
     o=await repo.create_order(Order(id=0,user_id=u.id,subtotal=Decimal(100),discount=Decimal(0),
         bonus_used=Decimal(0),total=Decimal(100),promo_code_id=None,payment_method="cod",
         contact_name="A",contact_phone="+380671112233"),
         [OrderLine(product_id=p.id,name="Т",price=Decimal(100),qty=1)])
     m=Msg("Відділення 12, будь ласка")
     await handler.incoming(m, repo=repo, user=await repo.get_user(u.id), state=State())
-    check("Передали оператору" in m.replies[0][0], "звичайне повідомлення — оператору", m.replies[0][0])
+    check("Передали менеджеру" in m.replies[0][0], "звичайне повідомлення — менеджеру", m.replies[0][0])
     msgs=await repo.list_order_messages(o.id)
     check(len(msgs)==1, "повідомлення збережено в стрічці", len(msgs))
 
     # 4. Відповідь на цитату НІКОЛИ не перехоплюється FAQ
     m=Msg("як оплатити?", reply=True)
     await handler.incoming(m, repo=repo, user=await repo.get_user(u.id), state=State())
-    check("Передали оператору" in m.replies[0][0], "цитата завжди веде до оператора", m.replies[0][0])
+    check("Передали менеджеру" in m.replies[0][0], "цитата завжди веде до менеджера", m.replies[0][0])
     msgs=await repo.list_order_messages(o.id)
     check(len(msgs)==2, "і теж потрапила в стрічку", len(msgs))
 
@@ -65,13 +65,13 @@ async def run(repo, label):
     await handler.incoming(m, repo=repo, user=await repo.get_user(u.id), state=State())
     check("Доставка" in m.replies[0][0], "питання про доставку — автовідповідь", m.replies[0][0])
     msgs=await repo.list_order_messages(o.id)
-    check(len(msgs)==2, "оператора не турбували", len(msgs))
+    check(len(msgs)==2, "менеджера не турбували", len(msgs))
 
-    # 6. Кнопка «питання оператору» не веде в глухий кут
+    # 6. Кнопка «питання менеджеру» не веде в глухий кут
     cb=SimpleNamespace(message=Msg(""), answer=lambda *a, **k: asyncio.sleep(0))
     await handler.ask_human(cb, repo=repo, user=await repo.get_user(u.id))
-    check(cb.message.replies and "оператор" in cb.message.replies[0][0].lower(),
-          "перехід до оператора пояснено", cb.message.replies)
+    check(cb.message.replies and "менеджер" in cb.message.replies[0][0].lower(),
+          "перехід до менеджера пояснено", cb.message.replies)
 
 async def main():
     from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine

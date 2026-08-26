@@ -19,11 +19,11 @@ for a, b in zip(chain, chain[1:]):
 check(S.DONE not in ALLOWED_TRANSITIONS[S.NEW], "стрибок «Нове → Виконано» заборонено, як і написано")
 check(not ALLOWED_TRANSITIONS[S.CANCELLED], "зі скасованого шляху немає, як і написано")
 
-print("\n--- права оператора ---")
+print("\n--- права менеджера ---")
 from api.routers.settings import OPERATOR_FIELDS
 promised = {"referral_enabled","referral_percent","bonus_enabled","bonus_max_percent",
             "volume_discount_enabled","volume_discount_min","volume_discount_percent"}
-check(OPERATOR_FIELDS == promised, "оператору доступні саме модулі лояльності",
+check(OPERATOR_FIELDS == promised, "менеджеру доступні саме модулі лояльності",
       OPERATOR_FIELDS ^ promised)
 
 print("\n--- інші обіцянки ---")
@@ -41,11 +41,11 @@ print("\n--- розділи інструкції відповідають мен
 app = (root/"dashboard/src/App.jsx").read_text()
 nav = set(re.findall(r"label: '([^']+)'", app))
 titles = set(re.findall(r"title: '([^']+)'", guide))
-for label in ("Замовлення","Каталог","Клієнти","Промокоди","Розсилки","Налаштування","Огляд","Оператори"):
+for label in ("Замовлення","Каталог","Клієнти","Промокоди","Розсилки","Налаштування","Огляд","Менеджери"):
     check(label in nav and label in titles, f"розділ «{label}» є в меню й описаний")
 
 print("\n--- нічого не обіцяно зайвого ---")
-check("adminOnly" in guide, "адмінські розділи приховані від оператора")
+check("adminOnly" in guide, "адмінські розділи приховані від менеджера")
 check("Інструкції" in nav, "розділ доданий у меню")
 
 print(f"\n{'ПРОВАЛЕНО: '+str(len(fails)) if fails else 'інструкції відповідають коду'}")

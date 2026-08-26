@@ -70,7 +70,7 @@ async def main():
         except Exception as exc:
             err = type(exc).__name__
             await s.rollback()
-        r.check(err is not None, "унікальність логіна оператора", err)
+        r.check(err is not None, "унікальність логіна менеджера", err)
 
     print("\n--- відкат транзакції ---")
     async with Session() as s:

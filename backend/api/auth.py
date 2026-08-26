@@ -92,14 +92,14 @@ def _decode(creds: HTTPAuthorizationCredentials | None) -> Principal:
 async def require_staff(
     creds: HTTPAuthorizationCredentials | None = Depends(security),
 ) -> Principal:
-    """Будь-хто, хто увійшов у панель: адміністратор або оператор."""
+    """Будь-хто, хто увійшов у панель: адміністратор або менеджер."""
     return _decode(creds)
 
 
 async def require_admin(
     creds: HTTPAuthorizationCredentials | None = Depends(security),
 ) -> Principal:
-    """Лише адміністратор: керування операторами й повні налаштування."""
+    """Лише адміністратор: керування менеджерами й повні налаштування."""
     principal = _decode(creds)
     if not principal.is_admin:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Дія доступна лише адміністратору")
@@ -107,10 +107,10 @@ async def require_admin(
 
 
 async def authenticate(repo, login: str, password: str) -> Principal | None:
-    """Спершу адміністратор із .env, потім оператори з бази.
+    """Спершу адміністратор із .env, потім менеджери з бази.
 
     Порядок саме такий, щоб у щойно розгорнуту систему можна було увійти,
-    коли операторів ще не створено.
+    коли менеджерів ще не створено.
     """
     if verify_credentials(login, password):
         return Principal(login=login, name="Адміністратор",

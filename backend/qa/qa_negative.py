@@ -46,7 +46,7 @@ c.post("/api/promos", json={"code":"DUP","type":"percent","value":"5","is_active
 dup = c.post("/api/promos", json={"code":"DUP","type":"percent","value":"5","is_active":True}, headers=A)
 r.check(dup.status_code in (409,422), "дубль промокоду відхилено", dup.status_code)
 c.post("/api/operators", json={"login":"dupop","password":"kvitka2026"}, headers=A)
-r.check(c.post("/api/operators", json={"login":"dupop","password":"kvitka2026"}, headers=A).status_code == 409, "дубль логіна оператора")
+r.check(c.post("/api/operators", json={"login":"dupop","password":"kvitka2026"}, headers=A).status_code == 409, "дубль логіна менеджера")
 
 print("\n--- зіпсований JSON ---")
 r.check(c.post("/api/auth/login", content="{зламано", headers={"Content-Type":"application/json"}).status_code == 422, "невалідний JSON")

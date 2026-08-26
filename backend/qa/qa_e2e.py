@@ -1,4 +1,4 @@
-"""E2E: шлях реального покупця й оператора від початку до кінця."""
+"""E2E: шлях реального покупця й менеджера від початку до кінця."""
 import sys; sys.path.insert(0,"/tmp")
 from decimal import Decimal
 from qa_common import boot, init_data, Report
@@ -51,24 +51,24 @@ r.check(order.json()["card_number"] is not None, "реквізити для оп
 r.check(c.get("/api/shop/cart", headers=H).json()["lines"] == [], "кошик очищено")
 r.check(any("Шевченко" in t for _, t in fake.sent), "менеджер отримав замовлення")
 
-print("\n[оператор] веде замовлення")
+print("\n[менеджер] веде замовлення")
 lst = c.get("/api/orders", headers=O).json()
 r.check(any(o["id"] == oid for o in lst), "замовлення в панелі")
 c.patch(f"/api/orders/{oid}", json={"status":"confirmed"}, headers=O)
 c.patch(f"/api/orders/{oid}", json={"status":"accepted"}, headers=O)
 det = c.get(f"/api/orders/{oid}", headers=O).json()
-r.check(det["operator_name"] == "Олена", "оператора закріплено", det["operator_name"])
+r.check(det["operator_name"] == "Олена", "менеджера закріплено", det["operator_name"])
 r.check(any("Олена" in t for _, t in fake.sent), "клієнт дізнався, хто веде")
 
 print("\n[чат] обидві сторони")
 c.post(f"/api/orders/{oid}/messages", json={"text":"Вітаю! Підтвердьте адресу."}, headers=O)
 chat = c.get(f"/api/shop/orders/{oid}/chat", headers=H).json()
-r.check(any(m["direction"] == "out" for m in chat), "клієнт бачить повідомлення оператора")
+r.check(any(m["direction"] == "out" for m in chat), "клієнт бачить повідомлення менеджера")
 c.post(f"/api/shop/orders/{oid}/chat", json={"text":"Адреса вірна"}, headers=H)
 unread = c.get("/api/orders/unread/counts", headers=O).json()
-r.check(str(oid) in unread or oid in unread, "оператор бачить непрочитане", unread)
+r.check(str(oid) in unread or oid in unread, "менеджер бачить непрочитане", unread)
 
-print("\n[оператор] відправлення й закриття")
+print("\n[менеджер] відправлення й закриття")
 r.check(c.patch(f"/api/orders/{oid}", json={"status":"shipped"}, headers=O).status_code == 422, "без ТТН не відправити")
 c.patch(f"/api/orders/{oid}", json={"status":"paid"}, headers=O)
 sh = c.patch(f"/api/orders/{oid}", json={"status":"shipped","tracking_number":"20450912345678"}, headers=O)
@@ -83,7 +83,7 @@ st = c.get("/api/stats/summary", params={"days":1}, headers=A).json()
 r.check(st["orders_period"] == 1, "замовлення потрапило в статистику", st["orders_period"])
 r.check(Decimal(st["avg_check_period"]) == Decimal(630), "середній чек дня", st["avg_check_period"])
 ops = c.get("/api/stats/by-operator", params={"days":1}, headers=A).json()
-r.check(any(o["operator_name"] == "Олена" and o["orders"] == 1 for o in ops), "розріз по оператору", ops)
+r.check(any(o["operator_name"] == "Олена" and o["orders"] == 1 for o in ops), "розріз по менеджеру", ops)
 hist = c.get("/api/shop/orders", headers=H).json()
 r.check(any(o["id"] == oid for o in hist), "клієнт бачить замовлення в історії")
 sys.exit(1 if r.done() else 0)

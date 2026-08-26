@@ -392,7 +392,7 @@ class ShopSettingsOut(BaseModel):
     backup_retention_days: int
 
 
-# ------------------------------------------------------------- оператори
+# ------------------------------------------------------------- менеджери
 
 
 class OperatorCreate(BaseModel):
@@ -446,20 +446,10 @@ class OperatorOut(BaseModel):
     login: str
     name: str
     role: OperatorRole
+    # Береться з властивості Operator.role_title через from_attributes:
+    # один підпис на систему, а не копія в кожній схемі.
     role_title: str = ""
     is_active: bool
     created_at: datetime | None = None
     last_login_at: datetime | None = None
 
-    @model_validator(mode="after")
-    def _fill_title(self):
-        """Підпис ролі рахуємо на сервері, а не в кожному екрані окремо.
-
-        Інакше нова роль з'явиться в API, але лишиться безіменною в
-        половині місць інтерфейсу — і помітять це користувачі, а не тести.
-        """
-        from shop.entities import ROLE_TITLES
-
-        if not self.role_title:
-            object.__setattr__(self, "role_title", ROLE_TITLES.get(self.role, self.role.value))
-        return self

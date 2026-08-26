@@ -15,8 +15,8 @@ pr = c.post("/api/catalog/products", json={"category_id":cat["id"],"name":"Т","
 print("\n--- Broken Access Control ---")
 for path in ["/api/orders","/api/customers","/api/promos","/api/settings","/api/operators","/api/stats/summary"]:
     r.check(c.get(path).status_code in (401,403), f"без токена закрито: {path}", c.get(path).status_code)
-r.check(c.get("/api/operators", headers=O).status_code == 403, "оператор не бачить операторів")
-r.check(c.put("/api/settings", json={"card_number":"9999"}, headers=O).status_code == 403, "оператор не змінює реквізити")
+r.check(c.get("/api/operators", headers=O).status_code == 403, "менеджер не бачить менеджерів")
+r.check(c.put("/api/settings", json={"card_number":"9999"}, headers=O).status_code == 403, "менеджер не змінює реквізити")
 
 print("\n--- JWT ---")
 raw = A["Authorization"].split()[1]
@@ -31,12 +31,12 @@ other = pyjwt.encode({"sub":"x","role":"admin","exp":int(time.time())+999}, "і�
 r.check(c.get("/api/orders", headers={"Authorization": f"Bearer {other}"}).status_code == 401, "чужий ключ відхилено")
 expired = pyjwt.encode({"sub":"admin","role":"admin","exp":int(time.time())-10}, "t"*32, algorithm="HS256")
 r.check(c.get("/api/orders", headers={"Authorization": f"Bearer {expired}"}).status_code == 401, "прострочений токен")
-# оператор не може підвищити роль зміною свого ж токена
+# менеджер не може підвищити роль зміною свого ж токена
 opraw = O["Authorization"].split()[1]
 oh, op_, os_ = opraw.split(".")
 opay = json.loads(base64.urlsafe_b64decode(op_ + "==")); opay["role"]="admin"
 esc = ".".join([oh, base64.urlsafe_b64encode(json.dumps(opay).encode()).decode().rstrip("="), os_])
-r.check(c.get("/api/operators", headers={"Authorization": f"Bearer {esc}"}).status_code == 401, "оператор не підвищить роль")
+r.check(c.get("/api/operators", headers={"Authorization": f"Bearer {esc}"}).status_code == 401, "менеджер не підвищить роль")
 
 print("\n--- initData ---")
 r.check(c.get("/api/shop/config").status_code == 401, "вітрина без підпису закрита")

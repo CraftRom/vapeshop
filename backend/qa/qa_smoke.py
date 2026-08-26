@@ -17,8 +17,8 @@ A = {"Authorization": f"Bearer {login.json()['access_token']}"}
 for name, path in [("замовлення","/api/orders"), ("каталог","/api/catalog/products"),
                    ("категорії","/api/catalog/categories"), ("клієнти","/api/customers"),
                    ("промокоди","/api/promos"), ("розсилки","/api/broadcasts"),
-                   ("оператори","/api/operators"), ("налаштування","/api/settings"),
-                   ("статистика","/api/stats/summary"), ("оператори-статистика","/api/stats/by-operator"),
+                   ("менеджери","/api/operators"), ("налаштування","/api/settings"),
+                   ("статистика","/api/stats/summary"), ("менеджери-статистика","/api/stats/by-operator"),
                    ("непрочитані","/api/orders/unread/counts")]:
     resp = c.get(path, headers=A)
     r.check(resp.status_code == 200, f"панель: {name}", f"{resp.status_code} {resp.text[:80]}")

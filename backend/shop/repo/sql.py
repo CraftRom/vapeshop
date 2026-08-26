@@ -847,7 +847,7 @@ class SqlRepository(Repository):
         await self.s.refresh(row)
         return _wishlist(row)
 
-    # ------------------------------------------------------ оператори
+    # ------------------------------------------------------ менеджери
 
     async def create_operator(self, data: dict) -> Operator:
         row = m.Operator(**data)

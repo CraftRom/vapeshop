@@ -21,7 +21,7 @@ async def summary(days: int = Query(30, ge=0, le=3650), repo: Repository = Depen
 async def by_operator(
     days: int = Query(30, ge=0, le=3650), repo: Repository = Depends(get_repo)
 ):
-    """Виторг у розрізі операторів за період."""
+    """Виторг у розрізі менеджерів за період."""
     return await repo.stats_by_operator(days)
 
 

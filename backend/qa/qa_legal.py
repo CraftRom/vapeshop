@@ -26,7 +26,7 @@ cfg = c.get("/api/shop/config", headers=H).json()
 r.check(cfg["seller"]["SELLER_NAME"] == "ФОП Галицький Дмитро", "назва дійшла до вітрини", cfg["seller"])
 r.check(cfg["seller"]["SELLER_EMAIL"] == "shop@elfar.pp.ua", "пошта дійшла")
 
-print("\n--- оператор не змінює реквізити ---")
+print("\n--- менеджер не змінює реквізити ---")
 c.post("/api/operators", json={"login":"olena","name":"Олена","password":"kvitka2026"}, headers=A)
 O = {"Authorization": "Bearer " + c.post("/api/auth/login", json={"login":"olena","password":"kvitka2026"}).json()["access_token"]}
 r.check(c.put("/api/settings", json={"seller_name":"Хтось інший"}, headers=O).status_code == 403,
