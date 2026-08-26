@@ -88,6 +88,10 @@ check("ADMIN_COMMANDS" in mw_src and "ADMIN_CALLBACKS" in mw_src,
       "адмінський чат має вузьку щілину, а не дозвіл на все")
 check("in_admin_chat and is_staff" in mw_src,
       "щілина вимагає і потрібного чату, і людини з персоналу")
+check("SOCIAL_KEYS" in mw_src, "привітання в групі не спрацьовують без згадки")
+check("_mentions_other_bot" in mw_src, "бот не встряє у звернення до чужого бота")
+check("public=True" in mw_src, "у групу йде стисла форма відповіді")
+check("public_answer" in read("backend/bot/faq.py"), "правила мають груповий варіант тексту")
 check("example.com" in read("deploy/nginx/app.conf"), "app.conf лишається шаблоном із заглушкою")
 check("example\\.com" in boot or "example.com" in boot, "bootstrap підставляє домен у nginx")
 

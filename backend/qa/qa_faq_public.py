@@ -37,7 +37,7 @@ async def send(text, chat_type="supergroup", chat_id=-100999):
 
 async def main():
     print("--- у групі: загальні питання зі згадкою ---")
-    for text, must in [("@elfar1_bot як замовити?", "Замовити просто"),
+    for text, must in [("@elfar1_bot як замовити?", "магазин"),
                        ("@elfar1_bot яка доставка", "Доставка"),
                        ("@elfar1_bot скільки коштує", "Ціни"),
                        ("@elfar1_bot з якого віку", "нікотин")]:
@@ -67,10 +67,16 @@ async def main():
         check(not leaks(body), f"без персональних деталей: «{text}»", leaks(body))
         check(not replies or "особист" in body, "є перехід в особистий чат", replies)
 
-    print("\n--- без згадки бот не втручається ---")
-    for text in ["як замовити?", "яка доставка", "привіт усім"]:
-        replies,_ = await send(text)
-        check(not replies, f"без згадки мовчимо: «{text}»", replies)
+    print("\n--- без згадки бот реагує на ключові слова ---")
+    # Поведінка змінена свідомо: раніше бот у групі мовчав, поки його не
+    # покличуть, і виглядав мертвим — людина питає «яка доставка», а він
+    # знає відповідь і не каже. Тепер правило спрацьовує від питання.
+    for text, expect in [("як замовити?", True),
+                         ("яка доставка", True),
+                         ("привіт усім", False)]:
+        replies,_ = await send(text, chat_id=-100_900 - hash(text) % 1000)
+        check(bool(replies) == expect,
+              f"«{text}» → {'відповідь' if expect else 'тиша'}", replies)
 
     print("\n--- згадка чужого бота ---")
     replies,_ = await send("@інший_бот як замовити")
@@ -78,7 +84,7 @@ async def main():
 
     print("\n--- у каналі так само ---")
     replies,_ = await send("@elfar1_bot як замовити", chat_type="channel", chat_id=-100888)
-    check(replies and "Замовити" in replies[0], "канал отримує загальну відповідь", replies)
+    check(replies and "магазин" in replies[0].lower(), "канал отримує загальну відповідь", replies)
     replies,_ = await send("@elfar1_bot де моє замовлення", chat_type="channel", chat_id=-100888)
     body = " ".join(replies).lower()
     check(not leaks(body), "канал не отримує персональних деталей", replies)

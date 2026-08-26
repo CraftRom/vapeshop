@@ -47,23 +47,54 @@ for text in ("привіт усім", "хтось брав тут щось?", "s
 
 # ------------------------------------------------------ захист від спаму
 
-print("\n--- відпочинок між загальними відповідями ---")
+shop = ShopSettings.from_env()
+
+print("\n--- відпочинок між відповідями ---")
 _last_fallback.clear()
-r.check(_may_speak(-100500), "перша відповідь проходить")
-r.check(not _may_speak(-100500), "друга поспіль — ні")
-r.check(not _may_speak(-100500), "третя теж ні")
-r.check(_may_speak(-100777), "інший чат не заблокований сусіднім")
+r.check(_may_speak(-100500, "delivery"), "перша відповідь проходить")
+r.check(not _may_speak(-100500, "delivery"), "друга поспіль на ту саму тему — ні")
+r.check(not _may_speak(-100500, "delivery"), "третя теж ні")
+r.check(_may_speak(-100500, "payment"), "інша тема не заблокована сусідньою")
+r.check(_may_speak(-100777, "delivery"), "інший чат не заблокований сусіднім")
 r.check(PUBLIC_COOLDOWN >= 60, f"пауза не символічна: {PUBLIC_COOLDOWN} с")
 
-# Імітуємо, що час минув
-_last_fallback[-100500] -= PUBLIC_COOLDOWN + 1
-r.check(_may_speak(-100500), "після паузи бот знову відповідає")
+_last_fallback[(-100500, "delivery")] -= PUBLIC_COOLDOWN + 1
+r.check(_may_speak(-100500, "delivery"), "після паузи бот знову відповідає")
+
+print("\n--- ключові слова працюють без згадки ---")
+# Саме те, чого бракувало: у групі бот мовчав, поки його не покличуть.
+for question in ("яка доставка", "як оплатити", "як зробити замовлення",
+                 "з якого віку", "де каталог"):
+    rule = faq.match(question, shop, public=True)
+    r.check(rule is not None, f"є відповідь на {question!r} без згадки",
+            rule.key if rule else None)
+
+print("\n--- у групі відповідь стисліша ---")
+shortened = 0
+for rule in faq.RULES:
+    if not rule.public:
+        continue
+    group_text = faq.render(rule, shop, public=True)
+    private_text = faq.render(rule, shop)
+    r.check(len(group_text) <= len(private_text),
+            f"{rule.key}: групова не довша за приватну",
+            (len(group_text), len(private_text)))
+    if len(group_text) < len(private_text):
+        shortened += 1
+r.check(shortened >= 4, f"скорочено правил: {shortened}")
+
+print("\n--- стислі варіанти нікого не викривають ---")
+for rule in faq.RULES:
+    if not rule.public or not rule.public_answer:
+        continue
+    body = faq.render(rule, shop, public=True).lower()
+    r.check("№" not in body and "t.me/" not in body,
+            f"{rule.key}: без номерів і посилань")
 
 
 # ------------------------------------------------- персональне не витікає
 
 print("\n--- у публічний чат ідуть лише загальні правила ---")
-shop = ShopSettings.from_env()
 
 public_rules = [rule for rule in faq.RULES if rule.public]
 private_rules = [rule for rule in faq.RULES if not rule.public]
