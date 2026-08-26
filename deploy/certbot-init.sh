@@ -2,6 +2,8 @@
 # Отримання першого сертифіката.
 #
 #   ./certbot-init.sh elfar.pp.ua www.elfar.pp.ua
+#   ./certbot-init.sh elfar.pp.ua --staging     перевірка без витрати лімітів
+#   ./certbot-init.sh elfar.pp.ua --buypass     інший центр сертифікації
 #
 # Окремий скрипт, а не команда з документації, з однієї причини: сервіс
 # certbot у compose має власний entrypoint із циклом продовження. При
@@ -13,7 +15,7 @@
 # Тому тут entrypoint явно перевизначається на сам certbot.
 set -euo pipefail
 
-SCRIPT_VERSION="2026-08-26.4"
+SCRIPT_VERSION="2026-08-26.5"
 
 cd "$(dirname "$0")"
 echo "certbot-init ${SCRIPT_VERSION}"
@@ -26,8 +28,44 @@ if [[ -z "$EMAIL" ]]; then
     read -rp "Email для сповіщень Let's Encrypt: " EMAIL
 fi
 
+# Прапорці розбираємо до доменів: інакше вони поїхали б у certbot як
+# значення для -d, як уже було з -v.
+STAGING=0
+ACME_ARGS=()
+DOMAINS=()
+for arg in "$@"; do
+    case "$arg" in
+        --staging|--test)
+            # Тестовий сервер Let's Encrypt. Лімітів практично не має, але
+            # сертифікат браузер не прийме: він доводить, що працює весь
+            # ланцюжок — DNS, порт 80, webroot, — і нічого більше.
+            STAGING=1
+            ACME_ARGS+=(--staging)
+            ;;
+        --buypass)
+            # Інший центр сертифікації з тим самим протоколом ACME.
+            # Власні ліміти, не пов'язані з Let's Encrypt, і сертифікати
+            # на 180 днів. Браузери йому довіряють.
+            ACME_ARGS+=(--server https://api.buypass.com/acme/directory)
+            ;;
+        -*)
+            echo "Невідомий прапорець: ${arg}" >&2
+            echo "Доступні: --staging (тестовий сервер), --buypass (інший ЦС)" >&2
+            exit 1
+            ;;
+        *)
+            DOMAINS+=("$arg")
+            ;;
+    esac
+done
+
+[[ ${#DOMAINS[@]} -ge 1 ]] || {
+    echo "Вкажіть домени: ./certbot-init.sh elfar.pp.ua www.elfar.pp.ua" >&2
+    exit 1
+}
+
 DOMAIN_ARGS=()
-for d in "$@"; do
+for d in "${DOMAINS[@]}"; do
     # Перевіряємо не «чи немає сміття», а «чи це взагалі схоже на домен».
     # Перший підхід ловить лише те, про що згадав автор: минулого разу він
     # пропустив прапорець -v, і той поїхав у certbot як значення для -d,
@@ -54,7 +92,7 @@ done
 #
 # Розрив — тимчасовий самопідписаний сертифікат. Він нікого не обманює й
 # живе рівно до моменту, поки Let's Encrypt не видасть справжній.
-DOMAIN="$1"
+DOMAIN="${DOMAINS[0]}"
 LIVE="/etc/letsencrypt/live/${DOMAIN}"
 
 # Домен у конфізі nginx має збігатися з тим, на який просимо сертифікат.
@@ -168,6 +206,10 @@ fi
 FORCE=()
 [[ $MANAGED -eq 1 ]] && FORCE=(--force-renewal)
 
+if [[ $STAGING -eq 1 ]]; then
+    echo "==> Тестовий сервер: сертифікат буде недовірений браузером"
+fi
+
 echo "==> Замовляю сертифікат"
 # --force-renewal: інакше certbot побачить свіжий самопідписаний файл
 # і вирішить, що поновлювати ще рано.
@@ -182,7 +224,7 @@ $COMPOSE run --rm --entrypoint certbot certbot \
     --cert-name "$DOMAIN" \
     "${DOMAIN_ARGS[@]}" \
     --email "$EMAIL" --agree-tos --no-eff-email \
-    "${FORCE[@]}"
+    "${ACME_ARGS[@]}" "${FORCE[@]}"
 
 echo "==> Вмикаю HTTPS-режим"
 # Доки сертифіката не було, сайт віддавався по HTTP. Тепер можна і

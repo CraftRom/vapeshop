@@ -95,6 +95,9 @@ check(cert.index("rm -rf /etc/letsencrypt/live") < cert.index("certonly --webroo
       "заглушка прибирається до запиту — інакше certbot скаржиться на live directory")
 check("--force-renewal" in cert and "FORCE=()" in cert,
       "--force-renewal лише при поновленні, щоб не палити ліміт Let's Encrypt")
+check("--staging" in cert, "є режим перевірки без витрати лімітів")
+check(cert.index("STAGING=0") < cert.index("DOMAIN_ARGS=()"),
+      "прапорці розбираються до доменів — інакше поїдуть у certbot як -d")
 
 log_setup = read("backend/shop/logging_setup.py")
 check("RotatingFileHandler" in log_setup, "журнал ротується за розміром")
