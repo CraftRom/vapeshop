@@ -16,6 +16,7 @@ const Promos = lazy(() => import('./pages/Promos'))
 const Broadcasts = lazy(() => import('./pages/Broadcasts'))
 const Settings = lazy(() => import('./pages/Settings'))
 const Operators = lazy(() => import('./pages/Operators'))
+const Logs = lazy(() => import('./pages/Logs'))
 const Instructions = lazy(() => import('./pages/Instructions'))
 const OrderPage = lazy(() => import('./pages/OrderPage'))
 
@@ -27,6 +28,7 @@ const NAV = [
   { to: '/promos', label: 'Промокоди' },
   { to: '/broadcasts', label: 'Розсилки' },
   { to: '/operators', label: 'Менеджери', adminOnly: true },
+  { to: '/logs', label: 'Журнал', sysadminOnly: true },
   { to: '/settings', label: 'Налаштування' },
   { to: '/instructions', label: 'Інструкції' },
 ]
@@ -68,7 +70,10 @@ function Shell({ children }) {
           Панель магазину
         </div>
         <nav className="nav">
-          {NAV.filter((item) => !item.adminOnly || isAdmin()).map((item) => (
+          {NAV.filter((item) => {
+            if (item.sysadminOnly) return isSysadmin()
+            return !item.adminOnly || isAdmin()
+          }).map((item) => (
             <NavLink key={item.to} to={item.to} end={item.end}>
               {item.label}
               {item.badge === 'orders' && newOrders > 0 && <span className="badge">{newOrders}</span>}
@@ -119,6 +124,7 @@ export default function App() {
         <Route path="/broadcasts" element={<Protected><Broadcasts /></Protected>} />
         <Route path="/settings" element={<Protected><Settings /></Protected>} />
         <Route path="/operators" element={<Protected><Operators /></Protected>} />
+        <Route path="/logs" element={<Protected><Logs /></Protected>} />
         <Route path="/instructions" element={<Protected><Instructions /></Protected>} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

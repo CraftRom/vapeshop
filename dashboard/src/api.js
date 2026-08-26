@@ -169,6 +169,21 @@ export const api = {
     purge: (id) => request(`/promos/${id}/purge`, { method: 'DELETE' }),
   },
 
+  logs: {
+    services: () => request('/logs/services'),
+    events: (service) => request(`/logs/events?service=${encodeURIComponent(service)}`),
+    read: ({ service, level, event, search, limit }) => {
+      // URLSearchParams, а не склеювання рядків: у пошуку буває будь-що,
+      // включно з пробілами та кирилицею, і ручне екранування тут
+      // рано чи пізно зламалося б.
+      const params = new URLSearchParams({ service, limit: String(limit) })
+      if (level) params.set('level', level)
+      if (event) params.set('event', event)
+      if (search) params.set('search', search)
+      return request(`/logs?${params.toString()}`)
+    },
+  },
+
   operators: {
     list: () => request('/operators'),
     create: (data) => request('/operators', { method: 'POST', body: data }),

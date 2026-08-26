@@ -172,6 +172,15 @@ check("'admin'" not in _ops_jsx.split("CREATABLE_ROLES")[1].split("]")[0],
 
 _api_js = read("dashboard/src/api.js")
 check("isSysadmin" in _api_js, "панель розрізняє системного адміністратора")
+
+_logs_py = read("backend/api/routers/logs.py")
+check("require_sysadmin" in _logs_py, "журнал закритий для всіх, крім системного адміністратора")
+check("SERVICES = (" in _logs_py,
+      "імʼя сервісу з білого списку — воно підставляється у шлях до файлу")
+check("/logs" in read("dashboard/src/App.jsx"), "сторінка журналу є в маршрутах")
+check("sysadminOnly" in read("dashboard/src/App.jsx"), "пункт меню видно лише системному адміністратору")
+check("/api/logs" in read("backend/api/request_log.py"),
+      "перегляд журналу не засмічує журнал")
 _settings_jsx = read("dashboard/src/pages/Settings.jsx")
 for _section in ("Telegram-група", "Бот і Mini App", "Розсилки", "Тихі години", "Бекапи"):
     check(_section in _settings_jsx.split("SYSADMIN_ONLY")[1].split("])")[0],

@@ -51,6 +51,7 @@ run legal qa/qa_legal.py
 run scheduler qa/qa_scheduler.py
 run public qa/qa_public_chat.py
 run logging qa/qa_logging.py
+run logs-api qa/qa_logs_api.py
 run e2e qa/qa_e2e.py
 run performance qa/qa_perf.py
 

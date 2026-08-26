@@ -106,6 +106,24 @@ async def require_admin(
     return principal
 
 
+async def require_sysadmin(
+    creds: HTTPAuthorizationCredentials | None = Depends(security),
+) -> Principal:
+    """Лише власник .env.
+
+    Окремий рівень поверх адміністратора: журнал містить IP клієнтів,
+    логіни, шляхи запитів і тексти помилок. Це не те, що варто відкривати
+    кожному, хто керує каталогом.
+    """
+    principal = _decode(creds)
+    if not principal.is_sysadmin:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "Дія доступна лише системному адміністратору",
+        )
+    return principal
+
+
 async def authenticate(repo, login: str, password: str) -> Principal | None:
     """Спершу адміністратор із .env, потім менеджери з бази.
 

@@ -28,7 +28,10 @@ current_request_id: ContextVar[str] = ContextVar("request_id", default="")
 
 # Шляхи, які смикають моніторинг і планувальник. Пишемо їх на DEBUG:
 # інакше вони витіснять із журналу все живе.
-QUIET_PATHS = ("/api/health", "/api/debug/")
+# /api/logs тут не випадково: сторінка журналу опитує його кожні десять
+# секунд, і без цього перегляд журналу заповнював би журнал сам собою —
+# рівно тими записами, крізь які потім довелося б продиратись.
+QUIET_PATHS = ("/api/health", "/api/debug/", "/api/logs")
 
 
 def client_ip(request: Request) -> str:
