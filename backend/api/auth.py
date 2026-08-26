@@ -42,8 +42,13 @@ class Principal:
     operator_id: int  # 0 — адміністратор із .env, його немає в таблиці
 
     @property
+    def is_sysadmin(self) -> bool:
+        """Лише власник .env. Йому одному дозволена інфраструктура."""
+        return self.role == OperatorRole.SYSADMIN
+
+    @property
     def is_admin(self) -> bool:
-        return self.role == OperatorRole.ADMIN
+        return self.role in (OperatorRole.SYSADMIN, OperatorRole.ADMIN)
 
 
 def create_token(login: str, role: OperatorRole, operator_id: int = 0, name: str = "",
@@ -74,7 +79,7 @@ def _decode(creds: HTTPAuthorizationCredentials | None) -> Principal:
     # Токени, видані до появи ролей, вважаємо адмінськими: їх міг отримати
     # лише власник пароля з .env
     try:
-        role = OperatorRole(payload.get("role", OperatorRole.ADMIN.value))
+        role = OperatorRole(payload.get("role", OperatorRole.SYSADMIN.value))
     except ValueError:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Недійсний токен")
 
@@ -109,7 +114,7 @@ async def authenticate(repo, login: str, password: str) -> Principal | None:
     """
     if verify_credentials(login, password):
         return Principal(login=login, name="Адміністратор",
-                         role=OperatorRole.ADMIN, operator_id=0)
+                         role=OperatorRole.SYSADMIN, operator_id=0)
 
     operator = await repo.get_operator_by_login(login.strip())
     if not operator or not operator.is_active:

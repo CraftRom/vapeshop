@@ -22,7 +22,7 @@ function clock(value) {
   })
 }
 
-/** Список замовлень, у межах яких можна писати оператору. */
+/** Список замовлень, у межах яких можна писати менеджеру. */
 export function ChatList({ config, orders, onOpen }) {
   const open = (orders || []).filter((o) => OPEN.includes(o.status))
 
@@ -30,7 +30,7 @@ export function ChatList({ config, orders, onOpen }) {
     return (
       <div className="empty">
         <h2>Немає активних замовлень</h2>
-        <p>Чат з оператором відкривається після оформлення замовлення.</p>
+        <p>Чат з менеджером відкривається після оформлення замовлення.</p>
       </div>
     )
   }
@@ -38,7 +38,7 @@ export function ChatList({ config, orders, onOpen }) {
   return (
     <>
       <div className="head">
-        <h1>Чат з оператором</h1>
+        <h1>Чат з менеджером</h1>
         <p>Оберіть замовлення — кожне веде окрему розмову</p>
       </div>
 
@@ -78,7 +78,7 @@ export function ChatRoom({ config, order, onBack }) {
 
   useEffect(() => load(), [load])
 
-  // Оператор відповідає з панелі, тож стрічку доводиться підтягувати самим
+  // Менеджер відповідає з панелі, тож стрічку доводиться підтягувати самим
   useEffect(() => {
     // Згорнутий Mini App не показує стрічку — не витрачаємо на нього запити
     const poll = () => !document.hidden && load(true)
@@ -128,13 +128,13 @@ export function ChatRoom({ config, order, onBack }) {
           <div className="skeleton" style={{ height: 48 }} />
         ) : messages.length === 0 ? (
           <p className="hint" style={{ padding: '0 14px' }}>
-            Напишіть питання — оператор відповість сюди й у чат із ботом.
+            Напишіть питання — менеджер відповість сюди й у чат із ботом.
           </p>
         ) : (
           messages.map((m) => (
             <div key={m.id} className={`bubble ${m.direction === 'in' ? 'mine' : ''}`}>
               <div className="bubble-head">
-                {m.direction === 'in' ? 'Ви' : m.author || 'Оператор'} · {clock(m.created_at)}
+                {m.direction === 'in' ? 'Ви' : m.author || 'Менеджер'} · {clock(m.created_at)}
               </div>
               {m.text && <div className="bubble-text">{m.text}</div>}
               {m.file_kind && (
@@ -154,7 +154,7 @@ export function ChatRoom({ config, order, onBack }) {
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && send()}
-          placeholder="Повідомлення оператору"
+          placeholder="Повідомлення менеджеру"
         />
         <button className="add" onClick={send} disabled={busy || !text.trim()}>
           {busy ? '…' : 'Надіслати'}

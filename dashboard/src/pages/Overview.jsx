@@ -179,7 +179,7 @@ export default function Overview() {
           </div>
 
           <div className="card">
-            <h2>Оператори за період</h2>
+            <h2>Менеджери за період</h2>
             {data.operators.length === 0 ? (
               <p className="muted">За цей період оплачених замовлень немає.</p>
             ) : (
@@ -187,7 +187,7 @@ export default function Overview() {
                 <table>
                   <thead>
                     <tr>
-                      <th>Оператор</th>
+                      <th>Менеджер</th>
                       <th className="num">Замовлень</th>
                       <th className="num">Виручка</th>
                       <th className="num">Середній чек</th>

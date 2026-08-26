@@ -1,8 +1,8 @@
-"""Спілкування клієнта з оператором.
+"""Спілкування клієнта з менеджером.
 
 Реєструється ОСТАННІМ: ловить лише те, що не розібрали інші роутери.
 
-У клієнта може бути кілька активних замовлень, і різні оператори ведуть
+У клієнта може бути кілька активних замовлень, і різні менеджери ведуть
 різні. Тому є явне перемикання: /orders показує список, вибір запам'ятовується
 в базі (не у FSM — стан не переживає холодний старт у serverless).
 """
@@ -60,7 +60,7 @@ async def _deliver(repo, user, text, order_id, bot=None, attachment=None) -> str
     await repo.set_chat_order(user.id, order.id)
 
     who = f" ({order.operator_name})" if order.operator_name else ""
-    return f"Передали оператору{who} щодо замовлення №{order.id}. Відповідь надійде сюди."
+    return f"Передали менеджеру{who} щодо замовлення №{order.id}. Відповідь надійде сюди."
 
 
 @router.message(F.photo | F.document | F.video | F.voice)
@@ -79,7 +79,7 @@ async def incoming_file(
     if not order_id:
         open_orders = await chat.open_orders_for(repo, user.id)
         if not open_orders:
-            await message.answer("Щоб надіслати файл оператору, потрібне активне замовлення.")
+            await message.answer("Щоб надіслати файл менеджеру, потрібне активне замовлення.")
             return
         await message.answer(
             "Оберіть замовлення, до якого належить файл, і надішліть його ще раз.",
@@ -106,13 +106,13 @@ async def incoming(
     if len(text) > MAX_LENGTH:
         await message.answer(
             f"Повідомлення задовге — до {MAX_LENGTH} символів. "
-            "Опишіть коротко, оператор перепитає."
+            "Опишіть коротко, менеджер перепитає."
         )
         return
 
-    # Відповідь на цитату — це свідоме звернення до оператора, туди й веде.
+    # Відповідь на цитату — це свідоме звернення до менеджера, туди й веде.
     # На решту спершу пробуємо відповісти самі: типові питання не мають
-    # чекати на людину, а оператор не має відповідати на них удвадцяте.
+    # чекати на людину, а менеджер не має відповідати на них удвадцяте.
     quoted = getattr(message, "reply_to_message", None) is not None
     if not quoted:
         shop = await get_shop_settings(repo)
@@ -132,7 +132,7 @@ async def incoming(
     open_orders = await chat.open_orders_for(repo, user.id)
     if not open_orders:
         await message.answer(
-            "Щоб написати оператору, потрібне активне замовлення. "
+            "Щоб написати менеджеру, потрібне активне замовлення. "
             "Оформіть його в магазині — і зможете спитати тут."
         )
         return
@@ -153,13 +153,13 @@ async def ask_human(callback: CallbackQuery, repo: Repository, user: User) -> No
     open_orders = await chat.open_orders_for(repo, user.id)
     if not open_orders:
         await callback.message.answer(
-            "Напишіть питання сюди — оператор відповість. Якщо воно про "
+            "Напишіть питання сюди — менеджер відповість. Якщо воно про "
             "конкретне замовлення, спершу оформіть його в магазині."
         )
     elif len(open_orders) == 1:
         await repo.set_chat_order(user.id, open_orders[0].id)
         await callback.message.answer(
-            f"Пишіть — передамо оператору щодо замовлення №{open_orders[0].id}."
+            f"Пишіть — передамо менеджеру щодо замовлення №{open_orders[0].id}."
         )
     else:
         await callback.message.answer(

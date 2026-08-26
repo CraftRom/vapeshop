@@ -3,7 +3,9 @@ from __future__ import annotations
 from datetime import datetime
 from decimal import Decimal
 
-from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator
+from pydantic import (
+    BaseModel, ConfigDict, Field, computed_field, field_validator, model_validator,
+)
 
 from shop.entities import BroadcastStatus, OperatorRole, OrderStatus, PromoType
 
@@ -397,13 +399,43 @@ class OperatorCreate(BaseModel):
     login: str = Field(..., min_length=3, max_length=64, pattern=r"^[A-Za-z0-9_.-]+$")
     name: str = Field("", max_length=128)
     password: str = Field(..., min_length=8, max_length=128)
-    role: OperatorRole = OperatorRole.OPERATOR
+    role: OperatorRole = OperatorRole.MANAGER
+
+    @field_validator("role", mode="after")
+    @classmethod
+    def _creatable(cls, value: OperatorRole) -> OperatorRole:
+        """Системного адміністратора в панелі не створюють.
+
+        Його обліковий запис приходить із .env разом із доступом до
+        сервера — створити такого через веб означало б віддати ключі від
+        інфраструктури тому, хто має лише пароль від панелі.
+        """
+        from shop.entities import CREATABLE_ROLES
+
+        if value not in CREATABLE_ROLES:
+            raise ValueError(
+                "Доступні ролі: Адміністратор і Менеджер. "
+                "Системний адміністратор задається у файлі .env"
+            )
+        return value
 
 
 class OperatorUpdate(BaseModel):
     name: str | None = Field(None, max_length=128)
     password: str | None = Field(None, min_length=8, max_length=128)
     role: OperatorRole | None = None
+
+    @field_validator("role", mode="after")
+    @classmethod
+    def _creatable(cls, value):
+        from shop.entities import CREATABLE_ROLES
+
+        if value is not None and value not in CREATABLE_ROLES:
+            raise ValueError(
+                "Доступні ролі: Адміністратор і Менеджер. "
+                "Системний адміністратор задається у файлі .env"
+            )
+        return value
     is_active: bool | None = None
 
 
@@ -414,6 +446,20 @@ class OperatorOut(BaseModel):
     login: str
     name: str
     role: OperatorRole
+    role_title: str = ""
     is_active: bool
     created_at: datetime | None = None
     last_login_at: datetime | None = None
+
+    @model_validator(mode="after")
+    def _fill_title(self):
+        """Підпис ролі рахуємо на сервері, а не в кожному екрані окремо.
+
+        Інакше нова роль з'явиться в API, але лишиться безіменною в
+        половині місць інтерфейсу — і помітять це користувачі, а не тести.
+        """
+        from shop.entities import ROLE_TITLES
+
+        if not self.role_title:
+            object.__setattr__(self, "role_title", ROLE_TITLES.get(self.role, self.role.value))
+        return self

@@ -70,7 +70,7 @@ async function request(path, { method = 'GET', body, params } = {}) {
         detail = data.detail
       } else if (Array.isArray(data.detail)) {
         // FastAPI віддає помилки валідації масивом обʼєктів. Без розбору
-        // оператор бачив би «Помилка 422» і не знав, яке поле виправляти.
+        // менеджер бачив би «Помилка 422» і не знав, яке поле виправляти.
         detail = data.detail
           .map((item) => {
             const field = (item.loc || []).filter((p) => p !== 'body').join(' → ')

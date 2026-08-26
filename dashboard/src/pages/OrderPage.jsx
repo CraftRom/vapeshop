@@ -16,7 +16,7 @@ const STATUS_FLOW = [
 const PAYMENT = { card: 'На картку', cod: 'Накладений платіж' }
 
 // Дзеркало ALLOWED_TRANSITIONS з бекенду: кнопки недоступних переходів
-// гасимо, щоб оператор не тицяв навмання й не ловив 409
+// гасимо, щоб менеджер не тицяв навмання й не ловив 409
 const ALLOWED = {
   new: ['confirmed', 'cancelled'],
   confirmed: ['accepted', 'cancelled'],
@@ -100,7 +100,7 @@ function Attachment({ orderId, message }) {
 
 /** Вікно введення накладної.
  *
- * Раніше оператор мусив спершу вписати номер у поле нижче, а тоді натиснути
+ * Раніше менеджер мусив спершу вписати номер у поле нижче, а тоді натиснути
  * «Відправлено» — і без цього отримував відмову. Порядок неочевидний, тож
  * запитуємо номер саме тоді, коли він потрібен.
  */
@@ -193,7 +193,7 @@ function Chat({ orderId, messages, onSent }) {
           messages.map((m) => (
             <div key={m.id} className={`bubble ${m.direction === 'out' ? 'mine' : ''}`}>
               <div className="bubble-head faint">
-                {m.direction === 'out' ? m.author || 'Оператор' : m.author || 'Клієнт'}
+                {m.direction === 'out' ? m.author || 'Менеджер' : m.author || 'Клієнт'}
                 {' · '}
                 {timestamp(m.created_at)}
               </div>

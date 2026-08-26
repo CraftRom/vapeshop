@@ -74,7 +74,7 @@ async def update_operator(
     # Не даємо адміністратору зняти права з себе самого: інакше можна
     # залишити систему без жодного адміністратора
     if who.operator_id == operator_id and (
-        payload.get("role") == OperatorRole.OPERATOR.value or payload.get("is_active") is False
+        payload.get("role") == OperatorRole.MANAGER.value or payload.get("is_active") is False
     ):
         raise HTTPException(409, "Не можна забрати доступ у себе — попросіть іншого адміністратора")
 

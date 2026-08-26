@@ -27,9 +27,18 @@ OPERATOR_FIELDS = {
 # Параметри інфраструктури: розклад бекапів, ретенція, темп розсилки.
 # Оператору вони не потрібні, а помилка в них дорога — окрема перевірка
 # нижче тримає їх за адміністратором навіть якщо перелік вище розростеться.
+# Розділи, закриті для всіх, крім системного адміністратора:
+# Telegram-група, Бот і Mini App, Розсилки, Тихі години, Бекапи.
 INFRA_FIELDS = {
+    # Telegram-група
+    "admin_chat_id", "admin_ids",
+    # Бот і Mini App
+    "bot_username", "miniapp_short_name", "public_url", "webhook_secret",
+    # Розсилки
     "timezone", "broadcast_rate_per_second", "broadcast_chunk",
+    # Тихі години
     "quiet_hours_enabled", "quiet_hours_start", "quiet_hours_end",
+    # Бекапи
     "backup_enabled", "backup_hour", "backup_retention_days",
 }
 
@@ -61,6 +70,18 @@ async def write_settings(
 ):
     # exclude_unset — часткове збереження не затирає полів, яких немає у запиті
     payload = data.model_dump(exclude_unset=True)
+
+    # Інфраструктура — лише системному адміністраторові. Ні адміністратор
+    # магазину, ні менеджер сюди не дістають: помилка в токені бота чи в
+    # розкладі бекапів кладе не свій відділ роботи, а весь магазин.
+    if not who.is_sysadmin:
+        infra = sorted(set(payload) & INFRA_FIELDS)
+        if infra:
+            raise HTTPException(
+                403,
+                "Ці налаштування змінює лише системний адміністратор: "
+                + ", ".join(infra),
+            )
 
     if not who.is_admin:
         forbidden = sorted(set(payload) - (OPERATOR_FIELDS - INFRA_FIELDS))

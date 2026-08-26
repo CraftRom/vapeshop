@@ -47,14 +47,14 @@ def to_private_chat() -> InlineKeyboardMarkup:
 def faq_reply(with_shop: bool = True) -> InlineKeyboardMarkup | None:
     """Кнопки під автоматичною відповіддю.
 
-    «Питання оператору» обовʼязкова: автовідповідь не має ставати глухим
+    «Питання менеджеру» обовʼязкова: автовідповідь не має ставати глухим
     кутом, якщо клієнт питав не те, що ми зрозуміли.
     """
     rows = []
     url = _shop_url()
     if with_shop and url:
         rows.append([InlineKeyboardButton(text="🛍 Відкрити магазин", web_app=WebAppInfo(url=url))])
-    rows.append([InlineKeyboardButton(text="💬 Питання оператору", callback_data="faq:human")])
+    rows.append([InlineKeyboardButton(text="💬 Питання менеджеру", callback_data="faq:human")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 

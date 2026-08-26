@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { api, isAdmin } from '../api'
 import { ErrorBar, Field, Loading, useToast } from '../components/ui'
 
-// Оператор бачить лише реферальну програму: решта параметрів — реквізити,
+// Менеджер бачить лише реферальну програму: решта параметрів — реквізити,
 // адреси, список менеджерів — за адміністратором. Бекенд це теж перевіряє,
 // тут ми просто не показуємо те, що все одно не збережеться.
 const ADMIN_ONLY = new Set([

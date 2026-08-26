@@ -70,7 +70,7 @@ def build_dispatcher() -> Dispatcher:
     dp.include_router(cart.router)
     dp.include_router(checkout.router)
     dp.include_router(profile.router)
-    # Чат із оператором — останнім: ловить лише те, що не розібрали інші
+    # Чат із менеджером — останнім: ловить лише те, що не розібрали інші
     dp.include_router(chat.router)
 
     return dp

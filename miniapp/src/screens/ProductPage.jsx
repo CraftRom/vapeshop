@@ -112,7 +112,7 @@ export function ProductPage({ config, product, cart, onCartChange, onBack, saved
           <p className="product-description">{product.description}</p>
         ) : (
           <p className="hint" style={{ marginTop: 16 }}>
-            Опис не додано. Питання про товар можна поставити оператору після
+            Опис не додано. Питання про товар можна поставити менеджеру після
             оформлення замовлення.
           </p>
         )}

@@ -26,7 +26,7 @@ const NAV = [
   { to: '/customers', label: 'Клієнти' },
   { to: '/promos', label: 'Промокоди' },
   { to: '/broadcasts', label: 'Розсилки' },
-  { to: '/operators', label: 'Оператори', adminOnly: true },
+  { to: '/operators', label: 'Менеджери', adminOnly: true },
   { to: '/settings', label: 'Налаштування' },
   { to: '/instructions', label: 'Інструкції' },
 ]
@@ -78,7 +78,7 @@ function Shell({ children }) {
         <div className="sidebar-foot">
           <div className="faint" style={{ marginBottom: 8, fontSize: 12.5 }}>
             {getSession().name || 'Ви'}
-            {isAdmin() ? ' · адміністратор' : ' · оператор'}
+            {isAdmin() ? ' · адміністратор' : ' · менеджер'}
           </div>
           <button className="btn ghost small" onClick={logout} style={{ width: '100%' }}>
             Вийти

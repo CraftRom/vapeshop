@@ -29,14 +29,14 @@ export function Legal({ config, initial, onBack }) {
         {gaps.length > 0 && (
           <div className="banner warn">
             Документ неповний: продавець ще не вказав реквізити. Перед покупкою
-            уточніть їх в оператора.
+            уточніть їх в менеджера.
           </div>
         )}
 
         <Paragraphs text={documentText(open, seller)} />
 
         <p className="hint" style={{ marginTop: 20 }}>
-          Питання щодо умов — оператору в чаті замовлення
+          Питання щодо умов — менеджеру в чаті замовлення
           {seller.SELLER_EMAIL ? ` або на ${seller.SELLER_EMAIL}` : ''}.
         </p>
       </div>

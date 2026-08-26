@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { api } from '../api'
 import { Empty, ErrorBar, Field, Loading, Modal, confirmPurge, useToast } from '../components/ui'
 
-const ROLE_LABEL = { admin: 'Адміністратор', operator: 'Оператор' }
+const ROLE_LABEL = { admin: 'Адміністратор', operator: 'Менеджер' }
 
 function formatDate(value) {
   if (!value) return '—'
@@ -44,7 +44,7 @@ function OperatorForm({ operator, onClose, onSaved }) {
           password: form.password,
           role: form.role,
         })
-        notify('Оператора створено')
+        notify('Менеджера створено')
       }
       onSaved()
       onClose()
@@ -61,7 +61,7 @@ function OperatorForm({ operator, onClose, onSaved }) {
 
   return (
     <Modal
-      title={editing ? `Обліковий запис «${operator.login}»` : 'Новий оператор'}
+      title={editing ? `Обліковий запис «${operator.login}»` : 'Новий менеджер'}
       onClose={onClose}
       footer={
         <>
@@ -99,9 +99,9 @@ function OperatorForm({ operator, onClose, onSaved }) {
         />
       </Field>
 
-      <Field label="Роль" hint="Адміністратор додатково керує операторами й усіма налаштуваннями">
+      <Field label="Роль" hint="Адміністратор додатково керує менеджерами й усіма налаштуваннями">
         <select className="input" value={form.role} onChange={set('role')}>
-          <option value="operator">Оператор</option>
+          <option value="operator">Менеджер</option>
           <option value="admin">Адміністратор</option>
         </select>
       </Field>
@@ -157,24 +157,24 @@ export default function Operators() {
     <>
       <div className="page-head">
         <div>
-          <h1>Оператори</h1>
+          <h1>Менеджери</h1>
           <p>Хто має доступ до панелі й на якому рівні</p>
         </div>
-        <button className="btn" onClick={() => setEditing({})}>Новий оператор</button>
+        <button className="btn" onClick={() => setEditing({})}>Новий менеджер</button>
       </div>
 
       <ErrorBar error={error} />
 
       <div className="card" style={{ marginBottom: 18 }}>
         <p className="faint" style={{ margin: 0 }}>
-          Оператор працює із замовленнями, каталогом, клієнтами, промокодами та
+          Менеджер працює із замовленнями, каталогом, клієнтами, промокодами та
           розсилками. З налаштувань йому доступна лише реферальна програма —
           реквізити оплати, адреси й список менеджерів лишаються за адміністратором.
         </p>
       </div>
 
       {rows.length === 0 ? (
-        <Empty title="Операторів ще немає">
+        <Empty title="Менеджерів ще немає">
           Поки що в панель заходить лише адміністратор із налаштувань сервера.
         </Empty>
       ) : (

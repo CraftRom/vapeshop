@@ -24,7 +24,7 @@ export const STATUS_LABELS = {
 }
 
 // Дзеркало ALLOWED_TRANSITIONS з бекенду. Без нього доріжка пропонувала б
-// переходи, які сервер відхилить — оператор бачив би 409 після кліку.
+// переходи, які сервер відхилить — менеджер бачив би 409 після кліку.
 const ALLOWED = {
   new: ['confirmed', 'cancelled'],
   confirmed: ['accepted', 'cancelled'],

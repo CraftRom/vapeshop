@@ -152,7 +152,7 @@ export default function Orders() {
 
   const changeStatus = async (order, next) => {
     // Відправлення потребує накладної, а вікно для неї — на сторінці
-    // замовлення. Без цього оператор тиснув би тут і отримував відмову.
+    // замовлення. Без цього менеджер тиснув би тут і отримував відмову.
     if (next === 'shipped') {
       navigate(`/orders/${order.id}?ship=1`)
       return
