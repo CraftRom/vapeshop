@@ -1,7 +1,7 @@
 import { Suspense, lazy, useEffect, useState } from 'react'
 import { NavLink, Navigate, Route, Routes, useNavigate } from 'react-router-dom'
 
-import { api, clearToken, getSession, getToken, isAdmin } from './api'
+import { api, clearToken, getSession, getToken, isAdmin, isSysadmin } from './api'
 import { APP_VERSION, AUTHOR } from './version'
 import { Loading, ToastProvider } from './components/ui'
 import Login from './pages/Login'
@@ -78,7 +78,11 @@ function Shell({ children }) {
         <div className="sidebar-foot">
           <div className="faint" style={{ marginBottom: 8, fontSize: 12.5 }}>
             {getSession().name || 'Ви'}
-            {isAdmin() ? ' · адміністратор' : ' · менеджер'}
+            {isSysadmin()
+              ? ' · системний адміністратор'
+              : isAdmin()
+                ? ' · адміністратор'
+                : ' · менеджер'}
           </div>
           <button className="btn ghost small" onClick={logout} style={{ width: '100%' }}>
             Вийти

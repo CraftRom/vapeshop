@@ -29,7 +29,14 @@ export const getSession = () => {
   }
 }
 
-export const isAdmin = () => getSession().role === 'admin'
+// Адміністратор магазину або системний: обидва керують каталогом,
+// промокодами й обліковими записами.
+export const isAdmin = () => ['admin', 'shop_admin'].includes(getSession().role)
+
+// Лише власник .env. Тільки він налаштовує Telegram-групу, бота, Mini App,
+// розсилки, тихі години й бекапи — тобто те, помилка в чому кладе не
+// окремий відділ роботи, а весь магазин.
+export const isSysadmin = () => getSession().role === 'admin'
 
 class ApiError extends Error {
   constructor(message, status) {

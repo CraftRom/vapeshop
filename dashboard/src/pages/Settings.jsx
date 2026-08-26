@@ -1,14 +1,21 @@
 import { useEffect, useState } from 'react'
 
-import { api, isAdmin } from '../api'
+import { api, isAdmin, isSysadmin } from '../api'
 import { ErrorBar, Field, Loading, useToast } from '../components/ui'
 
 // Менеджер бачить лише реферальну програму: решта параметрів — реквізити,
 // адреси, список менеджерів — за адміністратором. Бекенд це теж перевіряє,
 // тут ми просто не показуємо те, що все одно не збережеться.
+// Доступно адміністраторові магазину.
 const ADMIN_ONLY = new Set([
-  'Магазин', 'Оплата', 'Telegram-група', 'Бот і Mini App', 'Реквізити продавця',
-  'Розсилки', 'Тихі години', 'Бекапи',
+  'Магазин', 'Оплата', 'Реквізити продавця',
+])
+
+// Доступно ЛИШЕ системному адміністраторові. Це не про довіру, а про ціну
+// помилки: невірний токен бота чи зіпсований розклад бекапів кладе весь
+// магазин, а не ділянку роботи однієї людини.
+const SYSADMIN_ONLY = new Set([
+  'Telegram-група', 'Бот і Mini App', 'Розсилки', 'Тихі години', 'Бекапи',
 ])
 
 const FIELDS = [
@@ -320,7 +327,11 @@ export default function Settings() {
 
       <ErrorBar error={error} />
 
-      {FIELDS.filter((g) => isAdmin() || !ADMIN_ONLY.has(g.title)).map((group) => (
+      {FIELDS.filter((g) => {
+        if (SYSADMIN_ONLY.has(g.title)) return isSysadmin()
+        if (ADMIN_ONLY.has(g.title)) return isAdmin()
+        return true
+      }).map((group) => (
         <div className="card" key={group.title} style={{ marginBottom: 18 }}>
           <div className="row-between">
             <h2 style={{ margin: 0 }}>{group.title}</h2>
@@ -355,18 +366,22 @@ export default function Settings() {
         </div>
       ))}
 
-      {!isAdmin() && (
+      {!isSysadmin() && (
         <div className="card" style={{ marginBottom: 18 }}>
           <p className="faint" style={{ margin: 0 }}>
-            Решта налаштувань — реквізити оплати, адреси бота й вітрини, список
-            менеджерів — доступна адміністратору.
+            {isAdmin()
+              ? 'Налаштування Telegram-групи, бота й Mini App, розсилок, тихих ' +
+                'годин і бекапів змінює системний адміністратор — той, хто має ' +
+                'доступ до сервера.'
+              : 'Реквізити оплати, налаштування магазину й список облікових ' +
+                'записів доступні адміністратору.'}
           </p>
         </div>
       )}
 
-      {isAdmin() && <EnvironmentCard />}
+      {isSysadmin() && <EnvironmentCard />}
 
-      {isAdmin() && (
+      {isSysadmin() && (
       <div className="card" style={{ marginBottom: 18 }}>
         <h2 style={{ marginTop: 0 }}>Що змінюється лише в оточенні</h2>
         <p className="faint" style={{ marginTop: -6 }}>

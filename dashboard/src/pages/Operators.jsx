@@ -3,7 +3,22 @@ import { useEffect, useState } from 'react'
 import { api } from '../api'
 import { Empty, ErrorBar, Field, Loading, Modal, confirmPurge, useToast } from '../components/ui'
 
-const ROLE_LABEL = { admin: 'Адміністратор', operator: 'Менеджер' }
+// Значення мають збігатися з OperatorRole на бекенді. «admin» історично
+// означає системного адміністратора з .env — його в панелі не створюють,
+// тому в списку вибору його немає, а в таблиці підпис потрібен.
+const ROLE_LABEL = {
+  admin: 'Системний адміністратор',
+  shop_admin: 'Адміністратор',
+  operator: 'Менеджер',
+}
+
+// Ролі, які можна призначити з панелі.
+const CREATABLE_ROLES = [
+  { value: 'operator', label: 'Менеджер',
+    hint: 'Працює із замовленнями й клієнтами' },
+  { value: 'shop_admin', label: 'Адміністратор',
+    hint: 'Додатково керує каталогом, промокодами й менеджерами' },
+]
 
 function formatDate(value) {
   if (!value) return '—'
@@ -61,7 +76,7 @@ function OperatorForm({ operator, onClose, onSaved }) {
 
   return (
     <Modal
-      title={editing ? `Обліковий запис «${operator.login}»` : 'Новий менеджер'}
+      title={editing ? `Обліковий запис «${operator.login}»` : 'Новий обліковий запис'}
       onClose={onClose}
       footer={
         <>
@@ -99,10 +114,18 @@ function OperatorForm({ operator, onClose, onSaved }) {
         />
       </Field>
 
-      <Field label="Роль" hint="Адміністратор додатково керує менеджерами й усіма налаштуваннями">
+      <Field
+        label="Роль"
+        hint={
+          (CREATABLE_ROLES.find((r) => r.value === form.role) || {}).hint +
+          '. Налаштування бота, розсилок і бекапів лишаються за системним ' +
+          'адміністратором — його обліковий запис задається у файлі .env'
+        }
+      >
         <select className="input" value={form.role} onChange={set('role')}>
-          <option value="operator">Менеджер</option>
-          <option value="admin">Адміністратор</option>
+          {CREATABLE_ROLES.map((r) => (
+            <option key={r.value} value={r.value}>{r.label}</option>
+          ))}
         </select>
       </Field>
     </Modal>

@@ -161,6 +161,22 @@ check("PUBLIC_COOLDOWN" in read("backend/bot/middlewares.py"),
 check("_is_personal" in read("backend/bot/faq.py"),
       "персональні питання не отримують відповіді в групі")
 
+# Ролі: значення на фронті мають збігатися з переліком на бекенді.
+_roles_py = read("backend/shop/entities.py")
+_ops_jsx = read("dashboard/src/pages/Operators.jsx")
+for _value in ("shop_admin", "operator"):
+    check(f'"{_value}"' in _roles_py, f"роль {_value} є в OperatorRole")
+    check(f"'{_value}'" in _ops_jsx, f"роль {_value} є у списку панелі")
+check("'admin'" not in _ops_jsx.split("CREATABLE_ROLES")[1].split("]")[0],
+      "системного адміністратора не можна створити з панелі")
+
+_api_js = read("dashboard/src/api.js")
+check("isSysadmin" in _api_js, "панель розрізняє системного адміністратора")
+_settings_jsx = read("dashboard/src/pages/Settings.jsx")
+for _section in ("Telegram-група", "Бот і Mini App", "Розсилки", "Тихі години", "Бекапи"):
+    check(_section in _settings_jsx.split("SYSADMIN_ONLY")[1].split("])")[0],
+          f"розділ «{_section}» закритий для всіх, крім системного адміністратора")
+
 mw_src = read("backend/bot/middlewares.py")
 check("ADMIN_COMMANDS" in mw_src and "ADMIN_CALLBACKS" in mw_src,
       "адмінський чат має вузьку щілину, а не дозвіл на все")
