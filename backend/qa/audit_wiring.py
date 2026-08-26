@@ -72,6 +72,10 @@ check("200/CHDIR" in boot, "bootstrap ловить недосяжний шлях
 check("as_user" in boot, "перевірка доступу йде від імені сервісного користувача")
 check("ln -sfn ../.env" in boot, "bootstrap звʼязує deploy/.env — інакше ${VAR} у compose порожні")
 check("ln -sfn ../.env" in read("deploy/deploy.sh"), "deploy.sh теж підстраховує симлінк")
+cert = read("deploy/certbot-init.sh")
+check("--entrypoint certbot" in cert, "certbot-init обходить entrypoint із циклом продовження")
+check("example.com" in read("deploy/nginx/app.conf"), "app.conf лишається шаблоном із заглушкою")
+check("example\\.com" in boot or "example.com" in boot, "bootstrap підставляє домен у nginx")
 
 dockerfile = read("backend/Dockerfile")
 check("USER shop" in dockerfile, "бекенд працює не від root")

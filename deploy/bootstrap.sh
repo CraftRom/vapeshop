@@ -195,6 +195,28 @@ ln -sfn ../.env "$REPO_DIR/deploy/.env"
 echo "    deploy/.env → ../.env"
 
 
+say "Домен у конфігурації nginx"
+# У app.conf стоять заглушки example.com — і в server_name, і в шляхах до
+# сертифіката. Якщо їх не замінити, nginx не знайде сертифікат і не підніме
+# HTTPS, а помилка виглядатиме як «cannot load certificate», хоч сертифікат
+# насправді успішно отриманий, просто під іншим іменем.
+public_url=$(grep -E '^PUBLIC_URL=' "$REPO_DIR/.env" | head -1 | cut -d= -f2-)
+domain=${public_url#https://}
+domain=${domain#http://}
+domain=${domain%%/*}
+
+if [[ -z "$domain" ]]; then
+    warn "PUBLIC_URL ще не заповнено — домен у nginx лишається заглушкою"
+elif grep -q 'example\.com' "$REPO_DIR/deploy/nginx/app.conf"; then
+    sed -i "s|example\.com|${domain}|g" "$REPO_DIR/deploy/nginx/app.conf"
+    # www.<домен> у server_name лишаємо: сертифікат зазвичай беруть на обидва,
+    # а зайве імʼя в server_name нічого не ламає.
+    echo "    example.com → ${domain}"
+else
+    echo "    Домен уже підставлено"
+fi
+
+
 say "Каталог бекапів"
 install -d -o "$SERVICE_USER" -g "$SERVICE_USER" -m 750 "$REPO_DIR/deploy/backups"
 echo "    $REPO_DIR/deploy/backups (власник ${SERVICE_USER}, режим 750)"

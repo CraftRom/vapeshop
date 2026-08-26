@@ -250,23 +250,42 @@ docker compose -f docker-compose.prod.yml exec api python seed.py
 
 ## Крок 6. Сертифікат
 
-```bash
-docker compose -f docker-compose.prod.yml run --rm certbot \
-    certonly --webroot -w /var/www/certbot \
-    -d ваш-домен.com --agree-tos --no-eff-email -m ваш@email.com
+Спершу переконайтесь, що домен підставлений у конфігурацію nginx
+(`bootstrap.sh` робить це сам із `PUBLIC_URL`):
 
-docker compose -f docker-compose.prod.yml restart nginx
+```bash
+grep server_name nginx/app.conf     # має бути ваш домен, не example.com
 ```
 
-Продовження працює само — контейнер `certbot` перевіряє строк двічі на добу.
+Заглушки `example.com` стоять і в `server_name`, і в шляхах до сертифіката.
+Якщо їх не замінити, nginx не знайде виданий сертифікат — і скаржитиметься
+на його відсутність, хоч Let's Encrypt його успішно видав, просто під іншим
+іменем.
+
+Далі:
+
+```bash
+./certbot-init.sh elfar.pp.ua www.elfar.pp.ua
+```
+
+**Не запускайте certbot через `docker compose run certbot certonly ...`.**
+Сервіс `certbot` має власний `entrypoint` із циклом продовження, і додані
+аргументи дістаються цьому циклу як позиційні параметри `sh -c`, тобто
+просто ігноруються. Контейнер мовчки лягає спати на 12 годин — виглядає як
+зависання, і причину з виводу зрозуміти неможливо. `certbot-init.sh`
+перевизначає entrypoint явно.
+
+Скрипт заразом перевіряє, що порт 80 відповідає, і відхиляє домени,
+скопійовані разом із розміткою посилання (`[www.site](https://www.site)`) —
+certbot на таке лається невиразно.
+
+Продовження працює само: контейнер `certbot` перевіряє строк двічі на добу.
 
 **Перевірка:**
 
 ```bash
 curl -sI https://ваш-домен.com | head -1        # HTTP/2 200
 ```
-
----
 
 ## Крок 7. Автозапуск
 
@@ -466,6 +485,8 @@ deploy/restore.sh backups/elfar-2026-08-19.dump
 | Симптом | Причина | Що робити |
 |---|---|---|
 | `WARN ... variable is not set`, db unhealthy | Немає `deploy/.env` | `ln -sfn ../.env .env`, потім `down -v` і `up -d` |
+| certbot «завис» після Created | Аргументи з'їв entrypoint із циклом | `./certbot-init.sh домен` |
+| nginx: cannot load certificate | У `app.conf` лишився `example.com` | Підставте домен, `restart nginx` |
 | `migrate` падає | База ще не готова | `docker compose ps db` — має бути `healthy` |
 | API: password authentication failed | `POSTGRES_PASSWORD` ≠ пароль у `DATABASE_URL` | Вирівняйте, `up -d --force-recreate api db` |
 | Панель: «Бекенд не налаштований» | Бракує змінних | Список — у самому повідомленні на екрані |
