@@ -82,6 +82,12 @@ check("PUBLIC_COOLDOWN" in read("backend/bot/middlewares.py"),
       "у публічних чатах є пауза між загальними відповідями")
 check("_is_personal" in read("backend/bot/faq.py"),
       "персональні питання не отримують відповіді в групі")
+
+mw_src = read("backend/bot/middlewares.py")
+check("ADMIN_COMMANDS" in mw_src and "ADMIN_CALLBACKS" in mw_src,
+      "адмінський чат має вузьку щілину, а не дозвіл на все")
+check("in_admin_chat and is_staff" in mw_src,
+      "щілина вимагає і потрібного чату, і людини з персоналу")
 check("example.com" in read("deploy/nginx/app.conf"), "app.conf лишається шаблоном із заглушкою")
 check("example\\.com" in boot or "example.com" in boot, "bootstrap підставляє домен у nginx")
 

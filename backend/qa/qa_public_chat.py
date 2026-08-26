@@ -104,4 +104,32 @@ for forbidden in ("замовлення №", "http://", "t.me/", "@"):
             f"у переадресації немає {forbidden!r}")
 r.check(len(texts.PUBLIC_FALLBACK) < 300, "переадресація коротка")
 
+# ------------------------------------------------- адмінський чат не всеїдний
+
+print("\n--- щілина для персоналу вузька ---")
+from bot.middlewares import PrivateOnlyMiddleware      # noqa: E402
+
+mw = PrivateOnlyMiddleware
+r.check("/stats" in mw.ADMIN_COMMANDS, "/stats дозволений персоналу")
+r.check("ao:" in mw.ADMIN_CALLBACKS, "кнопки статусу замовлень дозволені")
+
+# Найважливіше: у щілину не має пролізти нічого зайвого. Саме через широкий
+# виняток бот відповідав у групі на випадковий набір літер.
+for forbidden in ("/start", "/cart", "/profile", "/orders", "/shop"):
+    r.check(forbidden not in mw.ADMIN_COMMANDS,
+            f"{forbidden} не проходить як адмінська команда")
+for forbidden in ("chat:", "faq:", "age:", "cart:"):
+    r.check(forbidden not in mw.ADMIN_CALLBACKS,
+            f"кнопка {forbidden} не проходить як адмінська")
+
+r.check(len(mw.ADMIN_COMMANDS) <= 3,
+        f"перелік команд короткий: {mw.ADMIN_COMMANDS}")
+
+print("\n--- випадковий текст в адмінському чаті ---")
+# Те, що бачив користувач на скріншоті: «Члвлв» отримувало відповідь
+# оператора. Тепер такий текст не є ні публічною командою, ні згадкою.
+for junk in ("Члвлв", "Члвлвьвж", "асдф", "?"):
+    r.check(not is_command_trigger(junk), f"не команда: {junk!r}")
+    r.check(not is_private_only_command(junk), f"не приватна команда: {junk!r}")
+
 r.done()

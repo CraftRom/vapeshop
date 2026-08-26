@@ -25,9 +25,30 @@ SessionMaker = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSe
 
 
 async def init_db() -> None:
-    """Створює таблиці. Для продакшену використовуйте Alembic — див. docs/SERVER.md."""
+    """Створює таблиці напряму, без міграцій.
+
+    Тільки для тестів і локального запуску. У продакшені схему накочує
+    Alembic: create_all не веде історії версій і при кількох процесах
+    перегонить сам себе.
+    """
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+
+
+async def check_db() -> None:
+    """Перевіряє звʼязок із базою і що схема на місці.
+
+    Саме перевірка, а не створення: API стартує кількома воркерами, і будь-яка
+    зміна схеми на старті означала б гонку між ними. Порожній результат теж
+    успіх — цікавить лише те, що запит дійшов і таблиця існує.
+    """
+    from sqlalchemy import text
+
+    async with engine.connect() as conn:
+        await conn.execute(text("SELECT 1"))
+        # Звертаємось до конкретної таблиці: SELECT 1 проходить і на базі
+        # без жодної таблиці, а це якраз випадок, коли migrate не відпрацював.
+        await conn.execute(text("SELECT COUNT(*) FROM users"))
 
 
 async def get_session() -> AsyncIterator[AsyncSession]:

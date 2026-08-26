@@ -37,4 +37,29 @@ r.check(resp.status_code == 200, "бот приймає апдейт", resp.stat
 import api.main as _m
 _expect = 200 if _m._docs_on else 404
 r.check(c.get("/openapi.json").status_code == _expect, "OpenAPI відповідає режиму docs")
+# --- старт API не має чіпати схему -------------------------------------
+#
+# init_db() у lifespan виглядав нешкідливо, але API працює двома воркерами:
+# обидва бачили відсутню таблицю, обидва робили create_all, другий падав.
+# uvicorn піднімав новий воркер, той падав так само — краш-цикл, у логах
+# лише «Child process died» без жодної причини.
+print("\n--- старт не створює схему ---")
+import inspect
+
+from api import main as api_main
+
+source = inspect.getsource(api_main.lifespan)
+# Шукаємо саме виклик, а не згадку: у коментарі поруч init_db названо
+# навмисно, щоб наступний читач знав, чому його там немає.
+r.check("await init_db" not in source, "lifespan не викликає init_db")
+r.check("check_db" in source, "lifespan лише перевіряє звʼязок")
+
+from shop import db as shop_db
+
+probe = inspect.getsource(shop_db.check_db)
+r.check("create_all" not in probe, "перевірка нічого не створює")
+r.check("FROM users" in probe, "перевірка звертається до реальної таблиці")
+
+import sys
+
 sys.exit(1 if r.done() else 0)

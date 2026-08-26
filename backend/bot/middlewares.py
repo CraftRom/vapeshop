@@ -53,12 +53,26 @@ class PrivateOnlyMiddleware(BaseMiddleware):
     що саме людина набрала, історія — її замовлення з адресою. Тому все,
     що не приватний чат, обривається тут, до роутерів.
 
-    Виняток один — адмінський чат із settings.admin_chat_id: там менеджери
-    натискають кнопки статусу замовлень і викликають /stats. Це і є його
-    призначення. Особисті ідентифікатори адміністраторів сюди не додаємо:
+    Адмінський чат — не виняток «пропускати все», а вузька щілина: туди
+    проходять лише кнопки статусу замовлень і команди персоналу, і лише від
+    людей із admin_id_list.
+
+    Раніше з адмінського чату пропускалося геть усе, і наслідок був такий:
+    у групі замовлень сидять і звичайні учасники, а до них доходили приватні
+    хендлери. Випадкове «Члвлв» отримувало «Щоб написати оператору, потрібне
+    активне замовлення», /shop натикався на age gate замість магазину, і бот
+    відповідав на кожну репліку в живій розмові.
+
+    Особисті ідентифікатори адміністраторів як дозвіл на чат сюди не додаємо:
     інакше адміністратор, покликавши /stats у сторонній групі, вивалив би
-    туди виручку магазину.
+    туди виручку магазину. Перевіряємо обидві умови разом — і чат той, і
+    людина та.
     """
+
+    # Команди персоналу, які мають сенс лише в адмінському чаті.
+    ADMIN_COMMANDS = ("/stats",)
+    # Префікси кнопок, які менеджери натискають під замовленнями.
+    ADMIN_CALLBACKS = ("ao:",)
 
     async def __call__(
         self,
@@ -72,8 +86,20 @@ class PrivateOnlyMiddleware(BaseMiddleware):
 
         # current() — синхронний знімок кешу: репозиторій тут ще не відкрито
         admin_chat_id = current().admin_chat_id
-        if admin_chat_id and chat.id == admin_chat_id:
-            return await handler(event, data)
+        tg_user = data.get("event_from_user")
+        is_staff = bool(tg_user and tg_user.id in current().admin_id_list)
+        in_admin_chat = bool(admin_chat_id and chat.id == admin_chat_id)
+
+        if in_admin_chat and is_staff:
+            if isinstance(event, CallbackQuery):
+                if event.data and event.data.startswith(self.ADMIN_CALLBACKS):
+                    return await handler(event, data)
+            elif isinstance(event, Message):
+                text = event.text or ""
+                if any(text.lower().startswith(cmd) for cmd in self.ADMIN_COMMANDS):
+                    return await handler(event, data)
+            # Решта — звичайна розмова в групі, навіть якщо пише менеджер.
+            # Далі йде та сама логіка, що й для будь-якого публічного чату.
 
         # Натискання кнопки в групі: коротка підказка тому, хто натиснув,
         # без повідомлення в сам чат

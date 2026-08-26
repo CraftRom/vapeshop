@@ -15,7 +15,7 @@ from api.schemas import LoginIn, TokenOut
 from shop.config import settings
 from shop.services.shop_settings import current
 from shop.repo.factory import get_repo
-from shop.db import init_db
+from shop.db import check_db
 
 from shop.build import BUILD as _BUILD
 
@@ -26,16 +26,20 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)-8s %(na
 async def lifespan(app: FastAPI):
     log = logging.getLogger("api")
 
-    # Схему накочує окремий сервіс migrate до старту API, а не кожен
-    # інстанс на старті: інакше два воркери перегоняли б Alembic одночасно.
+    # Схему накочує сервіс migrate до старту API. Тут лише перевіряємо
+    # звʼязок, і це принципово: init_db() робить create_all, а він при
+    # кількох воркерах перегонить сам себе — обидва бачать, що таблиці
+    # немає, обидва створюють, другий падає з «table already exists».
+    # Воркер помирає, uvicorn піднімає новий, той падає так само. У логах
+    # видно лише «Child process died» без причини.
     try:
-        await init_db()
+        await check_db()
     except Exception as exc:
         # Без цього блоку API просто падав у краш-цикл, nginx віддавав 502,
         # а в панелі це виглядало як проблема з логіном.
         log.error("=" * 70)
         log.error("НЕ ВДАЛОСЯ ПІДКЛЮЧИТИСЬ ДО БАЗИ: %s", exc)
-        log.error("Перевірте POSTGRES_PASSWORD у .env.")
+        log.error("Перевірте, що сервіс migrate відпрацював, і POSTGRES_PASSWORD у .env.")
         log.error(
             "Якщо ви змінили пароль ПІСЛЯ першого запуску — Postgres його не підхопить: "
             "пароль задається лише при створенні тому. Або поверніть старий пароль, "
