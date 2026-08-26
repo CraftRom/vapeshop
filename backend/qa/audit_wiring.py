@@ -74,6 +74,10 @@ check("ln -sfn ../.env" in boot, "bootstrap звʼязує deploy/.env — ін�
 check("ln -sfn ../.env" in read("deploy/deploy.sh"), "deploy.sh теж підстраховує симлінк")
 cert = read("deploy/certbot-init.sh")
 check("--entrypoint certbot" in cert, "certbot-init обходить entrypoint із циклом продовження")
+check("openssl req -x509" in cert,
+      "certbot-init кладе тимчасовий сертифікат — інакше nginx не підніметься")
+check("--force-renewal" in cert,
+      "справжній сертифікат замінює тимчасовий, а не пропускається")
 
 greeting = read("backend/bot/greeting.py")
 check("/start" not in str(__import__("re").search(r"PUBLIC_COMMANDS = \(([^)]*)\)", greeting).group(1)),
@@ -92,6 +96,10 @@ check("SOCIAL_KEYS" in mw_src, "привітання в групі не спра
 check("_mentions_other_bot" in mw_src, "бот не встряє у звернення до чужого бота")
 check("public=True" in mw_src, "у групу йде стисла форма відповіді")
 check("public_answer" in read("backend/bot/faq.py"), "правила мають груповий варіант тексту")
+faq_src = read("backend/bot/faq.py")
+check("_has_typo" in faq_src, "матчер терпить друкарські помилки")
+check("for fuzzy in (False, True)" in faq_src,
+      "точні збіги мають пріоритет над нечіткими")
 check("example.com" in read("deploy/nginx/app.conf"), "app.conf лишається шаблоном із заглушкою")
 check("example\\.com" in boot or "example.com" in boot, "bootstrap підставляє домен у nginx")
 

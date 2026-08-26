@@ -37,14 +37,80 @@ def normalize(text: str) -> str:
     return " " + re.sub(r"[^\w\u0400-\u04ff]+", " ", lowered).strip() + " "
 
 
-def _has(text: str, words: tuple[str, ...]) -> bool:
+def _has(text: str, words: tuple[str, ...], fuzzy: bool = False) -> bool:
     """Чи є в тексті хоч одне зі слів. Порівнюємо за початком слова.
 
     Початок, а не точний збіг: «замовити», «замовлення», «замовляти» —
     одне й те саме питання, а перелічувати всі форми української мови
     в списку ключових слів марно.
+
+    fuzzy=True вмикає допуск на одну описку. Вмикається лише другим
+    проходом — див. match().
     """
-    return any(re.search(rf"\s{re.escape(w)}", text) for w in words)
+    if any(re.search(rf"\s{re.escape(w)}", text) for w in words):
+        return True
+    return _has_typo(text, words) if fuzzy else False
+
+
+def _has_typo(text: str, words: tuple[str, ...]) -> bool:
+    """Те саме, але з допуском на одну помилку в довгих словах.
+
+    У чаті пишуть з телефона й поспіхом: «замвити», «доствка», «пирдбати».
+    Точний збіг такі повідомлення проґавлює, і бот виглядає тупим саме там,
+    де відповідь очевидна людині.
+
+    Поріг у пʼять символів навмисний: у коротких словах одна помилка робить
+    з «де» — «те», а з «як» — «як би», і допуск почав би ловити випадкове.
+    """
+    tokens = [t for t in text.split() if len(t) >= 5]
+    if not tokens:
+        return False
+    for word in words:
+        if len(word) < 5:
+            continue
+        for token in tokens:
+            # Ключі — це основи, тож порівнюємо початок токена. Довжину
+            # беремо трьох варіантів: пропущена буква вкорочує слово,
+            # зайва — подовжує. Без цього «замвити» (загублена «о») не
+            # збіглося б із основою «замов»: на однаковій довжині різниця
+            # виходить у дві правки, хоч помилка одна.
+            for size in (len(word) - 1, len(word), len(word) + 1):
+                if size < 3:
+                    continue
+                if _close(token[:size], word):
+                    return True
+    return False
+
+
+def _close(token_head: str, key: str) -> bool:
+    """Чи відрізняється початок слова від основи не більше ніж на одну правку.
+
+    Не будь-яку правку. Заміна першої або останньої літери основи заборонена,
+    бо саме вона перетворює одне слово на інше: «поставив» — не «доставка»,
+    «оплакую» — не «оплата». Пропущена ж або зайва літера всередині — це
+    майже завжди друкарська помилка: «замвити», «доствка», «оплтити».
+    """
+    if token_head == key:
+        return True
+    if abs(len(token_head) - len(key)) > 1:
+        return False
+
+    if len(token_head) == len(key):
+        diffs = [i for i, (x, y) in enumerate(zip(token_head, key)) if x != y]
+        if len(diffs) != 1:
+            return False
+        position = diffs[0]
+        return 0 < position < len(key) - 1
+
+    # Різна довжина — вставка або видалення. Перевіряємо, що решта збігається.
+    shorter, longer = (token_head, key) if len(token_head) < len(key) else (key, token_head)
+    for skip in range(len(longer)):
+        if longer[:skip] + longer[skip + 1:] == shorter:
+            # Ні на початку, ні в кінці. Пропуск останньої літери основи —
+            # це не описка, а просто коротший префікс: за ним «оплакую»
+            # зійшлося б з «оплат», бо «опла» — початок обох слів.
+            return 0 < skip < len(longer) - 1
+    return False
 
 
 @dataclass
@@ -73,8 +139,16 @@ class Rule:
     public_answer: str = ""
 
 
-ORDER_WORDS = ("замов", "заказ", "купит", "купув", "придба", "оформ", "заброн")
-QUESTION_WORDS = ("як", "як", "де", "куди", "чи мож", "можна", "хочу", "как", "где")
+ORDER_WORDS = (
+    "замов", "заказ", "купит", "купув", "купля", "купл", "куплю", "купи",
+    "придба", "оформ", "заброн", "взяти", "взять", "брати", "візьму",
+    "прода", "продай", "продас", "замовля", "закаж", "закаsat",
+)
+QUESTION_WORDS = (
+    "як", "яким", "де", "куди", "чи мож", "можна", "можу", "можеш", "можлив",
+    "хочу", "хотів", "хотіла", "треба", "потріб", "підкаж", "скажіть", "скажи",
+    "как", "где", "могу", "хочу", "нужно", "подскаж", "мож",
+)
 
 RULES: tuple[Rule, ...] = (
     # Стоїть перед «order»: «де моє замовлення» містить і питальне слово,
@@ -289,17 +363,25 @@ def match(text: str, shop=None, public: bool = False) -> Rule | None:
     if public and _is_personal(normalized):
         return None
 
-    for rule in RULES:
-        if public and not rule.public:
-            continue
-        if rule.needs == "bonus" and shop is not None and not shop.bonus_enabled:
-            continue
-        if rule.needs == "referral" and shop is not None and not (
-            shop.referral_enabled and shop.bonus_enabled
-        ):
-            continue
-        if all(_has(normalized, group) for group in rule.groups):
-            return rule
+    # Два проходи, і порядок принциповий. Спершу точні збіги по всіх
+    # правилах, і лише потім — з допуском на описку.
+    #
+    # Інакше нечіткий збіг раннього правила перебиває точний збіг пізнього:
+    # «накладений платіж» ловився правилом про накладну (описка від
+    # «накладн»), хоч слово «платіж» точно збігається з правилом про оплату.
+    # Точний збіг завжди означає більшу впевненість, ніж припущення.
+    for fuzzy in (False, True):
+        for rule in RULES:
+            if public and not rule.public:
+                continue
+            if rule.needs == "bonus" and shop is not None and not shop.bonus_enabled:
+                continue
+            if rule.needs == "referral" and shop is not None and not (
+                shop.referral_enabled and shop.bonus_enabled
+            ):
+                continue
+            if all(_has(normalized, group, fuzzy) for group in rule.groups):
+                return rule
     return None
 
 

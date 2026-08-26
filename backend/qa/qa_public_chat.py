@@ -163,4 +163,50 @@ for junk in ("Члвлв", "Члвлвьвж", "асдф", "?"):
     r.check(not is_command_trigger(junk), f"не команда: {junk!r}")
     r.check(not is_private_only_command(junk), f"не приватна команда: {junk!r}")
 
+print("\n--- живі формулювання з групи ---")
+# Саме ті фрази, на які бот у групі не відреагував.
+LIVE = [
+    ("Друже де я можу купити це", "order"),
+    ("Друже де я можу придбати це", "order"),
+    ("хтось знає де взяти", "order"),
+    ("підкажіть будь ласка як замовити", "order"),
+    ("скільки коштує", "price"),
+    ("яка доставка по Україні", "delivery"),
+    ("чим можна оплатити", "payment"),
+]
+for phrase, expected in LIVE:
+    rule = faq.match(phrase, shop, public=True)
+    r.check(rule is not None and rule.key == expected,
+            f"{phrase!r} → {expected}", rule.key if rule else None)
+
+print("\n--- друкарські помилки ---")
+TYPOS = [
+    ("замвити можна?", "order"),
+    ("яка доствка", "delivery"),
+    ("як оплтити", "payment"),
+    ("де я можу купить", "order"),
+]
+for phrase, expected in TYPOS:
+    rule = faq.match(phrase, shop, public=True)
+    r.check(rule is not None and rule.key == expected,
+            f"з помилкою: {phrase!r} → {expected}", rule.key if rule else None)
+
+print("\n--- допуск не ловить зайвого ---")
+# Найбільший ризик нечіткого збігу — реакція на сторонню розмову.
+NOISE = ["котик", "як справи", "доброго ранку всім", "поставив чайник",
+         "заморозки вночі", "заправив авто", "закінчив роботу",
+         "документи готові", "домовились", "оплакую понеділок"]
+for phrase in NOISE:
+    rule = faq.match(phrase, shop, public=True)
+    r.check(rule is None or rule.key in {"greeting", "thanks"},
+            f"не вигадує відповідь: {phrase!r}", rule.key if rule else None)
+
+print("\n--- відстань правок ---")
+r.check(faq._close("замов", "замов"), "однакові")
+r.check(faq._close("замв", "замов"), "пропущена буква")
+r.check(faq._close("заммов", "замов"), "зайва буква")
+r.check(faq._close("замав", "замов"), "замінена буква")
+r.check(not faq._close("завм", "замов"), "дві правки — вже ні")
+r.check(not faq._close("оплата", "замов"), "різні слова")
+
 r.done()

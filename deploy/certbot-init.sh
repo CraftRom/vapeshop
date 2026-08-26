@@ -34,6 +34,35 @@ for d in "$@"; do
     DOMAIN_ARGS+=(-d "$d")
 done
 
+# Глухий кут, який інакше не розірвати: nginx не стартує, якщо файлу
+# сертифіката немає (ssl_certificate вказує в порожнечу), а сертифікат не
+# отримати, бо перевірка Let's Encrypt стукає саме в nginx на 80 порт.
+# Виглядає це найгірше з можливого: сайт просто не відповідає, і в логах
+# «cannot load certificate», хоч ви ще жодного разу його не замовляли.
+#
+# Розрив — тимчасовий самопідписаний сертифікат. Він нікого не обманює й
+# живе рівно до моменту, поки Let's Encrypt не видасть справжній.
+DOMAIN="$1"
+LIVE="/etc/letsencrypt/live/${DOMAIN}"
+
+echo "==> Перевіряю наявність сертифіката"
+if $COMPOSE run --rm --entrypoint sh certbot -c "test -f ${LIVE}/fullchain.pem" 2>/dev/null; then
+    echo "    Сертифікат уже є"
+else
+    echo "    Немає — створюю тимчасовий самопідписаний, щоб nginx піднявся"
+    $COMPOSE run --rm --entrypoint sh certbot -c "
+        mkdir -p ${LIVE} &&
+        openssl req -x509 -nodes -newkey rsa:2048 -days 1 \
+            -keyout ${LIVE}/privkey.pem \
+            -out ${LIVE}/fullchain.pem \
+            -subj '/CN=${DOMAIN}'
+    " || {
+        echo "Не вдалося створити тимчасовий сертифікат." >&2
+        echo "Перевірте, що образ certbot має openssl: $COMPOSE run --rm --entrypoint sh certbot -c 'which openssl'" >&2
+        exit 1
+    }
+fi
+
 echo "==> Перевіряю, що nginx віддає /.well-known на порту 80"
 $COMPOSE up -d nginx
 sleep 2
@@ -47,10 +76,13 @@ if ! curl -fsS --max-time 10 "http://${PROBE}/.well-known/acme-challenge/" -o /d
 fi
 
 echo "==> Замовляю сертифікат"
+# --force-renewal: інакше certbot побачить свіжий самопідписаний файл
+# і вирішить, що поновлювати ще рано.
 $COMPOSE run --rm --entrypoint certbot certbot \
     certonly --webroot -w /var/www/certbot \
     "${DOMAIN_ARGS[@]}" \
-    --email "$EMAIL" --agree-tos --no-eff-email
+    --email "$EMAIL" --agree-tos --no-eff-email \
+    --force-renewal
 
 echo "==> Перезапускаю nginx із сертифікатом"
 $COMPOSE restart nginx

@@ -268,6 +268,14 @@ grep server_name nginx/app.conf     # має бути ваш домен, не ex
 ./certbot-init.sh elfar.pp.ua www.elfar.pp.ua
 ```
 
+Скрипт розриває глухий кут, у який інакше впирається кожне перше
+розгортання: **nginx не стартує без файлу сертифіката**, бо `ssl_certificate`
+вказує в порожнечу, а сертифікат не отримати, бо перевірка Let's Encrypt
+стукає саме в nginx на 80 порт. Ззовні це виглядає як «сайт не відкривається
+взагалі», хоч DNS правильний і сервер живий. `certbot-init.sh` спершу кладе
+тимчасовий самопідписаний сертифікат на добу, піднімає nginx, отримує
+справжній і перезапускає nginx уже з ним.
+
 **Не запускайте certbot через `docker compose run certbot certonly ...`.**
 Сервіс `certbot` має власний `entrypoint` із циклом продовження, і додані
 аргументи дістаються цьому циклу як позиційні параметри `sh -c`, тобто
@@ -487,7 +495,8 @@ deploy/restore.sh backups/elfar-2026-08-19.dump
 | `WARN ... variable is not set`, db unhealthy | Немає `deploy/.env` | `ln -sfn ../.env .env`, потім `down -v` і `up -d` |
 | certbot «завис» після Created | Аргументи з'їв entrypoint із циклом | `./certbot-init.sh домен` |
 | `Permission denied` на `deploy/*.sh` | Zip не доніс прапорець виконання | `chmod +x deploy/*.sh` |
-| nginx: cannot load certificate | У `app.conf` лишився `example.com` | Підставте домен, `restart nginx` |
+| nginx: cannot load certificate | Немає сертифіката або в `app.conf` лишився `example.com` | `./certbot-init.sh домен`, перевірте `grep server_name nginx/app.conf` |
+| Сайт не відкривається, DNS правильний | nginx не піднявся через відсутній сертифікат | `docker compose ps nginx`, далі `./certbot-init.sh домен` |
 | `migrate` падає | База ще не готова | `docker compose ps db` — має бути `healthy` |
 | API: password authentication failed | `POSTGRES_PASSWORD` ≠ пароль у `DATABASE_URL` | Вирівняйте, `up -d --force-recreate api db` |
 | Панель: «Бекенд не налаштований» | Бракує змінних | Список — у самому повідомленні на екрані |
