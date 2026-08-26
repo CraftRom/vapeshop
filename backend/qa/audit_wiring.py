@@ -106,6 +106,8 @@ faq_src = read("backend/bot/faq.py")
 check("_has_typo" in faq_src, "матчер терпить друкарські помилки")
 check("for fuzzy in (False, True)" in faq_src,
       "точні збіги мають пріоритет над нечіткими")
+check("CHAT_FLOOR" in mw_src, "є нижня межа між відповідями в чаті")
+check("user_id" in mw_src, "пауза персональна: інший учасник отримає відповідь")
 check("example.com" in read("deploy/nginx/app.conf"), "app.conf лишається шаблоном із заглушкою")
 check("example\\.com" in boot or "example.com" in boot, "bootstrap підставляє домен у nginx")
 

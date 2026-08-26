@@ -157,13 +157,13 @@ class PrivateOnlyMiddleware(BaseMiddleware):
             # Без згадки тримаємо паузу на тему: у розмові про доставку слово
             # «доставка» звучить десять разів поспіль, і десять однакових
             # відповідей — це той самий спам, тільки доречний за змістом.
-            if mentioned or _may_speak(chat.id, rule.key):
+            if mentioned or _may_speak(chat.id, rule.key, getattr(tg_user, "id", None)):
                 await _reply_public(event, rule)
             return None
 
         # Нічого конкретного. Мовчимо — крім випадку, коли бота покликали
         # явно: залишити пряме звернення без відповіді було б неввічливо.
-        if mentioned and _may_speak(chat.id, "fallback"):
+        if mentioned and _may_speak(chat.id, "fallback", getattr(tg_user, "id", None)):
             await _reply_public(event, None)
 
         return None
@@ -190,34 +190,53 @@ def _mentions_bot(event) -> bool:
     return bool(username) and f"@{username}" in text
 
 
-# Скільки секунд бот мовчить у чаті після відповіді «не знаю».
-# Відповіді по суті це не обмежує: на конкретне питання відповідь потрібна
-# завжди, а от переадресація в приватний чат корисна один раз.
+# Пауза для однієї людини на одну тему. Той самий учасник, який тричі
+# поспіль перепитує про замовлення, отримає відповідь один раз.
 PUBLIC_COOLDOWN = 300
+
+# Нижня межа між будь-якими двома відповідями в чаті. Захист від випадку,
+# коли тему підхоплюють кілька людей одночасно: відповідь потрібна кожному,
+# але не чергою в один рядок.
+CHAT_FLOOR = 15
 
 # Правила, які без прямої згадки не спрацьовують: це ввічливість у розмові
 # між людьми, а не запит до магазину.
 SOCIAL_KEYS = frozenset({"greeting", "thanks"})
-_last_fallback: dict[tuple[int, str], float] = {}
+_last_fallback: dict[tuple, float] = {}
 
 
-def _may_speak(chat_id: int, topic: str) -> bool:
-    """Чи минув час відпочинку для цієї теми в цьому чаті.
+def _may_speak(chat_id: int, topic: str, user_id: int | None = None) -> bool:
+    """Чи можна відповісти зараз на цю тему в цьому чаті.
 
-    Пауза окрема на кожну тему: питання про доставку не має затикати
-    відповідь про оплату, яка прозвучить хвилиною пізніше.
+    Пауза рахується на трійку «чат + тема + людина», а не на чат цілком.
+    Причина видно на живому прикладі: людина питає «як купити», через
+    хвилину інша питає те саме — і другій бот мовчав би, хоч вона питає
+    вперше. Питання кожного учасника заслуговує на відповідь.
+
+    Тема окремо від теми: питання про доставку не має затикати відповідь
+    про оплату, яка прозвучить хвилиною пізніше.
     """
     import time
 
-    key = (chat_id, topic)
     now = time.monotonic()
+
+    # Нижня межа на чат: якщо тему підхопили кілька людей одночасно,
+    # відповіді підуть, але не суцільним стовпчиком.
+    floor_key = (chat_id, "*floor*")
+    last_any = _last_fallback.get(floor_key)
+    if last_any is not None and now - last_any < CHAT_FLOOR:
+        return False
+
+    key = (chat_id, topic, user_id)
     previous = _last_fallback.get(key)
     # Дефолт 0.0 тут був би помилкою: monotonic() відлічує від старту
     # системи, і в перші хвилини після перезавантаження різниця з нулем
     # менша за паузу — бот мовчав би на перше ж звернення в кожному чаті.
     if previous is not None and now - previous < PUBLIC_COOLDOWN:
         return False
+
     _last_fallback[key] = now
+    _last_fallback[floor_key] = now
     # Словник живе в памʼяті процесу й не росте безмежно: чатів у магазину
     # одиниці, а перезапуск просто скидає лічильники.
     return True

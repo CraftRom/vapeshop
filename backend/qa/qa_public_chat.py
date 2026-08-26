@@ -51,15 +51,21 @@ shop = ShopSettings.from_env()
 
 print("\n--- відпочинок між відповідями ---")
 _last_fallback.clear()
-r.check(_may_speak(-100500, "delivery"), "перша відповідь проходить")
-r.check(not _may_speak(-100500, "delivery"), "друга поспіль на ту саму тему — ні")
-r.check(not _may_speak(-100500, "delivery"), "третя теж ні")
-r.check(_may_speak(-100500, "payment"), "інша тема не заблокована сусідньою")
-r.check(_may_speak(-100777, "delivery"), "інший чат не заблокований сусіднім")
+from bot.middlewares import CHAT_FLOOR as _FLOOR       # noqa: E402
+
+r.check(_may_speak(-100500, "delivery", 1), "перша відповідь проходить")
+r.check(not _may_speak(-100500, "delivery", 1), "друга поспіль на ту саму тему — ні")
+r.check(not _may_speak(-100500, "delivery", 1), "третя теж ні")
+# Нижню межу на чат відмотуємо: тут перевіряємо саме поділ за темами,
+# а не ритм відповідей.
+_last_fallback[(-100500, "*floor*")] -= _FLOOR + 1
+r.check(_may_speak(-100500, "payment", 1), "інша тема не заблокована сусідньою")
+r.check(_may_speak(-100777, "delivery", 1), "інший чат не заблокований сусіднім")
 r.check(PUBLIC_COOLDOWN >= 60, f"пауза не символічна: {PUBLIC_COOLDOWN} с")
 
-_last_fallback[(-100500, "delivery")] -= PUBLIC_COOLDOWN + 1
-r.check(_may_speak(-100500, "delivery"), "після паузи бот знову відповідає")
+_last_fallback[(-100500, "delivery", 1)] -= PUBLIC_COOLDOWN + 1
+_last_fallback[(-100500, "*floor*")] -= _FLOOR + 1
+r.check(_may_speak(-100500, "delivery", 1), "після паузи бот знову відповідає")
 
 print("\n--- ключові слова працюють без згадки ---")
 # Саме те, чого бракувало: у групі бот мовчав, поки його не покличуть.
@@ -208,5 +214,77 @@ r.check(faq._close("заммов", "замов"), "зайва буква")
 r.check(faq._close("замав", "замов"), "замінена буква")
 r.check(not faq._close("завм", "замов"), "дві правки — вже ні")
 r.check(not faq._close("оплата", "замов"), "різні слова")
+
+print("\n--- розширений словник ---")
+WIDE = [
+    ("почім це", "price"), ("скільки за одну", "price"),
+    ("що там є", "catalog"), ("покажіть смаки", "catalog"),
+    ("є новинки?", "catalog"), ("які моделі", "catalog"),
+    ("самовивіз можливий", "delivery"), ("коли дійде", "delivery"),
+    ("нову пошту відправляєте", "delivery"),
+    ("гуртом берете", "wholesale"), ("до котрої працюєте", "hours"),
+    ("є знижки", "promo"), ("хочу купити", "order"), ("де замовити", "order"),
+]
+for phrase, expected in WIDE:
+    rule = faq.match(phrase, shop, public=True)
+    r.check(rule is not None and rule.key == expected,
+            f"{phrase!r} → {expected}", rule.key if rule else None)
+
+print("\n--- побутова розмова лишається без відповіді ---")
+SMALLTALK = ["Ооо", "ага", "поїхали на дачу", "дороги розбиті", "хто дивився матч",
+             "тут дощ", "кава смачна", "вже пізно", "завтра вихідний"]
+for phrase in SMALLTALK:
+    rule = faq.match(phrase, shop, public=True)
+    r.check(rule is None or rule.key in {"greeting", "thanks"},
+            f"мовчить: {phrase!r}", rule.key if rule else None)
+
+print("\n--- пауза персональна, а не спільна ---")
+from bot.middlewares import CHAT_FLOOR                    # noqa: E402
+_last_fallback.clear()
+r.check(_may_speak(-500, "order", 111), "перший учасник отримує відповідь")
+r.check(not _may_speak(-500, "order", 111), "він же повторно — ні")
+
+# Найважливіше: інша людина питає те саме вперше й має отримати відповідь.
+_last_fallback[(-500, "*floor*")] -= CHAT_FLOOR + 1
+r.check(_may_speak(-500, "order", 222), "інший учасник — так")
+
+_last_fallback[(-500, "*floor*")] -= CHAT_FLOOR + 1
+r.check(_may_speak(-500, "delivery", 111), "той самий учасник, інша тема — так")
+
+r.check(CHAT_FLOOR < PUBLIC_COOLDOWN, "нижня межа менша за персональну паузу")
+
+# Нижня межа не дає стовпчика відповідей поспіль
+r.check(not _may_speak(-500, "price", 333), "нижня межа тримає ритм")
+
+print("\n--- жива мова клієнтів ---")
+LIVE2 = [
+    ("Як купити", "order"), ("Хочу купити", "order"), ("Де замовити", "order"),
+    ("почім", "price"), ("скільки за штуку", "price"), ("скиньте прайс", "price"),
+    ("що маєте", "catalog"), ("є щось нове", "catalog"), ("покажіть смаки", "catalog"),
+    ("самовивіз є?", "delivery"), ("укрпоштою відправляєте", "delivery"),
+    ("монобанк приймаєте", "payment"), ("накладений платіж можна", "payment"),
+    ("до котрої працюєте", "hours"), ("ви на місці", "hours"),
+    ("гуртом можна", "wholesale"), ("є знижки", "promo"),
+]
+for phrase, expected in LIVE2:
+    rule = faq.match(phrase, shop, public=True)
+    r.check(rule is not None and rule.key == expected,
+            f"{phrase!r} → {expected}", rule.key if rule else None)
+
+print("\n--- розширення не зачепило сторонніх розмов ---")
+NOISE2 = ["Ооо", "ага", "+", "погода жахлива", "дорога розбита",
+          "чек з магазину загубив", "смаколики принесли", "вибір складний",
+          "приват банк відділення закрили",
+          "завтра вихідний", "картина гарна", "платівку купив учора"]
+for phrase in NOISE2:
+    rule = faq.match(phrase, shop, public=True)
+    r.check(rule is None, f"стороннє не чіпаємо: {phrase!r}",
+            rule.key if rule else None)
+
+# Свідомо прийнятий компроміс, а не недогляд: «новинки» — надто корисне
+# слово для магазину, щоб його прибирати заради «новинки кіно». Ціна
+# помилки мала: одна відповідь, яку до того ж гасить пауза на людину.
+r.check(faq.match("новинки кіно дивились", shop, public=True) is not None,
+        "«новинки» лишається робочим ключем попри рідкий хибний збіг")
 
 r.done()
