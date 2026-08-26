@@ -46,6 +46,14 @@ class Settings(BaseSettings):
     # контейнер Postgres, інакше pg_dump писав би в порожнечу.
     backup_dir: str = "/backups"
 
+    # --- Журнал ---
+    # Ті самі значення читає shop/logging_setup.py напряму з оточення.
+    # Дублювання навмисне: логування налаштовується найпершим, ще до збірки
+    # налаштувань — інакше помилку самої конфігурації нікуди було б записати.
+    log_dir: str = "/var/log/elfar"
+    log_json: bool = True
+    log_level: str = "INFO"
+
     # --- База ---
     # DATABASE_URL можна не задавати — тоді збереться з POSTGRES_*.
     # Так пароль БД зберігається в одному місці й не розходиться.
@@ -242,6 +250,14 @@ class Settings(BaseSettings):
 
         report.append(entry("DATABASE_URL", self.db_url, "critical",
                             "Адреса Postgres"))
+        report.append(entry("LOG_DIR", self.log_dir, "important",
+                            "Куди пишуться файли журналу. Порожньо — лише stdout"))
+        report.append(entry(
+            "LOG_LEVEL",
+            self.log_level.upper() in ("DEBUG", "INFO", "WARNING", "ERROR"),
+            "important",
+            f"Рівень журналу: {self.log_level}",
+        ))
 
         report.append(entry("ADMIN_CHAT_ID", self.admin_chat_id, "important",
                             "Чат, куди падають нові замовлення. Задається й у панелі"))

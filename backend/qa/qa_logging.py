@@ -152,4 +152,29 @@ r.check(plain_file.exists() and plain_file.read_text(encoding="utf-8").startswit
         "у файлі лишається JSON навіть у текстовому режимі")
 r.check(console_ok, "текстовий режим не падає")
 
+print("\n--- налаштування діють на всі сервіси ---")
+import yaml
+
+compose = yaml.safe_load(
+    (Path(__file__).resolve().parents[2] / "deploy" / "docker-compose.prod.yml")
+    .read_text(encoding="utf-8")
+)
+for service in ("api", "bot", "scheduler", "migrate"):
+    spec = compose["services"][service]
+    r.check(spec.get("env_file") == "../.env",
+            f"{service} читає .env — отже бачить LOG_JSON і LOG_LEVEL",
+            spec.get("env_file"))
+
+print("\n--- значення читаються і з .env, коли оточення порожнє ---")
+from shop.logging_setup import _from_settings
+
+r.check(_from_settings("log_level", "INFO") is not None, "log_level доступний")
+r.check(_from_settings("неіснуюче_поле", "запасне") == "запасне",
+        "невідоме поле повертає запасне значення")
+
+print("\n--- .env.example описує всі три змінні ---")
+example = (Path(__file__).resolve().parents[2] / ".env.example").read_text(encoding="utf-8")
+for key in ("LOG_DIR", "LOG_JSON", "LOG_LEVEL"):
+    r.check(f"{key}=" in example, f"{key} задокументовано")
+
 r.done()

@@ -72,14 +72,38 @@ class TextFormatter(logging.Formatter):
         super().__init__("%(asctime)s %(levelname)-8s %(name)s: %(message)s")
 
 
+def _from_settings(field: str, fallback):
+    """Значення з .env через налаштування, якщо в оточенні його немає.
+
+    Імпорт усередині функції навмисно: shop.config тягне за собою pydantic
+    і валідацію, а логування має піднятися навіть тоді, коли конфігурація
+    зламана — інакше причину поломки нікуди буде записати.
+    """
+    try:
+        from shop.config import settings
+
+        return getattr(settings, field, fallback)
+    except Exception:
+        return fallback
+
+
 def setup(service: str) -> logging.Logger:
     """Налаштовує логування для сервісу: api, bot або scheduler.
 
     Викликати один раз на старті процесу. Повторний виклик безпечний —
     старі обробники знімаються, інакше кожен рядок дублювався б.
     """
-    level = getattr(logging, os.environ.get("LOG_LEVEL", "INFO").upper(), logging.INFO)
-    as_json = os.environ.get("LOG_JSON", "1") != "0"
+    # Спершу оточення, потім .env через налаштування. Порядок такий, бо в
+    # контейнері діють змінні, а при локальному запуску їх в оточенні немає —
+    # там значення лежать у .env, і без цього запасного шляху файлове
+    # логування мовчки не вмикалося б поза docker.
+    level_name = os.environ.get("LOG_LEVEL") or _from_settings("log_level", "INFO")
+    level = getattr(logging, str(level_name).upper(), logging.INFO)
+
+    raw_json = os.environ.get("LOG_JSON")
+    as_json = raw_json != "0" if raw_json is not None else bool(
+        _from_settings("log_json", True)
+    )
 
     root = logging.getLogger()
     root.setLevel(level)
@@ -90,7 +114,7 @@ def setup(service: str) -> logging.Logger:
     console.setFormatter(JsonFormatter(service) if as_json else TextFormatter())
     root.addHandler(console)
 
-    directory = os.environ.get("LOG_DIR", "")
+    directory = os.environ.get("LOG_DIR") or str(_from_settings("log_dir", ""))
     if directory:
         try:
             path = Path(directory)
