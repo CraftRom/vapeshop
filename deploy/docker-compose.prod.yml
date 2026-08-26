@@ -70,7 +70,7 @@ services:
 
   api:
     volumes:
-      - ./logs:/var/log/elfar
+      - ${HOST_LOG_DIR:-./logs}:/var/log/elfar
     build: *backend-build
     restart: always
     command: >
@@ -97,7 +97,7 @@ services:
 
   bot:
     volumes:
-      - ./logs:/var/log/elfar
+      - ${HOST_LOG_DIR:-./logs}:/var/log/elfar
     build: *backend-build
     restart: always
     command: python -m bot
@@ -129,8 +129,8 @@ services:
       redis:
         condition: service_healthy
     volumes:
-      - ./backups:/backups
-      - ./logs:/var/log/elfar
+      - ${HOST_BACKUP_DIR:-./backups}:/backups
+      - ${HOST_LOG_DIR:-./logs}:/var/log/elfar
     deploy:
       resources:
         limits: {memory: 512M}

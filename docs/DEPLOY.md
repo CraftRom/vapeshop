@@ -539,6 +539,18 @@ jq 'select(.event=="auth.login.failed")' logs/api.log
 його довжина. Цього досить, щоб відрізнити помилку набору від перебору,
 і замало, щоб журнал сам став витоком.
 
+**Куди саме лягають файли.** `LOG_DIR` — шлях усередині контейнера,
+`HOST_LOG_DIR` — тека на сервері, куди він змонтований. Змінювати треба
+другий: перший сам по собі нічого не переносить. За замовчуванням це
+`deploy/logs`, поруч із `deploy/backups`. Щоб тримати логи в системному
+місці:
+
+```bash
+sudo install -d -o shop -g shop -m 750 /var/log/elfar
+# у .env:  HOST_LOG_DIR=/var/log/elfar
+docker compose -f docker-compose.prod.yml up -d --force-recreate api bot scheduler
+```
+
 Файли ротуються за розміром (10 МБ, 5 копій), а старі ротовані прибирає
 планувальник за `LOG_RETENTION_DAYS`. Активний файл не чіпається: процес
 тримає його відкритим, і видалення зробило б журнал невидимим.
@@ -588,6 +600,7 @@ docker compose -f docker-compose.prod.yml up -d --force-recreate api bot schedul
 | `migrate` падає | База ще не готова | `docker compose ps db` — має бути `healthy` |
 | API: password authentication failed | `POSTGRES_PASSWORD` ≠ пароль у `DATABASE_URL` | Вирівняйте, `up -d --force-recreate api db` |
 | Панель: «Бекенд не налаштований» | Бракує змінних | Список — у самому повідомленні на екрані |
+| 502 після `up -d --force-recreate api` | nginx закешував стару адресу контейнера | Оновіть `nginx/app.conf` із резолвером, `restart nginx` |
 | Панель не пускає з правильним паролем | Змінна не перечиталась | `up -d --force-recreate api` |
 | Бот мовчить | Лишився активний вебхук | `deleteWebhook`, потім `restart bot` |
 | Бот забуває крок оформлення | Немає `REDIS_URL` | Додайте Redis у `.env` |

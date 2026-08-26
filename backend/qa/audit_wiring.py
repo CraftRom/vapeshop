@@ -136,6 +136,13 @@ check("dashboard_static" in http_part,
 check("include /etc/nginx/hsts.d" in nginx_conf,
       "HSTS умовний: інакше браузер заблокує запасний HTTP")
 check(nginx_conf.count("{") == nginx_conf.count("}"), "дужки в конфізі nginx збалансовані")
+check("resolver 127.0.0.11" in nginx_conf,
+      "nginx перечитує адреси контейнерів — інакше після recreate буде вічний 502")
+check("proxy_pass http://api" not in nginx_conf,
+      "proxy_pass через змінну: з літералом адреса кешується назавжди")
+check("$api_backend" in nginx_conf, "адреса API підставляється змінною")
+check("HOST_LOG_DIR" in compose_src and "HOST_BACKUP_DIR" in compose_src,
+      "теки логів і бекапів на сервері налаштовні, а не зашиті")
 
 greeting = read("backend/bot/greeting.py")
 check("/start" not in str(__import__("re").search(r"PUBLIC_COMMANDS = \(([^)]*)\)", greeting).group(1)),
