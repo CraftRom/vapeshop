@@ -86,6 +86,16 @@ check("127.0.0.1" in cert,
       "локальна перевірка окремо від зовнішньої")
 check("redirect.d" in cert and "hsts.d" in cert,
       "HTTPS-режим вмикається лише після справжнього сертифіката")
+check("--cert-name" in cert,
+      "шлях до сертифіката прибитий — інакше certbot створює live/<домен>-0001")
+check("SCRIPT_VERSION" in cert, "скрипт друкує свою версію")
+check("rm -f nginx/redirect.d" in cert,
+      "невдалий запуск відкочує режим у HTTP, а не лишає nginx мертвим")
+import re as _re
+_used = set(_re.findall(r"\$\{([A-Z_]+)[}:]", cert))
+_defined = set(_re.findall(r"^([A-Z_]+)=", cert, _re.M)) | {"CERTBOT_EMAIL"}
+check(not (_used - _defined), "у скрипті немає невизначених змінних",
+      sorted(_used - _defined))
 nginx_conf = read("deploy/nginx/app.conf")
 http_part = nginx_conf[nginx_conf.index("listen 80;"):nginx_conf.index("listen 443")]
 check("dashboard_static" in http_part,

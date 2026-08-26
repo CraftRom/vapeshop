@@ -13,7 +13,10 @@
 # Тому тут entrypoint явно перевизначається на сам certbot.
 set -euo pipefail
 
+SCRIPT_VERSION="2026-08-26.3"
+
 cd "$(dirname "$0")"
+echo "certbot-init ${SCRIPT_VERSION}"
 COMPOSE="docker compose -f docker-compose.prod.yml"
 
 [[ $# -ge 1 ]] || { echo "Вкажіть домени: ./certbot-init.sh elfar.pp.ua www.elfar.pp.ua" >&2; exit 1; }
@@ -140,8 +143,15 @@ echo "    Ззовні доступний"
 echo "==> Замовляю сертифікат"
 # --force-renewal: інакше certbot побачить свіжий самопідписаний файл
 # і вирішить, що поновлювати ще рано.
+# --cert-name прибиває шлях до сертифіката намертво.
+#
+# Без нього certbot іменує каталог за першим доменом, але при зміні набору
+# доменів вважає це новим сертифікатом і створює live/<домен>-0001. Nginx
+# продовжує дивитись у live/<домен>, не знаходить оновлення й падає —
+# при тому що certbot щойно написав «Successfully received certificate».
 $COMPOSE run --rm --entrypoint certbot certbot \
     certonly --webroot -w /var/www/certbot \
+    --cert-name "$DOMAIN" \
     "${DOMAIN_ARGS[@]}" \
     --email "$EMAIL" --agree-tos --no-eff-email \
     --force-renewal
@@ -156,4 +166,29 @@ echo 'add_header Strict-Transport-Security "max-age=31536000" always;' > nginx/h
 
 echo "==> Перезапускаю nginx із сертифікатом"
 $COMPOSE restart nginx
-echo "Готово. Перевірка:  curl -sI https://${PROBE} | head -1"
+
+for attempt in 1 2 3 4 5 6 7 8 9 10; do
+    state=$($COMPOSE ps --format '{{.State}}' nginx 2>/dev/null | head -1)
+    [[ "$state" == "running" ]] && break
+    sleep 2
+done
+
+if [[ "$state" != "running" ]]; then
+    # Відкочуємо HTTPS-режим: краще працюючий сайт по HTTP, ніж мертвий
+    # nginx. Інакше одна невдача лишає магазин недоступним геть.
+    rm -f nginx/redirect.d/force-https.conf nginx/hsts.d/hsts.conf
+    $COMPOSE restart nginx >/dev/null 2>&1 || true
+    echo "" >&2
+    echo "nginx не піднявся з новим сертифікатом — повернув режим HTTP." >&2
+    echo "Найчастіша причина: сертифікат ліг не за тим шляхом." >&2
+    echo "" >&2
+    echo "Перевірте, що бачить certbot і куди дивиться nginx:" >&2
+    echo "    $COMPOSE run --rm --entrypoint certbot certbot certificates" >&2
+    echo "    grep ssl_certificate nginx/app.conf" >&2
+    $COMPOSE logs --tail 10 nginx >&2
+    exit 1
+fi
+
+echo ""
+echo "Готово. Перевірка:"
+echo "    curl -sI https://${DOMAIN} | head -1"
