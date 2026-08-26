@@ -89,6 +89,12 @@ check("redirect.d" in cert and "hsts.d" in cert,
 check("--cert-name" in cert,
       "шлях до сертифіката прибитий — інакше certbot створює live/<домен>-0001")
 check("SCRIPT_VERSION" in cert, "скрипт друкує свою версію")
+check("renewal/${DOMAIN}.conf" in cert,
+      "заглушка відрізняється від справжнього сертифіката за renewal-конфігом")
+check(cert.index("rm -rf /etc/letsencrypt/live") < cert.index("certonly --webroot"),
+      "заглушка прибирається до запиту — інакше certbot скаржиться на live directory")
+check("--force-renewal" in cert and "FORCE=()" in cert,
+      "--force-renewal лише при поновленні, щоб не палити ліміт Let's Encrypt")
 
 log_setup = read("backend/shop/logging_setup.py")
 check("RotatingFileHandler" in log_setup, "журнал ротується за розміром")

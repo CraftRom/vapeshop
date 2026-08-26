@@ -13,7 +13,7 @@
 # Тому тут entrypoint явно перевизначається на сам certbot.
 set -euo pipefail
 
-SCRIPT_VERSION="2026-08-26.3"
+SCRIPT_VERSION="2026-08-26.4"
 
 cd "$(dirname "$0")"
 echo "certbot-init ${SCRIPT_VERSION}"
@@ -140,6 +140,34 @@ if ! curl -sS --max-time 10 -o /dev/null -w '%{http_code}' "http://${DOMAIN}/" 2
 fi
 echo "    Ззовні доступний"
 
+# Прибираємо заглушку перед запитом.
+#
+# Certbot відмовляється працювати з каталогом live/<домен>, якого він не
+# створював: «live directory exists». А створювали його ми — щоб nginx мав
+# що завантажити й узагалі піднявся. Ознака заглушки проста: є live/, але
+# немає renewal/<домен>.conf, який certbot пише для кожного справжнього
+# сертифіката.
+#
+# Видаляти безпечно саме зараз: nginx уже стартував і тримає сертифікат
+# у памʼяті, файли йому більше не потрібні до перезапуску.
+MANAGED=0
+if $COMPOSE run --rm --entrypoint sh certbot \
+        -c "test -f /etc/letsencrypt/renewal/${DOMAIN}.conf" 2>/dev/null; then
+    MANAGED=1
+    echo "==> Знайдено сертифікат під керуванням certbot — це поновлення"
+else
+    echo "==> Прибираю тимчасову заглушку"
+    $COMPOSE run --rm --entrypoint sh certbot \
+        -c "rm -rf /etc/letsencrypt/live/${DOMAIN} /etc/letsencrypt/archive/${DOMAIN}" \
+        >/dev/null 2>&1 || true
+fi
+
+# --force-renewal доречний лише при поновленні. Для першого випуску він
+# зайвий і марно витрачає ліміт Let's Encrypt: 5 сертифікатів на однаковий
+# набір доменів за тиждень, і кожна невдала спроба теж рахується.
+FORCE=()
+[[ $MANAGED -eq 1 ]] && FORCE=(--force-renewal)
+
 echo "==> Замовляю сертифікат"
 # --force-renewal: інакше certbot побачить свіжий самопідписаний файл
 # і вирішить, що поновлювати ще рано.
@@ -154,7 +182,7 @@ $COMPOSE run --rm --entrypoint certbot certbot \
     --cert-name "$DOMAIN" \
     "${DOMAIN_ARGS[@]}" \
     --email "$EMAIL" --agree-tos --no-eff-email \
-    --force-renewal
+    "${FORCE[@]}"
 
 echo "==> Вмикаю HTTPS-режим"
 # Доки сертифіката не було, сайт віддавався по HTTP. Тепер можна і
