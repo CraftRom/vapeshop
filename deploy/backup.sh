@@ -7,7 +7,20 @@
 set -euo pipefail
 
 cd "$(dirname "$0")"
-source ../.env
+# Читаємо .env безпечно, а не через source.
+#
+# `source` виконує файл як скрипт, і значення з пробілами його ламають:
+# CARD_NUMBER=0000 0000 0000 0000 перетворюється на спробу запустити
+# команду «0000». Помилка виглядає загадково («0000: command not found»)
+# і не зупиняє скрипт — він просто йде далі без потрібних змінних.
+env_value() {
+    sed -n "s/^$1=//p" ../.env | head -1 | sed 's/^["'"'"']//; s/["'"'"']$//'
+}
+
+POSTGRES_USER=$(env_value POSTGRES_USER)
+POSTGRES_PASSWORD=$(env_value POSTGRES_PASSWORD)
+POSTGRES_DB=$(env_value POSTGRES_DB)
+export POSTGRES_USER POSTGRES_PASSWORD POSTGRES_DB
 
 COMPOSE="docker compose -f docker-compose.prod.yml"
 STAMP=$(date +%F_%H%M)

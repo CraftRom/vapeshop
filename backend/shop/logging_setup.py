@@ -72,6 +72,48 @@ class TextFormatter(logging.Formatter):
         super().__init__("%(asctime)s %(levelname)-8s %(name)s: %(message)s")
 
 
+# Усі рівні стандартної бібліотеки плюс звичні синоніми.
+#
+# WARN і FATAL офіційно застарілі, але їх пишуть за звичкою, і мовчки
+# ігнорувати їх — значить дати людині журнал не того рівня без пояснень.
+LEVELS = {
+    "NOTSET": logging.NOTSET,       # 0  — усе, включно з чужими бібліотеками
+    "TRACE": logging.DEBUG,         # 10 — синонім DEBUG, звичка з інших мов
+    "DEBUG": logging.DEBUG,         # 10
+    "INFO": logging.INFO,           # 20
+    "WARNING": logging.WARNING,     # 30
+    "WARN": logging.WARNING,        # 30
+    "ERROR": logging.ERROR,         # 40
+    "CRITICAL": logging.CRITICAL,   # 50
+    "FATAL": logging.CRITICAL,      # 50
+}
+
+
+def resolve_level(value) -> tuple[int, bool]:
+    """Рівень журналу з назви або числа.
+
+    Повертає (рівень, чи_була_проблема). Друге значення потрібне, щоб той,
+    хто викликає, міг повідомити про одруківку — сам по собі запасний
+    варіант INFO виглядав би як «налаштування не працює».
+
+    Числа приймаються теж: logging їх підтримує, і між DEBUG та INFO
+    інколи ставлять 15, щоб приглушити конкретну бібліотеку.
+    """
+    if value is None or str(value).strip() == "":
+        return logging.INFO, False
+
+    raw = str(value).strip().upper()
+    if raw in LEVELS:
+        return LEVELS[raw], False
+
+    if raw.lstrip("-").isdigit():
+        number = int(raw)
+        if 0 <= number <= 100:
+            return number, False
+
+    return logging.INFO, True
+
+
 def _from_settings(field: str, fallback):
     """Значення з .env через налаштування, якщо в оточенні його немає.
 
@@ -98,7 +140,7 @@ def setup(service: str) -> logging.Logger:
     # там значення лежать у .env, і без цього запасного шляху файлове
     # логування мовчки не вмикалося б поза docker.
     level_name = os.environ.get("LOG_LEVEL") or _from_settings("log_level", "INFO")
-    level = getattr(logging, str(level_name).upper(), logging.INFO)
+    level, level_problem = resolve_level(level_name)
 
     raw_json = os.environ.get("LOG_JSON")
     as_json = raw_json != "0" if raw_json is not None else bool(
@@ -109,6 +151,13 @@ def setup(service: str) -> logging.Logger:
     root.setLevel(level)
     for handler in list(root.handlers):
         root.removeHandler(handler)
+
+    if level_problem:
+        # Не мовчимо. Мовчазне падіння на INFO — найгірший варіант: людина
+        # виставила DEBUG заради розслідування, отримала звичайний журнал
+        # і шукає причину в застосунку, а вона в одруківці.
+        root.warning("Невідомий рівень журналу %r — узято INFO", level_name,
+                     extra={"event": "log.level.invalid", "requested": str(level_name)})
 
     console = logging.StreamHandler(sys.stdout)
     console.setFormatter(JsonFormatter(service) if as_json else TextFormatter())

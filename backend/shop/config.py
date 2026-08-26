@@ -252,11 +252,14 @@ class Settings(BaseSettings):
                             "Адреса Postgres"))
         report.append(entry("LOG_DIR", self.log_dir, "important",
                             "Куди пишуться файли журналу. Порожньо — лише stdout"))
+        from shop.logging_setup import resolve_level
+
+        _level, _bad = resolve_level(self.log_level)
         report.append(entry(
-            "LOG_LEVEL",
-            self.log_level.upper() in ("DEBUG", "INFO", "WARNING", "ERROR"),
-            "important",
-            f"Рівень журналу: {self.log_level}",
+            "LOG_LEVEL", not _bad, "important",
+            f"Рівень журналу: {self.log_level} ({_level})" if not _bad else
+            f"Невідомий рівень {self.log_level!r} — діє INFO. "
+            "Доступні: NOTSET, DEBUG, INFO, WARNING, ERROR, CRITICAL або число 0–100",
         ))
 
         report.append(entry("ADMIN_CHAT_ID", self.admin_chat_id, "important",

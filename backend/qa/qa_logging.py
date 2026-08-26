@@ -177,4 +177,47 @@ example = (Path(__file__).resolve().parents[2] / ".env.example").read_text(encod
 for key in ("LOG_DIR", "LOG_JSON", "LOG_LEVEL"):
     r.check(f"{key}=" in example, f"{key} задокументовано")
 
+print("\n--- рівні журналу ---")
+from shop.logging_setup import LEVELS, resolve_level
+
+for name, expected in [("DEBUG", 10), ("INFO", 20), ("WARNING", 30),
+                       ("ERROR", 40), ("CRITICAL", 50), ("NOTSET", 0)]:
+    got, bad = resolve_level(name)
+    r.check(got == expected and not bad, f"{name} → {expected}", (got, bad))
+    got, bad = resolve_level(name.lower())
+    r.check(got == expected and not bad, f"{name.lower()} (нижній регістр) → {expected}")
+
+for alias, expected in [("WARN", 30), ("FATAL", 50), ("TRACE", 10)]:
+    got, bad = resolve_level(alias)
+    r.check(got == expected and not bad, f"синонім {alias} → {expected}", got)
+
+for number, expected in [("15", 15), ("0", 0), ("50", 50)]:
+    got, bad = resolve_level(number)
+    r.check(got == expected and not bad, f"число {number} → {expected}", got)
+
+r.check(resolve_level(" info ")[0] == 20, "пробіли навколо значення не заважають")
+for empty in ("", None):
+    got, bad = resolve_level(empty)
+    r.check(got == 20 and not bad, f"порожнє значення → INFO без скарги: {empty!r}")
+
+print("\n--- одруківка помічається, а не ковтається ---")
+for wrong in ("ВЕРБОЗ", "999", "-5", "TRAСE"):
+    got, bad = resolve_level(wrong)
+    r.check(got == 20 and bad, f"{wrong!r} → INFO і позначено як проблему", (got, bad))
+
+print("\n--- рівень справді фільтрує ---")
+os.environ["LOG_JSON"] = "1"
+for name, should_pass in [("DEBUG", True), ("ERROR", False)]:
+    directory = tempfile.mkdtemp(prefix=f"qa_lvl_{name}_")
+    os.environ["LOG_DIR"] = directory
+    os.environ["LOG_LEVEL"] = name
+    probe = setup("api")
+    probe.info("перевірка рівня")
+    written = Path(directory) / "api.log"
+    got = written.exists() and "перевірка рівня" in written.read_text(encoding="utf-8")
+    r.check(got == should_pass,
+            f"на рівні {name} запис INFO {'проходить' if should_pass else 'відсічений'}")
+
+r.check(len(LEVELS) >= 9, f"перелік рівнів повний: {len(LEVELS)}")
+
 r.done()

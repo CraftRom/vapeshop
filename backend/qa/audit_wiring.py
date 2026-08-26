@@ -110,6 +110,18 @@ for _svc in ("api", "bot", "scheduler"):
     check(compose_src.count(f"\n  {_svc}:\n") == 1, f"{_svc} оголошений один раз")
 check("prune_logs" in read("backend/scheduler/tasks.py"),
       "старі файли журналу прибираються за ретенцією")
+
+for _script in ("deploy/backup.sh", "deploy/restore.sh"):
+    _src = read(_script)
+    check("source ../.env" not in _src,
+          f"{_script} не виконує .env як скрипт — значення з пробілами його ламають")
+    check("env_value" in _src, f"{_script} читає .env безпечно")
+
+_api = _compose["services"]["api"]
+check("--workers 1" in _api["command"],
+      "один воркер: другий подвоює памʼять і впирається в ліміт")
+_limit = _api["deploy"]["resources"]["limits"]["memory"]
+check(_limit in ("1G", "1024M"), f"ліміт памʼяті api: {_limit}")
 check("rm -f nginx/redirect.d" in cert,
       "невдалий запуск відкочує режим у HTTP, а не лишає nginx мертвим")
 import re as _re
