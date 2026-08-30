@@ -189,6 +189,16 @@ def setup(service: str) -> logging.Logger:
             # у stdout і кажемо про це прямо.
             root.warning("Файлове логування вимкнено: %s", exc)
 
+    # Сповіщення в Telegram про помилки. Підключаємо останнім, щоб воно
+    # бачило всі записи, включно з тими, які створять обробники вище.
+    if os.environ.get("ALERTS", "1") != "0":
+        try:
+            from shop.alerts import attach
+
+            attach(service)
+        except Exception:
+            root.warning("Сповіщення про помилки не підключені", exc_info=True)
+
     # Ці бібліотеки в режимі INFO друкують кожен HTTP-запит і кожне
     # SQL-звернення — корисно лише під час налагодження.
     for noisy in ("httpx", "httpcore", "aiogram.event", "sqlalchemy.engine"):

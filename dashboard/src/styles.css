@@ -226,6 +226,43 @@ td.num, th.num { text-align: right; font-family: var(--mono); }
 .rail button.current { background: var(--violet); color: #fff; border-color: var(--violet); }
 .rail button.cancelled { background: rgba(242, 96, 126, 0.16); color: var(--rose); border-color: transparent; }
 
+/* ------------------------------------------------------- вкладки розділів */
+
+/* Окремо від .rail: там кнопки ділять ширину порівну, бо статусів рівно
+   п'ять. Розділів інструкції дюжина, і порівну вони перетворюються на
+   смужки по два символи. Тут — природна ширина й горизонтальна прокрутка. */
+.tabs {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding-bottom: 6px;
+  margin-bottom: 16px;
+  scrollbar-width: thin;
+  -webkit-overflow-scrolling: touch;
+}
+
+.tabs button {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  color: var(--faint);
+  padding: 8px 14px;
+  border-radius: 999px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.tabs button:hover { color: var(--text); border-color: var(--violet-dim); }
+.tabs button.active { background: var(--violet); color: #fff; border-color: var(--violet); }
+
+@media (max-width: 760px) {
+  /* На вузькому екрані прокрутка має бути помітною: інакше здається, що
+     розділів рівно стільки, скільки влізло. */
+  .tabs { margin: 0 -14px 14px; padding: 0 14px 8px; }
+  .tabs button { font-size: 13px; padding: 7px 12px; }
+}
+
 /* --------------------------------------------------------------------- чіпи */
 
 .chip {

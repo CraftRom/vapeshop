@@ -24,9 +24,24 @@
   --radius-sm: 10px;
   --gap: 12px;
   --bar-height: 64px;
+
+  /* Каже браузеру, що палітра темна. Без цього iOS малює власні елементи —
+     автозаповнення, календар, випадні списки — за світлою схемою: чорний
+     текст на нашій темній підкладці, тобто невидимий. */
+  color-scheme: dark;
 }
 
 :root[data-scheme='light'] {
+  color-scheme: light;
+
+  /* Світлі відповідники основних кольорів. Раніше тут були лише акценти,
+     і якщо Telegram не надіслав теми (старі клієнти цього не роблять),
+     застосунок лишався з темною палітрою на світлому тлі клієнта. */
+  --tg-bg: #ffffff;
+  --tg-text: #1a1725;
+  --tg-hint: #7a7689;
+  --tg-secondary-bg: #f1eff5;
+
   --accent: #0d9b70;
   --accent-soft: rgba(13, 155, 112, 0.12);
   --warn: #d63b5e;
@@ -118,10 +133,29 @@ button { font: inherit; color: inherit; cursor: pointer; }
 
 .rail {
   display: flex;
-  gap: 8px;
+  gap: 6px;
+  padding: 0 14px 10px;
+  /* Прокрутка, а не перенос: категорій буває півтора десятка, і на
+     широкому екрані вони раніше просто вилазили за межі, а видно їх
+     ставало лише при розтягуванні вікна. */
   overflow-x: auto;
-  padding: 12px 14px;
-  scrollbar-width: none;
+  scrollbar-width: thin;
+  -webkit-overflow-scrolling: touch;
+  /* Приховуємо смугу прокрутки на десктопі: вона з'їдає висоту рядка,
+     а сам факт прокрутки видно за обрізаною чіпою скраю. */
+  scroll-snap-type: x proximity;
+}
+
+.rail::-webkit-scrollbar { height: 4px; }
+.rail::-webkit-scrollbar-thumb {
+  background: var(--tg-secondary-bg);
+  border-radius: 999px;
+}
+
+.rail > .chip {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  scroll-snap-align: start;
 }
 
 .rail::-webkit-scrollbar { display: none; }
@@ -280,7 +314,37 @@ button { font: inherit; color: inherit; cursor: pointer; }
 
 .input:focus { border-color: var(--accent); }
 
+/* Поле з помилкою. Підсвічуємо саме поле, а не показуємо загальне
+   повідомлення внизу форми: людині треба знати, куди дивитись, а не
+   що «щось не так». */
+.input.bad { border-color: var(--warn); background: var(--warn-soft); }
+
+.field-error {
+  color: var(--warn);
+  font-size: 13px;
+  margin-top: 4px;
+}
+
 .input::placeholder { color: var(--tg-hint); }
+
+/* Автозаповнення. Safari та Chrome підмінюють і колір тексту, і тло
+   власними — на темній темі виходив чорний текст на чорному. color тут
+   не діє взагалі, працює лише -webkit-text-fill-color. */
+.input:-webkit-autofill,
+.input:-webkit-autofill:hover,
+.input:-webkit-autofill:focus {
+  -webkit-text-fill-color: var(--tg-text);
+  -webkit-box-shadow: 0 0 0 1000px var(--tg-secondary-bg) inset;
+  caret-color: var(--tg-text);
+}
+
+/* Запобіжник на майбутнє: будь-яке поле введення успадковує колір, навіть
+   якщо хтось забуде клас .input. Невидимий текст — надто дорога помилка,
+   щоб залежати від уважності. */
+input, textarea, select, button {
+  font-family: inherit;
+  color: inherit;
+}
 
 textarea.input { min-height: 74px; resize: vertical; }
 

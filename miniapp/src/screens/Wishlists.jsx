@@ -38,9 +38,23 @@ export function SavePicker({ product, wishlists, onClose, onChanged }) {
     setBusy(-1)
     setError('')
     try {
-      const created = await api.wishlists.create(value)
-      // Створили список саме щоб покласти туди товар — кладемо одразу
-      onChanged(await api.wishlists.toggle(created.id, product.id))
+      let target
+      try {
+        target = await api.wishlists.create(value)
+      } catch (err) {
+        // Список із такою назвою вже є. Показувати помилку тут безглуздо:
+        // людина хотіла покласти товар у список «Подарунки», і те, що він
+        // уже створений, — не перешкода, а саме те, що потрібно.
+        if (err.status !== 409) throw err
+        const existing = await api.wishlists.list()
+        target = (existing || []).find(
+          (w) => w.name.trim().toLowerCase() === value.toLowerCase(),
+        )
+        if (!target) throw err
+      }
+
+      // Створювали список саме щоб покласти туди товар — кладемо одразу
+      onChanged(await api.wishlists.toggle(target.id, product.id))
       setName('')
       setCreating(false)
     } catch (err) {

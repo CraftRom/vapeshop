@@ -142,25 +142,72 @@ export function ready() {
   tg.disableVerticalSwipes?.()
 }
 
-/** Кольори з клієнта користувача: міні-апп має збігатися з його темою. */
+/** Розбирає #rrggbb у три числа. Повертає null на будь-чому іншому. */
+function parseHex(value) {
+  const match = /^#?([0-9a-f]{6})$/i.exec(String(value || '').trim())
+  if (!match) return null
+  const n = parseInt(match[1], 16)
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255]
+}
+
+function toHex([r, g, b]) {
+  return '#' + [r, g, b].map((v) => Math.max(0, Math.min(255, Math.round(v)))
+    .toString(16).padStart(2, '0')).join('')
+}
+
+/** Колір підкладки, якщо Telegram його не надіслав.
+ *
+ *  Зсуваємо фон на 8% у бік тексту: на світлій темі підкладка стає трохи
+ *  темнішою за фон, на темній — трохи світлішою. В обох випадках текст
+ *  лишається читабельним, бо рухаємось саме до його кольору.
+ */
+function deriveSecondary(bg, text) {
+  const a = parseHex(bg)
+  const b = parseHex(text)
+  if (!a || !b) return null
+  return toHex(a.map((channel, i) => channel + (b[i] - channel) * 0.08))
+}
+
+/** Кольори з клієнта користувача: міні-апп має збігатися з його темою.
+ *
+ *  Застосовуємо все разом або нічого. Раніше кожна змінна ставилась
+ *  окремо, і цього було досить, щоб зламати вигляд: клієнти зі світлою
+ *  темою часто не надсилають secondary_bg_color. Тоді текст ставав
+ *  темним, підкладка полів лишалась нашою темною за замовчуванням — і
+ *  введений текст ставав невидимим.Половина теми гірша за жодну.
+ */
 export function applyTheme() {
   if (!tg) return
   const root = document.documentElement
   const p = tg.themeParams || {}
+
+  // Фон і текст — основа. Без них решта не має сенсу: змішувати чужий
+  // текст із нашим фоном і означає отримати невидимі поля.
+  const bg = parseHex(p.bg_color) ? p.bg_color : null
+  const text = parseHex(p.text_color) ? p.text_color : null
+  if (!bg || !text) {
+    root.dataset.scheme = tg.colorScheme || 'dark'
+    return
+  }
+
   const map = {
-    '--tg-bg': p.bg_color,
-    '--tg-text': p.text_color,
-    '--tg-hint': p.hint_color,
+    '--tg-bg': bg,
+    '--tg-text': text,
+    '--tg-hint': p.hint_color || deriveSecondary(text, bg),
     '--tg-link': p.link_color,
     '--tg-button': p.button_color,
     '--tg-button-text': p.button_text_color,
-    '--tg-secondary-bg': p.secondary_bg_color,
+    '--tg-secondary-bg': p.secondary_bg_color || deriveSecondary(bg, text),
   }
   for (const [name, value] of Object.entries(map)) {
     if (value) root.style.setProperty(name, value)
   }
   root.dataset.scheme = tg.colorScheme || 'dark'
 }
+
+// Експортуємо для тестів: логіка кольорів надто дорога, щоб перевіряти
+// її очима на живому пристрої.
+export const _theme = { parseHex, toHex, deriveSecondary }
 
 export function onThemeChange(handler) {
   tg?.onEvent?.('themeChanged', handler)

@@ -50,6 +50,13 @@ class ShopSettings:
     seller_phone: str
     # Telegram-група
     admin_chat_id: int
+    # Гілки форуму в адмінському каналі. 0 — писати в загальну стрічку.
+    #
+    # У каналі з темами повідомлення без message_thread_id падають у
+    # «General», де їх ніхто не читає. Розділення потрібне ще й тому, що
+    # замовлення й помилки сервера — різні за терміновістю потоки.
+    admin_topic_id: int
+    error_topic_id: int
     admin_ids: str
     # Бот і Mini App
     bot_username: str
@@ -105,6 +112,8 @@ class ShopSettings:
             seller_email=settings.seller_email,
             seller_phone=settings.seller_phone,
             admin_chat_id=settings.admin_chat_id,
+            admin_topic_id=settings.admin_topic_id,
+            error_topic_id=settings.error_topic_id,
             admin_ids=settings.admin_ids,
             bot_username=settings.bot_username,
             miniapp_short_name=settings.miniapp_short_name,

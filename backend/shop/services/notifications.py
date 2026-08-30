@@ -20,6 +20,16 @@ from shop.entities import Order, User
 from shop.repo.base import Repository
 from shop.services.shop_settings import get_shop_settings
 
+def topic_kwargs(topic_id: int) -> dict:
+    """Аргументи адресації в гілку форуму.
+
+    Порожній словник, якщо гілка не задана: message_thread_id=0 Telegram
+    відхиляє помилкою, а None у деяких версіях aiogram теж. Простіше не
+    передавати параметр узагалі.
+    """
+    return {"message_thread_id": topic_id} if topic_id else {}
+
+
 log = logging.getLogger(__name__)
 
 PAYMENT_LABELS = {"card": "картка", "cod": "накладений платіж"}
@@ -74,6 +84,7 @@ async def notify_new_order(bot, repo: Repository, order: Order, user: User) -> b
             shop.admin_chat_id,
             await build_order_text(repo, order, user),
             reply_markup=kb.admin_order(order.id),
+            **topic_kwargs(shop.admin_topic_id),
         )
         return True
     except Exception:

@@ -129,13 +129,15 @@ def _next_update() -> int:
     return UPDATE_ID[0]
 
 
-def message_update(bot: Bot, text: str, tg_id: int = 500001, username: str = "buyer"):
+def message_update(bot: Bot, text: str, tg_id: int = 500001, username: str = "buyer",
+                   chat_id: int | None = None, chat_type: str = "private"):
     return Update.model_validate({
         "update_id": _next_update(),
         "message": {
             "message_id": _next_update(),
             "date": int(datetime.now(timezone.utc).timestamp()),
-            "chat": {"id": tg_id, "type": "private"},
+            "chat": {"id": chat_id if chat_id is not None else tg_id,
+                     "type": chat_type},
             "from": {"id": tg_id, "is_bot": False, "first_name": "Оля",
                      "username": username},
             "text": text,
@@ -401,7 +403,17 @@ async def run(backend: str) -> None:
     # -------------------------------------------------------------- 6. Адмін
     print("\n6. Адмінські дії")
 
+    # /stats лише в адмінському чаті: інакше власник, покликавши його в
+    # сторонній групі, вивалив би туди виручку перед усіма присутніми.
+    admin_chat = int(os.environ.get("ADMIN_CHAT_ID", "-1001234567890"))
+
+    session.clear() if hasattr(session, "clear") else None
     await feed(message_update(bot, "/stats", tg_id=900001, username="admin"))
+    check("у приватному чаті /stats мовчить",
+          "статистика" not in session.all_text().lower(), session.all_text()[:80])
+
+    await feed(message_update(bot, "/stats", tg_id=900001, username="admin",
+                              chat_id=admin_chat, chat_type="supergroup"))
     check("адмін отримує статистику", "статистика" in session.all_text().lower(),
           session.all_text()[:80])
 

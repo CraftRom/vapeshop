@@ -11,6 +11,10 @@ from shop.entities import STATUS_LABELS, OrderStatus
 from shop.repo.base import Repository
 from shop.services.shop_service import change_order_status
 
+import logging
+
+log = logging.getLogger("bot.admin")
+
 router = Router()
 
 
@@ -26,6 +30,13 @@ router.callback_query.filter(IsAdmin())
 
 @router.message(Command("stats"))
 async def stats(message: Message, repo: Repository) -> None:
+    # Лише в адмінському чаті. Раніше вистачало бути в ADMIN_IDS, і власник,
+    # покликавши /stats у сторонній групі, вивалив би туди виручку магазину
+    # перед усіма присутніми.
+    if message.chat.id != current().admin_chat_id:
+        log.info("Спроба /stats поза адмінським чатом: %s", message.chat.id)
+        return
+
     summary = await repo.stats_summary(30)
     shop = await get_shop_settings(repo)
     await message.answer(

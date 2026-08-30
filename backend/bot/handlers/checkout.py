@@ -252,11 +252,14 @@ async def receive_receipt(message: Message, state: FSMContext, repo: Repository)
     if order:
         await repo.update_order(order.id, {"receipt_file_id": message.photo[-1].file_id})
         if current().admin_chat_id:
+            from shop.services.notifications import topic_kwargs
+
             await message.bot.send_photo(
                 current().admin_chat_id,
                 message.photo[-1].file_id,
                 caption=f"Квитанція до замовлення №{order.id}",
                 reply_markup=kb.admin_order(order.id),
+                **topic_kwargs(current().admin_topic_id),
             )
     await state.clear()
     await message.answer("Квитанцію отримано. Менеджер перевірить оплату.", reply_markup=kb.main_menu())

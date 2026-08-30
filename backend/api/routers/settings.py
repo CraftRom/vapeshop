@@ -31,7 +31,7 @@ OPERATOR_FIELDS = {
 # Telegram-група, Бот і Mini App, Розсилки, Тихі години, Бекапи.
 INFRA_FIELDS = {
     # Telegram-група
-    "admin_chat_id", "admin_ids",
+    "admin_chat_id", "admin_ids", "admin_topic_id", "error_topic_id",
     # Бот і Mini App
     "bot_username", "miniapp_short_name", "public_url", "webhook_secret",
     # Розсилки

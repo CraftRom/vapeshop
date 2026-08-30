@@ -217,6 +217,33 @@ check("DELETE ALL" in read("dashboard/src/pages/Orders.jsx"),
       "повне видалення в панелі теж вимагає переписати підтвердження")
 check("logs.download" in read("dashboard/src/pages/Logs.jsx"),
       "у журналі є кнопка скачування файлу")
+
+_mini_css = read("miniapp/src/styles.css")
+check("color-scheme" in _mini_css,
+      "вітрина оголошує схему — інакше iOS малює свої елементи світлими")
+check("-webkit-text-fill-color" in _mini_css,
+      "автозаповнення не робить текст невидимим")
+check("--tg-text" in _mini_css.split("data-scheme='light'")[1].split("}")[0],
+      "світла тема має власні кольори тексту, а не лише акценти")
+check("err.status !== 409" in read("miniapp/src/screens/Wishlists.jsx"),
+      "наявний список використовується замість помилки")
+check(".tabs" in read("dashboard/src/styles.css"),
+      "вкладки інструкцій прокручуються, а не тиснуться в смужки")
+
+check("admin_topic_id" in read("backend/shop/services/shop_settings.py"),
+      "гілка для замовлень налаштовується")
+check("message_thread_id" in read("backend/shop/services/notifications.py"),
+      "замовлення адресуються в гілку форуму")
+_alerts = read("backend/shop/alerts.py")
+check("DEDUP_WINDOW" in _alerts, "однакові помилки згортаються, а не спамлять канал")
+check("RATE_LIMIT" in _alerts, "є межа частоти — Telegram не приймає більше ~20/хв")
+check("_sending" in _alerts, "невдала відправка не породжує нову помилку")
+check("current().admin_chat_id" in read("backend/bot/handlers/admin.py"),
+      "/stats працює лише в адмінському чаті")
+check("normalizePhone" in read("miniapp/src/screens/Checkout.jsx"),
+      "телефон нормалізується до +380")
+check("field-error" in read("miniapp/src/styles.css"),
+      "помилка показується біля свого поля")
 check('extra="forbid"' in read("backend/api/schemas.py"),
       "невідомі поля налаштувань відхиляються, а не ковтаються")
 check("diagnostics" in read("dashboard/src/pages/Logs.jsx"),

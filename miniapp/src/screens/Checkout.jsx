@@ -1,3 +1,36 @@
+
+/** Український номер у єдиному вигляді.
+ *
+ *  Люди вводять по-різному: 0671112233, 380671112233, +38 (067) 111-22-33.
+ *  Нормалізуємо все до +380XXXXXXXXX, а не сваримось за формат — виправити
+ *  за людину дешевше, ніж пояснювати їй правило.
+ */
+export function normalizePhone(raw) {
+  const digits = String(raw || '').replace(/\D/g, '')
+  if (!digits) return ''
+
+  let body = digits
+  if (body.startsWith('380')) body = body.slice(3)
+  else if (body.startsWith('80')) body = body.slice(2)
+  else if (body.startsWith('0')) body = body.slice(1)
+
+  return '+380' + body.slice(0, 9)
+}
+
+/** Текст помилки або порожньо, якщо все гаразд. */
+export function phoneError(value) {
+  const digits = String(value || '').replace(/\D/g, '')
+  if (!digits) return 'Вкажіть номер телефону'
+  const body = digits.startsWith('380') ? digits.slice(3) : digits
+  if (body.length < 9) return `Бракує цифр: ${9 - body.length}`
+  if (body.length > 9) return 'Забагато цифр — в українському номері їх дев\u2019ять'
+  // Українські мобільні коди починаються з 3–9 (039, 050, 063, 066…).
+  // Нуль чи одиниця на цьому місці означає, що людина набрала зайвий
+  // префікс — краще сказати про це одразу, ніж отримати недзвінкий номер.
+  if (!/^[3-9]/.test(body)) return 'Схоже на помилку в коді оператора'
+  return ''
+}
+
 import { useEffect, useState } from 'react'
 
 import { api } from '../api'
@@ -114,6 +147,9 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
   const [promo, setPromo] = useState(null)
   const [checking, setChecking] = useState(false)
   const [busy, setBusy] = useState(false)
+  // Помилку показуємо лише після того, як поле покинули: підсвічувати
+  // порожній номер, поки людина його ще набирає, — це причіпка, а не поміч.
+  const [touched, setTouched] = useState({})
   const [error, setError] = useState('')
 
   useEffect(() => {
@@ -162,7 +198,14 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
 
   const submit = async () => {
     if (!filled) {
+      setTouched({ contact_phone: true })
       setError('Заповніть прізвище, імʼя, телефон, місто та адресу.')
+      return
+    }
+    const phoneProblem = phoneError(form.contact_phone)
+    if (phoneProblem) {
+      setTouched((t) => ({ ...t, contact_phone: true }))
+      setError(`Телефон: ${phoneProblem.toLowerCase()}`)
       return
     }
     setBusy(true)
@@ -218,7 +261,9 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
       </div>
 
       <div className="field">
-        <label htmlFor="patronymic">По батькові</label>
+        <label htmlFor="patronymic">
+          По батькові <span className="faint">— не обовʼязково</span>
+        </label>
         <input id="patronymic" className="input" value={form.contact_patronymic}
                onChange={set('contact_patronymic')} autoComplete="additional-name" />
       </div>
@@ -227,13 +272,24 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
         <label htmlFor="phone">Телефон</label>
         <input
           id="phone"
-          className="input"
+          className={`input ${touched.contact_phone && phoneError(form.contact_phone) ? 'bad' : ''}`}
           type="tel"
           inputMode="tel"
-          placeholder="+380"
+          placeholder="+380XXXXXXXXX"
           value={form.contact_phone}
-          onChange={set('contact_phone')}
+          onFocus={() => {
+            // Підставляємо префікс одразу: так одразу видно, що чекають
+            // український номер, і людина не почне з нуля чи вісімки.
+            if (!form.contact_phone) setForm((f) => ({ ...f, contact_phone: '+380' }))
+          }}
+          onChange={(e) => setForm((f) => ({
+            ...f, contact_phone: normalizePhone(e.target.value),
+          }))}
+          onBlur={() => setTouched((t) => ({ ...t, contact_phone: true }))}
         />
+        {touched.contact_phone && phoneError(form.contact_phone) && (
+          <div className="field-error">{phoneError(form.contact_phone)}</div>
+        )}
       </div>
 
       <div className="field">

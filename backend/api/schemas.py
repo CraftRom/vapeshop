@@ -291,6 +291,8 @@ class ShopSettingsIn(BaseModel):
     seller_email: str | None = Field(None, max_length=128)
     seller_phone: str | None = Field(None, max_length=32)
     admin_chat_id: int | None = None
+    admin_topic_id: int | None = Field(None, ge=0)
+    error_topic_id: int | None = Field(None, ge=0)
     admin_ids: str | None = Field(None, max_length=255)
     bot_username: str | None = Field(None, max_length=64)
     miniapp_short_name: str | None = Field(None, max_length=64)
@@ -382,6 +384,8 @@ class ShopSettingsOut(BaseModel):
     seller_email: str
     seller_phone: str
     admin_chat_id: int
+    admin_topic_id: int
+    error_topic_id: int
     admin_ids: str
     bot_username: str
     miniapp_short_name: str
