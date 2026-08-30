@@ -7,10 +7,13 @@ import tempfile
 from pathlib import Path
 
 sys.path.insert(0, "/tmp")
-LOG_DIR = tempfile.mkdtemp(prefix="qa_logs_")
+DATA_ROOT = tempfile.mkdtemp(prefix="qa_data_")
+LOG_DIR = str(Path(DATA_ROOT) / "logs")
 os.environ.update(BOT_TOKEN="777001:T", JWT_SECRET="t" * 32,
-                  LOG_DIR=LOG_DIR, LOG_JSON="1",
+                  ELFAR_DATA_ROOT=DATA_ROOT, LOG_JSON="1",
                   DATABASE_URL="sqlite+aiosqlite:////tmp/qa_log.db")
+
+os.makedirs(LOG_DIR if "LOG_DIR" in dir() else BACKUP_DIR, exist_ok=True)
 
 from qa_common import Report                              # noqa: E402
 
@@ -140,13 +143,13 @@ r.check(prune_logs(0) == 0, "нульова ретенція нічого не �
 # ------------------------------------------------------------ текстовий режим
 
 print("\n--- режим для розробки ---")
+# Шлях більше не підміняється змінною — у цьому й суть правки: каталог
+# один і той самий, змінюється лише формат консолі.
 os.environ["LOG_JSON"] = "0"
-plain_dir = tempfile.mkdtemp(prefix="qa_logs_plain_")
-os.environ["LOG_DIR"] = plain_dir
 log = setup("bot")
 log.info("читабельний рядок")
 console_ok = True
-plain_file = Path(plain_dir) / "bot.log"
+plain_file = Path(LOG_DIR) / "bot.log"
 # У файл пишемо JSON завжди: файли читають програми, консоль — люди
 r.check(plain_file.exists() and plain_file.read_text(encoding="utf-8").startswith("{"),
         "у файлі лишається JSON навіть у текстовому режимі")
@@ -174,8 +177,12 @@ r.check(_from_settings("неіснуюче_поле", "запасне") == "за
 
 print("\n--- .env.example описує всі три змінні ---")
 example = (Path(__file__).resolve().parents[2] / ".env.example").read_text(encoding="utf-8")
-for key in ("LOG_DIR", "LOG_JSON", "LOG_LEVEL"):
+for key in ("LOG_JSON", "LOG_LEVEL"):
     r.check(f"{key}=" in example, f"{key} задокументовано")
+# Шляхи навмисно не налаштовуються: один корінь /data, підкаталоги
+# створює застосунок. Перевіряємо, що змінна не повернулась.
+for gone in ("LOG_DIR", "HOST_LOG_DIR", "MEDIA_DIR", "BACKUP_DIR"):
+    r.check(f"\n{gone}=" not in example, f"{gone} прибрано з .env")
 
 print("\n--- рівні журналу ---")
 from shop.logging_setup import LEVELS, resolve_level
@@ -207,15 +214,14 @@ for wrong in ("ВЕРБОЗ", "999", "-5", "TRAСE"):
 
 print("\n--- рівень справді фільтрує ---")
 os.environ["LOG_JSON"] = "1"
+written = Path(LOG_DIR) / "api.log"
 for name, should_pass in [("DEBUG", True), ("ERROR", False)]:
-    directory = tempfile.mkdtemp(prefix=f"qa_lvl_{name}_")
-    os.environ["LOG_DIR"] = directory
     os.environ["LOG_LEVEL"] = name
     probe = setup("api")
-    probe.info("перевірка рівня")
-    written = Path(directory) / "api.log"
-    got = written.exists() and "перевірка рівня" in written.read_text(encoding="utf-8")
-    r.check(got == should_pass,
+    marker = f"перевірка рівня {name}"
+    probe.info(marker)
+    body = written.read_text(encoding="utf-8") if written.exists() else ""
+    r.check((marker in body) == should_pass,
             f"на рівні {name} запис INFO {'проходить' if should_pass else 'відсічений'}")
 
 r.check(len(LEVELS) >= 9, f"перелік рівнів повний: {len(LEVELS)}")

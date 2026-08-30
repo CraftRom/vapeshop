@@ -225,10 +225,16 @@ else
 fi
 
 
-say "Каталог бекапів"
-install -d -o "$SERVICE_USER" -g "$SERVICE_USER" -m 750 "$REPO_DIR/deploy/backups"
-install -d -o "$SERVICE_USER" -g "$SERVICE_USER" -m 750 "$REPO_DIR/deploy/logs"
-echo "    backups і logs (власник ${SERVICE_USER}, режим 750)"
+say "Каталог даних"
+# Одна тека замість трьох окремих: журнал, копії бази й завантажені
+# зображення. Підкаталоги створює сам застосунок при першому звертанні —
+# тут лише коренева тека з правильним власником, бо процеси в контейнерах
+# працюють не від root.
+install -d -o "$SERVICE_USER" -g "$SERVICE_USER" -m 750 "$REPO_DIR/deploy/data"
+for sub in logs backups media; do
+    install -d -o "$SERVICE_USER" -g "$SERVICE_USER" -m 750 "$REPO_DIR/deploy/data/$sub"
+done
+echo "    $REPO_DIR/deploy/data (logs, backups, media)"
 
 
 say "Служба автозапуску"

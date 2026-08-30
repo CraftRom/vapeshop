@@ -42,9 +42,6 @@ class Settings(BaseSettings):
     backup_hour: int = 4
     backup_retention_days: int = 14
     log_retention_days: int = 30
-    # Куди планувальник кладе дампи. Той самий каталог, що монтується в
-    # контейнер Postgres, інакше pg_dump писав би в порожнечу.
-    backup_dir: str = "/backups"
 
     # --- Журнал ---
     # Ті самі значення читає shop/logging_setup.py напряму з оточення.
@@ -52,8 +49,6 @@ class Settings(BaseSettings):
     # налаштувань — інакше помилку самої конфігурації нікуди було б записати.
     # Куди лягають завантажені зображення. Той самий каталог віддає nginx
     # за адресою /media/ — застосунок у роздачі не бере участі.
-    media_dir: str = "/var/lib/elfar/media"
-    log_dir: str = "/var/log/elfar"
     log_json: bool = True
     log_level: str = "INFO"
 
@@ -253,8 +248,6 @@ class Settings(BaseSettings):
 
         report.append(entry("DATABASE_URL", self.db_url, "critical",
                             "Адреса Postgres"))
-        report.append(entry("LOG_DIR", self.log_dir, "important",
-                            "Куди пишуться файли журналу. Порожньо — лише stdout"))
         from shop.logging_setup import resolve_level
 
         _level, _bad = resolve_level(self.log_level)

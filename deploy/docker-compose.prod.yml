@@ -70,8 +70,7 @@ services:
 
   api:
     volumes:
-      - ${HOST_LOG_DIR:-./logs}:/var/log/elfar
-      - ${HOST_MEDIA_DIR:-./media}:/var/lib/elfar/media
+      - ./data:/data
     build: *backend-build
     restart: always
     command: >
@@ -98,8 +97,7 @@ services:
 
   bot:
     volumes:
-      - ${HOST_LOG_DIR:-./logs}:/var/log/elfar
-      - ${HOST_MEDIA_DIR:-./media}:/var/lib/elfar/media
+      - ./data:/data
     build: *backend-build
     restart: always
     command: python -m bot
@@ -131,9 +129,7 @@ services:
       redis:
         condition: service_healthy
     volumes:
-      - ${HOST_BACKUP_DIR:-./backups}:/backups
-      - ${HOST_LOG_DIR:-./logs}:/var/log/elfar
-      - ${HOST_MEDIA_DIR:-./media}:/var/lib/elfar/media
+      - ./data:/data
     deploy:
       resources:
         limits: {memory: 512M}
@@ -167,7 +163,7 @@ services:
       - ./nginx/ratelimit.conf:/etc/nginx/conf.d/00-ratelimit.conf:ro
       - ./nginx/app.conf:/etc/nginx/conf.d/default.conf:ro
       # Читання, не запис: nginx лише віддає файли, кладе їх API.
-      - ${HOST_MEDIA_DIR:-./media}:/var/lib/elfar/media:ro
+      - ./data/media:/data/media:ro
       # Теки-перемикачі. Порожні — сайт віддається по HTTP без HSTS;
       # certbot-init.sh кладе туди файли, коли зʼявляється справжній
       # сертифікат. Монтуються на запис, бо їх наповнює скрипт із хоста.

@@ -40,9 +40,10 @@ NAME_RE = re.compile(r"^[A-Za-z0-9._-]+\.dump$")
 
 
 def backup_dir() -> Path:
-    path = Path(settings.backup_dir)
-    path.mkdir(parents=True, exist_ok=True)
-    return path
+    """Каталог копій. Шлях фіксований — див. shop.paths."""
+    from shop.paths import backups_dir
+
+    return backups_dir()
 
 
 def _resolve(name: str) -> Path:

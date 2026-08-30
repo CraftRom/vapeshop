@@ -77,9 +77,9 @@ async def run_due_broadcasts() -> int:
 # ---------------------------------------------------------------- бекапи
 
 def _backup_dir() -> Path:
-    path = Path(settings.backup_dir)
-    path.mkdir(parents=True, exist_ok=True)
-    return path
+    from shop.paths import backups_dir
+
+    return backups_dir()
 
 
 def _pg_dump(target: Path) -> None:
@@ -153,13 +153,15 @@ def prune_logs(retention_days: int) -> int:
     видаляти не можна — процес тримає його відкритим і продовжить писати
     в неіснуючий inode, після чого журнал зникне мовчки.
     """
-    directory = os.environ.get("LOG_DIR", "")
-    if not directory or retention_days < 1:
+    from shop.paths import logs_dir
+
+    if retention_days < 1:
         return 0
+    directory = logs_dir()
 
     cutoff = datetime.now(timezone.utc) - timedelta(days=retention_days)
     removed = 0
-    for item in Path(directory).glob("*.log.*"):
+    for item in directory.glob("*.log.*"):
         try:
             if datetime.fromtimestamp(item.stat().st_mtime, timezone.utc) < cutoff:
                 item.unlink()

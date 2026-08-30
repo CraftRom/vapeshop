@@ -36,14 +36,9 @@ TAIL_BYTES = 2 * 1024 * 1024
 def _log_path(service: str) -> Path:
     if service not in SERVICES:
         raise HTTPException(404, f"Невідомий сервіс: {service}")
-    directory = os.environ.get("LOG_DIR", "")
-    if not directory:
-        raise HTTPException(
-            503,
-            "Файлове логування вимкнено: не задано LOG_DIR. "
-            "Журнал доступний лише через docker compose logs",
-        )
-    return Path(directory) / f"{service}.log"
+    from shop.paths import logs_dir
+
+    return logs_dir() / f"{service}.log"
 
 
 def _read_tail(path: Path) -> list[str]:
@@ -103,17 +98,21 @@ def _parse(line: str) -> dict | None:
 @router.get("/services")
 async def list_services(who: Principal = Depends(require_sysadmin)):
     """Які журнали є і чи вони взагалі пишуться."""
-    directory = os.environ.get("LOG_DIR", "")
+    from shop.paths import describe, logs_dir
+
+    directory = logs_dir()
     result = []
     for service in SERVICES:
-        entry = {"service": service, "exists": False, "sizeBytes": 0}
-        if directory:
-            path = Path(directory) / f"{service}.log"
-            if path.exists():
-                entry["exists"] = True
-                entry["sizeBytes"] = path.stat().st_size
-        result.append(entry)
-    return {"logDir": directory, "services": result, "levels": list(LEVELS)}
+        path = directory / f"{service}.log"
+        result.append({
+            "service": service,
+            "exists": path.exists(),
+            "sizeBytes": path.stat().st_size if path.exists() else 0,
+        })
+    # Стан усіх каталогів одразу: коли щось не пишеться, питання майже
+    # завжди в правах на теку, а не в самому застосунку.
+    return {"logDir": str(directory), "services": result,
+            "levels": list(LEVELS), "storage": describe()}
 
 
 @router.get("")
@@ -184,7 +183,7 @@ async def read_logs(
         # Коли записів нема, найчастіше питання не «де вони», а «чи вони
         # взагалі пишуться». Відповідаємо на нього одразу, щоб не гадати.
         "diagnostics": {
-            "logDir": os.environ.get("LOG_DIR", ""),
+            "logDir": str(path.parent),
             "file": str(path),
             "exists": path.exists(),
             "sizeBytes": path.stat().st_size if path.exists() else 0,

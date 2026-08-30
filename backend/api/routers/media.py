@@ -37,9 +37,11 @@ MAX_BYTES = 8 * 1024 * 1024
 
 
 def _media_dir() -> Path:
-    path = Path(settings.media_dir)
-    path.mkdir(parents=True, exist_ok=True)
-    return path
+    """Каталог медіа. Шлях фіксований — див. shop.paths."""
+    from shop.paths import media_dir
+
+    return media_dir()
+
 
 
 def _sniff(head: bytes) -> tuple[str, str]:

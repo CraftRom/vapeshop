@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 
 sys.path.insert(0, "/tmp")
 os.environ.update(BOT_TOKEN="777001:T", JWT_SECRET="t" * 32,
-                  BACKUP_DIR="/tmp/qa_backups",
+                  ELFAR_DATA_ROOT="/tmp/qa_sched_data",
                   DATABASE_URL="sqlite+aiosqlite:////tmp/qa_sched.db")
 
 from qa_common import Report                         # noqa: E402
@@ -155,7 +155,11 @@ async def scenario():
     print("\n--- ретенція бекапів ---")
     from pathlib import Path
 
-    backups = Path(os.environ["BACKUP_DIR"])
+    # Шлях не з оточення, а з того самого джерела, що й у застосунку —
+    # інакше тест перевіряв би не те, куди справді пише планувальник.
+    from shop.paths import backups_dir
+
+    backups = backups_dir()
     backups.mkdir(parents=True, exist_ok=True)
     fresh = backups / "elfar-2026-08-25.dump"
     stale = backups / "elfar-2026-01-01.dump"

@@ -7,11 +7,14 @@ import tempfile
 from pathlib import Path
 
 sys.path.insert(0, "/tmp")
-LOG_DIR = tempfile.mkdtemp(prefix="qa_logs_api_")
+DATA_ROOT = tempfile.mkdtemp(prefix="qa_data_")
+LOG_DIR = str(Path(DATA_ROOT) / "logs")
 os.environ.update(BOT_TOKEN="777001:T", JWT_SECRET="t" * 32,
                   DASHBOARD_LOGIN="root", DASHBOARD_PASSWORD="Pa$$w0rd123",
-                  LOG_DIR=LOG_DIR,
+                  ELFAR_DATA_ROOT=DATA_ROOT,
                   DATABASE_URL="sqlite+aiosqlite:////tmp/qa_logsapi.db")
+
+os.makedirs(LOG_DIR if "LOG_DIR" in dir() else BACKUP_DIR, exist_ok=True)
 
 from qa_common import Report                             # noqa: E402
 

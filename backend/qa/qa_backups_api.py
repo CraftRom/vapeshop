@@ -6,11 +6,14 @@ import tempfile
 from pathlib import Path
 
 sys.path.insert(0, "/tmp")
-BACKUP_DIR = tempfile.mkdtemp(prefix="qa_backups_")
+DATA_ROOT = tempfile.mkdtemp(prefix="qa_data_")
+BACKUP_DIR = str(Path(DATA_ROOT) / "backups")
 os.environ.update(BOT_TOKEN="777001:T", JWT_SECRET="t" * 32,
                   DASHBOARD_LOGIN="root", DASHBOARD_PASSWORD="Pa$$w0rd123",
-                  BACKUP_DIR=BACKUP_DIR,
+                  ELFAR_DATA_ROOT=DATA_ROOT,
                   DATABASE_URL="sqlite+aiosqlite:////tmp/qa_backups.db")
+
+os.makedirs(LOG_DIR if "LOG_DIR" in dir() else BACKUP_DIR, exist_ok=True)
 
 from qa_common import Report                             # noqa: E402
 

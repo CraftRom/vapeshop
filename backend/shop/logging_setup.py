@@ -163,11 +163,17 @@ def setup(service: str) -> logging.Logger:
     console.setFormatter(JsonFormatter(service) if as_json else TextFormatter())
     root.addHandler(console)
 
-    directory = os.environ.get("LOG_DIR") or str(_from_settings("log_dir", ""))
-    if directory:
+    # Шлях фіксований: shop.paths — єдине місце, де він визначається.
+    try:
+        from shop.paths import logs_dir
+
+        path = logs_dir()
+    except OSError as exc:
+        root.warning("Файлове логування вимкнено: %s", exc)
+        path = None
+
+    if path is not None:
         try:
-            path = Path(directory)
-            path.mkdir(parents=True, exist_ok=True)
             # Один файл на сервіс: змішувати запити API з апдейтами бота
             # в одному файлі означає щоразу починати розбір із grep.
             handler = logging.handlers.RotatingFileHandler(

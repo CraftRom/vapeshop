@@ -101,7 +101,7 @@ check(cert.index("STAGING=0") < cert.index("DOMAIN_ARGS=()"),
 
 log_setup = read("backend/shop/logging_setup.py")
 check("RotatingFileHandler" in log_setup, "журнал ротується за розміром")
-check("LOG_DIR" in log_setup, "журнал пишеться у файл, а не лише в stdout")
+check("logs_dir" in log_setup, "журнал пишеться у файл через shop.paths")
 req_log = read("backend/api/request_log.py")
 for field in ("requestId", "durationMs", "userAgent", "status"):
     check(field in req_log, f"журнал запитів має поле {field}")
@@ -112,7 +112,7 @@ import yaml as _yaml
 _compose = _yaml.safe_load(compose_src)
 for _svc in ("api", "bot", "scheduler"):
     _vols = " ".join(_compose["services"][_svc].get("volumes") or [])
-    check("/var/log/elfar" in _vols, f"том журналу змонтований у {_svc}")
+    check("/data" in _vols, f"тека даних змонтована у {_svc}")
 # Дубльований ключ volumes YAML мовчки з\'їдає, лишаючи лише останній —
 # перевіряємо, що кожен сервіс оголошений один раз.
 for _svc in ("api", "bot", "scheduler"):
@@ -150,8 +150,9 @@ check("resolver 127.0.0.11" in nginx_conf,
 check("proxy_pass http://api" not in nginx_conf,
       "proxy_pass через змінну: з літералом адреса кешується назавжди")
 check("$api_backend" in nginx_conf, "адреса API підставляється змінною")
-check("HOST_LOG_DIR" in compose_src and "HOST_BACKUP_DIR" in compose_src,
-      "теки логів і бекапів на сервері налаштовні, а не зашиті")
+check("HOST_LOG_DIR" not in compose_src and "HOST_MEDIA_DIR" not in compose_src,
+      "шляхи не задаються змінними — один корінь /data")
+check("./data:/data" in compose_src, "один том даних на всі сервіси")
 
 greeting = read("backend/bot/greeting.py")
 check("/start" not in str(__import__("re").search(r"PUBLIC_COMMANDS = \(([^)]*)\)", greeting).group(1)),
@@ -190,7 +191,7 @@ for _page in ("Catalog", "Broadcasts"):
           f"{_page}: поле фото використовує завантажувач, а не голе посилання")
 check("media:" in _api_js, "панель уміє завантажувати й перелічувати файли")
 check("/media/" in nginx_conf, "nginx віддає завантажені файли напряму")
-check("HOST_MEDIA_DIR" in compose_src, "каталог медіа налаштовний і монтується")
+check("/data/media" in nginx_conf, "nginx віддає медіа з теки даних")
 
 _backups_py = read("backend/api/routers/backups.py")
 check("require_sysadmin" in _backups_py, "копії бази закриті для всіх, крім системного адміністратора")

@@ -21,6 +21,7 @@ from shop.db import check_db
 
 from bot.version import BOT_VERSION as _BOT_VERSION
 from shop.build import BUILD as _BUILD
+from shop.paths import describe as _storage
 
 from shop.logging_setup import setup as setup_logging
 
@@ -146,6 +147,7 @@ async def health():
         "status": "ok" if not problems else "misconfigured",
         "build": _BUILD,
         "botVersion": _BOT_VERSION,
+        "storage": _storage(),
         "shop": settings.shop_name,
         "webhook_configured": bool(
             settings.webhook_secret and (current().public_url or settings.public_url)
