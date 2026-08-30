@@ -53,6 +53,7 @@ run public qa/qa_public_chat.py
 run logging qa/qa_logging.py
 run logs-api qa/qa_logs_api.py
 run backups-api qa/qa_backups_api.py
+run dialect qa/qa_dialect.py
 run e2e qa/qa_e2e.py
 run performance qa/qa_perf.py
 

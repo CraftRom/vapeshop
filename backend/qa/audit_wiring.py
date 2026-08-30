@@ -202,6 +202,8 @@ check("elfar-before-restore" in _backups_py,
       "перед відновленням знімається запобіжна копія")
 check("/backups" in read("dashboard/src/App.jsx"), "сторінка копій є в маршрутах")
 check("since" in read("backend/api/routers/logs.py"), "журнал фільтрується по днях")
+check("_not_below_zero" in read("backend/shop/repo/sql.py"),
+      "нижня межа нуля через CASE — func.max(0, x) валить Postgres")
 check("diagnostics" in read("dashboard/src/pages/Logs.jsx"),
       "порожній журнал пояснює причину, а не мовчить")
 

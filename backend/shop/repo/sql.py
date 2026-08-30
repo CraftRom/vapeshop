@@ -6,7 +6,7 @@ import string
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import case, delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -118,6 +118,24 @@ def _broadcast(row) -> Broadcast | None:
     )
 
 
+def _not_below_zero(expression):
+    """Значення виразу, але не менше нуля.
+
+    Написано через CASE, а не func.max(0, x) і не GREATEST, і це важливо.
+
+    func.max(0, x) компілюється в max(0, x). У SQLite це звичайна функція
+    від двох аргументів, тому тести проходили роками. У Postgres max() —
+    агрегатна функція від одного аргументу, і кожне оформлення замовлення
+    падало з «function max(integer, integer) does not exist».
+
+    GREATEST був би правильним для Postgres, але його немає в SQLite, на
+    якому ганяються тести. CASE працює однаково скрізь — і саме тому
+    розходження діалектів тут більше неможливе.
+    """
+    return case((expression < 0, 0), else_=expression)
+
+
+
 class SqlRepository(Repository):
     def __init__(self, session: AsyncSession) -> None:
         self.s = session
@@ -221,8 +239,8 @@ class SqlRepository(Repository):
     async def update_user_totals(self, user_id, orders_delta, spent_delta) -> None:
         await self.s.execute(
             update(m.User).where(m.User.id == user_id).values(
-                orders_count=func.max(0, m.User.orders_count + orders_delta),
-                total_spent=func.max(0, m.User.total_spent + spent_delta),
+                orders_count=_not_below_zero(m.User.orders_count + orders_delta),
+                total_spent=_not_below_zero(m.User.total_spent + spent_delta),
             )
         )
         await self._commit()
@@ -335,7 +353,7 @@ class SqlRepository(Repository):
         await self.s.execute(
             update(m.Product)
             .where(m.Product.id == product_id)
-            .values(stock=func.max(0, m.Product.stock + delta))
+            .values(stock=_not_below_zero(m.Product.stock + delta))
         )
         await self._commit()
         return _product(await self.s.get(m.Product, product_id))
