@@ -169,6 +169,11 @@ export const api = {
     purge: (id) => request(`/promos/${id}/purge`, { method: 'DELETE' }),
   },
 
+  ordersAdmin: {
+    remove: (id) => request(`/orders/${id}`, { method: 'DELETE' }),
+    purge: () => request('/orders?confirm=DELETE%20ALL', { method: 'DELETE' }),
+  },
+
   backups: {
     list: () => request('/backups'),
     create: () => request('/backups/create', { method: 'POST' }),
@@ -257,6 +262,22 @@ export const api = {
   logs: {
     services: () => request('/logs/services'),
     events: (service) => request(`/logs/events?service=${encodeURIComponent(service)}`),
+
+    // Через fetch із токеном: файл віддається лише системному
+    // адміністраторові, а тег <a> заголовків не надсилає.
+    download: async (service) => {
+      const response = await fetch(`${BASE}/logs/${encodeURIComponent(service)}/download`, {
+        headers: { Authorization: `Bearer ${getToken()}` },
+      })
+      if (!response.ok) throw new Error(`Не вдалося скачати: ${response.status}`)
+      const blob = await response.blob()
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `elfar-${service}.log`
+      link.click()
+      setTimeout(() => URL.revokeObjectURL(url), 30000)
+    },
     read: ({ service, level, event, search, limit, since, until }) => {
       // URLSearchParams, а не склеювання рядків: у пошуку буває будь-що,
       // включно з пробілами та кирилицею, і ручне екранування тут

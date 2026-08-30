@@ -2,10 +2,9 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import Response, APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
-from api.auth import require_staff
-from api.auth import Principal, require_staff
+from api.auth import Principal, require_staff, require_sysadmin
 from api.schemas import OrderMessageIn, OrderMessageOut, OrderMessageResult, OrderOut, OrderPatch
 from shop.entities import STATUS_LABELS, OrderStatus
 from shop.repo.base import Repository
@@ -42,6 +41,57 @@ async def get_order(order_id: int, repo: Repository = Depends(get_repo)):
     if not order:
         raise HTTPException(404, "Замовлення не знайдено")
     return order
+
+
+@router.delete("/{order_id}", status_code=204)
+async def delete_order(
+    order_id: int,
+    repo: Repository = Depends(get_repo),
+    who: Principal = Depends(require_sysadmin),
+):
+    """Стирає замовлення. Лише системний адміністратор.
+
+    Менеджерам і адміністраторам видалення не дають навмисно: замовлення
+    це первинний документ. Помилкове скасовують статусом — так лишається
+    слід. Стирати доводиться хіба що тестові записи після налаштування,
+    і це разова дія власника системи.
+    """
+    order = await repo.get_order(order_id)
+    if not order:
+        raise HTTPException(404, "Замовлення не знайдено")
+
+    log.warning(
+        "Видалено замовлення %s", order_id,
+        extra={"event": "order.deleted", "orderId": order_id,
+               "actor": who.login, "total": str(order.total)},
+    )
+    await repo.delete_order(order_id)
+
+
+@router.delete("", status_code=200)
+async def delete_all_orders(
+    confirm: str = Query("", description="Введіть DELETE ALL для підтвердження"),
+    repo: Repository = Depends(get_repo),
+    who: Principal = Depends(require_sysadmin),
+):
+    """Стирає всі замовлення разом із підсумками клієнтів.
+
+    Підтвердження — не формальність: відновити це можна лише з резервної
+    копії, а вона може бути вчорашньою.
+    """
+    if confirm != "DELETE ALL":
+        raise HTTPException(
+            400,
+            "Для підтвердження передайте confirm=DELETE ALL. "
+            "Дія незворотна: замовлення відновлюються лише з резервної копії",
+        )
+
+    removed = await repo.delete_all_orders()
+    log.warning(
+        "Видалено всі замовлення: %s", removed,
+        extra={"event": "orders.purged", "removed": removed, "actor": who.login},
+    )
+    return {"removed": removed}
 
 
 @router.patch("/{order_id}", response_model=OrderOut)

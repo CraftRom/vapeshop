@@ -552,6 +552,28 @@ class SqlRepository(Repository):
         await self.s.commit()
         return _broadcast(row)
 
+    async def delete_order(self, order_id) -> bool:
+        # Позиції й повідомлення прибираємо явно, а не покладаємось на
+        # каскад: він налаштований не на всіх звʼязках, і мовчазні сироти
+        # в базі гірші за зайвий запит.
+        await self.s.execute(delete(m.OrderItem).where(m.OrderItem.order_id == order_id))
+        await self.s.execute(
+            delete(m.OrderMessage).where(m.OrderMessage.order_id == order_id))
+        result = await self.s.execute(delete(m.Order).where(m.Order.id == order_id))
+        await self.s.commit()
+        return result.rowcount > 0
+
+    async def delete_all_orders(self) -> int:
+        count = (await self.s.execute(select(func.count()).select_from(m.Order))).scalar_one()
+        await self.s.execute(delete(m.OrderItem))
+        await self.s.execute(delete(m.OrderMessage))
+        await self.s.execute(delete(m.Order))
+        # Підсумки клієнтів обнуляємо разом із замовленнями: інакше в
+        # картці клієнта лишиться «12 замовлень», яких більше немає.
+        await self.s.execute(update(m.User).values(orders_count=0, total_spent=0))
+        await self.s.commit()
+        return int(count)
+
     async def delete_broadcast(self, broadcast_id) -> bool:
         row = await self.s.get(m.Broadcast, broadcast_id)
         if not row:

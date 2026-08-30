@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import os
 import re
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -194,6 +195,28 @@ async def read_logs(
         "scanned": scanned,
         "truncated": len(records) >= limit,
     }
+
+
+@router.get("/{service}/download")
+async def download(service: str, who: Principal = Depends(require_sysadmin)):
+    """Віддає файл журналу цілком.
+
+    Цілком, а не відфільтрованим: файл качають, щоб розібрати його
+    інструментами — jq, grep, таблицею. Урізана вибірка тут була б
+    гіршою за повну, бо потрібного рядка в ній може не виявитись.
+    """
+    from fastapi.responses import FileResponse
+
+    path = _log_path(service)
+    if not path.exists():
+        raise HTTPException(404, f"Журнал сервісу {service} ще порожній")
+
+    stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d_%H%M")
+    return FileResponse(
+        path,
+        filename=f"elfar-{service}-{stamp}.log",
+        media_type="application/x-ndjson",
+    )
 
 
 @router.get("/events")

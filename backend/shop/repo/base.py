@@ -216,6 +216,19 @@ class Repository(ABC):
     async def delete_broadcast(self, broadcast_id: int) -> bool: ...
 
     @abstractmethod
+    async def delete_order(self, order_id: int) -> bool:
+        """Стирає замовлення разом із позиціями й перепискою.
+
+        Незворотна дія, доступна лише системному адміністраторові.
+        Підсумки клієнта не перераховуються: замовлення, яке видаляють,
+        зазвичай було помилковим і в підсумки не потрапляло.
+        """
+
+    @abstractmethod
+    async def delete_all_orders(self) -> int:
+        """Стирає всі замовлення. Повертає кількість."""
+
+    @abstractmethod
     async def next_pending_broadcast(self) -> Broadcast | None: ...
 
     @abstractmethod

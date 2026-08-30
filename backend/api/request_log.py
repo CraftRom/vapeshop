@@ -46,11 +46,37 @@ def client_ip(request: Request) -> str:
     return request.client.host if request.client else ""
 
 
+def _identify(request: Request) -> tuple[str, str]:
+    """Логін і роль із токена, якщо він є.
+
+    Помилку розбору ковтаємо навмисно: журнал не має падати через кривий
+    чи протермінований токен — запит однаково буде відхилено далі, і саме
+    цей факт цікаво побачити в журналі.
+    """
+    header = request.headers.get("authorization", "")
+    if not header.lower().startswith("bearer "):
+        return "", ""
+    try:
+        import jwt
+
+        from shop.config import settings
+
+        payload = jwt.decode(header[7:], settings.jwt_secret, algorithms=["HS256"])
+        return str(payload.get("sub", "")), str(payload.get("role", ""))
+    except Exception:
+        return "", "невалідний токен"
+
+
 class RequestLogMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         request_id = request.headers.get("x-request-id") or uuid.uuid4().hex[:16]
         token = current_request_id.set(request_id)
         started = time.perf_counter()
+
+        # Хто робить запит — визначаємо тут, а не в кожній залежності.
+        # Інакше дія лишалася б непідписаною скрізь, де обробник бере
+        # токен по-своєму, і саме там це найпотрібніше.
+        actor, actor_role = _identify(request)
 
         status = 500
         try:
@@ -81,6 +107,12 @@ class RequestLogMiddleware(BaseHTTPMiddleware):
                     "userAgent": request.headers.get("user-agent", ""),
                     "status": status,
                     "durationMs": duration,
+                    # Хто саме зробив запит. Без цього в журналі видно «хтось
+                    # змінив статус замовлення», і з'ясувати хто — ніяк:
+                    # IP у менеджерів динамічний, а за токеном не шукають.
+                    "actor": actor,
+                    "actorRole": actor_role,
+                    "referer": request.headers.get("referer", ""),
                 },
             )
             current_request_id.reset(token)

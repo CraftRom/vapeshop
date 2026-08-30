@@ -166,6 +166,24 @@ async def scenario():
         resp = await client.get("/api/logs/events?service=api", headers=head(MANAGER))
         r.check(resp.status_code == 403, "довідник подій теж закритий")
 
+        print("\n--- скачування файлу ---")
+        resp = await client.get("/api/logs/api/download", headers=head(SYSADMIN))
+        r.check(resp.status_code == 200, "файл віддається", resp.status_code)
+        r.check(b"http.request" in resp.content, "вміст той самий")
+        r.check("attachment" in resp.headers.get("content-disposition", ""),
+                "браузер збереже файл, а не відкриє")
+
+        for token, label in [(ADMIN, "адміністратор"), (MANAGER, "менеджер")]:
+            resp = await client.get("/api/logs/api/download", headers=head(token))
+            r.check(resp.status_code == 403, f"{label} не скачає журнал", resp.status_code)
+
+        for evil in ("../../etc/passwd", "API", "api.log"):
+            resp = await client.get(f"/api/logs/{evil}/download", headers=head(SYSADMIN))
+            r.check(resp.status_code == 404, f"відхилено: {evil!r}", resp.status_code)
+
+        resp = await client.get("/api/logs/scheduler/download", headers=head(SYSADMIN))
+        r.check(resp.status_code == 404, "порожній журнал — 404, а не битий файл")
+
         print("\n--- журналу немає ---")
         resp = await client.get("/api/logs?service=scheduler", headers=head(SYSADMIN))
         r.check(resp.status_code == 200 and resp.json()["returned"] == 0,

@@ -54,6 +54,8 @@ run logging qa/qa_logging.py
 run logs-api qa/qa_logs_api.py
 run backups-api qa/qa_backups_api.py
 run dialect qa/qa_dialect.py
+run orders_delete qa/qa_orders_delete.py
+run settings_save qa/qa_settings_save.py
 run e2e qa/qa_e2e.py
 run performance qa/qa_perf.py
 

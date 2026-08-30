@@ -204,6 +204,21 @@ check("/backups" in read("dashboard/src/App.jsx"), "сторінка копій 
 check("since" in read("backend/api/routers/logs.py"), "журнал фільтрується по днях")
 check("_not_below_zero" in read("backend/shop/repo/sql.py"),
       "нижня межа нуля через CASE — func.max(0, x) валить Postgres")
+
+_orders_py = read("backend/api/routers/orders.py")
+check("require_sysadmin" in _orders_py, "видалення замовлень — лише системний адміністратор")
+check("DELETE ALL" in _orders_py, "повне видалення вимагає точного підтвердження")
+check("download" in read("backend/api/routers/logs.py"), "журнал можна скачати файлом")
+check("actor" in read("backend/api/request_log.py"),
+      "у журналі видно, хто зробив запит")
+check("isSysadmin" in read("dashboard/src/pages/Orders.jsx"),
+      "кнопки видалення замовлень видно лише системному адміністратору")
+check("DELETE ALL" in read("dashboard/src/pages/Orders.jsx"),
+      "повне видалення в панелі теж вимагає переписати підтвердження")
+check("logs.download" in read("dashboard/src/pages/Logs.jsx"),
+      "у журналі є кнопка скачування файлу")
+check('extra="forbid"' in read("backend/api/schemas.py"),
+      "невідомі поля налаштувань відхиляються, а не ковтаються")
 check("diagnostics" in read("dashboard/src/pages/Logs.jsx"),
       "порожній журнал пояснює причину, а не мовчить")
 

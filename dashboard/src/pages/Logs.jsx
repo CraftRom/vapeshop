@@ -227,6 +227,12 @@ export default function Logs() {
             <button className="btn" onClick={load} disabled={busy}>
               {busy ? 'Читаю…' : 'Оновити'}
             </button>
+            <button
+              className="btn ghost"
+              onClick={() => api.logs.download(service).catch((e) => setError(e.message))}
+            >
+              Скачати файл
+            </button>
             <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <input type="checkbox" checked={auto} onChange={(e) => setAuto(e.target.checked)} />
               <span className="faint">кожні 10 с</span>

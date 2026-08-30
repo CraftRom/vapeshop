@@ -268,6 +268,11 @@ class TopProduct(BaseModel):
 
 
 class ShopSettingsIn(BaseModel):
+    # extra="forbid": одруківка в назві поля має падати одразу, а не
+    # мовчки ігноруватись. Інакше «Збережено» показується, значення не
+    # зберігається, і причину шукають тижнями.
+    model_config = ConfigDict(extra="forbid")
+
     shop_name: str | None = Field(None, min_length=1, max_length=64)
     currency: str | None = Field(None, min_length=1, max_length=16)
     min_age: int | None = Field(None, ge=18, le=99)
@@ -390,6 +395,10 @@ class ShopSettingsOut(BaseModel):
     backup_enabled: bool
     backup_hour: int
     backup_retention_days: int
+    # Читається назад, як і решта. Поле, яке можна записати, але не можна
+    # прочитати, ніхто не перевірить: форма покаже дефолт замість
+    # збереженого, і людина дізнається про це найпізніше.
+    jwt_ttl_hours: int
 
 
 # ------------------------------------------------------------- менеджери

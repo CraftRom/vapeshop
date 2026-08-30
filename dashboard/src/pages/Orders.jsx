@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 
-import { api } from '../api'
+import { api, isSysadmin } from '../api'
 import StatusRail, { STATUS_LABELS } from '../components/StatusRail'
 import { Empty, ErrorBar, Field, Loading, Modal, dateTime, money, useToast } from '../components/ui'
 
@@ -116,6 +116,44 @@ export default function Orders() {
   // Клієнт відповідає в боті, тож панель має сама помічати нові повідомлення
   const [unread, setUnread] = useState({})
 
+  /** Видалення замовлення. Тільки системний адміністратор.
+   *
+   *  Менеджерам цього не дають навмисно: замовлення — первинний документ.
+   *  Помилкове скасовують статусом, так лишається слід. Стирати доводиться
+   *  хіба що тестові записи після налаштування.
+   */
+  const removeOrder = async (order) => {
+    if (!window.confirm(
+      `Стерти замовлення №${order.id} на ${money(order.total)}? ` +
+      'Відновити можна буде лише з резервної копії.',
+    )) return
+    try {
+      await api.ordersAdmin.remove(order.id)
+      notify(`Замовлення №${order.id} стерто`)
+      load()
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  const purgeAll = async () => {
+    // Два питання поспіль, і друге — з переписуванням. Дія стирає ще й
+    // підсумки клієнтів, і повернути це можна лише з копії.
+    if (!window.confirm('Стерти ВСІ замовлення разом із підсумками клієнтів?')) return
+    const typed = window.prompt('Це незворотно. Введіть DELETE ALL для підтвердження:')
+    if (typed !== 'DELETE ALL') {
+      if (typed !== null) setError('Підтвердження не збіглося — нічого не стерто')
+      return
+    }
+    try {
+      const result = await api.ordersAdmin.purge()
+      notify(`Стерто замовлень: ${result.removed}`)
+      load()
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
   const load = useCallback(async () => {
     setError('')
     try {
@@ -217,6 +255,11 @@ export default function Orders() {
         )}
         <div className="spacer" />
         <button className="btn ghost small" onClick={load}>Оновити</button>
+        {isSysadmin() && (
+          <button className="btn danger small" onClick={purgeAll}>
+            Стерти всі
+          </button>
+        )}
       </div>
 
       <ErrorBar error={error} />
@@ -276,6 +319,14 @@ export default function Orders() {
                         <button className="btn ghost small" onClick={() => setSelected(order)}>
                           Швидкий перегляд
                         </button>
+                        {isSysadmin() && (
+                          <button
+                            className="btn danger small"
+                            onClick={() => removeOrder(order)}
+                          >
+                            Стерти
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
