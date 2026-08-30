@@ -169,6 +169,34 @@ export const api = {
     purge: (id) => request(`/promos/${id}/purge`, { method: 'DELETE' }),
   },
 
+  media: {
+    list: () => request('/media'),
+    remove: (name) => request(`/media/${encodeURIComponent(name)}`, { method: 'DELETE' }),
+    upload: async (file) => {
+      // FormData, а не JSON: файл треба слати як є. Заголовок Content-Type
+      // тут не ставимо навмисно — браузер додасть його разом із boundary,
+      // без якого сервер не розбере тіло запиту.
+      const body = new FormData()
+      body.append('file', file)
+      const response = await fetch(`${BASE}/media`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${getToken()}` },
+        body,
+      })
+      if (!response.ok) {
+        let message = `Помилка ${response.status}`
+        try {
+          const data = await response.json()
+          message = data.detail || message
+        } catch {
+          // Тіло не JSON — лишаємо код відповіді, він теж щось каже
+        }
+        throw new Error(message)
+      }
+      return response.json()
+    },
+  },
+
   logs: {
     services: () => request('/logs/services'),
     events: (service) => request(`/logs/events?service=${encodeURIComponent(service)}`),

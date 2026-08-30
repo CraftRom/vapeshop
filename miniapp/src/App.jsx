@@ -153,22 +153,34 @@ initData: ${getInitData() ? `${getInitData().length} символів` : 'пор
 походження: ${window.location.origin}`}
           </pre>
         </details>
+      <Footer onLegal={() => setLegal(true)} />
       </div>
     )
   }
 
   if (!config) {
     return (
-      <div className="list" style={{ paddingTop: 16 }}>
-        {[0, 1, 2].map((i) => (
-          <div key={i} className="skeleton" />
-        ))}
+      <div className="app">
+        <div className="list" style={{ paddingTop: 16 }}>
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="skeleton" />
+          ))}
+        </div>
+        <Footer onLegal={() => setLegal(true)} />
       </div>
     )
   }
 
   if (!config.age_confirmed) {
-    return <AgeGate config={config} onConfirmed={setConfig} />
+    // Футер тут обов'язковий за законом: перш ніж підтвердити вік, людина
+    // має мати доступ до умов, оферти й даних продавця. Сховати їх до
+    // моменту згоди означало б просити згоди наосліп.
+    return (
+      <div className="app">
+        <AgeGate config={config} onConfirmed={setConfig} />
+        <Footer onLegal={(key) => setLegal(key || true)} />
+      </div>
+    )
   }
 
   const count = cart?.lines?.reduce((sum, l) => sum + l.qty, 0) || 0
@@ -206,6 +218,7 @@ initData: ${getInitData() ? `${getInitData().length} символів` : 'пор
             onChanged={onWishlistChanged}
           />
         )}
+        <Footer onLegal={() => setLegal(true)} />
       </div>
     )
   }
@@ -223,6 +236,7 @@ initData: ${getInitData() ? `${getInitData().length} символів` : 'пор
             refresh().catch(() => {})
           }}
         />
+        <Footer onLegal={() => setLegal(true)} />
       </div>
     )
   }
@@ -297,9 +311,14 @@ initData: ${getInitData() ? `${getInitData().length} символів` : 'пор
             onOpenProduct={setOpenProduct}
             onCartChange={(product, delta) => changeCart(product.id, delta)}
           />
-          <Footer onLegal={() => setLegal(true)} />
         </>
       )}
+
+      {/* Футер на всіх вкладках, а не лише в профілі.
+          Посилання на документи й вікове застереження мають бути доступні
+          звідусіль: людина оформлює покупку з каталогу й не мусить шукати
+          умови в іншому розділі. */}
+      <Footer onLegal={() => setLegal(true)} />
 
       {/* Панель тримається внизу на всіх вкладках: сума завжди перед очима */}
       {/* У чаті панель кошика перекрила б поле вводу */}

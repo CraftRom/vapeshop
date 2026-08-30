@@ -815,7 +815,10 @@ textarea.input { min-height: 74px; resize: vertical; }
 .legal-row .grow { flex: 1; }
 
 .footer {
-  padding: 22px 14px calc(22px + env(safe-area-inset-bottom, 0px));
+  /* Нижній відступ більший за висоту панелі кошика: вона зафіксована
+     внизу екрана й інакше перекривала б посилання на документи саме
+     тоді, коли в кошику щось є — тобто перед покупкою. */
+  padding: 22px 14px calc(96px + env(safe-area-inset-bottom, 0px));
   text-align: center;
   border-top: 1px solid var(--tg-secondary-bg);
   margin-top: 18px;

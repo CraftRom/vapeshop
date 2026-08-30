@@ -181,6 +181,20 @@ check("/logs" in read("dashboard/src/App.jsx"), "сторінка журналу
 check("sysadminOnly" in read("dashboard/src/App.jsx"), "пункт меню видно лише системному адміністратору")
 check("/api/logs" in read("backend/api/request_log.py"),
       "перегляд журналу не засмічує журнал")
+
+_media_py = read("backend/api/routers/media.py")
+check("SIGNATURES" in _media_py or "_sniff" in _media_py,
+      "тип файлу визначається за вмістом, а не за заголовком клієнта")
+for _page in ("Catalog", "Broadcasts"):
+    check("ImageField" in read(f"dashboard/src/pages/{_page}.jsx"),
+          f"{_page}: поле фото використовує завантажувач, а не голе посилання")
+check("media:" in _api_js, "панель уміє завантажувати й перелічувати файли")
+check("/media/" in nginx_conf, "nginx віддає завантажені файли напряму")
+check("HOST_MEDIA_DIR" in compose_src, "каталог медіа налаштовний і монтується")
+
+_mini = read("miniapp/src/App.jsx")
+check(_mini.count("<Footer") >= 5,
+      f"футер на всіх екранах вітрини: знайдено {_mini.count('<Footer')}")
 _settings_jsx = read("dashboard/src/pages/Settings.jsx")
 for _section in ("Telegram-група", "Бот і Mini App", "Розсилки", "Тихі години", "Бекапи"):
     check(_section in _settings_jsx.split("SYSADMIN_ONLY")[1].split("])")[0],

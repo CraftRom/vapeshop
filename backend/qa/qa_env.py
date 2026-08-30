@@ -17,7 +17,7 @@ SECRETS = {"bot_token","jwt_secret","dashboard_password","dashboard_login","webh
            "cron_secret","redis_url","database_url","postgres_password"}
 INFRA = {"serverless","postgres_host",
          "postgres_port","postgres_user","postgres_db","enable_api_docs","cors_origins",
-         "backup_dir","scheduler_interval_seconds","log_dir","log_json","log_level"}
+         "backup_dir","scheduler_interval_seconds","log_dir","log_json","log_level","media_dir"}
 unclassified = sorted(set(Settings.model_fields) - runtime - SECRETS - INFRA)
 r.check(not unclassified, "кожна змінна віднесена до категорії", unclassified)
 

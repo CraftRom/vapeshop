@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import ImageField from '../components/ImageField'
 
 import { api } from '../api'
 import { Empty, ErrorBar, Field, Loading, Modal, dateTime, useToast } from '../components/ui'
@@ -129,9 +130,12 @@ function BroadcastForm({ segments, onClose, onSaved }) {
           <textarea className="input" value={form.text} onChange={set('text')} />
         </Field>
 
-        <Field label="Посилання на зображення">
-          <input className="input" value={form.photo_url} onChange={set('photo_url')} />
-        </Field>
+        <ImageField
+          label="Зображення розсилки"
+          value={form.photo_url}
+          onChange={(url) => setForm((f) => ({ ...f, photo_url: url }))}
+          hint="Іде разом із текстом одним повідомленням. JPG, PNG, WebP або GIF, до 5 МБ."
+        />
 
         <div className="grid k2">
           <Field label="Текст кнопки">

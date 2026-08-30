@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import ImageField from '../components/ImageField'
 
 import { api } from '../api'
 import { Empty, ErrorBar, Field, Loading, Modal, confirmPurge, money, useToast } from '../components/ui'
@@ -93,9 +94,12 @@ function ProductForm({ product, categories, onClose, onSaved }) {
             <input className="input" type="number" min="0" value={form.stock} onChange={set('stock')} />
           </Field>
         </div>
-        <Field label="Посилання на фото" hint="Пряме посилання на зображення (jpg/png)">
-          <input className="input" value={form.photo_url || ''} onChange={set('photo_url')} />
-        </Field>
+        <ImageField
+          label="Фото товару"
+          value={form.photo_url || ''}
+          onChange={(url) => setForm((f) => ({ ...f, photo_url: url }))}
+          hint="Показується в картці товару в боті та вітрині. JPG, PNG, WebP або GIF, до 5 МБ."
+        />
         <div className="row">
           <label className="row" style={{ gap: 8, cursor: 'pointer' }}>
             <input type="checkbox" checked={form.is_active} onChange={set('is_active')} />

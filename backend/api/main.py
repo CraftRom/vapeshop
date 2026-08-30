@@ -8,7 +8,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from api.auth import authenticate, create_token
 from api.routers import (
-    broadcasts, catalog, customers, logs as logs_router, orders, promos,
+    broadcasts, catalog, customers, logs as logs_router, media as media_router,
+    orders, promos,
     settings as settings_router, operators, shop as shop_router, stats, telegram,
 )
 from api.schemas import LoginIn, TokenOut
@@ -202,6 +203,7 @@ async def debug_routing(request: Request):
 
 app.include_router(stats.router, prefix="/api/stats", tags=["stats"])
 app.include_router(logs_router.router)
+app.include_router(media_router.router)
 app.include_router(catalog.router, prefix="/api/catalog", tags=["catalog"])
 app.include_router(orders.router, prefix="/api/orders", tags=["orders"])
 app.include_router(customers.router, prefix="/api/customers", tags=["customers"])
