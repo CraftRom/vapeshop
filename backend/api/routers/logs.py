@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -62,6 +63,26 @@ def _read_tail(path: Path) -> list[str]:
     return chunk.decode("utf-8", errors="replace").splitlines()
 
 
+def _day_start(value: str) -> str:
+    """«2026-08-26» → межа, з якої починається доба."""
+    value = value.strip()
+    if not value:
+        return ""
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
+        raise HTTPException(422, f"Дата має бути у форматі РРРР-ММ-ДД, отримано: {value}")
+    return f"{value}T00:00:00"
+
+
+def _day_end(value: str) -> str:
+    """«2026-08-26» → межа, якою доба закінчується, включно."""
+    value = value.strip()
+    if not value:
+        return ""
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
+        raise HTTPException(422, f"Дата має бути у форматі РРРР-ММ-ДД, отримано: {value}")
+    return f"{value}T23:59:59.999999+99:99"
+
+
 def _parse(line: str) -> dict | None:
     """Рядок журналу як словник. Небитий JSON — обов'язкова умова.
 
@@ -101,6 +122,8 @@ async def read_logs(
     level: str = Query("", description="Мінімальний рівень"),
     event: str = Query("", description="Точна назва події"),
     request_id: str = Query("", alias="requestId"),
+    since: str = Query("", description="Від дати, YYYY-MM-DD"),
+    until: str = Query("", description="До дати включно, YYYY-MM-DD"),
     search: str = Query("", description="Підрядок у будь-якому полі"),
     limit: int = Query(200, ge=1, le=2000),
     who: Principal = Depends(require_sysadmin),
@@ -114,6 +137,12 @@ async def read_logs(
     # і не бачить падіння.
     threshold = LEVELS.index(level.lower()) if level.lower() in LEVELS else -1
 
+    # Межі доби рахуємо один раз, а не для кожного запису. Порівнюємо рядки
+    # ISO-дат: вони сортуються лексикографічно так само, як хронологічно,
+    # тож розбирати кожен час у datetime заради фільтра нема потреби.
+    since_key = _day_start(since)
+    until_key = _day_end(until)
+
     needle = search.lower()
     records = []
     scanned = 0
@@ -125,6 +154,15 @@ async def read_logs(
         if record is None:
             continue
         scanned += 1
+
+        record_time = str(record.get("time", ""))
+        if since_key and record_time < since_key:
+            # Записи йдуть від нових до старих: щойно вийшли за нижню межу,
+            # далі буде тільки старіше. Зупиняємось, а не перебираємо файл
+            # до кінця — на десяти мегабайтах різниця відчутна.
+            break
+        if until_key and record_time > until_key:
+            continue
 
         if threshold >= 0:
             record_level = str(record.get("level", "")).lower()
@@ -143,6 +181,15 @@ async def read_logs(
 
     return {
         "service": service,
+        # Коли записів нема, найчастіше питання не «де вони», а «чи вони
+        # взагалі пишуться». Відповідаємо на нього одразу, щоб не гадати.
+        "diagnostics": {
+            "logDir": os.environ.get("LOG_DIR", ""),
+            "file": str(path),
+            "exists": path.exists(),
+            "sizeBytes": path.stat().st_size if path.exists() else 0,
+            "linesInTail": len(lines),
+        },
         "records": records,
         "returned": len(records),
         "scanned": scanned,

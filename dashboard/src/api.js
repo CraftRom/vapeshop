@@ -169,6 +169,63 @@ export const api = {
     purge: (id) => request(`/promos/${id}/purge`, { method: 'DELETE' }),
   },
 
+  backups: {
+    list: () => request('/backups'),
+    create: () => request('/backups/create', { method: 'POST' }),
+    remove: (name) => request(`/backups/${encodeURIComponent(name)}`, { method: 'DELETE' }),
+
+    // Скачування йде через fetch, а не звичайним посиланням: файл віддається
+    // лише з токеном, а тег <a> заголовків не надсилає. Тому забираємо
+    // тіло в blob і віддаємо його браузеру вже локальним посиланням.
+    download: async (name) => {
+      const response = await fetch(`${BASE}/backups/${encodeURIComponent(name)}/download`, {
+        headers: { Authorization: `Bearer ${getToken()}` },
+      })
+      if (!response.ok) throw new Error(`Не вдалося скачати: ${response.status}`)
+      const blob = await response.blob()
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = name
+      link.click()
+      // Звільняємо памʼять: blob живе, доки на нього є посилання, а дамп
+      // може важити сотні мегабайтів.
+      setTimeout(() => URL.revokeObjectURL(url), 30000)
+    },
+
+    upload: async (file) => {
+      const body = new FormData()
+      body.append('file', file)
+      const response = await fetch(`${BASE}/backups/upload`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${getToken()}` },
+        body,
+      })
+      if (!response.ok) {
+        let message = `Помилка ${response.status}`
+        try { message = (await response.json()).detail || message } catch { /* не JSON */ }
+        throw new Error(message)
+      }
+      return response.json()
+    },
+
+    restore: async (name, confirm) => {
+      const body = new FormData()
+      body.append('confirm', confirm)
+      const response = await fetch(`${BASE}/backups/${encodeURIComponent(name)}/restore`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${getToken()}` },
+        body,
+      })
+      if (!response.ok) {
+        let message = `Помилка ${response.status}`
+        try { message = (await response.json()).detail || message } catch { /* не JSON */ }
+        throw new Error(message)
+      }
+      return response.json()
+    },
+  },
+
   media: {
     list: () => request('/media'),
     remove: (name) => request(`/media/${encodeURIComponent(name)}`, { method: 'DELETE' }),
@@ -200,7 +257,7 @@ export const api = {
   logs: {
     services: () => request('/logs/services'),
     events: (service) => request(`/logs/events?service=${encodeURIComponent(service)}`),
-    read: ({ service, level, event, search, limit }) => {
+    read: ({ service, level, event, search, limit, since, until }) => {
       // URLSearchParams, а не склеювання рядків: у пошуку буває будь-що,
       // включно з пробілами та кирилицею, і ручне екранування тут
       // рано чи пізно зламалося б.
@@ -208,6 +265,8 @@ export const api = {
       if (level) params.set('level', level)
       if (event) params.set('event', event)
       if (search) params.set('search', search)
+      if (since) params.set('since', since)
+      if (until) params.set('until', until)
       return request(`/logs?${params.toString()}`)
     },
   },

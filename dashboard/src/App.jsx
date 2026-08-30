@@ -17,6 +17,7 @@ const Broadcasts = lazy(() => import('./pages/Broadcasts'))
 const Settings = lazy(() => import('./pages/Settings'))
 const Operators = lazy(() => import('./pages/Operators'))
 const Logs = lazy(() => import('./pages/Logs'))
+const Backups = lazy(() => import('./pages/Backups'))
 const Instructions = lazy(() => import('./pages/Instructions'))
 const OrderPage = lazy(() => import('./pages/OrderPage'))
 
@@ -29,6 +30,7 @@ const NAV = [
   { to: '/broadcasts', label: 'Розсилки' },
   { to: '/operators', label: 'Менеджери', adminOnly: true },
   { to: '/logs', label: 'Журнал', sysadminOnly: true },
+  { to: '/backups', label: 'Копії', sysadminOnly: true },
   { to: '/settings', label: 'Налаштування' },
   { to: '/instructions', label: 'Інструкції' },
 ]
@@ -125,6 +127,7 @@ export default function App() {
         <Route path="/settings" element={<Protected><Settings /></Protected>} />
         <Route path="/operators" element={<Protected><Operators /></Protected>} />
         <Route path="/logs" element={<Protected><Logs /></Protected>} />
+        <Route path="/backups" element={<Protected><Backups /></Protected>} />
         <Route path="/instructions" element={<Protected><Instructions /></Protected>} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

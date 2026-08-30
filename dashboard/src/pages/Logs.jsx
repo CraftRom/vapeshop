@@ -96,6 +96,8 @@ export default function Logs() {
   const [event, setEvent] = useState('')
   const [search, setSearch] = useState('')
   const [limit, setLimit] = useState(200)
+  const [since, setSince] = useState('')
+  const [until, setUntil] = useState('')
   const [auto, setAuto] = useState(false)
 
   const [meta, setMeta] = useState(null)
@@ -108,14 +110,14 @@ export default function Logs() {
     setBusy(true)
     setError('')
     try {
-      const result = await api.logs.read({ service, level, event, search, limit })
+      const result = await api.logs.read({ service, level, event, search, limit, since, until })
       setData(result)
     } catch (err) {
       setError(err.message)
     } finally {
       setBusy(false)
     }
-  }, [service, level, event, search, limit])
+  }, [service, level, event, search, limit, since, until])
 
   useEffect(() => {
     api.logs.services().then(setMeta).catch((err) => setError(err.message))
@@ -193,6 +195,28 @@ export default function Logs() {
           </label>
 
           <label>
+            <div className="faint">Від дати</div>
+            <input
+              className="input"
+              type="date"
+              value={since}
+              onChange={(e) => setSince(e.target.value)}
+            />
+          </label>
+
+          <label>
+            <div className="faint">До дати включно</div>
+            <input
+              className="input"
+              type="date"
+              value={until}
+              onChange={(e) => setUntil(e.target.value)}
+            />
+          </label>
+        </div>
+
+        <div className="grid k3" style={{ marginTop: 12 }}>
+          <label>
             <div className="faint">Скільки записів</div>
             <select className="input" value={limit} onChange={(e) => setLimit(Number(e.target.value))}>
               {[100, 200, 500, 1000].map((n) => <option key={n} value={n}>{n}</option>)}
@@ -220,9 +244,31 @@ export default function Logs() {
         )}
 
         {data && data.records.length === 0 && (
-          <p className="faint">
-            Порожньо. Або фільтр надто вузький, або цей сервіс ще нічого не писав.
-          </p>
+          <div>
+            <p className="faint">Порожньо. Чому саме — видно нижче.</p>
+            {data.diagnostics && (
+              <ul className="faint" style={{ fontSize: 13, lineHeight: 1.7 }}>
+                <li>
+                  Каталог журналу:{' '}
+                  {data.diagnostics.logDir
+                    ? <code>{data.diagnostics.logDir}</code>
+                    : <b>не задано LOG_DIR — записи йдуть лише в docker logs</b>}
+                </li>
+                <li>
+                  Файл: <code>{data.diagnostics.file}</code>{' '}
+                  {data.diagnostics.exists
+                    ? `— ${Math.round(data.diagnostics.sizeBytes / 1024)} КБ, ` +
+                      `${data.diagnostics.linesInTail} рядків прочитано`
+                    : '— не існує'}
+                </li>
+                <li>
+                  {data.diagnostics.exists && data.diagnostics.linesInTail > 0
+                    ? 'Файл читається — отже, записи відсіює фільтр. Спробуйте скинути дати й рівень.'
+                    : 'Файл порожній або відсутній. Перевірте LOG_DIR у .env і те, що том змонтований у контейнер.'}
+                </li>
+              </ul>
+            )}
+          </div>
         )}
 
         {data && data.records.length > 0 && (

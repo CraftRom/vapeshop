@@ -192,6 +192,18 @@ check("media:" in _api_js, "панель уміє завантажувати й 
 check("/media/" in nginx_conf, "nginx віддає завантажені файли напряму")
 check("HOST_MEDIA_DIR" in compose_src, "каталог медіа налаштовний і монтується")
 
+_backups_py = read("backend/api/routers/backups.py")
+check("require_sysadmin" in _backups_py, "копії бази закриті для всіх, крім системного адміністратора")
+check("PGDUMP_SIGNATURE" in _backups_py, "формат дампа перевіряється за підписом, а не за розширенням")
+check("confirm.strip() != name" in _backups_py,
+      "відновлення вимагає переписати назву — кнопка «так» натискається рефлекторно")
+check("elfar-before-restore" in _backups_py,
+      "перед відновленням знімається запобіжна копія")
+check("/backups" in read("dashboard/src/App.jsx"), "сторінка копій є в маршрутах")
+check("since" in read("backend/api/routers/logs.py"), "журнал фільтрується по днях")
+check("diagnostics" in read("dashboard/src/pages/Logs.jsx"),
+      "порожній журнал пояснює причину, а не мовчить")
+
 _mini = read("miniapp/src/App.jsx")
 check(_mini.count("<Footer") >= 5,
       f"футер на всіх екранах вітрини: знайдено {_mini.count('<Footer')}")
