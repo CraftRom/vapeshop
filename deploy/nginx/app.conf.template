@@ -1,0 +1,184 @@
+# ШАБЛОН. Не редагуйте його руками й не монтуйте напряму.
+#
+# render-nginx.sh підставляє сюди домен із PUBLIC_URL і кладе результат
+# у nginx/generated/app.conf — саме він монтується в контейнер.
+#
+# Розділення потрібне через одну конкретну поломку: раніше домен
+# підставлявся прямо в цей файл, і кожне оновлення (розпакування архіву,
+# git pull) повертало заглушку. Nginx після цього не стартував — шукав
+# сертифікат за шляхом __DOMAIN__, — а причина виглядала як загадковий
+# 521 від Cloudflare.
+
+# Резолвер Docker. Без нього nginx визначає адреси контейнерів **один раз**,
+# при старті, і тримає їх довіку.
+#
+# Наслідок болючий і неочевидний: після `up -d --force-recreate api`
+# контейнер отримує нову адресу в мережі, nginx стукає за старою і віддає
+# 502. Сам API при цьому живий і здоровий, у його логах порожньо, а
+# перезапуск nginx «магічно» все лікує — саме тому причину так важко
+# знайти. valid=10s змушує перечитувати адресу кожні десять секунд.
+resolver 127.0.0.11 valid=10s ipv6=off;
+
+# Адреси в змінних — теж навмисно. proxy_pass із літеральним іменем
+# резолвиться на старті; proxy_pass зі змінною — під час запиту, вже
+# через резолвер вище. Це єдиний спосіб змусити nginx не кешувати.
+map $host $api_backend {
+    default "http://api:8000";
+}
+
+map $host $miniapp_static {
+    default "http://miniapp:80";
+}
+
+map $host $dashboard_static {
+    default "http://dashboard:80";
+}
+
+# ------------------------------------------------------------------------ HTTP
+#
+# Порт 80 не просто редіректить на HTTPS, а вміє віддавати сайт сам.
+#
+# Причина: поки справжнього сертифіката немає, HTTPS показує браузеру
+# попередження про підроблений сайт, і магазин недоступний узагалі. Краще
+# віддати його незашифрованим, ніж не віддати ніяк. Щойно Let's Encrypt
+# видасть сертифікат, certbot-init.sh кладе файл у redirect.d/, і порт 80
+# знову стає лише перенаправленням.
+server {
+    listen 80;
+    server_name __DOMAIN__ www.__DOMAIN__;
+
+    # Цей шлях має лишатись на HTTP — через нього certbot підтверджує домен
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    client_max_body_size 10M;
+
+    location / {
+        # Порожня тека — включення просто нічого не додає, і сайт віддається
+        # по HTTP. З файлом усередині тут зʼявляється redirect на HTTPS.
+        include /etc/nginx/redirect.d/*.conf;
+
+        proxy_pass $dashboard_static;
+        proxy_set_header Host $host;
+    }
+
+    location /app {
+        include /etc/nginx/redirect.d/*.conf;
+        proxy_pass $miniapp_static;
+        proxy_set_header Host $host;
+    }
+
+
+    # Завантажені зображення віддає nginx, а не застосунок: перекладати
+    # мегабайти через Python — марна робота й зайва памʼять на кожен
+    # запит. Кеш довгий, бо ім'я файлу містить хеш вмісту: змінився
+    # файл — змінилося ім'я, і старий кеш просто перестає використовуватись.
+    location /media/ {
+        alias /data/media/;
+        access_log off;
+        expires 30d;
+        add_header Cache-Control "public, immutable";
+        # Каталог зі сховищем не має віддавати нічого, крім картинок,
+        # навіть якщо туди щось потрапить іншим шляхом.
+        location ~* \.(php|py|sh|html?)$ { deny all; }
+    }
+    location /api/ {
+        include /etc/nginx/redirect.d/*.conf;
+        limit_req zone=api burst=20 nodelay;
+        proxy_pass $api_backend;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 120s;
+    }
+
+    # Вебхук Telegram лишається доступним по HTTP завжди: Telegram сам
+    # ходить тільки по HTTPS, але внутрішні перевірки зручніше робити тут.
+    location ~ ^/api/telegram/ {
+        proxy_pass $api_backend;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+
+# ---------------------------------------------------------------------- HTTPS
+server {
+    listen 443 ssl;
+    http2 on;
+    server_name __DOMAIN__ www.__DOMAIN__;
+
+    ssl_certificate     /etc/letsencrypt/live/__DOMAIN__/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/__DOMAIN__/privkey.pem;
+
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers off;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_timeout 1d;
+
+    # HSTS вмикається лише зі справжнім сертифікатом: інакше браузер
+    # запамʼятає домен як «тільки HTTPS», і запасний варіант по HTTP
+    # перестане працювати саме тоді, коли він потрібен.
+    include /etc/nginx/hsts.d/*.conf;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+
+    client_max_body_size 10M;
+
+    # Вебхук Telegram: без ліміту швидкості, інакше загубимо апдейти в піках
+    location ~ ^/api/telegram/ {
+        proxy_pass $api_backend;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # Захист від перебору пароля до панелі
+    location = /api/auth/login {
+        limit_req zone=login burst=5 nodelay;
+        proxy_pass $api_backend;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+
+    # Завантажені зображення віддає nginx, а не застосунок: перекладати
+    # мегабайти через Python — марна робота й зайва памʼять на кожен
+    # запит. Кеш довгий, бо ім'я файлу містить хеш вмісту: змінився
+    # файл — змінилося ім'я, і старий кеш просто перестає використовуватись.
+    location /media/ {
+        alias /data/media/;
+        access_log off;
+        expires 30d;
+        add_header Cache-Control "public, immutable";
+        # Каталог зі сховищем не має віддавати нічого, крім картинок,
+        # навіть якщо туди щось потрапить іншим шляхом.
+        location ~* \.(php|py|sh|html?)$ { deny all; }
+    }
+    location /api/ {
+        limit_req zone=api burst=20 nodelay;
+        proxy_pass $api_backend;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 120s;
+    }
+
+    # Вітрина Mini App. Має стояти перед кореневим location, інакше
+    # запити з'їдала б панель.
+    location /app {
+        proxy_pass $miniapp_static;
+        proxy_set_header Host $host;
+    }
+
+    location / {
+        proxy_pass $dashboard_static;
+        proxy_set_header Host $host;
+    }
+}

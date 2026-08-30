@@ -15,7 +15,7 @@
 # Тому тут entrypoint явно перевизначається на сам certbot.
 set -euo pipefail
 
-SCRIPT_VERSION="2026-08-26.5"
+SCRIPT_VERSION="2026-08-30.1"
 
 cd "$(dirname "$0")"
 echo "certbot-init ${SCRIPT_VERSION}"
@@ -99,18 +99,18 @@ LIVE="/etc/letsencrypt/live/${DOMAIN}"
 # Інакше виходить найгірший різновид помилки: сертифікат успішно видається
 # за шляхом live/<домен>, а nginx уперто шукає live/example.com і падає
 # в нескінченний рестарт, ніяк не натякаючи, що справа в заглушці.
-echo "==> Домен у конфігурації nginx"
-if grep -q 'example\.com' nginx/app.conf; then
-    sed -i "s|example\.com|${DOMAIN}|g" nginx/app.conf
-    echo "    example.com → ${DOMAIN}"
-else
-    configured=$(grep -m1 -oP 'server_name \K[^ ;]+' nginx/app.conf || true)
-    if [[ -n "$configured" && "$configured" != "$DOMAIN" ]]; then
-        echo "У nginx/app.conf налаштований домен ${configured}, а сертифікат просимо на ${DOMAIN}." >&2
-        echo "Або виправте конфіг, або запустіть скрипт із ${configured}." >&2
-        exit 1
-    fi
-    echo "    ${DOMAIN} — уже на місці"
+echo "==> Готую конфігурацію nginx"
+# Робочий конфіг генерується з шаблона щоразу — правити його на місці не
+# можна: наступне розпакування архіву поверне заглушку, і nginx упаде з
+# «cannot load certificate .../example.com/fullchain.pem».
+./render-nginx.sh
+
+configured=$(grep -m1 -oP 'server_name \K[^ ;]+' nginx/generated/app.conf || true)
+if [[ "$configured" != "$DOMAIN" ]]; then
+    echo "" >&2
+    echo "У .env вказано домен ${configured:-невідомо}, а сертифікат просимо на ${DOMAIN}." >&2
+    echo "Виправте PUBLIC_URL у .env або запустіть скрипт із ${configured}." >&2
+    exit 1
 fi
 
 echo "==> Перевіряю наявність сертифіката"
@@ -254,7 +254,7 @@ if [[ "$state" != "running" ]]; then
     echo "" >&2
     echo "Перевірте, що бачить certbot і куди дивиться nginx:" >&2
     echo "    $COMPOSE run --rm --entrypoint certbot certbot certificates" >&2
-    echo "    grep ssl_certificate nginx/app.conf" >&2
+    echo "    grep ssl_certificate nginx/generated/app.conf" >&2
     $COMPOSE logs --tail 10 nginx >&2
     exit 1
 fi

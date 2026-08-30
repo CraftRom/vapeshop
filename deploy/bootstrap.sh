@@ -203,25 +203,15 @@ ln -sfn ../.env "$REPO_DIR/deploy/.env"
 echo "    deploy/.env → ../.env"
 
 
-say "Домен у конфігурації nginx"
-# У app.conf стоять заглушки example.com — і в server_name, і в шляхах до
-# сертифіката. Якщо їх не замінити, nginx не знайде сертифікат і не підніме
-# HTTPS, а помилка виглядатиме як «cannot load certificate», хоч сертифікат
-# насправді успішно отриманий, просто під іншим іменем.
-public_url=$(grep -E '^PUBLIC_URL=' "$REPO_DIR/.env" | head -1 | cut -d= -f2-)
-domain=${public_url#https://}
-domain=${domain#http://}
-domain=${domain%%/*}
-
-if [[ -z "$domain" ]]; then
-    warn "PUBLIC_URL ще не заповнено — домен у nginx лишається заглушкою"
-elif grep -q 'example\.com' "$REPO_DIR/deploy/nginx/app.conf"; then
-    sed -i "s|example\.com|${domain}|g" "$REPO_DIR/deploy/nginx/app.conf"
-    # www.<домен> у server_name лишаємо: сертифікат зазвичай беруть на обидва,
-    # а зайве імʼя в server_name нічого не ламає.
-    echo "    example.com → ${domain}"
+say "Конфігурація nginx"
+# Робочий конфіг генерується з шаблону при кожному розгортанні — див.
+# render-nginx.sh. Тримати підставлений домен у самому файлі не можна:
+# оновлення коду щоразу повертало б заглушку.
+if [[ -n "$domain" ]]; then
+    runuser -u "$SERVICE_USER" -- "$REPO_DIR/deploy/render-nginx.sh" 2>/dev/null \
+        || echo "    буде згенеровано при запуску deploy.sh"
 else
-    echo "    Домен уже підставлено"
+    echo "    PUBLIC_URL ще не заповнено — конфіг згенерується пізніше"
 fi
 
 

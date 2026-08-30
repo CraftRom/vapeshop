@@ -33,7 +33,7 @@ must = [
  "dashboard/src/App.jsx","dashboard/src/api.js","dashboard/src/version.js",
  "miniapp/src/version.js","miniapp/src/legal.js","miniapp/src/screens/Legal.jsx","dashboard/src/pages/OrderPage.jsx",
  "dashboard/src/pages/Operators.jsx","dashboard/src/pages/Settings.jsx","dashboard/src/pages/Overview.jsx",
- "deploy/docker-compose.prod.yml","deploy/nginx/app.conf","docs/DEPLOY.md",
+ "deploy/docker-compose.prod.yml","deploy/nginx/app.conf.template","deploy/render-nginx.sh","docs/DEPLOY.md",
 ]
 missing = [m for m in must if not (root/m).exists()]
 check(not missing, f"усі {len(must)} ключових файлів на місці", missing)
@@ -138,7 +138,7 @@ _used = set(_re.findall(r"\$\{([A-Z_]+)[}:]", cert))
 _defined = set(_re.findall(r"^([A-Z_]+)=", cert, _re.M)) | {"CERTBOT_EMAIL"}
 check(not (_used - _defined), "у скрипті немає невизначених змінних",
       sorted(_used - _defined))
-nginx_conf = read("deploy/nginx/app.conf")
+nginx_conf = read("deploy/nginx/app.conf.template")
 http_part = nginx_conf[nginx_conf.index("listen 80;"):nginx_conf.index("listen 443")]
 check("dashboard_static" in http_part,
       "порт 80 віддає сайт, а не лише редіректить — щоб магазин працював без TLS")
@@ -228,8 +228,8 @@ check("for fuzzy in (False, True)" in faq_src,
       "точні збіги мають пріоритет над нечіткими")
 check("CHAT_FLOOR" in mw_src, "є нижня межа між відповідями в чаті")
 check("user_id" in mw_src, "пауза персональна: інший учасник отримає відповідь")
-check("example.com" in read("deploy/nginx/app.conf"), "app.conf лишається шаблоном із заглушкою")
-check("example\\.com" in boot or "example.com" in boot, "bootstrap підставляє домен у nginx")
+
+check("render-nginx.sh" in boot, "bootstrap готує конфіг nginx із шаблона")
 
 dockerfile = read("backend/Dockerfile")
 check("USER shop" in dockerfile, "бекенд працює не від root")
