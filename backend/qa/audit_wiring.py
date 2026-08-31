@@ -238,12 +238,27 @@ _alerts = read("backend/shop/alerts.py")
 check("DEDUP_WINDOW" in _alerts, "однакові помилки згортаються, а не спамлять канал")
 check("RATE_LIMIT" in _alerts, "є межа частоти — Telegram не приймає більше ~20/хв")
 check("_sending" in _alerts, "невдала відправка не породжує нову помилку")
+check("status_messages" in read("backend/api/routers/orders.py")
+      and "status_messages" in read("backend/bot/handlers/admin.py"),
+      "статуси описуються одним текстом і з панелі, і з бота")
+_status = read("backend/shop/services/status_messages.py")
+for _st in ("CONFIRMED", "PAID", "DONE", "CANCELLED"):
+    check(_st in _status, f"є розгорнутий текст для статусу {_st}")
 check("current().admin_chat_id" in read("backend/bot/handlers/admin.py"),
       "/stats працює лише в адмінському чаті")
 check("normalizePhone" in read("miniapp/src/screens/Checkout.jsx"),
       "телефон нормалізується до +380")
 check("field-error" in read("miniapp/src/styles.css"),
       "помилка показується біля свого поля")
+_css = read("miniapp/src/styles.css")
+check(_css.count("-webkit-text-fill-color") >= 5,
+      "текст полів малюється явно — інакше введене зникає на темній темі")
+check("input:focus" in _css and "text-fill-color" in _css.split(".input:focus")[1][:200],
+      "колір тексту закріплений і на фокусі")
+check("err.status !== 409" in read("miniapp/src/screens/Wishlists.jsx"),
+      "конфлікт назви списку не показується як помилка")
+check("useEffect(() => { setError('') }" in read("miniapp/src/screens/Wishlists.jsx"),
+      "старе повідомлення про помилку зникає після успішної дії")
 check('extra="forbid"' in read("backend/api/schemas.py"),
       "невідомі поля налаштувань відхиляються, а не ковтаються")
 check("diagnostics" in read("dashboard/src/pages/Logs.jsx"),

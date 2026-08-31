@@ -307,9 +307,26 @@ button { font: inherit; color: inherit; cursor: pointer; }
   border-radius: var(--radius-sm);
   background: var(--tg-secondary-bg);
   color: var(--tg-text);
+  /* Дублює color навмисно. WebKit і WebView в Telegram малюють текст поля
+     через -webkit-text-fill-color, і поки він не заданий, перемагає
+     значення від системи: на темній підкладці виходить чорне на чорному.
+     Саме тому текст був видимий у полі, яке вже заповнене, і зникав під
+     час введення — заповнене малює сторінка, а те, що набирають, — движок. */
+  -webkit-text-fill-color: var(--tg-text);
+  caret-color: var(--tg-text);
+  opacity: 1;
   font-size: 16px; /* нижче 16px мобільний Safari зумить сторінку при фокусі */
   outline: none;
   transition: border-color 0.15s;
+}
+
+/* Явно й на фокусі: деякі WebView скидають fill-color при отриманні
+   фокуса, і без цього правила помилка поверталася б саме тоді, коли
+   людина щось вводить. */
+.input:focus,
+.input:active {
+  color: var(--tg-text);
+  -webkit-text-fill-color: var(--tg-text);
 }
 
 .input:focus { border-color: var(--accent); }
@@ -325,7 +342,11 @@ button { font: inherit; color: inherit; cursor: pointer; }
   margin-top: 4px;
 }
 
-.input::placeholder { color: var(--tg-hint); }
+.input::placeholder {
+  color: var(--tg-hint);
+  -webkit-text-fill-color: var(--tg-hint);
+  opacity: 1; /* Firefox приглушує підказку власним opacity */
+}
 
 /* Автозаповнення. Safari та Chrome підмінюють і колір тексту, і тло
    власними — на темній темі виходив чорний текст на чорному. color тут
@@ -341,10 +362,16 @@ button { font: inherit; color: inherit; cursor: pointer; }
 /* Запобіжник на майбутнє: будь-яке поле введення успадковує колір, навіть
    якщо хтось забуде клас .input. Невидимий текст — надто дорога помилка,
    щоб залежати від уважності. */
-input, textarea, select, button {
+/* Запобіжник для полів, які колись забудуть позначити класом .input.
+   Кнопок це не стосується: у них власні кольори, і успадкування зробило б
+   текст на кнопці кольором сторінки. */
+input, textarea, select {
   font-family: inherit;
-  color: inherit;
+  color: var(--tg-text);
+  -webkit-text-fill-color: var(--tg-text);
 }
+
+button { font-family: inherit; }
 
 textarea.input { min-height: 74px; resize: vertical; }
 

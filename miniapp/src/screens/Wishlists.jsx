@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { api } from '../api'
 import { alert, confirm, haptic } from '../telegram'
@@ -122,6 +122,11 @@ export function Wishlists({ config, wishlists, cart, onChanged, onOpenProduct, o
   const [name, setName] = useState('')
   const [error, setError] = useState('')
 
+  // Повідомлення про помилку зникає, щойно перелік змінився: інакше воно
+  // висить на екрані після успішної дії й виглядає так, ніби нічого не
+  // спрацювало — саме це й було видно на екрані «Збережене».
+  useEffect(() => { setError('') }, [wishlists])
+
   const qtyOf = (id) => cart?.lines?.find((l) => l.product_id === id)?.qty || 0
 
   const rename = async (list) => {
@@ -155,17 +160,33 @@ export function Wishlists({ config, wishlists, cart, onChanged, onOpenProduct, o
     }
   }
 
-  const create = async () => {
-    // Шукаємо вільний номер, а не беремо кількість списків: після видалення
-    // «Список 2» кількість знову дорівнює одиниці, і сервер відхиляв
-    // створення через збіг назв
-    const taken = new Set((wishlists || []).map((w) => w.name.toLowerCase()))
+  /** Вільний номер за переліком назв. */
+  const freeNumber = (lists) => {
+    // Порівнюємо нормалізовані назви: «Список 2» і «список  2» — те саме
+    // для сервера, і саме на цьому раніше виникав збіг.
+    const taken = new Set(
+      (lists || []).map((w) => w.name.trim().toLowerCase().replace(/\s+/g, ' ')),
+    )
     let n = 1
     while (taken.has(`список ${n}`)) n += 1
+    return n
+  }
+
+  const create = async () => {
+    setError('')
     try {
-      onChanged(await api.wishlists.create(`Список ${n}`))
+      onChanged(await api.wishlists.create(`Список ${freeNumber(wishlists)}`))
     } catch (err) {
-      setError(err.message)
+      // Перелік у пропсі міг застаріти: список створили в іншому місці
+      // застосунку, а сюди оновлення ще не дійшло. Перепитуємо сервер і
+      // пробуємо ще раз — це рівно та відповідь, яку людина й очікує.
+      if (err.status !== 409) return setError(err.message)
+      try {
+        const fresh = await api.wishlists.list()
+        onChanged(await api.wishlists.create(`Список ${freeNumber(fresh)}`))
+      } catch (retry) {
+        setError(retry.message)
+      }
     }
   }
 

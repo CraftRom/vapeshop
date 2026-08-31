@@ -154,9 +154,18 @@ async def patch_order(
         elif data.status == OrderStatus.SHIPPED and bot and fresh:
             await send_tracking(bot, repo, fresh, tracking)
         elif order.user:
+            # Розгорнутий текст замість «статус змінено на …»: клієнт має
+            # дізнатися, що сталося, що буде далі й чи потрібна його дія.
+            # Інакше кожне таке повідомлення породжує питання менеджеру.
+            from shop.services.shop_settings import get_shop_settings
+            from shop.services.status_messages import compose
+
+            shop = await get_shop_settings(repo)
+            text = compose(fresh or order, data.status, shop)
             await notify_user(
                 order.user.tg_id,
-                f"Замовлення №{order.id}: статус змінено на «{STATUS_LABELS[data.status]}».",
+                text or f"Замовлення №{order.id}: статус — "
+                        f"«{STATUS_LABELS[data.status]}».",
             )
 
     return await repo.get_order(order_id)

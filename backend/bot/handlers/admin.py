@@ -77,9 +77,18 @@ async def admin_change_status(callback: CallbackQuery, repo: Repository) -> None
     if not client:
         return
 
+    # Той самий текст, що й з панелі: клієнт не має отримувати різні
+    # повідомлення залежно від того, звідки менеджер натиснув кнопку.
+    from shop.services.status_messages import compose
+
+    shop_now = await get_shop_settings(repo)
+    fresh = await repo.get_order(order.id) or order
+    text = compose(fresh, status, shop_now)
+
     try:
         await callback.bot.send_message(
-            client.tg_id, f"Замовлення №{order.id}: статус змінено на «{label}»."
+            client.tg_id,
+            text or f"Замовлення №{order.id}: статус — «{label}».",
         )
     except Exception:
         pass

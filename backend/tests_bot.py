@@ -424,9 +424,16 @@ async def run(backend: str) -> None:
     await feed(callback_update(bot, f"ao:{order_id}:paid", tg_id=900001))
     check("статус змінено на «Оплачене»",
           any("Оплачене" in a for a in session.alerts()), str(session.alerts()))
-    check("клієнта сповіщено про статус",
-          any("Оплачене" in t for t in session.sent_to(500001)),
-          str(session.sent_to(500001))[:120])
+    # Перевіряємо суть, а не ярлик статусу: текст для клієнта тепер
+    # пояснює, що сталося й що буде далі, і слова «Оплачене» в ньому
+    # немає навмисно — воно нічого не додає людині.
+    client_texts = session.sent_to(500001)
+    check("клієнта сповіщено про оплату",
+          any("Оплату отримано" in t for t in client_texts),
+          str(client_texts)[:150])
+    check("сказано, що буде далі",
+          any("накладної" in t or "відправка" in t for t in client_texts),
+          str(client_texts)[:150])
 
     await feed(callback_update(bot, f"ao:{order_id}:done", tg_id=900001))
     check("статус «Виконане»", any("Виконане" in a for a in session.alerts()))
