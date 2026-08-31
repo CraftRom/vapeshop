@@ -1,0 +1,38 @@
+// Перевіряємо, що кольори тексту у фокусі задані й нічим не перекриваються.
+import { readFileSync } from 'node:fs'
+const css = readFileSync('src/styles.css', 'utf8')
+
+let bad = 0
+const ok = (cond, label, extra = '') => {
+  if (!cond) bad++
+  console.log(`  ${cond ? '✓' : '✗'} ${label}${cond ? '' : ` — ${extra}`}`)
+}
+
+const rule = (selector) => {
+  const i = css.indexOf(selector)
+  if (i === -1) return ''
+  return css.slice(i, css.indexOf('}', i))
+}
+
+console.log('\n--- поле у фокусі ---')
+const focus = rule('.input:focus,')
+ok(focus.includes('-webkit-text-fill-color'), 'заливка гліфів задана')
+ok(focus.includes('!important'), 'перекриває стилі WebView')
+ok(focus.includes('background'), 'фон закріплений')
+
+console.log('\n--- поле з помилкою ---')
+const badRule = rule('.input.bad,')
+ok(badRule.includes('-webkit-text-fill-color'), 'текст лишається видимим')
+ok(badRule.includes('warn-soft'), 'фон помилки не втрачено')
+
+console.log('\n--- поля без класу ---')
+ok(css.includes('input:focus, textarea:focus, select:focus'), 'запобіжник є')
+
+console.log('\n--- виділення ---')
+ok(css.includes('.input::selection'), 'колір виділення заданий')
+
+console.log('\n--- жодного прозорого тексту ---')
+ok(!/color:\s*transparent/.test(css), 'немає color: transparent')
+
+console.log(`\nПОЛЯ ВВЕДЕННЯ: ${bad === 0 ? 'усе витримано' : `ПРОВАЛЕНО: ${bad}`}`)
+process.exit(bad ? 1 : 0)

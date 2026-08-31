@@ -320,21 +320,50 @@ button { font: inherit; color: inherit; cursor: pointer; }
   transition: border-color 0.15s;
 }
 
-/* Явно й на фокусі: деякі WebView скидають fill-color при отриманні
-   фокуса, і без цього правила помилка поверталася б саме тоді, коли
-   людина щось вводить. */
+/* Кольори у фокусі — жорстко, з !important.
+ *
+ * Звичайного правила тут не досить, і це видно з поведінки: у полі, яке
+ * не у фокусі, текст білий і читається, а щойно туди стають — гліфи
+ * зникають, хоч каретка й маркер виділення лишаються на місці. Наш CSS
+ * кольору не міняє, отже його підміняє сам WebView Telegram: він накидає
+ * власні стилі на активне поле й перемагає за специфічністю.
+ *
+ * !important тут не ліньки, а єдиний спосіб перекрити чужі inline-стилі.
+ * Задаємо всю трійку — колір, заливку гліфів і фон, — бо невидимий текст
+ * виникає від будь-якої з них.
+ */
 .input:focus,
+.input:focus-visible,
 .input:active {
+  color: var(--tg-text) !important;
+  -webkit-text-fill-color: var(--tg-text) !important;
+  background: var(--tg-secondary-bg) !important;
+  opacity: 1 !important;
+  border-color: var(--accent);
+}
+
+/* Виділення тексту. Якщо тло виділення збігається з кольором гліфів,
+   виділений фрагмент теж зникає — а виділяє його система сама, коли
+   показує підказки заміни. */
+.input::selection,
+.input::-moz-selection {
+  background: var(--accent-soft);
   color: var(--tg-text);
   -webkit-text-fill-color: var(--tg-text);
 }
 
-.input:focus { border-color: var(--accent); }
-
 /* Поле з помилкою. Підсвічуємо саме поле, а не показуємо загальне
    повідомлення внизу форми: людині треба знати, куди дивитись, а не
    що «щось не так». */
-.input.bad { border-color: var(--warn); background: var(--warn-soft); }
+.input.bad,
+.input.bad:focus {
+  border-color: var(--warn);
+  /* Фон помилки теж із !important: інакше правило фокуса вище перекриє
+     його, і поле з помилкою виглядало б як звичайне. */
+  background: var(--warn-soft) !important;
+  color: var(--tg-text) !important;
+  -webkit-text-fill-color: var(--tg-text) !important;
+}
 
 .field-error {
   color: var(--warn);
@@ -369,6 +398,14 @@ input, textarea, select {
   font-family: inherit;
   color: var(--tg-text);
   -webkit-text-fill-color: var(--tg-text);
+}
+
+/* Той самий захист для полів без класу .input. Невидимий текст — надто
+   дорога помилка, щоб залежати від того, чи не забув хтось клас. */
+input:focus, textarea:focus, select:focus {
+  color: var(--tg-text) !important;
+  -webkit-text-fill-color: var(--tg-text) !important;
+  opacity: 1 !important;
 }
 
 button { font-family: inherit; }

@@ -277,6 +277,12 @@ check("color-scheme" in _mini_css,
       "вітрина оголошує схему — інакше iOS малює свої елементи світлими")
 check("-webkit-text-fill-color" in _mini_css,
       "автозаповнення не робить текст невидимим")
+_focus = _mini_css[_mini_css.index(".input:focus,"):]
+_focus = _focus[:_focus.index("}")]
+check("!important" in _focus,
+      "кольори у фокусі перекривають стилі WebView — інакше текст зникає при введенні")
+check("background" in _focus, "фон поля у фокусі закріплений")
+check("::selection" in _mini_css, "виділений текст теж лишається видимим")
 check("--tg-text" in _mini_css.split("data-scheme='light'")[1].split("}")[0],
       "світла тема має власні кольори тексту, а не лише акценти")
 check("err.status !== 409" in read("miniapp/src/screens/Wishlists.jsx"),
