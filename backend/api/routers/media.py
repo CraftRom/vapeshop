@@ -10,7 +10,6 @@
 from __future__ import annotations
 
 import hashlib
-import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
@@ -18,7 +17,6 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 
 from api.auth import Principal, require_staff
-from shop.config import settings
 
 router = APIRouter(prefix="/api/media", tags=["media"])
 

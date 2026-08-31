@@ -7,7 +7,6 @@ from decimal import Decimal
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from shop.config import settings
 from shop.services.shop_settings import get_shop_settings
 from shop.models import BonusTx, Order, OrderStatus, User
 

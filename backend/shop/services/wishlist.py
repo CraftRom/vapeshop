@@ -5,7 +5,7 @@
 """
 from __future__ import annotations
 
-from shop.entities import DEFAULT_WISHLIST_NAME, Product, Wishlist
+from shop.entities import DEFAULT_WISHLIST_NAME, Wishlist
 from shop.repo.base import Repository
 
 # Обмеження проти випадкового й навмисного розростання. Списків більше
@@ -17,6 +17,17 @@ MAX_ITEMS = 200
 
 class WishlistError(Exception):
     """Порушення правила, яке треба показати покупцеві."""
+
+
+class WishlistNotFound(WishlistError):
+    """Списку немає або він чужий.
+
+    Окремий тип, щоб відповідати 404, а не 409. Різниця не косметична:
+    «конфлікт» для чужого списку підтверджує, що список із таким номером
+    існує, і той, хто перебирає номери, дізнається про чужі списки більше,
+    ніж мав би.
+    """
+
 
 
 async def ensure_lists(repo: Repository, user_id: int) -> list[Wishlist]:
@@ -49,7 +60,7 @@ async def owned(repo: Repository, wishlist_id: int, user_id: int) -> Wishlist:
     """Список покупця. Чужий не віддаємо навіть на читання."""
     found = await repo.get_wishlist(wishlist_id)
     if not found or found.user_id != user_id:
-        raise WishlistError("Список не знайдено")
+        raise WishlistNotFound("Список не знайдено")
     return found
 
 
@@ -86,10 +97,17 @@ async def drop(repo: Repository, wishlist_id: int, user_id: int) -> None:
     target = await owned(repo, wishlist_id, user_id)
     lists = await repo.list_wishlists(user_id)
     if len(lists) <= 1:
-        # Останній список не видаляємо, а чистимо: інакше сердечко в
-        # каталозі не мало б куди додавати, і довелося б створювати список
-        # прямо посеред покупки
+        # Останній список не видаляємо, а скидаємо до початкового стану:
+        # інакше сердечко в каталозі не мало б куди додавати, і довелося б
+        # створювати список прямо посеред покупки.
+        #
+        # Разом із товарами повертаємо й типову назву. Людина попросила
+        # видалити список — лишити порожній, але з її назвою означало б
+        # зробити вигляд, що нічого не сталося. Порожнє «Обране» чесніше
+        # відповідає тому, про що просили.
         await repo.set_wishlist_items(target.id, [])
+        if target.name != DEFAULT_WISHLIST_NAME:
+            await repo.rename_wishlist(target.id, DEFAULT_WISHLIST_NAME)
         return
     await repo.delete_wishlist(target.id)
 
@@ -100,10 +118,11 @@ async def hydrate(repo: Repository, lists: list[Wishlist]) -> list[Wishlist]:
     if not wanted:
         return lists
 
-    products: dict[int, Product] = {}
-    for product in await repo.list_products():
-        if product.id in wanted:
-            products[product.id] = product
+    # Один запит саме за потрібними ідентифікаторами. Раніше тут читався
+    # весь каталог і фільтрувався в памʼяті: на трьох товарах різниці
+    # немає, на тисячі — це тисяча рядків заради трьох, і сторінка
+    # «Збережене» відкривалася б тим повільніше, чим більший магазин.
+    products = {p.id: p for p in await repo.products_by_ids(sorted(wanted))}
 
     for wl in lists:
         # Видалені назавжди товари просто зникають зі списку показу;

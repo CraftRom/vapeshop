@@ -202,6 +202,34 @@ check("elfar-before-restore" in _backups_py,
       "перед відновленням знімається запобіжна копія")
 check("/backups" in read("dashboard/src/App.jsx"), "сторінка копій є в маршрутах")
 check("since" in read("backend/api/routers/logs.py"), "журнал фільтрується по днях")
+_db = read("backend/shop/db.py")
+check("pool_recycle" in _db, "довгоживучі зʼєднання переставляються, а не рвуться мовчки")
+check("db_pool_size" in _db, "розмір пулу налаштовний, а не зашитий")
+check("products_by_ids" in read("backend/shop/services/wishlist.py"),
+      "списки читають лише свої товари, а не весь каталог")
+
+# Запит у циклі — найдорожча помилка, яку не видно на десяти записах
+# і яка кладе сторінку на тисячі. Ловимо її структурно.
+import ast as _ast
+
+_loops = []
+for _name in ("backend/shop/services/wishlist.py", "backend/shop/services/shop_service.py"):
+    for _node in _ast.walk(_ast.parse(read(_name))):
+        if not isinstance(_node, (_ast.For, _ast.AsyncFor)):
+            continue
+        for _inner in _ast.walk(_node.body[0] if _node.body else _node):
+            if isinstance(_inner, _ast.Await):
+                _call = _inner.value
+                if (isinstance(_call, _ast.Call)
+                        and isinstance(_call.func, _ast.Attribute)
+                        and isinstance(_call.func.value, _ast.Name)
+                        and _call.func.value.id == "repo"
+                        and _call.func.attr.startswith(("list_", "get_"))):
+                    _loops.append(f"{_name}:{_inner.lineno} repo.{_call.func.attr}")
+check(not _loops, "немає читань бази в циклі", _loops[:2])
+check("DEFAULT_WISHLIST_NAME" in read("backend/shop/services/wishlist.py"),
+      "останній список скидається до типової назви")
+
 check("_not_below_zero" in read("backend/shop/repo/sql.py"),
       "нижня межа нуля через CASE — func.max(0, x) валить Postgres")
 

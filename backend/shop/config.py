@@ -1,4 +1,3 @@
-import os
 from functools import lru_cache
 from urllib.parse import quote_plus
 
@@ -59,6 +58,11 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
 
     # --- База ---
+    # Розмір пулу зʼєднань. Один воркер тримає стільки паралельних
+    # запитів до бази; решта чекає. Значення підібране під VPS із 2–4 ГБ,
+    # де поруч живуть бот і планувальник зі своїми пулами.
+    db_pool_size: int = 10
+    db_pool_overflow: int = 20
     # DATABASE_URL можна не задавати — тоді збереться з POSTGRES_*.
     # Так пароль БД зберігається в одному місці й не розходиться.
     postgres_user: str = "shop"

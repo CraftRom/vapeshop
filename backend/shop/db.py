@@ -18,7 +18,24 @@ elif _url.startswith("sqlite"):
     # SQLite керує з'єднаннями сам і не приймає параметри розміру пулу
     _engine_options["pool_pre_ping"] = True
 else:
-    _engine_options |= {"pool_pre_ping": True, "pool_size": 10, "max_overflow": 20}
+    # Числа в налаштуваннях, а не тут: один воркер тримає стільки
+    # паралельних запитів до бази, і решта чекає в черзі. Підбирати це
+    # значення доводиться під конкретний сервер, а перезбирати образ
+    # заради однієї цифри — надто дорого.
+    #
+    # pool_pre_ping лишається завжди: мертві зʼєднання після нічного
+    # простою — класика, і перший ранковий запит падав би з «connection
+    # was closed». Пінг коштує мілісекунди, помилка — замовлення.
+    _engine_options |= {
+        "pool_pre_ping": True,
+        "pool_size": settings.db_pool_size,
+        "max_overflow": settings.db_pool_overflow,
+        # Довгоживучі зʼєднання рвуться мовчки на стороні мережі, і
+        # pre_ping їх лише виявляє. Переставляння раз на пів години
+        # запобігає самому розриву.
+        "pool_recycle": 1800,
+        "pool_timeout": 10,
+    }
 
 engine = create_async_engine(_url, **_engine_options)
 SessionMaker = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)

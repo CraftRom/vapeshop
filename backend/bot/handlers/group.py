@@ -11,7 +11,6 @@ from aiogram.enums import ChatMemberStatus, ChatType
 from aiogram.types import ChatMemberUpdated
 
 from bot.greeting import send_greeting
-from shop.config import settings
 from shop.services.shop_settings import current
 
 router = Router(name="group")

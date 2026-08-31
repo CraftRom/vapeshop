@@ -122,6 +122,15 @@ class Repository(ABC):
     async def count_products(self, category_id: int, only_active: bool = True) -> int: ...
 
     @abstractmethod
+    async def products_by_ids(self, ids: list[int]) -> list[Product]:
+        """Товари за переліком ідентифікаторів, одним запитом.
+
+        Потрібне там, де відомі саме ідентифікатори: списки бажаного,
+        позиції замовлення. Читати заради них увесь каталог означає
+        витягувати тисячі рядків, щоб узяти три.
+        """
+
+    @abstractmethod
     async def get_product(self, product_id: int) -> Product | None: ...
 
     @abstractmethod

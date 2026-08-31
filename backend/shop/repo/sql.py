@@ -318,6 +318,14 @@ class SqlRepository(Repository):
             query = query.where(m.Product.is_active.is_(True))
         return [_product(row, name) for row, name in await self.s.execute(query)]
 
+    async def products_by_ids(self, ids) -> list:
+        if not ids:
+            return []
+        rows = await self.s.scalars(
+            select(m.Product).where(m.Product.id.in_(list(ids)))
+        )
+        return [_product(r) for r in rows]
+
     async def count_products(self, category_id, only_active=True) -> int:
         query = select(func.count(m.Product.id)).where(m.Product.category_id == category_id)
         if only_active:

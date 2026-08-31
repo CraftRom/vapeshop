@@ -15,7 +15,6 @@ from __future__ import annotations
 import logging
 from html import escape
 
-from shop.config import settings
 from shop.entities import Order, User
 from shop.repo.base import Repository
 from shop.services.shop_settings import get_shop_settings

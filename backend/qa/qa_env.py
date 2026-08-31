@@ -15,7 +15,7 @@ print("\n--- класифікація ---")
 runtime = {f.name for f in dfields(ShopSettings)}
 SECRETS = {"bot_token","jwt_secret","dashboard_password","dashboard_login","webhook_secret",
            "cron_secret","redis_url","database_url","postgres_password"}
-INFRA = {"serverless","postgres_host",
+INFRA = {"serverless","db_pool_size","db_pool_overflow","postgres_host",
          "postgres_port","postgres_user","postgres_db","enable_api_docs","cors_origins",
          "backup_dir","scheduler_interval_seconds","log_dir","log_json","log_level","media_dir"}
 unclassified = sorted(set(Settings.model_fields) - runtime - SECRETS - INFRA)

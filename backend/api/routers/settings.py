@@ -33,13 +33,17 @@ INFRA_FIELDS = {
     # Telegram-група
     "admin_chat_id", "admin_ids", "admin_topic_id", "error_topic_id",
     # Бот і Mini App
-    "bot_username", "miniapp_short_name", "public_url", "webhook_secret",
+    "bot_username", "miniapp_short_name", "public_url",
     # Розсилки
     "timezone", "broadcast_rate_per_second", "broadcast_chunk",
     # Тихі години
     "quiet_hours_enabled", "quiet_hours_start", "quiet_hours_end",
     # Бекапи
     "backup_enabled", "backup_hour", "backup_retention_days",
+    # Безпека. Час життя токена — не косметика: подовживши його, можна
+    # зробити викрадену сесію дійсною на місяць. Це рішення власника
+    # системи, а не того, хто веде каталог.
+    "jwt_ttl_hours",
 }
 
 

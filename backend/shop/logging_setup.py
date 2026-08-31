@@ -21,7 +21,6 @@ import logging.handlers
 import os
 import sys
 from datetime import datetime, timezone
-from pathlib import Path
 
 # Поля, які logging кладе в кожен запис сам. Усе, чого тут немає, —
 # наше й має потрапити в JSON.

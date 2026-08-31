@@ -141,19 +141,41 @@ async def scenario():
                 fresh.shop_name)
         r.check(current().shop_name == "Після кешу", "кеш оновлено", current().shop_name)
 
-        print("\n--- права ---")
-        # Інфраструктура закрита навіть від адміністратора магазину: помилка
-        # в токені бота чи розкладі бекапів кладе весь магазин.
-        for field in sorted(INFRA_FIELDS)[:5]:
+        print("\n--- права: кожне поле, а не вибірка ---")
+        # Перевіряємо весь перелік, бо саме тут вибіркова перевірка
+        # безглузда: одне забуте поле — і адміністратор магазину міняє
+        # токен бота, а помітять це, коли бот замовкне.
+        leaked_admin, leaked_manager = [], []
+        for field in sorted(INFRA_FIELDS):
             if field not in ShopSettingsIn.model_fields:
                 continue
             value = sample(field, ShopSettingsIn.model_fields[field])
-            resp = await client.put("/api/settings", json={field: value},
-                                    headers=head(ADMIN))
-            r.check(resp.status_code == 403, f"адміністратор не змінює {field}",
-                    resp.status_code)
+            for token, bucket in ((ADMIN, leaked_admin), (MANAGER, leaked_manager)):
+                resp = await client.put("/api/settings", json={field: value},
+                                        headers=head(token))
+                if resp.status_code != 403:
+                    bucket.append((field, resp.status_code))
 
-        for field in sorted(OPERATOR_FIELDS - INFRA_FIELDS)[:3]:
+        r.check(not leaked_admin,
+                f"адміністратор не змінює жодне з {len(INFRA_FIELDS)} інфраструктурних",
+                leaked_admin[:3])
+        r.check(not leaked_manager,
+                "менеджер не змінює жодне інфраструктурне", leaked_manager[:3])
+
+        print("\n--- менеджер обмежений своїм ---")
+        allowed = OPERATOR_FIELDS - INFRA_FIELDS
+        forbidden_for_manager = []
+        for field in sorted(set(ShopSettingsIn.model_fields) - allowed):
+            value = sample(field, ShopSettingsIn.model_fields[field])
+            resp = await client.put("/api/settings", json={field: value},
+                                    headers=head(MANAGER))
+            if resp.status_code == 200:
+                forbidden_for_manager.append(field)
+        r.check(not forbidden_for_manager,
+                "менеджеру недоступне все поза його переліком",
+                forbidden_for_manager[:3])
+
+        for field in sorted(allowed):
             if field not in ShopSettingsIn.model_fields:
                 continue
             value = sample(field, ShopSettingsIn.model_fields[field])
@@ -162,10 +184,16 @@ async def scenario():
             r.check(resp.status_code == 200, f"менеджер змінює {field}",
                     resp.status_code)
 
-        resp = await client.put("/api/settings", json={"shop_name": "Чуже"},
-                                headers=head(MANAGER))
-        r.check(resp.status_code == 403, "менеджер не змінює назву магазину",
-                resp.status_code)
+        print("\n--- системний адміністратор може все ---")
+        blocked = []
+        for field in sorted(ShopSettingsIn.model_fields):
+            value = sample(field, ShopSettingsIn.model_fields[field])
+            resp = await client.put("/api/settings", json={field: value},
+                                    headers=head(SYSADMIN))
+            if resp.status_code != 200:
+                blocked.append((field, resp.status_code))
+        r.check(not blocked, "жодне поле не закрите від власника .env",
+                blocked[:3])
 
         print("\n--- сміття відхиляється ---")
         for payload, label in [

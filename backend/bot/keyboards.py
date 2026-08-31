@@ -6,7 +6,6 @@ from aiogram.types import (
 )
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from shop.config import settings
 from shop.links import app_link, chat_link, share_link
 from shop.services.shop_settings import current
 from shop.models import CartItem, Category, Product

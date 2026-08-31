@@ -9,11 +9,10 @@ from aiogram.types import CallbackQuery, Message, ReplyKeyboardRemove
 from bot import keyboards as kb
 from bot import texts
 from bot.states import Checkout
-from shop.config import settings
 from shop.services.shop_settings import current
 from shop.services.notifications import notify_new_order
 from shop.services.shop_settings import get_shop_settings
-from shop.entities import Order, User
+from shop.entities import User
 from shop.repo.base import Repository
 from shop.services import shop_service as svc
 

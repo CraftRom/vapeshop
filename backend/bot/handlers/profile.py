@@ -4,7 +4,6 @@ from aiogram import F, Router
 from aiogram.types import CallbackQuery, Message
 
 from bot import keyboards as kb
-from shop.config import settings
 from shop.links import app_link, chat_link
 from shop.services.shop_settings import get_shop_settings
 from shop.entities import STATUS_LABELS, User

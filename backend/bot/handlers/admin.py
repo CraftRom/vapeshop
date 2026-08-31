@@ -5,7 +5,6 @@ from aiogram.filters import BaseFilter, Command
 from aiogram.types import CallbackQuery, Message
 
 from bot import keyboards as kb
-from shop.config import settings
 from shop.services.shop_settings import current, get_shop_settings
 from shop.entities import STATUS_LABELS, OrderStatus
 from shop.repo.base import Repository

@@ -7,7 +7,6 @@ from aiogram.types import CallbackQuery, Message
 
 from bot import keyboards as kb
 from bot import texts
-from shop.config import settings
 from shop.services.shop_settings import get_shop_settings
 from shop.entities import User
 from shop.repo.base import Repository

@@ -12,7 +12,6 @@ from bot import keyboards as kb
 from bot import texts
 from bot import faq
 from bot.greeting import is_command_trigger, is_private_only_command, send_greeting
-from shop.config import settings
 from shop.services.shop_settings import current, get_shop_settings
 from shop.repo.factory import open_repo
 from shop.services.shop_service import get_or_create_user

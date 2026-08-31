@@ -474,6 +474,8 @@ async def toggle_wishlist_item(
     _require_age(user)
     try:
         updated, _ = await wl.toggle(repo, wishlist_id, user.id, data.product_id)
+    except wl.WishlistNotFound as exc:
+        raise HTTPException(404, str(exc))
     except wl.WishlistError as exc:
         raise HTTPException(409, str(exc))
     return _wl_out((await wl.hydrate(repo, [updated]))[0])
