@@ -56,6 +56,9 @@ export function ProductPage({ config, product, cart, onCartChange, onBack, saved
   const stock = stockNote(product.stock)
   const out = product.stock <= 0
   const oldPrice = Number(product.old_price || 0)
+  const discount = oldPrice > Number(product.price)
+    ? Math.floor((1 - Number(product.price) / oldPrice) * 100)
+    : 0
   const price = Number(product.price)
 
   const change = async (delta) => {
@@ -93,10 +96,13 @@ export function ProductPage({ config, product, cart, onCartChange, onBack, saved
           </span>
           {/* Стара ціна лише коли вона справді вища: інакше «знижка» з
               нульовою вигодою підриває довіру до всіх решти */}
-          {oldPrice > price && (
-            <span className="old-price num">
-              {oldPrice.toFixed(0)} {config.currency}
-            </span>
+          {discount > 0 && (
+            <>
+              <span className="old-price num">
+                {oldPrice.toFixed(0)} {config.currency}
+              </span>
+              <span className="discount-badge">−{discount}%</span>
+            </>
           )}
         </div>
 

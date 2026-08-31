@@ -208,6 +208,18 @@ check("db_pool_size" in _db, "розмір пулу налаштовний, а �
 check("products_by_ids" in read("backend/shop/services/wishlist.py"),
       "списки читають лише свої товари, а не весь каталог")
 
+_legal = read("miniapp/src/legal.js")
+check("{{?SELLER_EMAIL}}" in _legal,
+      "необовʼязкові реквізити обгорнуті в умовний блок")
+check("sellerIsUsable" in _legal, "є перевірка мінімального набору реквізитів")
+_mini_css2 = read("miniapp/src/styles.css")
+check("discount-badge" in _mini_css2, "знижка виділена як акційна пропозиція")
+check("AUTHOR" not in read("dashboard/src/version.js")
+      and "AUTHOR" not in read("miniapp/src/version.js"),
+      "підпис автора прибрано")
+check("delivery_cost_from" in read("backend/shop/services/shop_settings.py"),
+      "умови доставки в налаштуваннях, а не в текстах")
+
 # Запит у циклі — найдорожча помилка, яку не видно на десяти записах
 # і яка кладе сторінку на тисячі. Ловимо її структурно.
 import ast as _ast

@@ -712,12 +712,37 @@ textarea.input { min-height: 74px; resize: vertical; }
   color: var(--tg-hint);
 }
 
+/* Стара ціна. Приглушена й дрібніша за нову: погляд має чіплятися за
+   те, скільки платити, а перекреслене лише пояснює, чому це вигідно.
+   Однаковий розмір робив би обидві цифри рівноважними, і покупець
+   спершу читав би більшу. */
 .old-price {
   color: var(--tg-hint);
-  font-size: 17px;
+  font-size: 14px;
   font-weight: 500;
   text-decoration: line-through;
+  text-decoration-thickness: 1.5px;
+  opacity: 0.75;
+  margin-left: 6px;
 }
+
+/* Наскільки дешевше. Цифра відсотка працює краще за слово «акція»:
+   вона відповідає на питання «а скільки я заощаджу» без арифметики. */
+.discount-badge {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 700;
+  vertical-align: 2px;
+  letter-spacing: 0.2px;
+}
+
+/* Нова ціна на картці з акцією — трохи помітніша за звичайну. */
+.price.has-discount { color: var(--accent); }
 
 .product-description {
   margin: 14px 0 0;

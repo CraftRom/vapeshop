@@ -4,5 +4,4 @@
  * різні застосунки з різним циклом випусків, і спільний номер плутав би —
  * правка в панелі не означає змін для покупця.
  */
-export const APP_VERSION = '1.3.1'
-export const AUTHOR = 'Halytskyi Dmytro'
+export const APP_VERSION = '1.4.0'

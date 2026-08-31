@@ -53,6 +53,11 @@ function ProductCard({ product, qty, currency, onChange, onOpen, saved, onSave }
   const out = product.stock <= 0
   const atMax = qty >= product.stock
   const oldPrice = Number(product.old_price || 0)
+  // Відсоток рахуємо тут, а не в розмітці: округлення вниз навмисне —
+  // обіцяти «−34%» там, де насправді 33.7%, не варто.
+  const discount = oldPrice > Number(product.price)
+    ? Math.floor((1 - Number(product.price) / oldPrice) * 100)
+    : 0
 
   return (
     <div className="card">
@@ -61,10 +66,13 @@ function ProductCard({ product, qty, currency, onChange, onOpen, saved, onSave }
       <button className="card-body card-open" onClick={() => onOpen(product)}>
         <p className="card-title">{product.name}</p>
         {product.description && <p className="card-note clamp">{product.description}</p>}
-        <div className="price num">
+        <div className={`price num ${discount ? 'has-discount' : ''}`}>
           {Number(product.price).toFixed(0)} <small>{currency}</small>
-          {oldPrice > Number(product.price) && (
-            <span className="old-price num"> {oldPrice.toFixed(0)}</span>
+          {discount > 0 && (
+            <>
+              <span className="old-price num">{oldPrice.toFixed(0)}</span>
+              <span className="discount-badge">−{discount}%</span>
+            </>
           )}
           {'  '}
           {stockLabel(product.stock)}

@@ -291,6 +291,10 @@ class ShopSettingsIn(BaseModel):
     seller_email: str | None = Field(None, max_length=128)
     seller_phone: str | None = Field(None, max_length=32)
     admin_chat_id: int | None = None
+    delivery_cost_from: int | None = Field(None, ge=0, le=100000)
+    delivery_days: str | None = Field(None, max_length=64)
+    cod_commission_percent: Decimal | None = Field(None, ge=0, le=100)
+    cod_commission_fixed: Decimal | None = Field(None, ge=0, le=10000)
     admin_topic_id: int | None = Field(None, ge=0)
     error_topic_id: int | None = Field(None, ge=0)
     admin_ids: str | None = Field(None, max_length=255)
@@ -386,6 +390,10 @@ class ShopSettingsOut(BaseModel):
     admin_chat_id: int
     admin_topic_id: int
     error_topic_id: int
+    delivery_cost_from: int
+    delivery_days: str
+    cod_commission_percent: Decimal
+    cod_commission_fixed: Decimal
     admin_ids: str
     bot_username: str
     miniapp_short_name: str

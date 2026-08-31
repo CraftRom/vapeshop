@@ -1,7 +1,7 @@
 import { useState } from 'react'
 
 import { DOCUMENTS, LEGAL_UPDATED, documentText, sellerIncomplete } from '../legal'
-import { APP_VERSION, AUTHOR } from '../version'
+import { APP_VERSION } from '../version'
 
 /** Розмітка документів обмежена <b> — тому просте, передбачуване
  *  перетворення замість підключення парсера заради двох тегів. */
@@ -81,7 +81,7 @@ export function Footer({ onLegal }) {
         </button>
       )}
       <div className="hint num">
-        Вітрина v{APP_VERSION} · {AUTHOR}
+        Вітрина v{APP_VERSION}
       </div>
     </div>
   )

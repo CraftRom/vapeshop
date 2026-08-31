@@ -2,7 +2,7 @@ import { Suspense, lazy, useEffect, useState } from 'react'
 import { NavLink, Navigate, Route, Routes, useNavigate } from 'react-router-dom'
 
 import { api, clearToken, getSession, getToken, isAdmin, isSysadmin } from './api'
-import { APP_VERSION, AUTHOR } from './version'
+import { APP_VERSION } from './version'
 import { Loading, ToastProvider } from './components/ui'
 import Login from './pages/Login'
 
@@ -97,7 +97,7 @@ function Shell({ children }) {
 
           {/* Версія панелі ведеться окремо від вітрини Mini App */}
           <div className="app-footer">
-            v{APP_VERSION} · {AUTHOR}
+            v{APP_VERSION}
           </div>
         </div>
       </aside>

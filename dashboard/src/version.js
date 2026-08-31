@@ -9,5 +9,4 @@
  *   мінорна     — нова можливість
  *   виправлення — лагодження без нових можливостей
  */
-export const APP_VERSION = '1.6.2'
-export const AUTHOR = 'Halytskyi Dmytro'
+export const APP_VERSION = '1.7.0'

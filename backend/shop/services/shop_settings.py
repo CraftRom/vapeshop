@@ -55,6 +55,14 @@ class ShopSettings:
     # У каналі з темами повідомлення без message_thread_id падають у
     # «General», де їх ніхто не читає. Розділення потрібне ще й тому, що
     # замовлення й помилки сервера — різні за терміновістю потоки.
+    # Умови доставки й оплати. Тримаємо тут, а не в текстах: ці цифри
+    # міняє перевізник, і правити їх у трьох місцях — гарантія, що
+    # десь лишиться стара.
+    delivery_cost_from: int
+    delivery_days: str
+    cod_commission_percent: Decimal
+    cod_commission_fixed: Decimal
+
     admin_topic_id: int
     error_topic_id: int
     admin_ids: str
@@ -112,6 +120,10 @@ class ShopSettings:
             seller_email=settings.seller_email,
             seller_phone=settings.seller_phone,
             admin_chat_id=settings.admin_chat_id,
+            delivery_cost_from=settings.delivery_cost_from,
+            delivery_days=settings.delivery_days,
+            cod_commission_percent=Decimal(str(settings.cod_commission_percent)),
+            cod_commission_fixed=Decimal(str(settings.cod_commission_fixed)),
             admin_topic_id=settings.admin_topic_id,
             error_topic_id=settings.error_topic_id,
             admin_ids=settings.admin_ids,

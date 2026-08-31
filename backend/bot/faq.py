@@ -224,8 +224,8 @@ RULES: tuple[Rule, ...] = (
             "Новою поштою двома способами:\n"
             "• у відділення\n"
             "• адресна доставка курʼєром\n\n"
-            "Термін по Україні — 1–3 дні. Вартість від 80 грн за тарифами "
-            "перевізника."
+            "Термін по Україні — {delivery_days}. Вартість від "
+            "{delivery_cost_from} {currency} за тарифами перевізника."
         
         ),
         public_answer="Доставка Новою поштою по Україні. Тарифи перевізника, терміни звичайні.",
@@ -238,7 +238,8 @@ RULES: tuple[Rule, ...] = (
             "💳 <b>Оплата</b>\n\n"
             "Накладений платіж Новою поштою: платите при отриманні у "
             "відділенні або курʼєру.\n\n"
-            "Комісія за грошовий переказ — 2% від вартості товару та 20 грн. "
+            "Комісія за грошовий переказ — {cod_commission_percent}% від "
+            "вартості товару та {cod_commission_fixed} {currency}. "
             "Її бере перевізник, не магазин.\n\n"
             "Також можлива оплата на картку — реквізити надходять після "
             "підтвердження замовлення."
@@ -430,6 +431,12 @@ def render(rule: Rule, shop=None, public: bool = False) -> str:
         bonus_max=_num(getattr(shop, "bonus_max_percent", Decimal(30))),
         referral=_num(getattr(shop, "referral_percent", Decimal(5))),
         currency=getattr(shop, "currency", "грн"),
+        # Умови перевізника. Дефолти повторюють чинні тарифи, щоб текст
+        # лишався правдивим навіть коли налаштування ще не читались.
+        delivery_days=getattr(shop, "delivery_days", "1–3 дні"),
+        delivery_cost_from=getattr(shop, "delivery_cost_from", 80),
+        cod_commission_percent=_num(getattr(shop, "cod_commission_percent", Decimal(2))),
+        cod_commission_fixed=_num(getattr(shop, "cod_commission_fixed", Decimal(20))),
     )
 
 
