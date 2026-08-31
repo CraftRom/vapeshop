@@ -89,12 +89,24 @@ export default function App() {
   useEffect(() => hideMainButton, [])
 
   const onWishlistChanged = useCallback((updated) => {
-    // toggle і rename повертають один список — підміняємо його на місці;
-    // створення й видалення міняють склад, тож перечитуємо повністю
+    // Розрізняємо не «є id чи немає», а «список уже відомий чи ні».
+    //
+    // Раніше будь-яка відповідь з id ішла гілкою підміни, і щойно
+    // створений список просто не потрапляв у перелік: map не знаходив
+    // його серед наявних і мовчки лишав усе як було. Тому в «Збереженому»
+    // новий список не з'являвся, у вибірці його не було, а наступна
+    // спроба створити ту саму назву давала 409 — рівно те, що видно
+    // в журналі дванадцять разів поспіль.
     if (updated?.id) {
-      setWishlists((prev) => prev.map((w) => (w.id === updated.id ? updated : w)))
+      setWishlists((prev) => {
+        const known = prev.some((w) => w.id === updated.id)
+        return known
+          ? prev.map((w) => (w.id === updated.id ? updated : w))
+          : [...prev, updated]
+      })
       return
     }
+    // Видалення й інші зміни складу — перечитуємо повністю
     api.wishlists.list().then(setWishlists).catch(() => {})
   }, [])
 

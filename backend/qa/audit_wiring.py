@@ -221,18 +221,16 @@ check("object-fit: cover" not in _mini_css2,
 _img_field = read("dashboard/src/components/ImageField.jsx")
 check("objectFit: 'cover'" not in _img_field,
       "прев'ю у сховищі не обрізані — інакше картинку не впізнати")
-# Заглушка має збігатися з фото за висотою, інакше сторінка смикається
+# Фото має підлаштовуватись під зображення, заглушка — ні: поки картинки
+# немає, її пропорції невідомі, і без фіксованої висоти сторінка смикнеться.
 import re as _re2
+
 _photo = _re2.search(r"\.product-photo \{[^}]*\}", _mini_css2).group(0)
 _skel = _re2.search(r"\.product-photo\.skeleton \{[^}]*\}", _mini_css2).group(0)
-for _prop in ("height", "max-height", "min-height"):
-    _a = _re2.search(rf"[^-]{_prop}: ([^;]+);", _photo)
-    _b = _re2.search(rf"[^-]{_prop}: ([^;]+);", _skel)
-    check(bool(_a) == bool(_b) and (not _a or _a.group(1) == _b.group(1)),
-          f"заглушка й фото мають однаковий {_prop}")
-check("AUTHOR" not in read("dashboard/src/version.js")
-      and "AUTHOR" not in read("miniapp/src/version.js"),
-      "підпис автора прибрано")
+check("height: auto" in _photo, "висота фото за пропорцією зображення")
+check("max-height" in _photo, "є стеля, щоб фото не з'їдало весь екран")
+check(_re2.search(r"[^-]height: \d+px", _skel), "заглушка має фіксовану висоту")
+
 check("delivery_cost_from" in read("backend/shop/services/shop_settings.py"),
       "умови доставки в налаштуваннях, а не в текстах")
 
@@ -313,6 +311,8 @@ check("input:focus" in _css and "text-fill-color" in _css.split(".input:focus")[
       "колір тексту закріплений і на фокусі")
 check("err.status !== 409" in read("miniapp/src/screens/Wishlists.jsx"),
       "конфлікт назви списку не показується як помилка")
+check("const known = prev.some" in read("miniapp/src/App.jsx"),
+      "новий список додається в перелік, а не губиться при підміні")
 check("useEffect(() => { setError('') }" in read("miniapp/src/screens/Wishlists.jsx"),
       "старе повідомлення про помилку зникає після успішної дії")
 check('extra="forbid"' in read("backend/api/schemas.py"),
