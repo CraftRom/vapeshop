@@ -214,6 +214,22 @@ check("{{?SELLER_EMAIL}}" in _legal,
 check("sellerIsUsable" in _legal, "є перевірка мінімального набору реквізитів")
 _mini_css2 = read("miniapp/src/styles.css")
 check("discount-badge" in _mini_css2, "знижка виділена як акційна пропозиція")
+check("object-fit: contain" in _mini_css2,
+      "фото товару не обрізається — на ньому сам товар")
+check("object-fit: cover" not in _mini_css2,
+      "у вітрині не лишилось обрізання зображень")
+_img_field = read("dashboard/src/components/ImageField.jsx")
+check("objectFit: 'cover'" not in _img_field,
+      "прев'ю у сховищі не обрізані — інакше картинку не впізнати")
+# Заглушка має збігатися з фото за висотою, інакше сторінка смикається
+import re as _re2
+_photo = _re2.search(r"\.product-photo \{[^}]*\}", _mini_css2).group(0)
+_skel = _re2.search(r"\.product-photo\.skeleton \{[^}]*\}", _mini_css2).group(0)
+for _prop in ("height", "max-height", "min-height"):
+    _a = _re2.search(rf"[^-]{_prop}: ([^;]+);", _photo)
+    _b = _re2.search(rf"[^-]{_prop}: ([^;]+);", _skel)
+    check(bool(_a) == bool(_b) and (not _a or _a.group(1) == _b.group(1)),
+          f"заглушка й фото мають однаковий {_prop}")
 check("AUTHOR" not in read("dashboard/src/version.js")
       and "AUTHOR" not in read("miniapp/src/version.js"),
       "підпис автора прибрано")

@@ -287,4 +287,54 @@ for phrase in NOISE2:
 r.check(faq.match("новинки кіно дивились", shop, public=True) is not None,
         "«новинки» лишається робочим ключем попри рідкий хибний збіг")
 
+print("\n--- питання про графік і доставку ---")
+# Найчастіші питання клієнтів. Перевіряємо не лише те, що правило
+# знайшлося, а й що у відповіді є те, заради чого питали.
+SCHEDULE = {
+    "коли доставка": "delivery", "скільки чекати": "delivery",
+    "коли я отримаю": "delivery", "скільки днів іде": "delivery",
+    "коли прийде посилка": "delivery", "терміни доставки": "delivery",
+    "як швидко доставите": "delivery", "коли відправите": "delivery",
+    "як ви працюєте": "hours", "які години роботи": "hours",
+    "до котрої ви сьогодні": "hours", "ви ще працюєте": "hours",
+    "робочий час": "hours", "ви працюєте у неділю": "hours",
+}
+for phrase, expected in SCHEDULE.items():
+    rule = faq.match(phrase, shop, public=True)
+    r.check(rule is not None and rule.key == expected,
+            f"{phrase!r} → {expected}", rule.key if rule else None)
+
+print("\n--- у відповідях є самі дані, а не лише тема ---")
+delivery = next(x for x in faq.RULES if x.key == "delivery")
+hours = next(x for x in faq.RULES if x.key == "hours")
+
+for label, rule, needles in (
+    ("доставка", delivery, ["11:00", "18:00", "16:00", "80", "поштою"]),
+    ("графік", hours, ["9:00", "20:00", "10:00", "11:00", "16:00"]),
+):
+    body = faq.render(rule, shop)
+    missing = [n for n in needles if n not in body]
+    r.check(not missing, f"{label}: у приватній відповіді є всі дані", missing)
+
+    short = faq.render(rule, shop, public=True)
+    r.check("11:00" in short and "16:00" in short,
+            f"{label}: у груповій відповіді є графік відправок", short[:80])
+
+print("\n--- «накладна» і «накладений платіж» не плутаються ---")
+# Одне слово — документ перевізника, друге — спосіб оплати. Спільний
+# префікс раніше віддавав питання не тому правилу.
+for phrase, expected in [("номер накладної", "status"), ("де накладна", "status"),
+                         ("накладений платіж можна", "payment"),
+                         ("оплата накладеним", "payment")]:
+    rule = faq.match(phrase, shop)
+    r.check(rule is not None and rule.key == expected,
+            f"{phrase!r} → {expected}", rule.key if rule else None)
+
+print("\n--- жоден ключ не мертвий ---")
+# normalize() згортає «ї» в «і»; ключ, написаний із «ї», не збігався б
+# ніколи, і помітити це можна лише такою перевіркою.
+dead = [(x.key, w) for x in faq.RULES for g in x.groups for w in g
+        if faq.normalize(w).strip() != w]
+r.check(not dead, "усі ключові слова нормалізовані", dead[:3])
+
 r.done()

@@ -42,7 +42,11 @@ export default function ImageField({ value, onChange, label = 'Зображен�
             src={value}
             alt=""
             style={{
-              width: 84, height: 84, objectFit: 'cover',
+              // contain: у прев'ю треба бачити, що саме за картинка,
+              // а обрізане по центру фото товару часто виглядає як
+              // невиразна пляма й не дає її впізнати.
+              width: 84, height: 84, objectFit: 'contain',
+              background: 'var(--panel-2)',
               borderRadius: 10, background: 'rgba(0,0,0,.25)',
             }}
             onError={(e) => { e.currentTarget.style.opacity = 0.25 }}
@@ -183,7 +187,8 @@ function Library({ onPick, onClose }) {
                 alt={f.name}
                 onClick={() => onPick(f.url)}
                 style={{
-                  width: '100%', height: 120, objectFit: 'cover',
+                  width: '100%', height: 120, objectFit: 'contain',
+                  background: 'var(--panel-2)',
                   borderRadius: 10, cursor: 'pointer',
                   background: 'rgba(0,0,0,.25)',
                 }}
