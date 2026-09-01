@@ -218,22 +218,72 @@ async def create_order(
 # Перевірка потрібна не заради формальності: перехід одразу у «Виконано»
 # нараховує реферальну винагороду й списує залишки повз оплату, а зворотний
 # шлях із закритого замовлення повернув би бонуси й товар удруге.
-ALLOWED_TRANSITIONS: dict[OrderStatus, set[OrderStatus]] = {
+# Маршрут статусів залежить від способу оплати.
+#
+# При оплаті карткою «Оплачене» — окремий стан: гроші приходять до
+# відправки, і менеджер має бачити, чи вони вже надійшли. При накладеному
+# платежі такого стану не існує взагалі: клієнт платить у відділенні при
+# отриманні, тобто оплата й виконання — та сама подія. Пропонувати
+# «Оплачене» в цьому випадку означало б просити менеджера відзначати те,
+# чого він не бачить.
+#
+# «Підтверджене» лишається спільним кроком: менеджер звірив наявність і
+# контакти. «Виконане» поки ставлять руками — автоматичним воно стане,
+# коли підключимо стеження за посилками.
+_CARD_ROUTE: dict[OrderStatus, set[OrderStatus]] = {
     OrderStatus.NEW: {OrderStatus.CONFIRMED, OrderStatus.CANCELLED},
     OrderStatus.CONFIRMED: {OrderStatus.ACCEPTED, OrderStatus.CANCELLED},
-    OrderStatus.ACCEPTED: {OrderStatus.PAID, OrderStatus.SHIPPED, OrderStatus.CANCELLED},
+    OrderStatus.ACCEPTED: {OrderStatus.PAID, OrderStatus.CANCELLED},
     OrderStatus.PAID: {OrderStatus.SHIPPED, OrderStatus.CANCELLED},
     OrderStatus.SHIPPED: {OrderStatus.DONE, OrderStatus.CANCELLED},
     OrderStatus.DONE: set(),
     OrderStatus.CANCELLED: set(),
 }
 
+_COD_ROUTE: dict[OrderStatus, set[OrderStatus]] = {
+    OrderStatus.NEW: {OrderStatus.CONFIRMED, OrderStatus.CANCELLED},
+    OrderStatus.CONFIRMED: {OrderStatus.ACCEPTED, OrderStatus.CANCELLED},
+    OrderStatus.ACCEPTED: {OrderStatus.SHIPPED, OrderStatus.CANCELLED},
+    OrderStatus.SHIPPED: {OrderStatus.DONE, OrderStatus.CANCELLED},
+    OrderStatus.DONE: set(),
+    OrderStatus.CANCELLED: set(),
+}
 
-def transition_error(current: OrderStatus, target: OrderStatus) -> str | None:
-    """Пояснення, чому перехід неможливий. None — якщо дозволений."""
+# Замовлення, оформлені до поділу маршрутів, могли зупинитись на
+# «Оплачене» навіть при накладеному платежі. Лишаємо їм вихід уперед,
+# інакше вони застрягли б назавжди.
+_COD_ROUTE[OrderStatus.PAID] = {OrderStatus.SHIPPED, OrderStatus.CANCELLED}
+
+
+def route_for(payment_method: str | None) -> dict[OrderStatus, set[OrderStatus]]:
+    """Дозволені переходи для конкретного способу оплати."""
+    return _COD_ROUTE if payment_method == "cod" else _CARD_ROUTE
+
+
+def next_statuses(order) -> list[OrderStatus]:
+    """Куди можна перевести це замовлення просто зараз."""
+    allowed = route_for(getattr(order, "payment_method", None)).get(order.status, set())
+    return [s for s in OrderStatus if s in allowed]
+
+
+# Сумісність: код, який не знає про спосіб оплати, працює за маршрутом
+# картки — він ширший, тож нічого не заборонить помилково.
+ALLOWED_TRANSITIONS = _CARD_ROUTE
+
+
+def transition_error(
+    current: OrderStatus,
+    target: OrderStatus,
+    payment_method: str | None = None,
+) -> str | None:
+    """Пояснення, чому перехід неможливий. None — якщо дозволений.
+
+    payment_method потрібен, бо маршрут різний: при накладеному платежі
+    стану «Оплачене» не існує, і пропонувати його менеджеру безглуздо.
+    """
     if current == target:
         return None
-    allowed = ALLOWED_TRANSITIONS.get(current, set())
+    allowed = route_for(payment_method).get(current, set())
     if target in allowed:
         return None
 

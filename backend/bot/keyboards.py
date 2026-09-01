@@ -225,17 +225,28 @@ def profile(referral_link: str) -> InlineKeyboardMarkup:
     )
 
 
-def admin_order(order_id: int) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(text="Підтвердити", callback_data=f"ao:{order_id}:confirmed"),
-                InlineKeyboardButton(text="Оплачено", callback_data=f"ao:{order_id}:paid"),
-            ],
-            [
-                InlineKeyboardButton(text="Відправлено", callback_data=f"ao:{order_id}:shipped"),
-                InlineKeyboardButton(text="Виконано", callback_data=f"ao:{order_id}:done"),
-            ],
-            [InlineKeyboardButton(text="Скасувати", callback_data=f"ao:{order_id}:cancelled")],
-        ]
-    )
+def admin_order(order_id: int, payment_method: str | None = None) -> InlineKeyboardMarkup:
+    """Кнопки статусів під замовленням.
+
+    Набір залежить від оплати: при накладеному платежі «Оплачено» не
+    показуємо взагалі. Кнопка, натискання якої повертає відмову, гірша за
+    її відсутність — менеджер тисне й отримує помилку замість дії.
+    """
+    rows = [[
+        InlineKeyboardButton(text="Підтвердити", callback_data=f"ao:{order_id}:confirmed"),
+        InlineKeyboardButton(text="Прийнято", callback_data=f"ao:{order_id}:accepted"),
+    ]]
+
+    second = []
+    if payment_method != "cod":
+        second.append(
+            InlineKeyboardButton(text="Оплачено", callback_data=f"ao:{order_id}:paid"))
+    second.append(
+        InlineKeyboardButton(text="Відправлено", callback_data=f"ao:{order_id}:shipped"))
+    rows.append(second)
+
+    rows.append([
+        InlineKeyboardButton(text="Виконано", callback_data=f"ao:{order_id}:done"),
+        InlineKeyboardButton(text="Скасувати", callback_data=f"ao:{order_id}:cancelled"),
+    ])
+    return InlineKeyboardMarkup(inline_keyboard=rows)

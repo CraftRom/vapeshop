@@ -64,6 +64,7 @@ class ShopSettings:
     cod_commission_fixed: Decimal
 
     admin_topic_id: int
+    chat_topic_id: int
     error_topic_id: int
     admin_ids: str
     # Бот і Mini App
@@ -125,6 +126,7 @@ class ShopSettings:
             cod_commission_percent=Decimal(str(settings.cod_commission_percent)),
             cod_commission_fixed=Decimal(str(settings.cod_commission_fixed)),
             admin_topic_id=settings.admin_topic_id,
+            chat_topic_id=settings.chat_topic_id,
             error_topic_id=settings.error_topic_id,
             admin_ids=settings.admin_ids,
             bot_username=settings.bot_username,

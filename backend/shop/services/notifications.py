@@ -82,7 +82,7 @@ async def notify_new_order(bot, repo: Repository, order: Order, user: User) -> b
         await bot.send_message(
             shop.admin_chat_id,
             await build_order_text(repo, order, user),
-            reply_markup=kb.admin_order(order.id),
+            reply_markup=kb.admin_order(order.id, order.payment_method),
             **topic_kwargs(shop.admin_topic_id),
         )
         return True

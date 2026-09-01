@@ -15,6 +15,19 @@ os.environ.update(BOT_TOKEN="777001:T", JWT_SECRET="t" * 32,
 
 os.makedirs(LOG_DIR if "LOG_DIR" in dir() else BACKUP_DIR, exist_ok=True)
 
+
+# Прибираємо базу від попереднього запуску.
+#
+# Набір, який проходить лише на чистій базі, гірший за відсутній: він
+# падає через власні залишки, і час іде на з'ясування, що зламався тест,
+# а не застосунок. Саме так qa_legal і qa_e2e показували провал, хоч
+# застосунок працював.
+import pathlib as _pathlib  # noqa: E402
+
+for _leftover in _pathlib.Path("/tmp").glob("qa_backups*"):
+    if _leftover.is_file():
+        _leftover.unlink(missing_ok=True)
+
 from qa_common import Report                             # noqa: E402
 
 r = Report("КОПІЇ")

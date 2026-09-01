@@ -4,6 +4,18 @@ from urllib.parse import urlencode
 TOKEN = "777001:TESTTOKEN"
 
 def boot(db_path):
+    # Прибираємо базу від попереднього запуску.
+    #
+    # Набір, який проходить лише на чистій базі, гірший за відсутній: він
+    # падає через власні залишки, і час іде на з'ясування, що зламався
+    # тест, а не застосунок. Саме так qa_legal показував «реквізити не
+    # порожні», а qa_e2e — «вік уже підтверджено»: у файлі лишалися дані
+    # попереднього прогону.
+    import pathlib
+
+    for suffix in ("", "-wal", "-shm"):
+        pathlib.Path(f"{db_path}{suffix}").unlink(missing_ok=True)
+
     os.environ.update(BOT_TOKEN=TOKEN, JWT_SECRET="t"*32, DASHBOARD_PASSWORD="secret",
                       CRON_SECRET="cron", WEBHOOK_SECRET="hook", ADMIN_CHAT_ID="-100111",
                       BOT_USERNAME="elfar1_bot", MINIAPP_SHORT_NAME="elfar",

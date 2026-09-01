@@ -159,6 +159,7 @@ export const api = {
     list: (params) => request('/customers', { params }),
     patch: (id, data) => request(`/customers/${id}`, { method: 'PATCH', body: data }),
     orders: (id) => request(`/customers/${id}/orders`),
+    wishlists: (id) => request(`/customers/${id}/wishlists`),
   },
 
   promos: {

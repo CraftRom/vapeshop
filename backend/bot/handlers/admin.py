@@ -68,7 +68,7 @@ async def admin_change_status(callback: CallbackQuery, repo: Repository) -> None
 
     await callback.answer(f"Статус: {label}")
     try:
-        await callback.message.edit_reply_markup(reply_markup=kb.admin_order(order.id))
+        await callback.message.edit_reply_markup(reply_markup=kb.admin_order(order.id, order.payment_method))
     except Exception:
         pass
 
@@ -90,7 +90,21 @@ async def admin_change_status(callback: CallbackQuery, repo: Repository) -> None
             text or f"Замовлення №{order.id}: статус — «{label}».",
         )
     except Exception:
-        pass
+        # Найчастіша причина — клієнт заблокував бота або видалив чат.
+        # Мовчати тут не можна: менеджер натиснув кнопку, побачив «Статус
+        # змінено» і вважає, що клієнта сповіщено. Насправді ні, і про
+        # доставку доведеться домовлятися телефоном.
+        log.warning(
+            "Клієнт не отримав сповіщення про статус замовлення %s", order.id,
+            extra={"event": "order.notify.failed", "orderId": order.id,
+                   "clientId": client.tg_id, "status": status.value},
+            exc_info=True,
+        )
+        await callback.answer(
+            f"Статус: {label}. Але клієнт не отримав сповіщення — "
+            "напевно заблокував бота",
+            show_alert=True,
+        )
 
     if reward and client.referrer_id:
         shop = await get_shop_settings(repo)
@@ -103,4 +117,9 @@ async def admin_change_status(callback: CallbackQuery, repo: Repository) -> None
                     f"за замовлення запрошеного друга.",
                 )
             except Exception:
-                pass
+                log.warning(
+                    "Реферальний бонус нараховано, але запрошувач не сповіщений",
+                    extra={"event": "referral.notify.failed",
+                           "referrerId": referrer.tg_id, "orderId": order.id},
+                    exc_info=True,
+                )

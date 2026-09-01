@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 
 import { api } from '../api'
-import { alert, confirm, haptic } from '../telegram'
+import { alert, confirm, haptic, notify} from '../telegram'
 
 /** Чи лежить товар хоч в одному списку — для стану сердечка. */
 export function isSaved(wishlists, productId) {
@@ -24,7 +24,17 @@ export function SavePicker({ product, wishlists, onClose, onChanged }) {
     setError('')
     haptic('light')
     try {
-      onChanged(await api.wishlists.toggle(list.id, product.id))
+      const updated = await api.wishlists.toggle(list.id, product.id)
+      onChanged(updated)
+      // Закриваємо вікно після додавання. Раніше воно лишалось відкритим,
+      // і людина не розуміла, спрацювало чи ні: сердечко на картці під
+      // модалкою не видно, підтвердження немає. При прибиранні з
+      // останнього списку не закриваємо — видно, що товар зник із нього.
+      const nowIn = (updated?.product_ids || []).includes(product.id)
+      if (nowIn) {
+        notify('success')
+        onClose()
+      }
     } catch (err) {
       setError(err.message)
     } finally {
@@ -57,6 +67,8 @@ export function SavePicker({ product, wishlists, onClose, onChanged }) {
       onChanged(await api.wishlists.toggle(target.id, product.id))
       setName('')
       setCreating(false)
+      notify('success')
+      onClose()
     } catch (err) {
       setError(err.message)
     } finally {

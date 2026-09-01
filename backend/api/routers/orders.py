@@ -133,7 +133,7 @@ async def patch_order(
         raise HTTPException(422, "Вкажіть номер накладної — він потрібен клієнту")
 
     if data.status and data.status != order.status:
-        problem = transition_error(order.status, data.status)
+        problem = transition_error(order.status, data.status, order.payment_method)
         if problem:
             raise HTTPException(409, problem)
 

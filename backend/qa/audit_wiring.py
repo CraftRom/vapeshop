@@ -292,6 +292,16 @@ check(".tabs" in read("dashboard/src/styles.css"),
 
 check("admin_topic_id" in read("backend/shop/services/shop_settings.py"),
       "гілка для замовлень налаштовується")
+check("chat_topic_id" in read("backend/shop/services/order_chat.py"),
+      "повідомлення клієнтів ідуть у свою гілку")
+_settings_ui = read("dashboard/src/pages/Settings.jsx")
+for _topic in ("admin_topic_id", "chat_topic_id", "error_topic_id"):
+    check(_topic in _settings_ui, f"{_topic} доступний у панелі")
+_flow = read("backend/shop/services/shop_service.py")
+check("_COD_ROUTE" in _flow and "_CARD_ROUTE" in _flow,
+      "маршрут статусів залежить від способу оплати")
+check("payment_method" in read("backend/bot/keyboards.py"),
+      "кнопки статусів враховують оплату — інакше «Оплачено» дає відмову")
 check("message_thread_id" in read("backend/shop/services/notifications.py"),
       "замовлення адресуються в гілку форуму")
 _alerts = read("backend/shop/alerts.py")
@@ -319,6 +329,19 @@ check("err.status !== 409" in read("miniapp/src/screens/Wishlists.jsx"),
       "конфлікт назви списку не показується як помилка")
 check("const known = prev.some" in read("miniapp/src/App.jsx"),
       "новий список додається в перелік, а не губиться при підміні")
+check("wishlists" in read("backend/api/routers/customers.py"),
+      "менеджер бачить, що клієнт відклав")
+check("customers.wishlists" in read("dashboard/src/pages/Customers.jsx"),
+      "відкладене показується в картці клієнта")
+check("unlink(missing_ok=True)" in read("backend/qa/qa_common.py"),
+      "набори прибирають базу за собою — інакше падають через власні залишки")
+_admin_bot = read("backend/bot/handlers/admin.py")
+check("order.notify.failed" in _admin_bot,
+      "недоставлене сповіщення клієнту не ковтається мовчки")
+check("show_alert=True" in _admin_bot.split("order.notify.failed")[1][:400],
+      "менеджер бачить, що клієнт не отримав повідомлення")
+check("onClose()" in read("miniapp/src/screens/Wishlists.jsx").split("const toggle")[1][:900],
+      "після додавання вікно вибору закривається — інакше незрозуміло, чи спрацювало")
 check("useEffect(() => { setError('') }" in read("miniapp/src/screens/Wishlists.jsx"),
       "старе повідомлення про помилку зникає після успішної дії")
 check('extra="forbid"' in read("backend/api/schemas.py"),

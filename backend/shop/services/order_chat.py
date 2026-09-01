@@ -297,11 +297,17 @@ async def save_incoming(
 
     who = f"@{esc(user.username)}" if user.username else esc(user.first_name or "клієнт")
     try:
+        from shop.services.notifications import topic_kwargs
+
         await bot.send_message(
             shop.admin_chat_id,
             f"💬 <b>Питання по замовленню №{order.id}</b>\n"
             f"Від: {who}\n\n{esc(text)}\n\n"
             "<i>Відповісти — у панелі, на сторінці замовлення.</i>",
+            # Своя гілка: замовлення читають раз, а переписку ведуть далі,
+            # і в спільній стрічці нові замовлення тонули б у відповідях.
+            # Якщо окрема гілка не задана — падаємо назад у гілку замовлень.
+            **topic_kwargs(shop.chat_topic_id or shop.admin_topic_id),
         )
     except Exception:
         log.info("Не вдалося сповістити команду про повідомлення клієнта", exc_info=True)

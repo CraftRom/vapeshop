@@ -296,6 +296,7 @@ class ShopSettingsIn(BaseModel):
     cod_commission_percent: Decimal | None = Field(None, ge=0, le=100)
     cod_commission_fixed: Decimal | None = Field(None, ge=0, le=10000)
     admin_topic_id: int | None = Field(None, ge=0)
+    chat_topic_id: int | None = Field(None, ge=0)
     error_topic_id: int | None = Field(None, ge=0)
     admin_ids: str | None = Field(None, max_length=255)
     bot_username: str | None = Field(None, max_length=64)
@@ -389,6 +390,7 @@ class ShopSettingsOut(BaseModel):
     seller_phone: str
     admin_chat_id: int
     admin_topic_id: int
+    chat_topic_id: int
     error_topic_id: int
     delivery_cost_from: int
     delivery_days: str

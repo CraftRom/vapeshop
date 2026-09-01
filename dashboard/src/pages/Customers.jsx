@@ -57,9 +57,14 @@ function BonusForm({ customer, onClose, onSaved }) {
 
 function CustomerOrders({ customer, onClose }) {
   const [orders, setOrders] = useState(null)
+  const [saved, setSaved] = useState(null)
 
   useEffect(() => {
     api.customers.orders(customer.id).then(setOrders).catch(() => setOrders([]))
+    // Відкладене вантажимо поруч із замовленнями: менеджер відкриває
+    // картку клієнта саме тоді, коли з ним говорить, і питання «те, що я
+    // відкладав» приходить у тій самій розмові.
+    api.customers.wishlists(customer.id).then(setSaved).catch(() => setSaved([]))
   }, [customer.id])
 
   return (
@@ -92,6 +97,32 @@ function CustomerOrders({ customer, onClose }) {
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {saved && saved.some((w) => w.products.length > 0) && (
+        <div style={{ marginTop: 18 }}>
+          <h3 style={{ marginBottom: 6 }}>Відкладене</h3>
+          <p className="faint" style={{ marginTop: 0 }}>
+            Товари, які клієнт зберіг на потім. Якщо чогось немає в наявності —
+            це привід написати, коли з'явиться.
+          </p>
+          {saved.filter((w) => w.products.length > 0).map((list) => (
+            <div key={list.id} style={{ marginBottom: 10 }}>
+              <div className="faint">{list.name} · {list.size}</div>
+              <ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>
+                {list.products.map((p) => (
+                  <li key={p.id}>
+                    {p.name} — {money(p.price)}
+                    {!p.is_active && <span className="chip bad" style={{ marginLeft: 6 }}>прихований</span>}
+                    {p.is_active && p.stock === 0 && (
+                      <span className="chip warn" style={{ marginLeft: 6 }}>немає в наявності</span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
         </div>
       )}
     </Modal>
