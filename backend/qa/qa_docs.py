@@ -12,10 +12,19 @@ def check(c,l,d=""):
 print("--- послідовність статусів ---")
 from shop.services.shop_service import ALLOWED_TRANSITIONS
 from shop.entities import OrderStatus as S
-# інструкція обіцяє саме такий ланцюг
-chain = [S.NEW, S.CONFIRMED, S.ACCEPTED, S.PAID, S.SHIPPED, S.DONE]
-for a, b in zip(chain, chain[1:]):
-    check(b in ALLOWED_TRANSITIONS[a], f"{a.value} → {b.value} дозволено")
+# інструкція обіцяє два ланцюги — залежно від способу оплати
+from shop.services.shop_service import route_for
+for payment, chain in (
+    ("card", [S.NEW, S.ACCEPTED, S.PAID, S.SHIPPED, S.DONE]),
+    ("cod", [S.NEW, S.ACCEPTED, S.SHIPPED, S.DONE]),
+):
+    route = route_for(payment)
+    for a, b in zip(chain, chain[1:]):
+        check(b in route[a], f"{payment}: {a.value} → {b.value} дозволено")
+check(S.PAID not in route_for("cod")[S.ACCEPTED],
+      "накладений платіж не має кроку «Оплачено», як і написано")
+check("Підтверджено" not in guide,
+      "інструкція більше не обіцяє крок «Підтверджено»")
 check(S.DONE not in ALLOWED_TRANSITIONS[S.NEW], "стрибок «Нове → Виконано» заборонено, як і написано")
 check(not ALLOWED_TRANSITIONS[S.CANCELLED], "зі скасованого шляху немає, як і написано")
 

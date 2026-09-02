@@ -341,8 +341,13 @@ check("status_messages" in read("backend/api/routers/orders.py")
       and "status_messages" in read("backend/bot/handlers/admin.py"),
       "статуси описуються одним текстом і з панелі, і з бота")
 _status = read("backend/shop/services/status_messages.py")
-for _st in ("CONFIRMED", "PAID", "DONE", "CANCELLED"):
+# CONFIRMED тут немає навмисно: крок прибрано з маршруту, і текст для
+# нього більше нема з чого надіслати. ACCEPTED і SHIPPED теж відсутні —
+# у них власні повідомлення в order_chat.
+for _st in ("PAID", "DONE", "CANCELLED"):
     check(_st in _status, f"є розгорнутий текст для статусу {_st}")
+check("CONFIRMED" not in _status,
+      "прибраний крок не має власного тексту — інакше його ніколи не побачать")
 check("current().admin_chat_id" in read("backend/bot/handlers/admin.py"),
       "/stats працює лише в адмінському чаті")
 check("normalizePhone" in read("miniapp/src/screens/Checkout.jsx"),

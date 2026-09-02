@@ -34,18 +34,18 @@ def path_of(payment):
 
 print("\n--- маршрут при оплаті карткою ---")
 card = path_of(CARD)
-r.check(card == [OrderStatus.NEW, OrderStatus.CONFIRMED, OrderStatus.ACCEPTED,
+r.check(card == [OrderStatus.NEW, OrderStatus.ACCEPTED,
                  OrderStatus.PAID, OrderStatus.SHIPPED, OrderStatus.DONE],
-        "нове → підтверджене → прийняте → оплачене → відправлене → виконане",
+        "нове → прийняте → оплачене → відправлене → виконане",
         [s.value for s in card])
 
 print("\n--- маршрут при накладеному платежі ---")
 cod = path_of(COD)
 r.check(OrderStatus.PAID not in cod,
         "«Оплачене» відсутнє: клієнт платить при отриманні", [s.value for s in cod])
-r.check(cod == [OrderStatus.NEW, OrderStatus.CONFIRMED, OrderStatus.ACCEPTED,
+r.check(cod == [OrderStatus.NEW, OrderStatus.ACCEPTED,
                 OrderStatus.SHIPPED, OrderStatus.DONE],
-        "нове → підтверджене → прийняте → відправлене → виконане",
+        "нове → прийняте → відправлене → виконане",
         [s.value for s in cod])
 
 print("\n--- заборонені переходи ---")
@@ -54,7 +54,9 @@ r.check(transition_error(OrderStatus.ACCEPTED, OrderStatus.PAID, COD) is not Non
 r.check(transition_error(OrderStatus.ACCEPTED, OrderStatus.PAID, CARD) is None,
         "карткою — можна")
 r.check(transition_error(OrderStatus.NEW, OrderStatus.SHIPPED, CARD) is not None,
-        "не можна перестрибнути через підтвердження")
+        "не можна перестрибнути через прийняття")
+r.check(transition_error(OrderStatus.NEW, OrderStatus.CONFIRMED, CARD) is not None,
+        "кроку «Підтверджене» більше немає — перейти в нього не можна")
 r.check(transition_error(OrderStatus.DONE, OrderStatus.NEW, CARD) is not None,
         "виконане не повертається назад")
 
@@ -70,6 +72,11 @@ print("\n--- старі замовлення не застрягають ---")
 # у статусі «Оплачене». Без виходу вперед воно лишилось би там назавжди.
 r.check(transition_error(OrderStatus.PAID, OrderStatus.SHIPPED, COD) is None,
         "з «Оплачене» при накладеному платежі є вихід уперед")
+# Те саме зі щойно прибраним «Підтверджене»: міграція переводить його в
+# «Прийняте», але рядок, якого вона не зачепила, має рухатись далі.
+for payment in (CARD, COD):
+    r.check(transition_error(OrderStatus.CONFIRMED, OrderStatus.ACCEPTED, payment) is None,
+            f"{payment}: зі спадкового «Підтверджене» є вихід уперед")
 
 print("\n--- кнопки під замовленням ---")
 def buttons(payment):
@@ -82,7 +89,9 @@ r.check("paid" in card_btn, "картка: кнопка «Оплачено» є"
 r.check("paid" not in cod_btn,
         "накладений платіж: кнопки «Оплачено» немає — вона лише дала б відмову",
         cod_btn)
-for needed in ("confirmed", "accepted", "shipped", "done", "cancelled"):
+r.check("confirmed" not in card_btn and "confirmed" not in cod_btn,
+        "кнопки «Підтвердити» немає в жодному наборі", card_btn + cod_btn)
+for needed in ("accepted", "shipped", "done", "cancelled"):
     r.check(needed in cod_btn, f"накладений платіж: є «{needed}»", cod_btn)
     r.check(needed in card_btn, f"картка: є «{needed}»", card_btn)
 

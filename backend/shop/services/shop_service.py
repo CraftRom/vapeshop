@@ -227,12 +227,15 @@ async def create_order(
 # «Оплачене» в цьому випадку означало б просити менеджера відзначати те,
 # чого він не бачить.
 #
-# «Підтверджене» лишається спільним кроком: менеджер звірив наявність і
-# контакти. «Виконане» поки ставлять руками — автоматичним воно стане,
-# коли підключимо стеження за посилками.
+# «Прийняте» ставиться саме, коли менеджер відкриває замовлення в панелі:
+# факт того, що його побачили, і є прийняттям. Окремої кнопки «підтвердити»
+# більше немає — вона вимагала натискання, яке нічого не означало, крім
+# «я подивився».
+#
+# «Виконане» поки ставлять руками — автоматичним воно стане, коли
+# підключимо стеження за посилками.
 _CARD_ROUTE: dict[OrderStatus, set[OrderStatus]] = {
-    OrderStatus.NEW: {OrderStatus.CONFIRMED, OrderStatus.CANCELLED},
-    OrderStatus.CONFIRMED: {OrderStatus.ACCEPTED, OrderStatus.CANCELLED},
+    OrderStatus.NEW: {OrderStatus.ACCEPTED, OrderStatus.CANCELLED},
     OrderStatus.ACCEPTED: {OrderStatus.PAID, OrderStatus.CANCELLED},
     OrderStatus.PAID: {OrderStatus.SHIPPED, OrderStatus.CANCELLED},
     OrderStatus.SHIPPED: {OrderStatus.DONE, OrderStatus.CANCELLED},
@@ -241,23 +244,47 @@ _CARD_ROUTE: dict[OrderStatus, set[OrderStatus]] = {
 }
 
 _COD_ROUTE: dict[OrderStatus, set[OrderStatus]] = {
-    OrderStatus.NEW: {OrderStatus.CONFIRMED, OrderStatus.CANCELLED},
-    OrderStatus.CONFIRMED: {OrderStatus.ACCEPTED, OrderStatus.CANCELLED},
+    OrderStatus.NEW: {OrderStatus.ACCEPTED, OrderStatus.CANCELLED},
     OrderStatus.ACCEPTED: {OrderStatus.SHIPPED, OrderStatus.CANCELLED},
     OrderStatus.SHIPPED: {OrderStatus.DONE, OrderStatus.CANCELLED},
     OrderStatus.DONE: set(),
     OrderStatus.CANCELLED: set(),
 }
 
-# Замовлення, оформлені до поділу маршрутів, могли зупинитись на
-# «Оплачене» навіть при накладеному платежі. Лишаємо їм вихід уперед,
-# інакше вони застрягли б назавжди.
+# Спадок. Обидва стани прибрані з маршрутів, але лишились у базі:
+# «Підтверджене» — крок, якого більше немає, «Оплачене» при накладеному
+# платежі — залишок від часів спільного маршруту. Міграція переводить
+# перше в «Прийняте», проте вихід уперед лишаємо обом: якщо якийсь рядок
+# міграцію не зачепить, він має рухатись далі, а не застрягти назавжди.
+for _route in (_CARD_ROUTE, _COD_ROUTE):
+    _route[OrderStatus.CONFIRMED] = {OrderStatus.ACCEPTED, OrderStatus.CANCELLED}
 _COD_ROUTE[OrderStatus.PAID] = {OrderStatus.SHIPPED, OrderStatus.CANCELLED}
+
+# Кроки доріжки в панелі — саме ті, що менеджер бачить і може натиснути.
+# Спадкові стани сюди не входять: показувати «Підтверджене» на нових
+# замовленнях означало б повернути крок, який ми щойно прибрали.
+_CARD_STAGES = (
+    OrderStatus.NEW, OrderStatus.ACCEPTED, OrderStatus.PAID,
+    OrderStatus.SHIPPED, OrderStatus.DONE,
+)
+_COD_STAGES = (
+    OrderStatus.NEW, OrderStatus.ACCEPTED, OrderStatus.SHIPPED, OrderStatus.DONE,
+)
 
 
 def route_for(payment_method: str | None) -> dict[OrderStatus, set[OrderStatus]]:
     """Дозволені переходи для конкретного способу оплати."""
     return _COD_ROUTE if payment_method == "cod" else _CARD_ROUTE
+
+
+def stages_for(payment_method: str | None) -> tuple[OrderStatus, ...]:
+    """Послідовність кроків доріжки для цього способу оплати.
+
+    При накладеному платежі «Оплачене» відсутнє: клієнт платить у
+    відділенні при отриманні, тож оплата й виконання — та сама подія,
+    і відзначати її окремо менеджеру нема з чого.
+    """
+    return _COD_STAGES if payment_method == "cod" else _CARD_STAGES
 
 
 def next_statuses(order) -> list[OrderStatus]:

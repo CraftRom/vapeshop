@@ -130,11 +130,20 @@ async def scenario():
         # Кнопка «так» натискається рефлекторно, тому підтвердження —
         # переписана вручну назва. Перевіряємо, що воно справді потрібне.
         target = "elfar-2026-08-20.dump"
-        for wrong in ("", "так", "yes", "elfar-2026-08-20", target.upper()):
+        for wrong in ("так", "yes", "elfar-2026-08-20", target.upper()):
             resp = await client.post(f"/api/backups/{target}/restore",
                                      data={"confirm": wrong}, headers=head(SYSADMIN))
             r.check(resp.status_code == 400,
                     f"невірне підтвердження відхилено: {wrong!r}", resp.status_code)
+
+        # Порожнє підтвердження відсікає сам FastAPI: Form(...) вважає
+        # порожнє поле незаповненим, тож до перевірки в тілі воно не
+        # доходить і повертається 422, а не 400. Для нас важливо, що
+        # відновлення не почалося, а не яким саме кодом це сказано.
+        resp = await client.post(f"/api/backups/{target}/restore",
+                                 data={"confirm": ""}, headers=head(SYSADMIN))
+        r.check(resp.status_code in (400, 422),
+                "порожнє підтвердження відхилено", resp.status_code)
 
         resp = await client.post(f"/api/backups/{target}/restore",
                                  headers=head(SYSADMIN))

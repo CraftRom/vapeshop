@@ -3,28 +3,18 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 
 import { api, getToken } from '../api'
 import { ErrorBar, Field, Loading, Modal, money, useToast } from '../components/ui'
-
-const STATUS_FLOW = [
-  { value: 'new', label: 'Нове' },
-  { value: 'confirmed', label: 'Підтверджено' },
-  { value: 'accepted', label: 'Прийнято' },
-  { value: 'paid', label: 'Оплачено' },
-  { value: 'shipped', label: 'Відправлено' },
-  { value: 'done', label: 'Виконано' },
-]
+import { allowedFrom, stagesFor } from '../components/StatusRail'
 
 const PAYMENT = { card: 'На картку', cod: 'Накладений платіж' }
 
-// Дзеркало ALLOWED_TRANSITIONS з бекенду: кнопки недоступних переходів
-// гасимо, щоб менеджер не тицяв навмання й не ловив 409
-const ALLOWED = {
-  new: ['confirmed', 'cancelled'],
-  confirmed: ['accepted', 'cancelled'],
-  accepted: ['paid', 'shipped', 'cancelled'],
-  paid: ['shipped', 'cancelled'],
-  shipped: ['done', 'cancelled'],
-  done: [],
-  cancelled: [],
+// Повні підписи кроків. Доріжка й дозволені переходи живуть у StatusRail —
+// дві копії тих самих таблиць уже розходились між списком і карткою.
+const STAGE_LABELS = {
+  new: 'Нове',
+  accepted: 'Прийнято',
+  paid: 'Оплачено',
+  shipped: 'Відправлено',
+  done: 'Виконано',
 }
 
 function timestamp(value) {
@@ -338,27 +328,28 @@ export default function OrderPage() {
           <div className="card" style={{ marginBottom: 18 }}>
             <h2 style={{ marginTop: 0 }}>Статус</h2>
             <div className="row" style={{ flexWrap: 'wrap', gap: 8 }}>
-              {STATUS_FLOW.map((s) => {
-                const current = order.status === s.value
-                const reachable = (ALLOWED[order.status] || []).includes(s.value)
+              {stagesFor(order.payment_method).map((s) => {
+                const current = order.status === s.key
+                const reachable = allowedFrom(order.status, order.payment_method)
+                  .includes(s.key)
                 return (
                   <button
-                    key={s.value}
+                    key={s.key}
                     className={current ? 'btn small' : 'btn ghost small'}
                     disabled={busy || current || !reachable}
                     title={
                       current ? 'Поточний статус'
                         : reachable ? '' : 'Недоступно з поточного статусу'
                     }
-                    onClick={() => changeStatus(s.value)}
+                    onClick={() => changeStatus(s.key)}
                   >
-                    {s.label}
+                    {STAGE_LABELS[s.key] || s.label}
                   </button>
                 )
               })}
             </div>
 
-            {(ALLOWED[order.status] || []).includes('cancelled') && (
+            {allowedFrom(order.status, order.payment_method).includes('cancelled') && (
               <button
                 className="btn danger small"
                 style={{ marginTop: 10 }}

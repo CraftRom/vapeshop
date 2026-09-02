@@ -309,7 +309,11 @@ export default function Orders() {
                     </td>
                     <td className="num">{money(order.total)}</td>
                     <td>
-                      <StatusRail status={order.status} onChange={(next) => changeStatus(order, next)} />
+                      <StatusRail
+                        status={order.status}
+                        paymentMethod={order.payment_method}
+                        onChange={(next) => changeStatus(order, next)}
+                      />
                     </td>
                     <td>
                       <div className="row">

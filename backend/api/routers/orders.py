@@ -37,9 +37,27 @@ async def list_orders(
 
 @router.get("/{order_id}", response_model=OrderOut)
 async def get_order(order_id: int, repo: Repository = Depends(get_repo)):
+    """Картка замовлення. Нове замовлення відкриттям і приймається.
+
+    Окремої кнопки «прийняти» більше немає. Вона просила менеджера
+    підтвердити те, що він щойно зробив очима, і поки він її не натискав,
+    клієнт сидів у невіданні — хоча замовлення вже дивилися.
+
+    Ім'я менеджера тут не закріплюємо: відкрити картку може будь-хто,
+    зокрема щоб просто глянути. Замовлення закріплюється за конкретною
+    людиною тоді, коли вона напише клієнту.
+    """
     order = await repo.get_order(order_id)
     if not order:
         raise HTTPException(404, "Замовлення не знайдено")
+
+    if order.status == OrderStatus.NEW:
+        await change_order_status(repo, order, OrderStatus.ACCEPTED)
+        order = await repo.get_order(order_id)
+        bot = _bot()
+        if bot and order:
+            await announce_accepted(bot, repo, order, None)
+
     return order
 
 
@@ -137,18 +155,14 @@ async def patch_order(
         if problem:
             raise HTTPException(409, problem)
 
-        # «Прийнято» закріплює замовлення за менеджером: клієнт має знати,
-        # з ким саме він спілкується
-        if data.status == OrderStatus.ACCEPTED:
-            await repo.update_order(order_id, {
-                "operator_id": who.operator_id,
-                "operator_name": who.name or who.login,
-            })
-
         await change_order_status(repo, order, data.status)
         fresh = await repo.get_order(order_id)
 
         bot = _bot()
+        # Ручний перехід у «Прийнято» лишається як запасний шлях — на
+        # випадок повернення із «Скасованого» чи розбору спадкових
+        # замовлень. Ім'я беремо те, що вже закріплене за замовленням,
+        # і не привласнюємо його тому, хто просто натиснув кнопку.
         if data.status == OrderStatus.ACCEPTED and bot and fresh:
             await announce_accepted(bot, repo, fresh, fresh.operator_name)
         elif data.status == OrderStatus.SHIPPED and bot and fresh:
@@ -217,6 +231,19 @@ async def send_message(
         raise HTTPException(404, "Замовлення не знайдено")
 
     author = who.name or who.login
+
+    # Перше повідомлення закріплює замовлення за менеджером. Раніше це
+    # робив перехід у «Прийнято», але той став автоматичним, і на момент
+    # прийняття конкретної людини ще немає. Прив'язка саме тут, а не при
+    # відкритті картки: подивитись може будь-хто, а веде замовлення той,
+    # хто заговорив із клієнтом.
+    if not order.operator_id:
+        await repo.update_order(order_id, {
+            "operator_id": who.operator_id,
+            "operator_name": author,
+        })
+        order = await repo.get_order(order_id)
+
     bot = _bot()
     delivered = False
     if bot:

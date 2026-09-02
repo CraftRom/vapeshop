@@ -54,14 +54,20 @@ r.check(any("Шевченко" in t for _, t in fake.sent), "менеджер о
 print("\n[менеджер] веде замовлення")
 lst = c.get("/api/orders", headers=O).json()
 r.check(any(o["id"] == oid for o in lst), "замовлення в панелі")
-c.patch(f"/api/orders/{oid}", json={"status":"confirmed"}, headers=O)
-c.patch(f"/api/orders/{oid}", json={"status":"accepted"}, headers=O)
+# Окремої кнопки «прийняти» немає: замовлення приймається відкриттям картки
 det = c.get(f"/api/orders/{oid}", headers=O).json()
-r.check(det["operator_name"] == "Олена", "менеджера закріплено", det["operator_name"])
-r.check(any("Олена" in t for _, t in fake.sent), "клієнт дізнався, хто веде")
+r.check(det["status"] == "accepted", "відкриття картки прийняло замовлення", det["status"])
+r.check(not det["operator_name"],
+        "той, хто просто глянув, замовлення собі не забрав", det["operator_name"])
+r.check(any("прийнято в роботу" in t.lower() for _, t in fake.sent),
+        "клієнт дізнався, що замовлення взяли")
 
 print("\n[чат] обидві сторони")
 c.post(f"/api/orders/{oid}/messages", json={"text":"Вітаю! Підтвердьте адресу."}, headers=O)
+# Замовлення стає чиїмось саме тут — коли менеджер заговорив із клієнтом
+det = c.get(f"/api/orders/{oid}", headers=O).json()
+r.check(det["operator_name"] == "Олена", "менеджера закріплено", det["operator_name"])
+r.check(any("Олена" in t for _, t in fake.sent), "клієнт дізнався, хто веде")
 chat = c.get(f"/api/shop/orders/{oid}/chat", headers=H).json()
 r.check(any(m["direction"] == "out" for m in chat), "клієнт бачить повідомлення менеджера")
 c.post(f"/api/shop/orders/{oid}/chat", json={"text":"Адреса вірна"}, headers=H)

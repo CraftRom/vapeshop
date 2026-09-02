@@ -177,10 +177,9 @@ async def _suite(app, backend: str) -> None:
         check("стрибок через статуси відхилено", response.status_code == 409,
               f"{response.status_code}")
 
-        for step in ("confirmed", "accepted"):
-            response = await client.patch(f"/api/orders/{order.id}", headers=headers,
-                                    json={"status": step})
-            check(f"перехід у «{step}»", response.status_code == 200, response.text[:120])
+        response = await client.patch(f"/api/orders/{order.id}", headers=headers,
+                                json={"status": "accepted"})
+        check("перехід у «accepted»", response.status_code == 200, response.text[:120])
 
         response = await client.patch(f"/api/orders/{order.id}", headers=headers,
                                 json={"status": "paid", "admin_note": "перевірено"})

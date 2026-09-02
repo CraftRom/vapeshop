@@ -232,18 +232,18 @@ def admin_order(order_id: int, payment_method: str | None = None) -> InlineKeybo
     показуємо взагалі. Кнопка, натискання якої повертає відмову, гірша за
     її відсутність — менеджер тисне й отримує помилку замість дії.
     """
-    rows = [[
-        InlineKeyboardButton(text="Підтвердити", callback_data=f"ao:{order_id}:confirmed"),
-        InlineKeyboardButton(text="Прийнято", callback_data=f"ao:{order_id}:accepted"),
-    ]]
-
-    second = []
+    # «Підтвердити» більше немає: крок прибрано з маршруту, а замовлення
+    # приймається саме, щойно менеджер відкриє його в панелі. Кнопка
+    # лишалась би єдиним способом повернути стан, якого вже не існує.
+    first = [InlineKeyboardButton(text="Прийнято", callback_data=f"ao:{order_id}:accepted")]
     if payment_method != "cod":
-        second.append(
+        first.append(
             InlineKeyboardButton(text="Оплачено", callback_data=f"ao:{order_id}:paid"))
-    second.append(
-        InlineKeyboardButton(text="Відправлено", callback_data=f"ao:{order_id}:shipped"))
-    rows.append(second)
+    rows = [first]
+
+    rows.append([
+        InlineKeyboardButton(text="Відправлено", callback_data=f"ao:{order_id}:shipped"),
+    ])
 
     rows.append([
         InlineKeyboardButton(text="Виконано", callback_data=f"ao:{order_id}:done"),

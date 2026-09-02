@@ -61,20 +61,34 @@ def chat_keyboard(order_id: int) -> InlineKeyboardMarkup | None:
     ]])
 
 
-async def announce_accepted(bot, repo: Repository, order: Order, operator_name: str) -> bool:
-    """Повідомляє, хто саме взяв замовлення в роботу.
+async def announce_accepted(
+    bot, repo: Repository, order: Order, operator_name: str | None = None
+) -> bool:
+    """Повідомляє, що замовлення взяли в роботу.
 
-    Знеособлене «статус змінено» нічого не дає клієнту. Ім'я менеджера
-    перетворює це на початок розмови з конкретною людиною.
+    Імені може ще не бути. Замовлення приймається автоматично, щойно
+    менеджер відкриє його в панелі, а закріплюється за конкретною людиною
+    аж коли та напише клієнту. Називати менеджера навмання не можна:
+    клієнт запам'ятає ім'я, а відповість йому хтось інший.
+
+    Тому без імені текст говорить про сам факт — замовлення побачили й
+    узяли. Це вже набагато більше, ніж мовчання.
     """
     user = order.user or await repo.get_user(order.user_id)
     if not user:
         return False
 
-    who = esc(operator_name) or "Наш менеджер"
+    who = esc(operator_name)
+    if who:
+        line = f"Ним займається {who}."
+        note = f"Замовлення прийняв {operator_name}"
+    else:
+        line = "Менеджер уже переглядає склад і деталі доставки."
+        note = "Замовлення прийнято в роботу"
+
     text = (
         f"✅ <b>Замовлення №{order.id} прийнято в роботу</b>\n\n"
-        f"Ним займається {who}.\n"
+        f"{line}\n"
         "Питання щодо доставки чи оплати пишіть прямо сюди — "
         "відповідь надійде в цей чат."
     )
@@ -86,7 +100,7 @@ async def announce_accepted(bot, repo: Repository, order: Order, operator_name: 
 
     await repo.add_order_message({
         "order_id": order.id, "user_id": order.user_id, "direction": "out",
-        "author": "Система", "text": f"Замовлення прийняв {operator_name}",
+        "author": "Система", "text": note,
         "tg_message_id": sent.message_id, "is_read": True,
     })
     return True
