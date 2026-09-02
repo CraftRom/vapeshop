@@ -94,6 +94,31 @@ server {
         proxy_read_timeout 120s;
     }
 
+    # Розвідка. Ці шляхи не існують і не зʼявляться — віддавати по них
+    # 404 означає підтверджувати сканеру, що сервер живий і відповідає.
+    #
+    # Приводом стало сканування 2 вересня: 140 запитів за 67 секунд з
+    # однієї адреси, User-Agent змінювався майже щозапиту й підробляв
+    # довірених ботів — Googlebot, GPTBot, ClaudeBot, TelegramBot. Цілі
+    # були не файли налаштувань, а проксі-точки (fetch, proxy, preview,
+    # webhook): шукали SSRF, через яку сервер сходить у внутрішню мережу
+    # або по метадані хмари.
+    #
+    # 444 закриває зʼєднання без відповіді. Обмеження швидкості тут не
+    # рятує: сканування йшло 2 запити на секунду при межі 30, тобто на
+    # порядок нижче. Заразом третина журналу перестає бути сміттям.
+    #
+    # /api/image і /api/download свідомо не в переліку — вони заплановані.
+    #
+    # Перша половина — службові файли будь-де у шляху: сканер пробує не
+    # лише /api/.env, а й /api/src/.env та /api/shared/config/config.env.
+    # Друга — точні імена проксі-точок, і саме точні: без якоря «config»
+    # закрив би й /api/shop/config, тобто вітрину для покупця.
+    location ~* ^/api/.*(\.env|\.git|\.aws|\.svn|\.ssh|wp-|vendor/)|^/api/(graphql|fetch|proxy|preview|file|account|env|credentials|config|config\.json|openapi\.json|v[0-9]+/(env|fetch|proxy|preview|credentials|config|settings)|v[0-9]+/status/.*)$ {
+        access_log off;
+        return 444;
+    }
+
     # Вебхук Telegram лишається доступним по HTTP завжди: Telegram сам
     # ходить тільки по HTTPS, але внутрішні перевірки зручніше робити тут.
     location ~ ^/api/telegram/ {
@@ -126,6 +151,31 @@ server {
     add_header Referrer-Policy "strict-origin-when-cross-origin" always;
 
     client_max_body_size 10M;
+
+    # Розвідка. Ці шляхи не існують і не зʼявляться — віддавати по них
+    # 404 означає підтверджувати сканеру, що сервер живий і відповідає.
+    #
+    # Приводом стало сканування 2 вересня: 140 запитів за 67 секунд з
+    # однієї адреси, User-Agent змінювався майже щозапиту й підробляв
+    # довірених ботів — Googlebot, GPTBot, ClaudeBot, TelegramBot. Цілі
+    # були не файли налаштувань, а проксі-точки (fetch, proxy, preview,
+    # webhook): шукали SSRF, через яку сервер сходить у внутрішню мережу
+    # або по метадані хмари.
+    #
+    # 444 закриває зʼєднання без відповіді. Обмеження швидкості тут не
+    # рятує: сканування йшло 2 запити на секунду при межі 30, тобто на
+    # порядок нижче. Заразом третина журналу перестає бути сміттям.
+    #
+    # /api/image і /api/download свідомо не в переліку — вони заплановані.
+    #
+    # Перша половина — службові файли будь-де у шляху: сканер пробує не
+    # лише /api/.env, а й /api/src/.env та /api/shared/config/config.env.
+    # Друга — точні імена проксі-точок, і саме точні: без якоря «config»
+    # закрив би й /api/shop/config, тобто вітрину для покупця.
+    location ~* ^/api/.*(\.env|\.git|\.aws|\.svn|\.ssh|wp-|vendor/)|^/api/(graphql|fetch|proxy|preview|file|account|env|credentials|config|config\.json|openapi\.json|v[0-9]+/(env|fetch|proxy|preview|credentials|config|settings)|v[0-9]+/status/.*)$ {
+        access_log off;
+        return 444;
+    }
 
     # Вебхук Telegram: без ліміту швидкості, інакше загубимо апдейти в піках
     location ~ ^/api/telegram/ {

@@ -33,7 +33,7 @@ disk_gb=$(df -BG --output=avail / | tail -1 | tr -dc '0-9')
 say "Пакети та Docker"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-apt-get install -y -qq ca-certificates curl ufw >/dev/null
+apt-get install -y -qq ca-certificates curl ufw fail2ban >/dev/null
 
 if command -v docker >/dev/null 2>&1; then
     echo "    Docker уже встановлено: $(docker --version)"
@@ -117,6 +117,24 @@ ufw allow 443/tcp >/dev/null
 # Docker, і порти назовні їм не потрібні.
 ufw --force enable >/dev/null
 echo "    Відкриті: SSH, 80, 443"
+
+
+say "Бан сканерів"
+# Обмеження швидкості в nginx міряє темп, а не наміри: сканування з
+# двома запитами на секунду проходить крізь межу в тридцять непоміченим.
+# Ознака тут інша — перебір неіснуючих шляхів, і рахує його fail2ban.
+install -m 644 "$REPO_DIR/deploy/fail2ban/elfar-recon.conf" \
+    /etc/fail2ban/filter.d/elfar-recon.conf
+# Шлях до журналу підставляємо справжній. Каталог стека залежить від
+# того, куди його поклали, і жорстко записаний у jail він означав би
+# fail2ban, який працює, нічого не читає й нікого не банить — мовчки.
+sed "s|^logpath  = .*|logpath  = ${REPO_DIR}/deploy/data/logs/api.log|" \
+    "$REPO_DIR/deploy/fail2ban/jail-elfar.conf" > /etc/fail2ban/jail.d/elfar.conf
+systemctl enable fail2ban >/dev/null 2>&1 || true
+systemctl restart fail2ban >/dev/null 2>&1 || true
+echo "    30 неіснуючих шляхів за 10 хв → бан на добу"
+echo "    Стан:  fail2ban-client status elfar-recon"
+echo "    Зняти: fail2ban-client set elfar-recon unbanip АДРЕСА"
 
 
 say "Конфігурація"

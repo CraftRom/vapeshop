@@ -63,10 +63,23 @@ adduser --disabled-password --gecos "" shop
 usermod -aG docker shop
 
 # Фаєрвол: тільки SSH і веб
-apt install -y ufw
+apt install -y ufw fail2ban
 ufw allow OpenSSH && ufw allow 80 && ufw allow 443
 ufw --force enable
 ```
+
+`bootstrap.sh` додатково підключає бан сканерів: тридцять звернень до
+неіснуючих шляхів за десять хвилин з однієї адреси — бан на добу.
+
+```bash
+fail2ban-client status elfar-recon              # хто зараз у бані
+fail2ban-client set elfar-recon unbanip АДРЕСА  # зняти помилковий бан
+```
+
+Обмеження швидкості в nginx це не замінює й не дублює. Воно міряє темп:
+сканування, яке ми бачили, йшло два запити на секунду при межі тридцять —
+на порядок нижче, тобто проходило непоміченим. Ознака тут інша — перебір
+шляхів, яких не існує.
 
 Домен: створіть A-запис, що вказує на IP сервера. Перевірка: `dig +short ваш-домен.com`.
 
@@ -110,37 +123,32 @@ CARD_HOLDER=...
 > пароль одразу. Якщо все ж треба змінити — `docker compose down -v`
 > (**зітре дані**) або `ALTER USER` всередині контейнера.
 
-Домен у nginx:
+Домен у nginx окремо правити не треба. Він береться з `PUBLIC_URL` у `.env`
+і підставляється в `deploy/nginx/app.conf.template` під час запуску:
 
 ```bash
-sed -i 's/example\.com/ваш-домен.com/g' deploy/nginx/app.conf
+deploy/render-nginx.sh    # створює deploy/nginx/generated/app.conf
 ```
+
+`deploy.sh` і `bootstrap.sh` викликають це самі. Правити треба саме шаблон,
+а не згенерований файл: `generated/` перезаписується при кожному запуску.
 
 ## Крок 3. Сертифікат
 
-nginx з блоком `443` не стартує, поки немає сертифіката. Тому спершу
-піднімаємо все без нього:
+nginx із блоком `443` не стартує, поки немає файла сертифіката. А поки
+nginx не працює, Let's Encrypt не може підтвердити домен — він робить це
+через порт 80. Коло розриває `render-nginx.sh`: він кладе тимчасовий
+самопідписаний сертифікат, щоб nginx піднявся, а `certbot-init.sh` міняє
+його на справжній.
 
 ```bash
 cd deploy
-
-# Тимчасово вимикаємо HTTPS-блок
-cp nginx/app.conf nginx/app.conf.bak
-sed -i '/listen 443 ssl/,$d' nginx/app.conf
-echo '}' >> nginx/app.conf
-
-docker compose -f docker-compose.prod.yml up -d nginx
-
-# Отримуємо сертифікат
-docker compose -f docker-compose.prod.yml run --rm certbot \
-  certonly --webroot -w /var/www/certbot \
-  -d ваш-домен.com -d www.ваш-домен.com \
-  --email ваш@email.com --agree-tos --no-eff-email
-
-# Повертаємо повний конфіг
-mv nginx/app.conf.bak nginx/app.conf
-docker compose -f docker-compose.prod.yml restart nginx
+./certbot-init.sh ваш-домен.com ваш@email.com
 ```
+
+Вирізати HTTPS-блок руками, як радила давніша версія цієї інструкції,
+більше не треба — і не варто: правка йшла у файл, якого з часів переходу
+на шаблон не існує, тож `sed` мовчки не робив би нічого.
 
 Оновлення сертифіката автоматичне — сервіс `certbot` перевіряє його двічі на добу.
 

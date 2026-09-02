@@ -254,13 +254,19 @@ docker compose -f docker-compose.prod.yml exec api python seed.py
 (`bootstrap.sh` робить це сам із `PUBLIC_URL`):
 
 ```bash
-grep server_name nginx/app.conf     # має бути ваш домен, не example.com
+grep server_name nginx/generated/app.conf    # має бути ваш домен
 ```
 
-Заглушки `example.com` стоять і в `server_name`, і в шляхах до сертифіката.
-Якщо їх не замінити, nginx не знайде виданий сертифікат — і скаржитиметься
-на його відсутність, хоч Let's Encrypt його успішно видав, просто під іншим
-іменем.
+Домен більше не правиться руками. У шаблоні `nginx/app.conf.template` стоїть
+мітка `__DOMAIN__`, а `render-nginx.sh` підставляє в неї значення з
+`PUBLIC_URL` і кладе результат у `nginx/generated/app.conf`. Раніше тут була
+заглушка `example.com`, яку раз за разом забували замінити: nginx тоді не
+знаходив виданий сертифікат і скаржився на його відсутність, хоч Let's
+Encrypt видав його успішно — просто під іншим іменем.
+
+Якщо в `generated/app.conf` усе ще не той домен, значить `PUBLIC_URL` у
+`.env` порожній або неправильний. Правити треба його, а не згенерований
+файл: `generated/` перезаписується при кожному запуску.
 
 Далі:
 
@@ -617,12 +623,12 @@ docker compose -f docker-compose.prod.yml up -d --force-recreate api bot schedul
 | certbot «завис» після Created | Аргументи з'їв entrypoint із циклом | `./certbot-init.sh домен` |
 | `Permission denied` на `deploy/*.sh` | Zip не доніс прапорець виконання | `chmod +x deploy/*.sh` |
 | «З'єднання не конфіденційне», ERR_CERT_AUTHORITY_INVALID | Діє тимчасовий самопідписаний сертифікат | Відкрийте `http://` без `s`, далі `./certbot-init.sh домен` |
-| nginx: cannot load certificate | Немає сертифіката або в `app.conf` лишився `example.com` | `./certbot-init.sh домен`, перевірте `grep server_name nginx/app.conf` |
+| nginx: cannot load certificate | Немає сертифіката або `PUBLIC_URL` у `.env` не заповнений | `./certbot-init.sh домен`, перевірте `grep server_name nginx/generated/app.conf` |
 | Сайт не відкривається, DNS правильний | nginx не піднявся через відсутній сертифікат | `docker compose ps nginx`, далі `./certbot-init.sh домен` |
 | `migrate` падає | База ще не готова | `docker compose ps db` — має бути `healthy` |
 | API: password authentication failed | `POSTGRES_PASSWORD` ≠ пароль у `DATABASE_URL` | Вирівняйте, `up -d --force-recreate api db` |
 | Панель: «Бекенд не налаштований» | Бракує змінних | Список — у самому повідомленні на екрані |
-| 502 після `up -d --force-recreate api` | nginx закешував стару адресу контейнера | Оновіть `nginx/app.conf` із резолвером, `restart nginx` |
+| 502 після `up -d --force-recreate api` | nginx закешував стару адресу контейнера | Оновіть `nginx/app.conf.template` із резолвером, `./render-nginx.sh`, `restart nginx` |
 | Панель не пускає з правильним паролем | Змінна не перечиталась | `up -d --force-recreate api` |
 | Бот мовчить | Лишився активний вебхук | `deleteWebhook`, потім `restart bot` |
 | Бот забуває крок оформлення | Немає `REDIS_URL` | Додайте Redis у `.env` |

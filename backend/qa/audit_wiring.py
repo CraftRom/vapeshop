@@ -354,6 +354,50 @@ _status = read("backend/shop/services/status_messages.py")
 # у них власні повідомлення в order_chat.
 for _st in ("PAID", "DONE", "CANCELLED"):
     check(_st in _status, f"є розгорнутий текст для статусу {_st}")
+# Відсічення розвідки. Перевірки навмисно про звʼязність, а не про сам
+# шаблон: його правильність стереже окремий набір qa_recon, який ганяє
+# правило по всіх справжніх маршрутах застосунку.
+_ngx = read("deploy/nginx/app.conf.template")
+check(_ngx.count("return 444") == 2,
+      "сканери відсікаються в обох блоках — і HTTP, і HTTPS",
+      _ngx.count("return 444"))
+# Дивимось саме рядок правила, а не файл цілком: обидва шляхи згадані
+# поруч у коментарі — там пояснено, чому їх у переліку немає. Перевірка
+# по всьому файлу спрацьовувала б на власне пояснення.
+_recon_rules = re.findall(r"^\s*location ~\*\s+(\^/api/.+?)\s*\{", _ngx, re.M)
+check(_recon_rules and not any(
+          re.search(r"\bimage\b|\bdownload\b", rule) for rule in _recon_rules),
+      "заплановані /api/image і /api/download не в переліку відсічення",
+      _recon_rules[:1])
+_f2b_jail = read("deploy/fail2ban/jail-elfar.conf")
+_f2b_filter = read("deploy/fail2ban/elfar-recon.conf")
+check("elfar-recon" in _f2b_jail and "<HOST>" in _f2b_filter,
+      "фільтр і правило бану на місці")
+# Так само по самих шаблонах: у коментарі 401 згаданий навмисно —
+# там сказано, чому за нього банити не можна.
+_f2b_rules = [ln for ln in _f2b_filter.splitlines()
+              if ln.strip().startswith(("failregex", "^"))]
+check(_f2b_rules and all("404" in ln for ln in _f2b_rules if ln.strip().startswith("^"))
+      and not any("401" in ln or "403" in ln for ln in _f2b_rules),
+      "банимо за неіснуючі шляхи, а не за 401 — інакше під бан піде "
+      "власний менеджер із простроченою сесією", _f2b_rules)
+# Документація не має вести до файлу, якого немає. Інструкція правити
+# nginx/app.conf через sed пережила перехід на шаблон і лишалась там,
+# доки її не помітили: людина за нею робить sed по неіснуючому файлу,
+# отримує мовчазний успіх і дивується, чому домен не змінився.
+for _doc in ("docs/SERVER.md", "docs/DEPLOY.md"):
+    _text = read(_doc)
+    check("nginx/app.conf\n" not in _text and "nginx/app.conf " not in _text
+          and "nginx/app.conf`" not in _text,
+          f"{_doc} не веде до nginx/app.conf — його немає з часів шаблона")
+
+_boot = read("deploy/bootstrap.sh")
+check("fail2ban" in _boot and "jail.d/elfar.conf" in _boot,
+      "bootstrap ставить і підключає fail2ban")
+check("logpath" in _boot,
+      "шлях до журналу підставляється справжній — інакше fail2ban мовчки "
+      "читає порожнечу")
+
 check("CONFIRMED" not in _status,
       "прибраний крок не має власного тексту — інакше його ніколи не побачать")
 

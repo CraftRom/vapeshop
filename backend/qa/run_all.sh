@@ -81,6 +81,7 @@ run logs-api qa/qa_logs_api.py
 run backups-api qa/qa_backups_api.py
 run status-flow qa/qa_status_flow.py
 run auto-accept qa/qa_auto_accept.py
+run recon qa/qa_recon.py
 run alerts qa/qa_alerts.py
 run edges qa/qa_edges.py
 run dialect qa/qa_dialect.py
