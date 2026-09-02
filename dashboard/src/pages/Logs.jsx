@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { api } from '../api'
 
 const SERVICE_LABEL = {
@@ -37,9 +37,31 @@ function fullDate(value) {
 /** Поля, які показуємо окремими колонками. Решта йде в розгортку. */
 const SUMMARY_FIELDS = ['method', 'path', 'status', 'durationMs', 'ip']
 
+// Підписи полів. Голе «durationMs» чи «actorRole» читає той, хто писав
+// код; журнал же відкривають саме тоді, коли треба швидко зрозуміти
+// чуже. Полів, яких тут немає, це не приховує — вони показуються як є.
+const FIELD_LABELS = {
+  actor: 'Хто', login: 'Логін', ip: 'Адреса', role: 'Роль',
+  path: 'Шлях', method: 'Метод', status: 'Відповідь',
+  durationMs: 'Тривалість, мс', requestId: 'Запит',
+  reason: 'Причина', detail: 'Що це означає', severity: 'Критичність',
+  userAgent: 'Застосунок', referer: 'Звідки', event: 'Код події',
+  actorRole: 'Роль того, хто діяв', query: 'Параметри',
+}
+
+const SEVERITY_CHIP = { alarm: 'error', notice: 'warn', info: '' }
+
 function Record({ record }) {
   const [open, setOpen] = useState(false)
-  const chip = LEVEL_CHIP[record.level] ?? ''
+  // Для подій безпеки показуємо їхню критичність, а не рівень журналу:
+  // невдалий вхід пишеться як info, але за змістом це не «довідково».
+  const severity = record.severity
+  const chip = severity
+    ? (SEVERITY_CHIP[severity] ?? '')
+    : (LEVEL_CHIP[record.level] ?? '')
+  const badge = severity
+    ? ({ alarm: 'тривога', notice: 'увага', info: 'довідка' }[severity] || severity)
+    : record.level
 
   const extras = Object.entries(record).filter(
     ([key]) => !['time', 'level', 'service', 'logger', 'message'].includes(key),
@@ -53,10 +75,16 @@ function Record({ record }) {
         title={fullDate(record.time)}
       >
         <td className="faint" style={{ whiteSpace: 'nowrap' }}>{shortTime(record.time)}</td>
-        <td><span className={`chip ${chip}`}>{record.level}</span></td>
+        <td><span className={`chip ${chip}`}>{badge}</span></td>
         <td style={{ maxWidth: 480 }}>
           <div>{record.message}</div>
-          {record.event && <div className="faint">{record.event}</div>}
+          {/* Для подій безпеки другим рядком іде пояснення, а не код:
+              «Пароль не підійшов» замість «security.login.failed». Код
+              лишається в розгортці — він потрібен для фільтра, не для
+              читання. */}
+          {record.detail
+            ? <div className="faint">{record.detail}</div>
+            : record.event && <div className="faint">{record.event}</div>}
         </td>
         <td className="faint" style={{ whiteSpace: 'nowrap' }}>
           {SUMMARY_FIELDS.filter((f) => record[f] !== undefined)
@@ -78,7 +106,7 @@ function Record({ record }) {
             >
               {extras.map(([key, value]) => (
                 <div key={key}>
-                  <span className="faint">{key}: </span>
+                  <span className="faint">{FIELD_LABELS[key] || key}: </span>
                   {typeof value === 'string' ? value : JSON.stringify(value)}
                 </div>
               ))}
@@ -98,11 +126,33 @@ function mb(bytes) {
   return `${(value / (1024 * 1024)).toFixed(1)} МБ`
 }
 
+// Групи подій безпеки. Сервер зіставляє фільтр і за префіксом, тож
+// «security.login» знаходить і вдалі входи, і невдалі, і блокування —
+// тобто всю історію входу одним пунктом. Без цього довелося б клацати
+// три різні події поспіль, щоб зрозуміти одну ситуацію.
+const SECURITY_GROUPS = [
+  { prefix: 'security.login', title: 'Входи в панель' },
+  { prefix: 'security.token', title: 'Перепустки' },
+  { prefix: 'security.access', title: 'Спроби без прав' },
+  { prefix: 'security.webhook', title: 'Вебхук бота' },
+  { prefix: 'security.initdata', title: 'Підписи вітрини' },
+  { prefix: 'security.operator', title: 'Менеджери' },
+  { prefix: 'security.settings', title: 'Налаштування' },
+  { prefix: 'security.backup', title: 'Резервні копії' },
+]
+
+const SEVERITY_LABELS = {
+  info: 'Довідково',
+  notice: 'Варте уваги',
+  alarm: 'Тривога',
+}
+
 export default function Logs() {
   const [service, setService] = useState('api')
   const [level, setLevel] = useState('')
   const [event, setEvent] = useState('')
   const [search, setSearch] = useState('')
+  const [severity, setSeverity] = useState('')
   const [limit, setLimit] = useState(200)
   const [since, setSince] = useState('')
   const [until, setUntil] = useState('')
@@ -118,23 +168,47 @@ export default function Logs() {
     setBusy(true)
     setError('')
     try {
-      const result = await api.logs.read({ service, level, event, search, limit, since, until })
+      const result = await api.logs.read({
+        service, level, event, search, severity, limit, since, until,
+      })
       setData(result)
     } catch (err) {
       setError(err.message)
     } finally {
       setBusy(false)
     }
-  }, [service, level, event, search, limit, since, until])
+  }, [service, level, event, search, severity, limit, since, until])
 
   useEffect(() => {
     api.logs.services().then(setMeta).catch((err) => setError(err.message))
   }, [])
 
+  const [catalog, setCatalog] = useState([])
+
   useEffect(() => {
-    api.logs.events(service).then((r) => setEvents(r.events)).catch(() => setEvents([]))
+    api.logs.events(service)
+      .then((r) => {
+        setEvents(r.events || [])
+        // Для журналу безпеки беремо весь каталог, а не лише те, що вже
+        // трапилось: подію, якої ще не було, інакше неможливо ані знайти,
+        // ані навіть дізнатися, що система її вміє помічати.
+        setCatalog(r.catalog || [])
+      })
+      .catch(() => { setEvents([]); setCatalog([]) })
     setEvent('')
+    setSeverity('')
   }, [service])
+
+  // Підпис події людською мовою. Голий код нічого не каже тому, хто його
+  // не писав, а дивиться в журнал найчастіше саме така людина.
+  const titles = useMemo(() => {
+    const map = {}
+    for (const item of catalog) map[item.event] = item
+    for (const item of events) if (item.title) map[item.event] = item
+    return map
+  }, [catalog, events])
+
+  const label = (code) => titles[code]?.title || code
 
   useEffect(() => { load() }, [load])
 
@@ -193,13 +267,41 @@ export default function Logs() {
             </select>
           </label>
 
+          {service === 'security' && (
+            <label>
+              <div className="faint">Критичність і вище</div>
+              <select
+                className="input"
+                value={severity}
+                onChange={(e) => setSeverity(e.target.value)}
+              >
+                <option value="">Усі</option>
+                {Object.entries(SEVERITY_LABELS).map(([key, text]) => (
+                  <option key={key} value={key}>{text}</option>
+                ))}
+              </select>
+            </label>
+          )}
+
           <label>
             <div className="faint">Подія</div>
             <select className="input" value={event} onChange={(e) => setEvent(e.target.value)}>
               <option value="">Усі</option>
-              {events.map((e) => (
-                <option key={e.event} value={e.event}>{e.event} ({e.count})</option>
+              {service === 'security' && SECURITY_GROUPS.map((g) => (
+                <option key={g.prefix} value={g.prefix}>{g.title} — усе</option>
               ))}
+              {events.map((e) => (
+                <option key={e.event} value={e.event}>
+                  {label(e.event)} ({e.count})
+                </option>
+              ))}
+              {/* Події з каталогу, яких ще не траплялося: без них
+                  неможливо перевірити, чи щось не сталося. */}
+              {catalog
+                .filter((c) => !events.some((e) => e.event === c.event))
+                .map((c) => (
+                  <option key={c.event} value={c.event}>{c.title} (0)</option>
+                ))}
             </select>
           </label>
         </div>
@@ -252,7 +354,7 @@ export default function Logs() {
             <button
               className="btn ghost"
               onClick={() => api.logs
-                .download({ service, level, event, search, limit, since, until })
+                .download({ service, level, event, search, severity, limit, since, until })
                 .catch((e) => setError(e.message))}
               title="Ті самі фільтри й та сама кількість, що на екрані"
             >

@@ -15,6 +15,8 @@ from api.routers import (
 )
 from api.schemas import LoginIn, TokenOut
 from shop.config import settings
+from shop import security_log as security
+from shop.services import login_guard
 from shop.services.shop_settings import current
 from shop.repo.factory import get_repo
 from shop.db import check_db
@@ -116,6 +118,18 @@ async def login(request: Request, data: LoginIn, repo=Depends(get_repo)):
         "userAgent": request.headers.get("user-agent", ""),
     }
 
+    # Перевіряємо до звірки пароля: заблокованому не має значення, чи
+    # вгадав він цього разу. Заразом це не дає використати сам час
+    # відповіді як ознаку правильного пароля.
+    locked = login_guard.locked_for(data.login)
+    if locked:
+        security.record("security.login.blocked", **context,
+                        reason=f"вхід закрито ще на {locked} с")
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            "Забагато невдалих спроб. Спробуйте за кілька хвилин.",
+        )
+
     principal = await authenticate(repo, data.login, data.password)
     if principal is None:
         # Пароль у журнал не потрапляє ніколи — лише його довжина. Цього
@@ -126,6 +140,24 @@ async def login(request: Request, data: LoginIn, repo=Depends(get_repo)):
             extra={**context, "event": "auth.login.failed",
                    "passwordLength": len(data.password)},
         )
+        # Той самий факт у журнал безпеки. Не замість, а на додачу:
+        # у спільному журналі він видно поруч із рештою запитів тієї
+        # хвилини, а в журналі безпеки — поруч із іншими спробами входу
+        # за тиждень.
+        attempts = login_guard.note_failure(data.login)
+        existing = await repo.get_operator_by_login(data.login.strip())
+        security.record(
+            "security.login.disabled" if existing and not existing.is_active
+            else "security.login.failed",
+            **context, attempts=attempts,
+        )
+        # Про саме блокування повідомляємо окремою подією тієї ж миті,
+        # коли воно настало: інакше про нього дізналися б лише з наступної
+        # спроби, якої може й не бути.
+        if login_guard.locked_for(data.login):
+            security.record("security.login.blocked", **context,
+                            attempts=attempts,
+                            reason="перевищено кількість спроб поспіль")
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Невірний логін або пароль")
 
     auth_log.info(
@@ -133,6 +165,8 @@ async def login(request: Request, data: LoginIn, repo=Depends(get_repo)):
         extra={**context, "event": "auth.login.ok",
                "role": principal.role.value, "operatorId": principal.operator_id},
     )
+    login_guard.note_success(data.login)
+    security.record("security.login.ok", **context, role=principal.role.value)
     return TokenOut(
         access_token=create_token(
             principal.login, principal.role, principal.operator_id, principal.name

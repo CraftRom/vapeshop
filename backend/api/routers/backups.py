@@ -20,6 +20,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 
+from shop import security_log as security
 from api.auth import Principal, require_sysadmin
 from shop.config import settings
 
@@ -144,6 +145,7 @@ async def download(name: str, who: Principal = Depends(require_sysadmin)):
 @router.delete("/{name}", status_code=204)
 async def remove(name: str, who: Principal = Depends(require_sysadmin)):
     _resolve(name).unlink()
+    security.record("security.backup.deleted", actor=who.login, reason=name)
 
 
 @router.post("/upload", status_code=201)
@@ -191,6 +193,10 @@ async def restore(
             400,
             "Для підтвердження введіть назву файлу точно так, як вона показана",
         )
+
+    # Записуємо до, а не після: якщо відновлення обірве процес на півдорозі,
+    # у журналі має лишитись слід того, що його взагалі починали.
+    security.record("security.backup.restored", actor=who.login, reason=name)
 
     stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d_%H%M%S")
     safety = backup_dir() / f"elfar-before-restore-{stamp}.dump"

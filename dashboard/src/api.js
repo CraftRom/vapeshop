@@ -270,7 +270,9 @@ export const api = {
     // Фільтри передаємо ті самі, що й на екран: файл має містити рівно
     // те, що людина бачить, і стільки записів, скільки вона вибрала.
     // Раніше сюди не йшло нічого, і «скачати» завжди віддавало весь файл.
-    download: async ({ service, level, event, search, limit, since, until, full }) => {
+    download: async ({
+      service, level, event, search, severity, limit, since, until, full,
+    }) => {
       const params = new URLSearchParams()
       if (full) {
         params.set('full', '1')
@@ -279,6 +281,7 @@ export const api = {
         if (level) params.set('level', level)
         if (event) params.set('event', event)
         if (search) params.set('search', search)
+        if (severity) params.set('severity', severity)
         if (since) params.set('since', since)
         if (until) params.set('until', until)
       }
@@ -295,7 +298,7 @@ export const api = {
       link.click()
       setTimeout(() => URL.revokeObjectURL(url), 30000)
     },
-    read: ({ service, level, event, search, limit, since, until }) => {
+    read: ({ service, level, event, search, severity, limit, since, until }) => {
       // URLSearchParams, а не склеювання рядків: у пошуку буває будь-що,
       // включно з пробілами та кирилицею, і ручне екранування тут
       // рано чи пізно зламалося б.
@@ -303,6 +306,7 @@ export const api = {
       if (level) params.set('level', level)
       if (event) params.set('event', event)
       if (search) params.set('search', search)
+      if (severity) params.set('severity', severity)
       if (since) params.set('since', since)
       if (until) params.set('until', until)
       return request(`/logs?${params.toString()}`)

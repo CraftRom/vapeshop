@@ -16,7 +16,7 @@ os.environ.update(BOT_TOKEN="777001:T", JWT_SECRET="t" * 32,
 
 os.makedirs(LOG_DIR if "LOG_DIR" in dir() else BACKUP_DIR, exist_ok=True)
 
-from qa_common import Report                             # noqa: E402
+from qa_common import Report, seed_operators                             # noqa: E402
 
 r = Report("ЖУРНАЛ У ПАНЕЛІ")
 
@@ -72,6 +72,19 @@ MANAGER = create_token("manager", OperatorRole.MANAGER, 7, "Менеджер")
 
 
 async def scenario():
+    # Токени видані на менеджерів 5 і 7. Відколи перепустка звіряється з
+    # базою при кожному зверненні, їх треба справді створити — інакше
+    # набір перевіряв би не права ролі, а те, що незнайомця не пускають.
+    from shop.db import init_db
+    from shop.repo.factory import open_repo
+
+    await init_db()
+    async with open_repo() as _repo:
+        await seed_operators(_repo, {
+            5: ("shopadmin", "Адмін", OperatorRole.ADMIN),
+            7: ("manager", "Менеджер", OperatorRole.MANAGER),
+        })
+
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
 
@@ -154,13 +167,18 @@ async def scenario():
         print("\n--- довідники ---")
         resp = await client.get("/api/logs/services", headers=head(SYSADMIN))
         body = resp.json()
-        r.check({s["service"] for s in body["services"]} == {"api", "bot", "scheduler"},
-                "перелік сервісів")
+        r.check({s["service"] for s in body["services"]}
+                == {"security", "api", "bot", "scheduler"},
+                "перелік сервісів", [s["service"] for s in body["services"]])
         r.check(body["logDir"] == LOG_DIR, "показано каталог журналу")
 
         resp = await client.get("/api/logs/events?service=api", headers=head(SYSADMIN))
         events = {e["event"] for e in resp.json()["events"]}
-        r.check(events == {"http.request", "auth.login.failed", "boom"},
+        # Події безпеки дублюються і в спільний журнал теж — там їх видно
+        # поруч із рештою запитів тієї ж хвилини. Тому перевіряємо
+        # входження, а не точну рівність: набір сам породжує їх, коли
+        # перевіряє відмови в доступі.
+        r.check({"http.request", "auth.login.failed", "boom"} <= events,
                 "події зібрані з файлу", events)
 
         resp = await client.get("/api/logs/events?service=api", headers=head(MANAGER))

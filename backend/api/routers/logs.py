@@ -24,7 +24,11 @@ router = APIRouter(prefix="/api/logs", tags=["logs"])
 # Перелік, а не читання каталогу: ім'я сервісу приходить із запиту й
 # підставляється у шлях. Білий список — єдиний надійний захист від
 # «../../etc/passwd», і він же документує, що взагалі є в системі.
-SERVICES = ("api", "bot", "scheduler")
+# security стоїть першим навмисно: у випадному списку панелі він має бути
+# на видноті, а не наприкінці. Це окремий потік, а не рівень у спільному
+# файлі — подій там на порядки менше, і серед тисяч записів про каталог
+# вони губилися б безслідно.
+SERVICES = ("security", "api", "bot", "scheduler")
 
 LEVELS = ("debug", "info", "warning", "error", "critical")
 
@@ -149,7 +153,7 @@ async def list_services(who: Principal = Depends(require_sysadmin)):
 
 def _select(
     lines: list[str], *, level: str, event: str, request_id: str,
-    since: str, until: str, search: str, limit: int,
+    since: str, until: str, search: str, limit: int, severity: str = "",
 ) -> tuple[list[dict], int]:
     """Відбір записів за фільтрами. Найновіші першими.
 
@@ -162,6 +166,15 @@ def _select(
     # теж потрібні. Точний збіг тут був би пасткою — людина обирає «error»
     # і не бачить падіння.
     threshold = LEVELS.index(level.lower()) if level.lower() in LEVELS else -1
+
+    # Критичність події безпеки — окрема шкала від рівня журналу. Невдалий
+    # вхід нічого не ламає, тож пишеться як info, але за змістом це подія,
+    # про яку треба знати. Тут теж «і вище», а не точний збіг.
+    from shop.security_log import SEVERITIES
+
+    severity_floor = (
+        SEVERITIES.index(severity.lower()) if severity.lower() in SEVERITIES else -1
+    )
 
     # Межі доби рахуємо один раз, а не для кожного запису. Порівнюємо рядки
     # ISO-дат: вони сортуються лексикографічно так само, як хронологічно,
@@ -194,8 +207,19 @@ def _select(
             record_level = str(record.get("level", "")).lower()
             if record_level not in LEVELS or LEVELS.index(record_level) < threshold:
                 continue
-        if event and record.get("event") != event:
-            continue
+        if severity_floor >= 0:
+            record_severity = str(record.get("severity", "")).lower()
+            if (record_severity not in SEVERITIES
+                    or SEVERITIES.index(record_severity) < severity_floor):
+                continue
+        # Збіг за префіксом, а не лише повний: «security.login» знаходить
+        # і вдалі входи, і невдалі, і блокування — тобто всю історію входу
+        # одним фільтром. Точну назву це не ламає: повний код теж є
+        # префіксом самого себе.
+        if event:
+            name = str(record.get("event", ""))
+            if name != event and not name.startswith(event + "."):
+                continue
         if request_id and record.get("requestId") != request_id:
             continue
         if needle and needle not in json.dumps(record, ensure_ascii=False).lower():
@@ -217,6 +241,7 @@ async def read_logs(
     since: str = Query("", description="Від дати, YYYY-MM-DD"),
     until: str = Query("", description="До дати включно, YYYY-MM-DD"),
     search: str = Query("", description="Підрядок у будь-якому полі"),
+    severity: str = Query("", description="Критичність події безпеки і вище"),
     limit: int = Query(200, ge=1, le=2000),
     who: Principal = Depends(require_sysadmin),
 ):
@@ -226,6 +251,7 @@ async def read_logs(
     records, scanned = _select(
         lines, level=level, event=event, request_id=request_id,
         since=since, until=until, search=search, limit=limit,
+        severity=severity,
     )
 
     return {
@@ -255,6 +281,7 @@ async def download(
     since: str = Query(""),
     until: str = Query(""),
     search: str = Query(""),
+    severity: str = Query(""),
     limit: int = Query(200, ge=1, le=2000),
     full: bool = Query(False, description="Віддати файл цілком, без фільтрів"),
     who: Principal = Depends(require_sysadmin),
@@ -291,7 +318,7 @@ async def download(
 
     records, _ = _select(
         _read_tail(path), level=level, event=event, request_id=request_id,
-        since=since, until=until, search=search, limit=limit,
+        since=since, until=until, search=search, limit=limit, severity=severity,
     )
     # Найстаріше вгорі: у файлі, який читатимуть очима або згодовуватимуть
     # jq, природний порядок — хронологічний. На екрані навпаки, бо там
@@ -322,6 +349,8 @@ async def list_events(
     Рахуємо на льоту, а не тримаємо перелік у коді: інакше нова подія
     з'явиться в журналі, але не у фільтрі, і знайти її буде нічим.
     """
+    from shop.security_log import CATALOG, SEVERITIES, describe
+
     lines = _read_tail(_log_path(service))
     counts: dict[str, int] = {}
     for line in lines:
@@ -330,4 +359,29 @@ async def list_events(
             name = str(record["event"])
             counts[name] = counts.get(name, 0) + 1
     ordered = sorted(counts.items(), key=lambda item: -item[1])
-    return {"events": [{"event": n, "count": c} for n, c in ordered[:50]]}
+
+    # Голий код події нічого не каже тому, хто його не писав. Віддаємо
+    # разом із підписом: у списку фільтра має стояти «Невдала спроба
+    # входу», а не «security.login.failed».
+    events = []
+    for name, count in ordered[:50]:
+        item = {"event": name, "count": count}
+        if name.startswith("security."):
+            described = describe(name)
+            item["title"] = described.title
+            item["severity"] = described.severity
+        events.append(item)
+
+    result = {"events": events}
+    if service == "security":
+        # Увесь каталог, а не лише те, що вже трапилось: інакше подію,
+        # якої ще не було, неможливо ані знайти, ані навіть дізнатися,
+        # що система її вміє помічати.
+        result["catalog"] = [
+            {"event": e.code, "severity": e.severity,
+             "title": e.title, "detail": e.detail}
+            for e in sorted(CATALOG.values(),
+                            key=lambda e: (SEVERITIES.index(e.severity), e.code))
+        ]
+        result["severities"] = list(SEVERITIES)
+    return result

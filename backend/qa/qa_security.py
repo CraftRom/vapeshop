@@ -78,7 +78,34 @@ r.check(c.post("/api/telegram/невірний/777001", json={}).status_code == 
 r.check(c.post("/api/telegram/hook/999999", json={}).status_code == 409, "вебхук чужого бота")
 
 print("\n--- перебір пароля ---")
-codes = {c.post("/api/auth/login", json={"login":"admin","password":f"спроба{i}"}).status_code for i in range(12)}
-r.check(codes == {401}, "невірні паролі стабільно 401", codes)
-r.check(c.post("/api/auth/login", json={"login":"admin","password":"secret"}).status_code == 200, "правильний пароль після спроб працює")
+from shop.services import login_guard                          # noqa: E402
+
+login_guard.reset()
+limit = login_guard.max_attempts()
+
+# Кілька помилок поспіль — звичайна річ: переплутана розкладка, старий
+# пароль у менеджері. Такі спроби мають отримувати ту саму відмову, без
+# натяку на те, чи існує обліковий запис.
+codes = {c.post("/api/auth/login",
+                json={"login": "admin", "password": f"спроба{i}"}).status_code
+         for i in range(limit - 1)}
+r.check(codes == {401}, "перші невдалі спроби — стабільно 401", codes)
+r.check(c.post("/api/auth/login",
+               json={"login": "admin", "password": "secret"}).status_code == 200,
+        "правильний пароль після кількох помилок працює")
+
+# А от десяток поспіль — це вже не друкарська помилка. Успішний вхід вище
+# обнулив лічильник, тож рахунок починається заново.
+login_guard.reset()
+for i in range(limit):
+    c.post("/api/auth/login", json={"login": "admin", "password": f"підбір{i}"})
+r.check(c.post("/api/auth/login",
+               json={"login": "admin", "password": "спроба"}).status_code == 429,
+        "після межі вхід закривається")
+# Головне: під блокуванням не пускає навіть вірний пароль — інакше
+# обмеження обходилось би тим самим підбором.
+r.check(c.post("/api/auth/login",
+               json={"login": "admin", "password": "secret"}).status_code == 429,
+        "під блокуванням вірний пароль теж не пускає")
+login_guard.reset()
 sys.exit(1 if r.done() else 0)

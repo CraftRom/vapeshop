@@ -21,6 +21,7 @@ from urllib.parse import parse_qsl
 
 from fastapi import Depends, Header, HTTPException
 
+from shop import security_log as security
 from shop.config import settings
 from shop.entities import User
 from shop.repo.base import Repository
@@ -92,6 +93,7 @@ async def require_webapp_user(
             len(x_telegram_init_data or ""),
             ",".join(sorted(dict(parse_qsl(x_telegram_init_data or "")).keys())) or "—",
         )
+        security.record("security.initdata.rejected", reason=str(exc))
         raise HTTPException(401, str(exc))
 
     tg_user = data.get("user") or {}
@@ -117,5 +119,6 @@ async def require_webapp_user(
         if referrer and referrer.id != user.id:
             await repo.set_user_referrer(user, referrer.id)
     if user.is_blocked:
+        security.record("security.customer.blocked", actor=str(tg_id))
         raise HTTPException(403, "Доступ обмежено")
     return user

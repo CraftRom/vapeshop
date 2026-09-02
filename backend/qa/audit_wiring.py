@@ -375,8 +375,50 @@ check("x_telegram_bot_api_secret_token" in _tg,
 check("secret_token=" in _tg,
       "секрет заголовка реєструється в setWebhook — інакше Telegram "
       "його не надсилатиме й перевіряти буде нічого")
-check("compare_digest(secret" in _tg,
-      "секрет шляху звіряється сталим часом, а не звичайним !=")
+check("compare_digest(" in _tg and "secret.encode(" in _tg,
+      "секрет шляху звіряється сталим часом і побайтово — з рядками "
+      "compare_digest падає на кирилиці, тобто чужий символ в адресі "
+      "давав би 500 замість «не знайдено»")
+
+# Журнал безпеки. Перевірки про звʼязність — саму поведінку ганяє
+# набір qa_security_log.
+_seclog = read("backend/shop/security_log.py")
+check("CATALOG" in _seclog and "def record(" in _seclog,
+      "каталог подій безпеки на місці")
+check("OnlySecurity" in _seclog,
+      "у файл безпеки не протікають сторонні записи")
+check("attach_security" in read("backend/shop/logging_setup.py"),
+      "окремий файл security.log підключається при старті")
+check("attach_security_alerts" in read("backend/shop/logging_setup.py"),
+      "події безпеки йдуть у канал так само, як помилки")
+check("TelegramSecurityHandler" in read("backend/shop/alerts.py"),
+      "у подій безпеки власний обробник сповіщень — рівень запису тут "
+      "нічого не вирішує, відбір за критичністю")
+check('"security"' in read("backend/api/routers/logs.py"),
+      "панель бачить журнал безпеки окремим сервісом")
+# Подія без опису показувалась би в панелі голим кодом. Виклики, яких
+# немає в каталозі, — це майже завжди друкарська помилка на місці.
+import re as _re
+# Будь-який рядок «security.…» у лапках, а не лише перший аргумент
+# record(): код події буває у тернарному виразі, і вужчий розбір
+# оголошував би живу подію мертвою.
+_called = set(_re.findall(r'"(security\.[a-z_.]+)"', "\n".join(
+    read(f"backend/{f}") for f in (
+        "api/main.py", "api/auth.py", "api/webapp_auth.py",
+        "api/routers/telegram.py", "api/routers/operators.py",
+        "api/routers/settings.py", "api/routers/backups.py",
+    ))))
+_declared = set(_re.findall(r'_e\("(security\.[a-z_.]+)"', _seclog))
+check(_called and _called <= _declared,
+      "кожна записувана подія описана в каталозі",
+      sorted(_called - _declared))
+# І навпаки. Подія з каталогу, якої ніхто не записує, назавжди висить у
+# фільтрі з нулем — і той, хто дивиться, робить висновок «такого не
+# траплялося», хоча насправді система цього не вміє помічати. Саме так
+# «блокування за підбором» місяць виглядало наявним.
+check(_declared <= _called,
+      "кожна подія з каталогу десь записується",
+      sorted(_declared - _called))
 
 # Відсічення розвідки. Перевірки навмисно про звʼязність, а не про сам
 # шаблон: його правильність стереже окремий набір qa_recon, який ганяє

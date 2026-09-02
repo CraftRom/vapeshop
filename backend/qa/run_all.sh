@@ -69,6 +69,7 @@ run negative qa/qa_negative.py
 run security qa/qa_security.py
 run revoke qa/qa_revoke.py
 run headers qa/qa_headers.py
+run security-log qa/qa_security_log.py
 run database qa/qa_db.py
 run faq qa/qa_faq.py
 run faq-flow qa/qa_faq_flow.py

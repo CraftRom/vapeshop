@@ -10,6 +10,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from dataclasses import dataclass
 
+from shop import security_log as seclog
 from shop.config import settings
 from shop.entities import OperatorRole
 from shop.repo.base import Repository
@@ -92,7 +93,11 @@ def _decode(creds: HTTPAuthorizationCredentials | None) -> Principal:
         payload = jwt.decode(creds.credentials, settings.jwt_secret, algorithms=["HS256"])
     except jwt.ExpiredSignatureError:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Сесія завершилась — увійдіть знову")
-    except jwt.PyJWTError:
+    except jwt.PyJWTError as exc:
+        # Тут навмисно не розрізняємо причин назовні, але у журнал безпеки
+        # тип записуємо: підроблений підпис і зіпсований формат — різні
+        # історії, і в каналі це видно одразу.
+        seclog.record("security.token.invalid", reason=type(exc).__name__)
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Недійсний токен")
 
     # Токени, видані до появи ролей, вважаємо адмінськими: їх міг отримати
@@ -109,6 +114,7 @@ def _decode(creds: HTTPAuthorizationCredentials | None) -> Principal:
 
     # Токен сисадміна дійсний, поки не змінився пароль у .env
     if principal.operator_id == 0 and payload.get("pv") != password_fingerprint():
+        seclog.record("security.token.password_changed", login=principal.login)
         raise HTTPException(
             status.HTTP_401_UNAUTHORIZED, "Пароль змінено — увійдіть знову"
         )
@@ -135,10 +141,19 @@ async def _live(principal: Principal, repo) -> Principal:
 
     operator = await repo.get_operator(principal.operator_id)
     if not operator or not operator.is_active:
+        seclog.record(
+            "security.token.revoked",
+            login=principal.login,
+            reason="видалено" if not operator else "вимкнено",
+        )
         raise HTTPException(
             status.HTTP_401_UNAUTHORIZED, "Обліковий запис вимкнено"
         )
     if operator.role != principal.role:
+        seclog.record(
+            "security.token.role_changed", login=principal.login,
+            role=f"{principal.role.value} → {operator.role.value}",
+        )
         # Роль могли не лише знизити, а й підвищити. Приймаємо чинну з бази,
         # а не з токена: джерело правди тут одне.
         principal.role = operator.role
@@ -161,6 +176,8 @@ async def require_admin(
     """Лише адміністратор: керування менеджерами й повні налаштування."""
     principal = await _live(_decode(creds), repo)
     if not principal.is_admin:
+        seclog.record("security.access.denied", actor=principal.login,
+                        role=principal.role.value, reason="потрібен адміністратор")
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Дія доступна лише адміністратору")
     return principal
 
@@ -177,6 +194,9 @@ async def require_sysadmin(
     """
     principal = await _live(_decode(creds), repo)
     if not principal.is_sysadmin:
+        seclog.record("security.access.denied", actor=principal.login,
+                        role=principal.role.value,
+                        reason="потрібен системний адміністратор")
         raise HTTPException(
             status.HTTP_403_FORBIDDEN,
             "Дія доступна лише системному адміністратору",

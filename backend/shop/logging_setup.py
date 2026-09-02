@@ -35,7 +35,9 @@ _STANDARD = {
 #
 #   сервісів × (LOG_MAX_MB × (LOG_BACKUPS + 1))
 #
-# За замовчуванням 3 × 10 × 6 = 180 МБ. Це стеля, а не поточний розмір:
+# За замовчуванням 3 × 10 × 6 = 180 МБ. Плюс журнал безпеки, у якого копій
+# удвічі більше: подій там на порядки менше, тож ті самі мегабайти
+# зберігають місяці замість днів. Це стеля, а не поточний розмір:
 # більше журнали не з'їдять навіть за нічний цикл помилок. На тісному
 # VPS її можна опустити через .env, не чіпаючи код.
 #
@@ -66,7 +68,9 @@ def log_backups() -> int:
 
 def log_budget_bytes() -> int:
     """Стеля, якої журнали не перевищать за жодних обставин."""
-    return SERVICES_COUNT * log_max_bytes() * (log_backups() + 1)
+    services = SERVICES_COUNT * log_max_bytes() * (log_backups() + 1)
+    security = log_max_bytes() * (log_backups() * 2 + 1)
+    return services + security
 
 
 class JsonFormatter(logging.Formatter):
@@ -220,6 +224,12 @@ def setup(service: str) -> logging.Logger:
             )
             handler.setFormatter(JsonFormatter(service))
             root.addHandler(handler)
+            # Події безпеки додатково лягають у власний файл. У спільному
+            # вони теж лишаються — там їх видно поруч із помилкою, що
+            # сталася в ту саму секунду, — але шукати їх треба окремо.
+            from shop.security_log import attach as attach_security
+
+            attach_security(path)
         except OSError as exc:
             # Немає прав на каталог — не привід не запуститись. Пишемо
             # у stdout і кажемо про це прямо.
@@ -229,9 +239,14 @@ def setup(service: str) -> logging.Logger:
     # бачило всі записи, включно з тими, які створять обробники вище.
     if os.environ.get("ALERTS", "1") != "0":
         try:
-            from shop.alerts import attach
+            from shop.alerts import attach, attach_security_alerts
 
             attach(service)
+            # Події безпеки йдуть тим самим шляхом, що й помилки: у
+            # магазині без чергового інженера канал у Telegram — єдине
+            # місце, де їх узагалі побачать. Запис у файл, який ніхто не
+            # відкриває, від зловмисника не рятує.
+            attach_security_alerts(service)
         except Exception:
             root.warning("Сповіщення про помилки не підключені", exc_info=True)
 

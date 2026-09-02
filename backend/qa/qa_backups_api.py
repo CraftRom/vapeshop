@@ -28,7 +28,7 @@ for _leftover in _pathlib.Path("/tmp").glob("qa_backups*"):
     if _leftover.is_file():
         _leftover.unlink(missing_ok=True)
 
-from qa_common import Report                             # noqa: E402
+from qa_common import Report, seed_operators                             # noqa: E402
 
 r = Report("КОПІЇ")
 
@@ -51,6 +51,19 @@ MANAGER = create_token("manager", OperatorRole.MANAGER, 7, "Менеджер")
 
 
 async def scenario():
+    # Токени видані на менеджерів 5 і 7. Відколи перепустка звіряється з
+    # базою при кожному зверненні, їх треба справді створити — інакше
+    # набір перевіряв би не права ролі, а те, що незнайомця не пускають.
+    from shop.db import init_db
+    from shop.repo.factory import open_repo
+
+    await init_db()
+    async with open_repo() as _repo:
+        await seed_operators(_repo, {
+            5: ("shopadmin", "Адмін", OperatorRole.ADMIN),
+            7: ("manager", "Менеджер", OperatorRole.MANAGER),
+        })
+
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
 

@@ -183,3 +183,97 @@ def attach(service: str) -> TelegramErrorHandler | None:
     handler = TelegramErrorHandler(service)
     logging.getLogger().addHandler(handler)
     return handler
+
+
+class TelegramSecurityHandler(TelegramErrorHandler):
+    """Сповіщення про події безпеки.
+
+    Успадковує від обробника помилок заради дедуплікації, обмеження
+    частоти й захисту від рекурсії — без них будь-яке сповіщення шкодить
+    більше, ніж допомагає, і переписувати це вдруге немає сенсу.
+
+    Відрізняється трьома речами. Рівень запису тут ні до чого: невдалий
+    вхід нічого не ламає, тож пишеться як INFO, але знати про нього
+    треба. Відбір іде за власним рівнем критичності події. Відбиток
+    рахується за кодом події й адресою, а не за місцем у коді: сто спроб
+    підбору з одного місця в коді — це одна подія, а з різних адрес уже
+    сто, і згортати їх в одну не можна.
+    """
+
+    def __init__(self, service: str) -> None:
+        # NOTSET: рівень запису тут нічого не вирішує, відбір нижче
+        logging.Handler.__init__(self, level=logging.NOTSET)
+        self.service = service
+        self._seen = {}
+        self._sent = deque()
+        self._sending = False
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if not getattr(record, "security", False):
+            return False
+        from shop.security_log import ALERT_FROM, SEVERITIES
+
+        severity = getattr(record, "severity", "notice")
+        try:
+            return SEVERITIES.index(severity) >= SEVERITIES.index(ALERT_FROM)
+        except ValueError:
+            return True
+
+    def _fingerprint(self, record: logging.LogRecord) -> str:
+        # Код події плюс адреса: підбір з десяти адрес має дати десять
+        # сповіщень, а не одне. Логін навмисно не входить — інакше перебір
+        # логінів з однієї адреси знову розсипався б на сотні сповіщень.
+        raw = f"{getattr(record, 'event', '')}:{getattr(record, 'ip', '')}"
+        return hashlib.sha256(raw.encode()).hexdigest()[:16]
+
+    def _compose(self, record: logging.LogRecord) -> str:
+        severity = getattr(record, "severity", "notice")
+        mark = {"alarm": "🚨", "notice": "⚠️", "info": "ℹ️"}.get(severity, "⚠️")
+
+        parts = [
+            f"{mark} <b>Безпека</b> · {self.service}",
+            "",
+            f"<b>{_escape(record.getMessage())}</b>",
+        ]
+
+        detail = getattr(record, "detail", "")
+        if detail:
+            # Опис події, а не лише код: сповіщення читають з телефона й
+            # найчастіше не ті, хто писав цей код.
+            parts.append(f"\n{_escape(detail)}")
+
+        # Порядок полів фіксований і від загального до конкретного: спершу
+        # хто й звідки, потім куди саме звертались.
+        labels = (
+            ("actor", "Хто"),
+            ("login", "Логін"),
+            ("ip", "Адреса"),
+            ("role", "Роль"),
+            ("path", "Шлях"),
+            ("method", "Метод"),
+            ("reason", "Причина"),
+            ("attempts", "Спроб поспіль"),
+            ("requestId", "Запит"),
+        )
+        rows = []
+        for field, label in labels:
+            value = getattr(record, field, "")
+            if value not in ("", None):
+                rows.append(f"{label}: <code>{_escape(str(value))}</code>")
+        if rows:
+            parts.append("\n" + "\n".join(rows))
+
+        parts.append(f"\n<code>{_escape(getattr(record, 'event', ''))}</code>")
+        return "\n".join(parts)[:MAX_TEXT]
+
+    def emit(self, record: logging.LogRecord) -> None:
+        if not self.filter(record):
+            return
+        super().emit(record)
+
+
+def attach_security_alerts(service: str) -> TelegramSecurityHandler:
+    """Підключає сповіщення про події безпеки."""
+    handler = TelegramSecurityHandler(service)
+    logging.getLogger("security").addHandler(handler)
+    return handler

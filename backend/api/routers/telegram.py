@@ -18,6 +18,7 @@ from fastapi import APIRouter, Header, HTTPException, Request, status
 from bot.factory import bot_id, build_bot, build_dispatcher, webhook_path
 from aiogram.types import BotCommand, MenuButtonWebApp, WebAppInfo
 
+from shop import security_log as security
 from shop.config import settings
 from shop.services.shop_settings import current
 
@@ -117,7 +118,15 @@ async def telegram_webhook(
     # першому розбіжному байті, і за часом відповіді секрет підбирається
     # посимвольно. Різниця мікроскопічна, але вебхук можна смикати скільки
     # завгодно разів, а секрет тут один на все життя установки.
-    if not hmac.compare_digest(secret, settings.webhook_secret):
+    #
+    # Порівнюємо байти, а не рядки. З рядками compare_digest працює лише
+    # для ASCII і на будь-якому іншому символі кидає TypeError — тобто
+    # достатньо було вписати кирилицю в адресу, щоб замість «не знайдено»
+    # отримати падіння з трейсбеком і сповіщенням в канал.
+    if not hmac.compare_digest(
+        secret.encode("utf-8"), settings.webhook_secret.encode("utf-8")
+    ):
+        security.record("security.webhook.bad_secret", reason="секрет у шляху")
         # Не уточнюємо причину — стороннім знати нічого не треба
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
 
@@ -125,9 +134,11 @@ async def telegram_webhook(
     # надісланих до переналаштування вебхука, — тому не вимагаємо його,
     # коли він відсутній, але підроблений відхиляємо.
     if x_telegram_bot_api_secret_token and not hmac.compare_digest(
-        x_telegram_bot_api_secret_token, webhook_header_secret()
+        x_telegram_bot_api_secret_token.encode("utf-8"),
+        webhook_header_secret().encode("utf-8"),
     ):
         log.warning("Апдейт із чужим підписом заголовка — відхилено")
+        security.record("security.webhook.bad_secret", reason="підпис заголовка")
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
 
     if hook_bot_id != bot_id():
@@ -137,6 +148,8 @@ async def telegram_webhook(
             "вебхук — зніміть його: /api/telegram-detach",
             hook_bot_id, bot_id(),
         )
+        security.record("security.webhook.foreign_bot",
+                        reason=f"{hook_bot_id} замість {bot_id()}")
         raise HTTPException(status.HTTP_409_CONFLICT, "Цей бот більше не обслуговується")
 
     bot, dp = _instances()

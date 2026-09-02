@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from api.auth import Principal, require_admin, require_staff
 from api.schemas import ShopSettingsIn, ShopSettingsOut
+from shop import security_log as security
 from shop.repo.base import Repository
 from shop.repo.factory import get_repo
 from shop.services.shop_settings import current, get_shop_settings, save_shop_settings
@@ -81,6 +82,10 @@ async def write_settings(
     if not who.is_sysadmin:
         infra = sorted(set(payload) & INFRA_FIELDS)
         if infra:
+            security.record("security.access.denied", actor=who.login,
+                            role=who.role.value,
+                            reason="інфраструктурні налаштування: "
+                                   + ", ".join(infra))
             raise HTTPException(
                 403,
                 "Ці налаштування змінює лише системний адміністратор: "
@@ -96,4 +101,9 @@ async def write_settings(
                 f"Поза доступом: {', '.join(forbidden)}",
             )
 
-    return await save_shop_settings(repo, payload)
+    saved = await save_shop_settings(repo, payload)
+    # Самі назви полів, без значень: серед налаштувань є токен бота й
+    # ідентифікатори чатів, і журнал не має ставати місцем їх витоку.
+    security.record("security.settings.changed", actor=who.login,
+                    role=who.role.value, reason=", ".join(sorted(payload)))
+    return saved
