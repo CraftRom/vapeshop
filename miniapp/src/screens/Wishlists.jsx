@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 
 import { api } from '../api'
 import { alert, confirm, haptic, notify} from '../telegram'
+import { ProductCard } from './Catalog'
 
 /** Чи лежить товар хоч в одному списку — для стану сердечка. */
 export function isSaved(wishlists, productId) {
@@ -129,7 +130,7 @@ export function SavePicker({ product, wishlists, onClose, onChanged }) {
   )
 }
 
-export function Wishlists({ config, wishlists, cart, onChanged, onOpenProduct, onCartChange }) {
+export function Wishlists({ wishlists, onChanged, onOpenList }) {
   const [renaming, setRenaming] = useState(null)
   const [name, setName] = useState('')
   const [error, setError] = useState('')
@@ -138,8 +139,6 @@ export function Wishlists({ config, wishlists, cart, onChanged, onOpenProduct, o
   // висить на екрані після успішної дії й виглядає так, ніби нічого не
   // спрацювало — саме це й було видно на екрані «Збережене».
   useEffect(() => { setError('') }, [wishlists])
-
-  const qtyOf = (id) => cart?.lines?.find((l) => l.product_id === id)?.qty || 0
 
   const rename = async (list) => {
     const value = name.trim()
@@ -160,15 +159,6 @@ export function Wishlists({ config, wishlists, cart, onChanged, onOpenProduct, o
     } catch (err) {
       // Останній список видалити не можна — бекенд це стереже
       alert(err.message)
-    }
-  }
-
-  const drop = async (list, product) => {
-    haptic('light')
-    try {
-      onChanged(await api.wishlists.toggle(list.id, product.id))
-    } catch (err) {
-      setError(err.message)
     }
   }
 
@@ -224,46 +214,35 @@ export function Wishlists({ config, wishlists, cart, onChanged, onOpenProduct, o
                 autoFocus
               />
             ) : (
+              /* Дотик по назві відкриває список, а не перейменовує його.
+                 Перейменування раніше стояло на найбільшій цілі екрана —
+                 людина тикала в назву, щоб подивитись уміст, і потрапляла
+                 в поле вводу. Перейменування тепер окремою дією нижче. */
               <button
                 className="wl-name"
-                onClick={() => { setRenaming(list.id); setName(list.name) }}
-                title="Перейменувати"
+                onClick={() => onOpenList(list)}
+                title="Відкрити список"
               >
                 {list.name} <span className="hint num">· {list.size}</span>
               </button>
             )}
+          </div>
+
+          <div className="wl-actions" style={{ padding: '0 14px 12px' }}>
+            <button className="chip" onClick={() => onOpenList(list)}>Відкрити</button>
+            <button
+              className="chip"
+              onClick={() => { setRenaming(list.id); setName(list.name) }}
+            >
+              Перейменувати
+            </button>
             <button className="chip" onClick={() => remove(list)}>Видалити</button>
           </div>
 
-          {list.products.length === 0 ? (
+          {list.size === 0 && (
             <p className="hint" style={{ padding: '0 14px 12px' }}>
-              Порожньо. Відкрийте товар у каталозі й натисніть сердечко.
+              Порожньо. Відкрийте товар у каталозі й натисніть «Відкласти».
             </p>
-          ) : (
-            <div className="list">
-              {list.products.map((p) => (
-                <div className="card" key={p.id}>
-                  <button className="card-body card-open" onClick={() => onOpenProduct(p)}>
-                    <p className="card-title">{p.name}</p>
-                    {p.description && <p className="card-note clamp">{p.description}</p>}
-                    <div className="price num">
-                      {Number(p.price).toFixed(0)} <small>{config.currency}</small>
-                      {p.stock <= 0 && <span className="stock out"> · Немає</span>}
-                    </div>
-                  </button>
-                  <div className="wl-actions">
-                    <button
-                      className="add"
-                      disabled={p.stock <= 0 || qtyOf(p.id) >= p.stock}
-                      onClick={() => onCartChange(p, 1)}
-                    >
-                      {qtyOf(p.id) > 0 ? `У кошику · ${qtyOf(p.id)}` : 'У кошик'}
-                    </button>
-                    <button className="chip" onClick={() => drop(list, p)}>Прибрати</button>
-                  </div>
-                </div>
-              ))}
-            </div>
           )}
         </div>
       ))}
@@ -271,6 +250,74 @@ export function Wishlists({ config, wishlists, cart, onChanged, onOpenProduct, o
       <div className="screen">
         <button className="chip" onClick={create}>+ Новий список</button>
       </div>
+    </>
+  )
+}
+
+
+/** Окрема сторінка одного списку.
+ *
+ * Товари показані тими самими картками, що й у каталозі: лічильник
+ * кількості, стара ціна, значок знижки, залишок. Раніше «Збережене»
+ * малювало власний спрощений варіант, і той самий товар виглядав
+ * по-різному залежно від того, звідки на нього дивишся.
+ */
+export function WishlistPage({ config, list, cart, onChanged, onOpenProduct, onCartChange }) {
+  const [error, setError] = useState('')
+
+  useEffect(() => { setError('') }, [list])
+
+  const qtyOf = (id) => cart?.lines?.find((l) => l.product_id === id)?.qty || 0
+
+  const drop = async (product) => {
+    haptic('light')
+    try {
+      onChanged(await api.wishlists.toggle(list.id, product.id))
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  const products = list.products || []
+
+  return (
+    <>
+      <div className="head">
+        <h1>{list.name}</h1>
+        <p>
+          {products.length === 0
+            ? 'Поки порожньо'
+            : `${products.length} ${products.length === 1 ? 'товар'
+                : products.length < 5 ? 'товари' : 'товарів'}`}
+        </p>
+      </div>
+
+      {error && <div className="banner warn">{error}</div>}
+
+      {products.length === 0 ? (
+        <div className="empty">
+          <p>Тут нічого немає.</p>
+          <p className="hint">
+            Відкрийте каталог і натисніть «Відкласти» під потрібним товаром.
+          </p>
+        </div>
+      ) : (
+        <div className="list">
+          {products.map((p) => (
+            <ProductCard
+              key={p.id}
+              product={p}
+              qty={qtyOf(p.id)}
+              currency={config.currency}
+              onChange={onCartChange}
+              onOpen={onOpenProduct}
+              saved
+              saveLabel="✕ Прибрати"
+              onSave={drop}
+            />
+          ))}
+        </div>
+      )}
     </>
   )
 }

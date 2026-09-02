@@ -348,6 +348,26 @@ for _st in ("PAID", "DONE", "CANCELLED"):
     check(_st in _status, f"є розгорнутий текст для статусу {_st}")
 check("CONFIRMED" not in _status,
       "прибраний крок не має власного тексту — інакше його ніколи не побачать")
+
+# Фільтр статусів у списку замовлень має збігатися з маршрутом. Це та
+# сама прогалина, що вже трапилась: крок «Підтверджене» прибрали з
+# доріжки, а фільтр лишився на нього — і «Прийняті», де стояла більшість
+# замовлень, не було як відібрати взагалі.
+_orders_page = read("dashboard/src/pages/Orders.jsx")
+_filters = set(re.findall(r"\{ value: '([a-z]*)', label:", _orders_page))
+for _step in ("new", "accepted", "paid", "shipped", "done", "cancelled"):
+    check(_step in _filters, f"у списку замовлень є фільтр «{_step}»", sorted(_filters))
+check("confirmed" not in _filters,
+      "фільтра на прибраний крок немає — він відбирав би порожнечу", sorted(_filters))
+
+# Доріжка в панелі не пропонує прибраний крок. Підпис для нього лишається
+# (спадкові рядки треба якось показати), а от кроком він бути не має.
+_rail = read("dashboard/src/components/StatusRail.jsx")
+_stage_keys = set(re.findall(r"\{ key: '([a-z]+)', label:", _rail))
+check("confirmed" not in _stage_keys,
+      "доріжка не пропонує прибраний крок", sorted(_stage_keys))
+check("paid" not in _rail.split("COD_STAGES")[1].split("]")[0],
+      "накладений платіж не має кроку «Оплачено» в доріжці")
 check("current().admin_chat_id" in read("backend/bot/handlers/admin.py"),
       "/stats працює лише в адмінському чаті")
 check("normalizePhone" in read("miniapp/src/screens/Checkout.jsx"),

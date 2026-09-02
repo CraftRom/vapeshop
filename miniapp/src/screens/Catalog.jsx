@@ -49,7 +49,18 @@ function stockLabel(stock) {
   return <span className="stock">В наявності</span>
 }
 
-function ProductCard({ product, qty, currency, onChange, onOpen, saved, onSave }) {
+/** Картка товару. Одна на каталог і на сторінку списку бажаного.
+ *
+ * Друга копія цієї розмітки в «Збереженому» вже відставала: там не було
+ * ні лічильника кількості, ні старої ціни, ні значка знижки — той самий
+ * товар виглядав по-різному залежно від того, звідки на нього дивишся.
+ *
+ * saveLabel дозволяє замінити підпис нижньої кнопки: у каталозі це
+ * «Відкласти», у списку — «Прибрати».
+ */
+export function ProductCard({
+  product, qty, currency, onChange, onOpen, saved, onSave, saveLabel,
+}) {
   const out = product.stock <= 0
   const atMax = qty >= product.stock
   const oldPrice = Number(product.old_price || 0)
@@ -106,13 +117,13 @@ function ProductCard({ product, qty, currency, onChange, onOpen, saved, onSave }
         <button
           className={`heart small ${saved ? 'on' : ''}`}
           onClick={() => onSave(product)}
-          aria-label={saved ? 'У списку бажаного' : 'Відкласти'}
-          title={saved ? 'У списку бажаного' : 'Відкласти'}
+          aria-label={saveLabel || (saved ? 'У списку бажаного' : 'Відкласти')}
+          title={saveLabel || (saved ? 'У списку бажаного' : 'Відкласти')}
         >
           {/* Стан підписом, а не самим кольором: на дрібній кнопці
               заливка читається погано, а тут одразу видно, що товар уже
               відкладений — і людина не додає його вдруге */}
-          {saved ? '♥ У списку' : '♡ Відкласти'}
+          {saveLabel || (saved ? '♥ У списку' : '♡ Відкласти')}
         </button>
       )}
       </div>

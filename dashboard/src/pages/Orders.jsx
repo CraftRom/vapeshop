@@ -8,7 +8,11 @@ import { Empty, ErrorBar, Field, Loading, Modal, dateTime, money, useToast } fro
 const FILTERS = [
   { value: '', label: 'Усі' },
   { value: 'new', label: 'Нові' },
-  { value: 'confirmed', label: 'Підтверджені' },
+  // «Прийняті», а не «Підтверджені»: крок підтвердження прибрано, і саме
+  // в «Прийнято» тепер стоїть більшість замовлень — його й треба вміти
+  // відібрати. Фільтра на прибраний крок немає навмисно: він показував би
+  // лише спадкові рядки, яких після міграції не лишилось.
+  { value: 'accepted', label: 'Прийняті' },
   { value: 'paid', label: 'Оплачені' },
   { value: 'shipped', label: 'Відправлені' },
   { value: 'done', label: 'Виконані' },

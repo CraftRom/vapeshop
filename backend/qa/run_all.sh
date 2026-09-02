@@ -32,6 +32,32 @@ else
   echo "ПРОВАЛ"; echo "$out" | grep "✗" | head -5 | sed 's/^/      /'; fail=1
 fi
 
+# Тести вітрини на Node. Їх не було в цьому переліку взагалі: три набори
+# лежали в miniapp/tests і не запускались ніколи, хоч саме вони стережуть
+# стан «Збереженого» й видимість полів введення.
+run_node() {
+  printf '  %-13s ' "$1"
+  if ! command -v node >/dev/null 2>&1; then
+    echo "пропущено — немає node"
+    return
+  fi
+  out=$(cd ../miniapp && node "$2" 2>&1)
+  if echo "$out" | grep -qE '✗|ПРОВАЛЕНО'; then
+    echo "ПРОВАЛ"
+    echo "$out" | grep -E '✗' | head -5 | sed 's/^/      /'
+    fail=1
+  else
+    echo "$(echo "$out" | tail -1)"
+  fi
+}
+
+echo
+echo "Вітрина"
+run_node wishlist-state tests/wishlist-state.mjs
+run_node wishlist-wiring tests/wishlist-wiring.mjs
+run_node input-visibility tests/input-visibility.mjs
+run_node phone tests/phone.mjs
+
 echo
 echo "Контракти й дані"
 run contracts tests_contracts.py

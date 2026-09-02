@@ -6,7 +6,7 @@ import { Cart, Checkout } from './screens/Checkout'
 import { ChatList, ChatRoom } from './screens/Chat'
 import { ProductPage } from './screens/ProductPage'
 import { Legal, Footer } from './screens/Legal'
-import { SavePicker, Wishlists, isSaved } from './screens/Wishlists'
+import { SavePicker, WishlistPage, Wishlists, isSaved } from './screens/Wishlists'
 import { Profile } from './screens/Profile'
 import {
   applyTheme, backButton, getInitData, hideMainButton, initDataSource, isTelegram,
@@ -28,6 +28,10 @@ export default function App() {
   const [wishlists, setWishlists] = useState([])
   // Товар, для якого відкрито вибір списку
   const [saving, setSaving] = useState(null)
+  // Відкритий список бажаного. Тримаємо номер, а не сам об'єкт: після
+  // прибирання товару приходить оновлений список, і копія в стані
+  // показувала б те, що вже прибрали.
+  const [openListId, setOpenListId] = useState(null)
   // Екран документів: відкривається з підвалу й з оформлення
   const [legal, setLegal] = useState(null)
   const [fatal, setFatal] = useState('')
@@ -52,17 +56,28 @@ export default function App() {
   useEffect(load, [load])
 
   const refresh = useCallback(async () => {
-    const [c, p, o] = await Promise.all([
+    const [c, p, o, w] = await Promise.all([
       api.cart(), api.profile(), api.orders().catch(() => []),
+      // Списки бажаного вантажились лише у відповідь на зміну — тобто
+      // ніколи при відкритті застосунку. Через це «Збережене» в профілі
+      // виглядало порожнім, поки список не створили й не видалили, а
+      // вибір списку при «Відкласти» не мав що показати.
+      //
+      // Той самий пропуск давав 409 у журналі: назву «Список N» підбирали
+      // за порожнім переліком, і вона щоразу збігалася з наявною.
+      api.wishlists.list().catch(() => []),
     ])
     setCart(c)
     setProfile(p)
     setOrders(o)
+    setWishlists(w || [])
   }, [])
 
   useEffect(() => {
-    // bootstrap уже приніс кошик і профіль; довантажуємо лише тоді,
-    // коли вік підтвердили вже в застосунку і даних ще немає
+    // Коментар тут раніше обіцяв, що кошик і профіль приносить bootstrap.
+    // Насправді load() ходить у /config, а bootstrap не викликається
+    // взагалі — усе довантажує саме refresh(). Тому умова проста: щойно
+    // вік підтверджено, а даних ще немає, читаємо їх.
     if (config?.age_confirmed && !cart) refresh().catch(() => {})
   }, [config?.age_confirmed, cart, refresh])
 
@@ -82,9 +97,10 @@ export default function App() {
     if (checkingOut) return backButton(() => setCheckingOut(false))
     if (legal) return backButton(() => setLegal(null))
     if (openProduct) return backButton(() => setOpenProduct(null))
+    if (openListId) return backButton(() => setOpenListId(null))
     if (chatOrder) return backButton(() => setChatOrder(null))
     return backButton(null)
-  }, [checkingOut, chatOrder, openProduct, legal])
+  }, [checkingOut, chatOrder, openProduct, openListId, legal])
 
   useEffect(() => hideMainButton, [])
 
@@ -128,16 +144,8 @@ export default function App() {
       <div className="empty">
         <h2>Не вдалося відкрити магазин</h2>
         <p>{fatal}</p>
-        {saving && (
-        <SavePicker
-          product={saving}
-          wishlists={wishlists}
-          onClose={() => setSaving(null)}
-          onChanged={onWishlistChanged}
-        />
-      )}
 
-      {!isTelegram && (
+        {!isTelegram && (
           <p style={{ marginTop: 10 }}>
             Застосунок відкрито поза Telegram. Скористайтесь кнопкою «Відкрити
             магазин» у чаті з ботом.
@@ -206,6 +214,33 @@ initData: ${getInitData() ? `${getInitData().length} символів` : 'пор
           initial={legal === true ? null : legal}
           onBack={() => setLegal(null)}
         />
+      </div>
+    )
+  }
+
+  // Відкритий список беремо з переліку щоразу заново: після прибирання
+  // товару приходить оновлений список, і збережена копія показувала б
+  // те, що вже прибрали. Якщо список тим часом видалили — просто
+  // повертаємось у профіль, а не показуємо порожній екран.
+  const openedList = (wishlists || []).find((w) => w.id === openListId)
+
+  if (openListId && openedList) {
+    return (
+      <div className="app">
+        <WishlistPage
+          config={config}
+          list={openedList}
+          cart={cart}
+          onChanged={onWishlistChanged}
+          onOpenProduct={setOpenProduct}
+          onCartChange={(product, delta) => changeCart(product.id, delta)}
+        />
+        <div className="screen">
+          <button className="chip" onClick={() => setOpenListId(null)}>
+            ← До збереженого
+          </button>
+        </div>
+        <Footer onLegal={() => setLegal(true)} />
       </div>
     )
   }
@@ -316,14 +351,25 @@ initData: ${getInitData() ? `${getInitData().length} символів` : 'пор
           {/* Збережене живе в профілі, а не окремою вкладкою: у навігації
               лишаються тільки ті розділи, куди заходять під час покупки */}
           <Wishlists
-            config={config}
             wishlists={wishlists}
-            cart={cart}
             onChanged={onWishlistChanged}
-            onOpenProduct={setOpenProduct}
-            onCartChange={(product, delta) => changeCart(product.id, delta)}
+            onOpenList={(list) => setOpenListId(list.id)}
           />
         </>
+      )}
+
+      {/* Вибір списку — тут, а не всередині однієї вкладки. «Відкласти»
+          натискають і в каталозі, і в «Збереженому», а вікно раніше
+          малювалося лише на сторінці товару. Кнопка в каталозі виставляла
+          стан, показувати який було нікому: людина тиснула, нічого не
+          відбувалося, а вікно вискакувало аж коли вона відкривала товар. */}
+      {saving && (
+        <SavePicker
+          product={saving}
+          wishlists={wishlists}
+          onClose={() => setSaving(null)}
+          onChanged={onWishlistChanged}
+        />
       )}
 
       {/* Футер на всіх вкладках, а не лише в профілі.
