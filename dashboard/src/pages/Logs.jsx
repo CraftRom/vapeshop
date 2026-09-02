@@ -90,6 +90,14 @@ function Record({ record }) {
   )
 }
 
+/** Байти людською мовою. Кілобайти на десятках мегабайтів не читаються. */
+function mb(bytes) {
+  const value = Number(bytes || 0)
+  if (value < 1024) return `${value} Б`
+  if (value < 1024 * 1024) return `${Math.round(value / 1024)} КБ`
+  return `${(value / (1024 * 1024)).toFixed(1)} МБ`
+}
+
 export default function Logs() {
   const [service, setService] = useState('api')
   const [level, setLevel] = useState('')
@@ -144,6 +152,20 @@ export default function Logs() {
       <p className="faint" style={{ marginTop: -8 }}>
         Останні записи з файлів журналу. Натисніть рядок, щоб побачити всі поля.
       </p>
+
+      {/* Скільки місця журнали займають і скільки їм відведено. Друге
+          важливіше за перше: воно каже, що диск не заповниться. Розмір
+          рахується разом із прокрученими файлами — раніше показувався
+          лише поточний, і виходило «2 МБ» там, де насправді шістдесят. */}
+      {meta?.usage && (
+        <p className="faint" style={{ marginTop: -4, fontSize: 13 }}>
+          Журнали займають <b>{mb(meta.usage.totalBytes)}</b>{' '}
+          з {mb(meta.usage.budgetBytes)} відведених.{' '}
+          Файл прокручується на {mb(meta.usage.maxBytesPerFile)},
+          зберігається {meta.usage.backupCount} попередніх — понад цю межу
+          журнали не виростуть.
+        </p>
+      )}
 
       {error && <div className="card error" style={{ marginBottom: 14 }}>{error}</div>}
 
@@ -229,9 +251,21 @@ export default function Logs() {
             </button>
             <button
               className="btn ghost"
-              onClick={() => api.logs.download(service).catch((e) => setError(e.message))}
+              onClick={() => api.logs
+                .download({ service, level, event, search, limit, since, until })
+                .catch((e) => setError(e.message))}
+              title="Ті самі фільтри й та сама кількість, що на екрані"
             >
-              Скачати файл
+              Скачати показане
+            </button>
+            <button
+              className="btn ghost small"
+              onClick={() => api.logs
+                .download({ service, full: true })
+                .catch((e) => setError(e.message))}
+              title="Файл цілком, без фільтрів"
+            >
+              Увесь файл
             </button>
             <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <input type="checkbox" checked={auto} onChange={(e) => setAuto(e.target.checked)} />
@@ -263,8 +297,12 @@ export default function Logs() {
                 <li>
                   Файл: <code>{data.diagnostics.file}</code>{' '}
                   {data.diagnostics.exists
-                    ? `— ${Math.round(data.diagnostics.sizeBytes / 1024)} КБ, ` +
-                      `${data.diagnostics.linesInTail} рядків прочитано`
+                    ? `— ${mb(data.diagnostics.sizeBytes)}` +
+                      (data.diagnostics.rotatedFiles
+                        ? ` (+ ${data.diagnostics.rotatedFiles} прокручених, ` +
+                          `${mb(data.diagnostics.rotatedBytes)})`
+                        : '') +
+                      `, ${data.diagnostics.linesInTail} рядків прочитано`
                     : '— не існує'}
                 </li>
                 <li>

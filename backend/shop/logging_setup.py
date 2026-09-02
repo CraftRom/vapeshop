@@ -31,6 +31,43 @@ _STANDARD = {
     "processName", "process", "taskName",
 }
 
+# Скільки місця журнали займають у найгіршому випадку:
+#
+#   сервісів × (LOG_MAX_MB × (LOG_BACKUPS + 1))
+#
+# За замовчуванням 3 × 10 × 6 = 180 МБ. Це стеля, а не поточний розмір:
+# більше журнали не з'їдять навіть за нічний цикл помилок. На тісному
+# VPS її можна опустити через .env, не чіпаючи код.
+#
+# Межа була зашита числом просто в коді. Через це ніхто не знав, скільки
+# саме місця відведено журналам, і зменшити її на ходу було нічим.
+SERVICES_COUNT = 3
+
+
+def log_max_bytes() -> int:
+    """Розмір, після якого файл журналу починається заново."""
+    try:
+        megabytes = float(os.environ.get("LOG_MAX_MB", "10"))
+    except ValueError:
+        megabytes = 10
+    # Менше мегабайта — і файл прокручується швидше, ніж встигаєш його
+    # прочитати: остання година подій зникає, поки дивишся на екран.
+    return int(max(1.0, megabytes) * 1024 * 1024)
+
+
+def log_backups() -> int:
+    """Скільки прокручених файлів лишаємо поруч із поточним."""
+    try:
+        count = int(os.environ.get("LOG_BACKUPS", "5"))
+    except ValueError:
+        count = 5
+    return max(0, count)
+
+
+def log_budget_bytes() -> int:
+    """Стеля, якої журнали не перевищать за жодних обставин."""
+    return SERVICES_COUNT * log_max_bytes() * (log_backups() + 1)
+
 
 class JsonFormatter(logging.Formatter):
     """Запис журналу як один рядок JSON."""
@@ -177,8 +214,8 @@ def setup(service: str) -> logging.Logger:
             # в одному файлі означає щоразу починати розбір із grep.
             handler = logging.handlers.RotatingFileHandler(
                 path / f"{service}.log",
-                maxBytes=10 * 1024 * 1024,
-                backupCount=5,
+                maxBytes=log_max_bytes(),
+                backupCount=log_backups(),
                 encoding="utf-8",
             )
             handler.setFormatter(JsonFormatter(service))

@@ -95,42 +95,69 @@ def _parse(line: str) -> dict | None:
     return record if isinstance(record, dict) else None
 
 
+def _rotated(path: Path) -> list[Path]:
+    """Прокручені файли поруч із поточним: api.log.1, api.log.2, …
+
+    Їх легко не помітити: у каталозі лежить п'ять таких файлів, а панель
+    показувала розмір лише поточного. Виходило, що журнали «важать 2 МБ»,
+    коли насправді займали під шістдесят.
+    """
+    return sorted(path.parent.glob(f"{path.name}.*")) if path.parent.exists() else []
+
+
+def _usage(path: Path) -> dict:
+    """Скільки місця займає журнал сервісу разом із прокрученими файлами."""
+    current = path.stat().st_size if path.exists() else 0
+    archived = sum(p.stat().st_size for p in _rotated(path) if p.exists())
+    return {
+        "sizeBytes": current,
+        "rotatedBytes": archived,
+        "rotatedFiles": len(_rotated(path)),
+        "totalBytes": current + archived,
+    }
+
+
 @router.get("/services")
 async def list_services(who: Principal = Depends(require_sysadmin)):
-    """Які журнали є і чи вони взагалі пишуться."""
+    """Які журнали є, чи вони пишуться і скільки місця займають."""
+    from shop.logging_setup import log_backups, log_budget_bytes, log_max_bytes
     from shop.paths import describe, logs_dir
 
     directory = logs_dir()
     result = []
     for service in SERVICES:
         path = directory / f"{service}.log"
-        result.append({
-            "service": service,
-            "exists": path.exists(),
-            "sizeBytes": path.stat().st_size if path.exists() else 0,
-        })
-    # Стан усіх каталогів одразу: коли щось не пишеться, питання майже
-    # завжди в правах на теку, а не в самому застосунку.
-    return {"logDir": str(directory), "services": result,
-            "levels": list(LEVELS), "storage": describe()}
+        result.append({"service": service, "exists": path.exists(), **_usage(path)})
+
+    total = sum(item["totalBytes"] for item in result)
+    budget = log_budget_bytes()
+    return {
+        "logDir": str(directory),
+        "services": result,
+        "levels": list(LEVELS),
+        "storage": describe(),
+        # Скільки журнали займають зараз і скільки їм відведено. Друге
+        # важливіше за перше: воно каже, що місце на диску не скінчиться.
+        "usage": {
+            "totalBytes": total,
+            "budgetBytes": budget,
+            "maxBytesPerFile": log_max_bytes(),
+            "backupCount": log_backups(),
+        },
+    }
 
 
-@router.get("")
-async def read_logs(
-    service: str = Query("api"),
-    level: str = Query("", description="Мінімальний рівень"),
-    event: str = Query("", description="Точна назва події"),
-    request_id: str = Query("", alias="requestId"),
-    since: str = Query("", description="Від дати, YYYY-MM-DD"),
-    until: str = Query("", description="До дати включно, YYYY-MM-DD"),
-    search: str = Query("", description="Підрядок у будь-якому полі"),
-    limit: int = Query(200, ge=1, le=2000),
-    who: Principal = Depends(require_sysadmin),
-):
-    """Записи журналу з фільтрами, найновіші першими."""
-    path = _log_path(service)
-    lines = _read_tail(path)
+def _select(
+    lines: list[str], *, level: str, event: str, request_id: str,
+    since: str, until: str, search: str, limit: int,
+) -> tuple[list[dict], int]:
+    """Відбір записів за фільтрами. Найновіші першими.
 
+    Винесено з обробника, бо тими самими фільтрами тепер користується й
+    завантаження файлу. Поки відбір жив усередині read_logs, «скачати»
+    віддавало весь файл незалежно від того, що людина бачила на екрані —
+    і вибране «200 записів» на завантаження не впливало ніяк.
+    """
     # Мінімальний рівень, а не точний збіг: коли шукають помилки, критичні
     # теж потрібні. Точний збіг тут був би пасткою — людина обирає «error»
     # і не бачить падіння.
@@ -178,6 +205,29 @@ async def read_logs(
         if len(records) >= limit:
             break
 
+    return records, scanned
+
+
+@router.get("")
+async def read_logs(
+    service: str = Query("api"),
+    level: str = Query("", description="Мінімальний рівень"),
+    event: str = Query("", description="Точна назва події"),
+    request_id: str = Query("", alias="requestId"),
+    since: str = Query("", description="Від дати, YYYY-MM-DD"),
+    until: str = Query("", description="До дати включно, YYYY-MM-DD"),
+    search: str = Query("", description="Підрядок у будь-якому полі"),
+    limit: int = Query(200, ge=1, le=2000),
+    who: Principal = Depends(require_sysadmin),
+):
+    """Записи журналу з фільтрами, найновіші першими."""
+    path = _log_path(service)
+    lines = _read_tail(path)
+    records, scanned = _select(
+        lines, level=level, event=event, request_id=request_id,
+        since=since, until=until, search=search, limit=limit,
+    )
+
     return {
         "service": service,
         # Коли записів нема, найчастіше питання не «де вони», а «чи вони
@@ -186,8 +236,8 @@ async def read_logs(
             "logDir": str(path.parent),
             "file": str(path),
             "exists": path.exists(),
-            "sizeBytes": path.stat().st_size if path.exists() else 0,
             "linesInTail": len(lines),
+            **_usage(path),
         },
         "records": records,
         "returned": len(records),
@@ -197,24 +247,68 @@ async def read_logs(
 
 
 @router.get("/{service}/download")
-async def download(service: str, who: Principal = Depends(require_sysadmin)):
-    """Віддає файл журналу цілком.
+async def download(
+    service: str,
+    level: str = Query(""),
+    event: str = Query(""),
+    request_id: str = Query("", alias="requestId"),
+    since: str = Query(""),
+    until: str = Query(""),
+    search: str = Query(""),
+    limit: int = Query(200, ge=1, le=2000),
+    full: bool = Query(False, description="Віддати файл цілком, без фільтрів"),
+    who: Principal = Depends(require_sysadmin),
+):
+    """Журнал файлом — рівно те, що видно на екрані.
 
-    Цілком, а не відфільтрованим: файл качають, щоб розібрати його
-    інструментами — jq, grep, таблицею. Урізана вибірка тут була б
-    гіршою за повну, бо потрібного рядка в ній може не виявитись.
+    Раніше звідси завжди приходив увесь файл. Здавалося логічним: качають,
+    щоб розібрати jq чи grep, і урізана вибірка була б гіршою за повну.
+    Насправді виходило інакше — людина відбирала помилки за конкретну добу,
+    натискала «Скачати файл» і отримувала десять мегабайтів усього підряд,
+    де відібраного треба було шукати заново. Вибір «скільки записів» на
+    файл не впливав ніяк.
+
+    Тепер файл повторює вибірку. Повний файл нікуди не подівся — він за
+    параметром full=1, і кнопка на нього в панелі поруч.
     """
-    from fastapi.responses import FileResponse
+    from fastapi.responses import FileResponse, Response
 
     path = _log_path(service)
     if not path.exists():
         raise HTTPException(404, f"Журнал сервісу {service} ще порожній")
 
     stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d_%H%M")
-    return FileResponse(
-        path,
-        filename=f"elfar-{service}-{stamp}.log",
+
+    if full:
+        return FileResponse(
+            path,
+            # Латиниця навмисно: кирилицю в назві файлу браузер передає
+            # відсотковим кодуванням, і в консолі замість імені видно
+            # ланцюг %D0%BF. Файл однаково розбирають jq та grep.
+            filename=f"elfar-{service}-{stamp}-full.log",
+            media_type="application/x-ndjson",
+        )
+
+    records, _ = _select(
+        _read_tail(path), level=level, event=event, request_id=request_id,
+        since=since, until=until, search=search, limit=limit,
+    )
+    # Найстаріше вгорі: у файлі, який читатимуть очима або згодовуватимуть
+    # jq, природний порядок — хронологічний. На екрані навпаки, бо там
+    # цікавить останнє, але для файлу це заважало б.
+    body = "\n".join(
+        json.dumps(record, ensure_ascii=False) for record in reversed(records)
+    )
+    return Response(
+        content=(body + "\n") if body else "",
         media_type="application/x-ndjson",
+        headers={
+            "Content-Disposition":
+                f'attachment; filename="elfar-{service}-{stamp}.log"',
+            # Скільки рядків насправді у файлі — щоб не рахувати вручну,
+            # коли фільтр відсіяв більше, ніж очікували.
+            "X-Records": str(len(records)),
+        },
     )
 
 

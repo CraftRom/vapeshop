@@ -266,16 +266,32 @@ export const api = {
 
     // Через fetch із токеном: файл віддається лише системному
     // адміністраторові, а тег <a> заголовків не надсилає.
-    download: async (service) => {
-      const response = await fetch(`${BASE}/logs/${encodeURIComponent(service)}/download`, {
-        headers: { Authorization: `Bearer ${getToken()}` },
-      })
+    //
+    // Фільтри передаємо ті самі, що й на екран: файл має містити рівно
+    // те, що людина бачить, і стільки записів, скільки вона вибрала.
+    // Раніше сюди не йшло нічого, і «скачати» завжди віддавало весь файл.
+    download: async ({ service, level, event, search, limit, since, until, full }) => {
+      const params = new URLSearchParams()
+      if (full) {
+        params.set('full', '1')
+      } else {
+        params.set('limit', String(limit))
+        if (level) params.set('level', level)
+        if (event) params.set('event', event)
+        if (search) params.set('search', search)
+        if (since) params.set('since', since)
+        if (until) params.set('until', until)
+      }
+      const response = await fetch(
+        `${BASE}/logs/${encodeURIComponent(service)}/download?${params}`,
+        { headers: { Authorization: `Bearer ${getToken()}` } },
+      )
       if (!response.ok) throw new Error(`Не вдалося скачати: ${response.status}`)
       const blob = await response.blob()
       const url = URL.createObjectURL(blob)
       const link = document.createElement('a')
       link.href = url
-      link.download = `elfar-${service}.log`
+      link.download = `elfar-${service}${full ? '-full' : ''}.log`
       link.click()
       setTimeout(() => URL.revokeObjectURL(url), 30000)
     },

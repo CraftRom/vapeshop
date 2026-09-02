@@ -173,6 +173,66 @@ async def scenario():
         r.check("attachment" in resp.headers.get("content-disposition", ""),
                 "браузер збереже файл, а не відкриє")
 
+        print("\n--- файл повторює вибірку на екрані ---")
+        # Раніше «скачати» завжди віддавало весь файл: вибрана кількість
+        # записів і фільтри на нього не впливали ніяк, і людина отримувала
+        # десять мегабайтів там, де відібрала три рядки.
+        resp = await client.get("/api/logs/api/download?limit=1", headers=head(SYSADMIN))
+        lines = [ln for ln in resp.content.decode().splitlines() if ln.strip()]
+        r.check(len(lines) == 1, "у файлі рівно стільки рядків, скільки вибрано",
+                len(lines))
+        r.check(resp.headers.get("x-records") == "1",
+                "кількість названа в заголовку", resp.headers.get("x-records"))
+
+        resp = await client.get("/api/logs/api/download?level=error",
+                                headers=head(SYSADMIN))
+        lines = [ln for ln in resp.content.decode().splitlines() if ln.strip()]
+        r.check(len(lines) == 1 and "boom" in lines[0],
+                "фільтр рівня діє й на файл", lines)
+
+        resp = await client.get("/api/logs/api/download?search=petro",
+                                headers=head(SYSADMIN))
+        body = resp.content.decode()
+        r.check("petro" in body and "boom" not in body,
+                "пошук діє й на файл")
+
+        # У файлі час має рости згори вниз: його читають очима або
+        # згодовують jq, і зворотний порядок там заважав би.
+        resp = await client.get("/api/logs/api/download?limit=100",
+                                headers=head(SYSADMIN))
+        times = [json.loads(ln)["time"]
+                 for ln in resp.content.decode().splitlines() if ln.strip()]
+        r.check(times == sorted(times), "у файлі хронологічний порядок", times)
+
+        print("\n--- повний файл нікуди не подівся ---")
+        resp = await client.get("/api/logs/api/download?full=1", headers=head(SYSADMIN))
+        r.check(b"\xd1\x86\xd0\xb5 \xd0\xbd\xd0\xb5 JSON" in resp.content,
+                "full=1 віддає файл цілком, включно з битими рядками")
+        r.check("-full.log" in resp.headers.get("content-disposition", ""),
+                "у назві видно, що файл повний",
+                resp.headers.get("content-disposition"))
+
+        print("\n--- скільки місця займають журнали ---")
+        resp = await client.get("/api/logs/services", headers=head(SYSADMIN))
+        usage = resp.json().get("usage") or {}
+        r.check(usage.get("totalBytes", 0) > 0, "сумарний розмір названо",
+                usage.get("totalBytes"))
+        r.check(usage.get("budgetBytes", 0) >= usage.get("totalBytes", 0),
+                "стеля не менша за зайняте", usage)
+        r.check(usage.get("maxBytesPerFile", 0) > 0 and "backupCount" in usage,
+                "видно, за яких налаштувань працює прокрутка", usage)
+
+        # Прокручені файли рахуються разом із поточним: без цього панель
+        # показувала «2 МБ» там, де на диску лежало під шістдесят.
+        (Path(LOG_DIR) / "api.log.1").write_text("x" * 5000, encoding="utf-8")
+        resp = await client.get("/api/logs/services", headers=head(SYSADMIN))
+        api_row = next(s for s in resp.json()["services"] if s["service"] == "api")
+        r.check(api_row["rotatedFiles"] == 1, "прокручений файл помічено",
+                api_row)
+        r.check(api_row["totalBytes"] == api_row["sizeBytes"] + api_row["rotatedBytes"],
+                "у сумі враховано і поточний, і прокручений", api_row)
+        (Path(LOG_DIR) / "api.log.1").unlink()
+
         for token, label in [(ADMIN, "адміністратор"), (MANAGER, "менеджер")]:
             resp = await client.get("/api/logs/api/download", headers=head(token))
             r.check(resp.status_code == 403, f"{label} не скачає журнал", resp.status_code)

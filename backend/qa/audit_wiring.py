@@ -299,8 +299,16 @@ check("isSysadmin" in read("dashboard/src/pages/Orders.jsx"),
       "кнопки видалення замовлень видно лише системному адміністратору")
 check("DELETE ALL" in read("dashboard/src/pages/Orders.jsx"),
       "повне видалення в панелі теж вимагає переписати підтвердження")
-check("logs.download" in read("dashboard/src/pages/Logs.jsx"),
-      "у журналі є кнопка скачування файлу")
+_logs_page = read("dashboard/src/pages/Logs.jsx")
+check(".download(" in _logs_page, "у журналі є кнопка скачування файлу")
+# Файл має повторювати те, що видно на екрані. Раніше сюди не передавалось
+# нічого, і вибране «скільки записів» на завантаження не впливало.
+check("limit," in _logs_page.split(".download(")[1][:200],
+      "скачаний файл успадковує фільтри й кількість записів")
+check("full: true" in _logs_page,
+      "повний файл лишається доступним окремою кнопкою")
+check("usage" in _logs_page and "budgetBytes" in _logs_page,
+      "видно, скільки місця займають журнали і скільки їм відведено")
 
 _mini_css = read("miniapp/src/styles.css")
 check("color-scheme" in _mini_css,
