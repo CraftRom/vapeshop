@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import hmac
 from datetime import datetime, timedelta, timezone
 
@@ -11,6 +12,8 @@ from dataclasses import dataclass
 
 from shop.config import settings
 from shop.entities import OperatorRole
+from shop.repo.base import Repository
+from shop.repo.factory import get_repo
 from shop.services.shop_settings import current
 from shop.services.passwords import verify_password
 
@@ -51,6 +54,20 @@ class Principal:
         return self.role in (OperatorRole.SYSADMIN, OperatorRole.ADMIN)
 
 
+def password_fingerprint() -> str:
+    """Відбиток чинного пароля з .env. Змінився пароль — змінився відбиток.
+
+    Токен системного адміністратора не має за собою рядка в базі, тож
+    відкликати його не було чим: після зміни DASHBOARD_PASSWORD старий
+    токен працював до кінця строку. Якщо пароль міняють саме тому, що він
+    міг витекти, це означає, що зловмисник лишався всередині ще години.
+
+    Сам пароль у токен не потрапляє — лише відбиток, солений JWT-секретом.
+    """
+    material = f"{settings.dashboard_password}:{settings.jwt_secret}".encode()
+    return hashlib.sha256(material).hexdigest()[:16]
+
+
 def create_token(login: str, role: OperatorRole, operator_id: int = 0, name: str = "",
                  ttl_hours: int | None = None) -> str:
     """ttl_hours=None — беремо чинне значення з налаштувань панелі."""
@@ -63,6 +80,8 @@ def create_token(login: str, role: OperatorRole, operator_id: int = 0, name: str
         "exp": datetime.now(timezone.utc) + timedelta(hours=hours),
         "iat": datetime.now(timezone.utc),
     }
+    if operator_id == 0:
+        payload["pv"] = password_fingerprint()
     return jwt.encode(payload, settings.jwt_secret, algorithm="HS256")
 
 
@@ -83,24 +102,64 @@ def _decode(creds: HTTPAuthorizationCredentials | None) -> Principal:
     except ValueError:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Недійсний токен")
 
-    return Principal(
+    principal = Principal(
         login=payload["sub"], name=payload.get("name", ""),
         role=role, operator_id=int(payload.get("oid", 0)),
     )
 
+    # Токен сисадміна дійсний, поки не змінився пароль у .env
+    if principal.operator_id == 0 and payload.get("pv") != password_fingerprint():
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED, "Пароль змінено — увійдіть знову"
+        )
+
+    return principal
+
+
+async def _live(principal: Principal, repo) -> Principal:
+    """Звіряє токен із чинним станом менеджера в базі.
+
+    Підпис токена доводить лише те, що ми його колись видали. Усе, що
+    сталося після видачі, він не знає: вимкнення менеджера, зниження ролі,
+    зміну пароля. Без цієї звірки звільнений менеджер працював у панелі до
+    кінця строку токена — за замовчуванням до дванадцяти годин, — а
+    знижений до менеджера адміністратор стільки ж лишався адміністратором.
+
+    Ціна — один запит до бази на звернення. Для навантаження цієї панелі
+    це ніщо, а альтернативи (короткий строк життя токена, чорний список)
+    або вибивають людину з роботи щопівгодини, або вимагають окремого
+    сховища, яке теж треба чистити.
+    """
+    if principal.operator_id == 0:
+        return principal  # адміністратор із .env, його в таблиці немає
+
+    operator = await repo.get_operator(principal.operator_id)
+    if not operator or not operator.is_active:
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED, "Обліковий запис вимкнено"
+        )
+    if operator.role != principal.role:
+        # Роль могли не лише знизити, а й підвищити. Приймаємо чинну з бази,
+        # а не з токена: джерело правди тут одне.
+        principal.role = operator.role
+    principal.name = operator.name or principal.name
+    return principal
+
 
 async def require_staff(
     creds: HTTPAuthorizationCredentials | None = Depends(security),
+    repo: Repository = Depends(get_repo),
 ) -> Principal:
     """Будь-хто, хто увійшов у панель: адміністратор або менеджер."""
-    return _decode(creds)
+    return await _live(_decode(creds), repo)
 
 
 async def require_admin(
     creds: HTTPAuthorizationCredentials | None = Depends(security),
+    repo: Repository = Depends(get_repo),
 ) -> Principal:
     """Лише адміністратор: керування менеджерами й повні налаштування."""
-    principal = _decode(creds)
+    principal = await _live(_decode(creds), repo)
     if not principal.is_admin:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Дія доступна лише адміністратору")
     return principal
@@ -108,6 +167,7 @@ async def require_admin(
 
 async def require_sysadmin(
     creds: HTTPAuthorizationCredentials | None = Depends(security),
+    repo: Repository = Depends(get_repo),
 ) -> Principal:
     """Лише власник .env.
 
@@ -115,7 +175,7 @@ async def require_sysadmin(
     логіни, шляхи запитів і тексти помилок. Це не те, що варто відкривати
     кожному, хто керує каталогом.
     """
-    principal = _decode(creds)
+    principal = await _live(_decode(creds), repo)
     if not principal.is_sysadmin:
         raise HTTPException(
             status.HTTP_403_FORBIDDEN,

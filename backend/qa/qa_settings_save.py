@@ -20,7 +20,7 @@ os.environ.update(BOT_TOKEN="777001:T", JWT_SECRET="t" * 32,
                   ELFAR_DATA_ROOT=tempfile.mkdtemp(prefix="qa_settings_"),
                   DATABASE_URL="sqlite+aiosqlite:////tmp/qa_settings.db")
 
-from qa_common import Report                              # noqa: E402
+from qa_common import Report, seed_operators                              # noqa: E402
 
 r = Report("НАЛАШТУВАННЯ")
 
@@ -99,6 +99,7 @@ async def scenario():
 
         await init_db()
 
+
         print("\n--- кожне поле зберігається ---")
         failed = []
         for name, field in ShopSettingsIn.model_fields.items():
@@ -132,6 +133,12 @@ async def scenario():
         # при записі, панель показуватиме нове, а бот працюватиме зі старим.
         from shop.services.shop_settings import current, get_shop_settings
         from shop.repo.factory import open_repo
+
+        async with open_repo() as _repo:
+            await seed_operators(_repo, {
+                5: ("shopadmin", "Адмін", OperatorRole.ADMIN),
+                7: ("manager", "Менеджер", OperatorRole.MANAGER),
+            })
 
         await client.put("/api/settings", json={"shop_name": "Після кешу"},
                          headers=head(SYSADMIN))

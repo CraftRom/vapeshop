@@ -10,7 +10,7 @@ os.environ.update(BOT_TOKEN="777001:T", JWT_SECRET="t" * 32,
                   ELFAR_DATA_ROOT=tempfile.mkdtemp(prefix="qa_ordel_"),
                   DATABASE_URL="sqlite+aiosqlite:////tmp/qa_ordel.db")
 
-from qa_common import Report                              # noqa: E402
+from qa_common import Report, seed_operators                              # noqa: E402
 
 r = Report("ВИДАЛЕННЯ ЗАМОВЛЕНЬ")
 
@@ -53,6 +53,12 @@ async def scenario():
     from shop.db import init_db
 
     await init_db()
+
+    async with open_repo() as _repo:
+        await seed_operators(_repo, {
+            5: ("shopadmin", "Адмін", OperatorRole.ADMIN),
+            7: ("manager", "Менеджер", OperatorRole.MANAGER),
+        })
     transport = httpx.ASGITransport(app=app)
 
     async with open_repo() as repo:

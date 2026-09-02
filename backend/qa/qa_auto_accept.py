@@ -20,7 +20,7 @@ os.environ.update(BOT_TOKEN="777001:T", JWT_SECRET="t" * 32,
                   ELFAR_DATA_ROOT=tempfile.mkdtemp(prefix="qa_accept_"),
                   DATABASE_URL="sqlite+aiosqlite:////tmp/qa_accept.db")
 
-from qa_common import Report                              # noqa: E402
+from qa_common import Report, seed_operators                              # noqa: E402
 
 r = Report("АВТОПРИЙНЯТТЯ")
 
@@ -74,6 +74,12 @@ async def scenario():
     import api.routers.telegram as tg
 
     await init_db()
+
+    async with open_repo() as _repo:
+        await seed_operators(_repo, {
+            7: ("anna", "Анна", OperatorRole.MANAGER),
+            9: ("borys", "Борис", OperatorRole.MANAGER),
+        })
     bot = FakeBot()
     tg._instances = lambda: (bot, None)
     transport = httpx.ASGITransport(app=app)

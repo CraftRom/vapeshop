@@ -7,11 +7,13 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import hmac
 import logging
 
 from aiogram import Bot
 from aiogram.types import Update
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, Header, HTTPException, Request, status
 
 from bot.factory import bot_id, build_bot, build_dispatcher, webhook_path
 from aiogram.types import BotCommand, MenuButtonWebApp, WebAppInfo
@@ -91,12 +93,41 @@ async def legacy_webhook(secret: str):
     raise HTTPException(status.HTTP_410_GONE, "Адресу вебхука змінено — перезапустіть setup")
 
 
+def webhook_header_secret() -> str:
+    """Секрет для заголовка X-Telegram-Bot-Api-Secret-Token.
+
+    Похідний від WEBHOOK_SECRET, а не він сам: секрет зі шляху світиться
+    в логах проксі, і повторювати його в заголовку означало б не додати
+    нічого. Telegram дозволяє тут 1–256 символів A-Z a-z 0-9 _ -.
+    """
+    material = f"{settings.webhook_secret}:header".encode()
+    return hashlib.sha256(material).hexdigest()
+
+
 @router.post("/telegram/{secret}/{hook_bot_id}")
-async def telegram_webhook(secret: str, hook_bot_id: str, request: Request):
+async def telegram_webhook(
+    secret: str,
+    hook_bot_id: str,
+    request: Request,
+    x_telegram_bot_api_secret_token: str = Header(default=""),
+):
     if not settings.webhook_secret:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Вебхук не налаштовано")
-    if secret != settings.webhook_secret:
+    # compare_digest, а не !=: звичайне порівняння рядків уривається на
+    # першому розбіжному байті, і за часом відповіді секрет підбирається
+    # посимвольно. Різниця мікроскопічна, але вебхук можна смикати скільки
+    # завгодно разів, а секрет тут один на все життя установки.
+    if not hmac.compare_digest(secret, settings.webhook_secret):
         # Не уточнюємо причину — стороннім знати нічого не треба
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
+
+    # Заголовок ставить сам Telegram. Порожній він буває лише в апдейтів,
+    # надісланих до переналаштування вебхука, — тому не вимагаємо його,
+    # коли він відсутній, але підроблений відхиляємо.
+    if x_telegram_bot_api_secret_token and not hmac.compare_digest(
+        x_telegram_bot_api_secret_token, webhook_header_secret()
+    ):
+        log.warning("Апдейт із чужим підписом заголовка — відхилено")
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
 
     if hook_bot_id != bot_id():
@@ -166,7 +197,17 @@ async def setup_webhook(token: str = ""):
 
     bot, _ = _instances()
     url = public_url + webhook_path()
-    await bot.set_webhook(url, drop_pending_updates=True)
+    # secret_token: Telegram підписує ним кожен апдейт у заголовку
+    # X-Telegram-Bot-Api-Secret-Token. Секрет у шляху лишається як був —
+    # він потрібен, щоб чужий запит не дійшов навіть до обробника, — але
+    # шлях видно всюди: у логах nginx, у Referer, у будь-якому проксі
+    # дорогою. Заголовок не видно ніде, і саме він доводить, що апдейт
+    # справді від Telegram, а не підкинутий тим, хто підгледів адресу.
+    await bot.set_webhook(
+        url,
+        drop_pending_updates=True,
+        secret_token=webhook_header_secret(),
+    )
 
     # Синя кнопка біля поля вводу — головний вхід у вітрину.
     # Telegram вимагає https, тож на локальному хості вона не зʼявиться.

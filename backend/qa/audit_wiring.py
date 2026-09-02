@@ -354,6 +354,30 @@ _status = read("backend/shop/services/status_messages.py")
 # у них власні повідомлення в order_chat.
 for _st in ("PAID", "DONE", "CANCELLED"):
     check(_st in _status, f"є розгорнутий текст для статусу {_st}")
+# Доступ припиняється одразу, а не наприкінці строку токена. Перевірки
+# про звʼязність: саму поведінку ганяє набір qa_revoke.
+_auth = read("backend/api/auth.py")
+check("_live" in _auth and "get_operator" in _auth,
+      "токен звіряється з чинним станом менеджера в базі")
+for _dep in ("require_staff", "require_admin", "require_sysadmin"):
+    _body = _auth.split(f"async def {_dep}(")[1].split("async def ")[0]
+    check("_live(" in _body,
+          f"{_dep} звіряє токен із базою — інакше вимкнений менеджер "
+          f"працює до кінця строку")
+check("password_fingerprint" in _auth,
+      "токен адміністратора привʼязаний до чинного пароля з .env")
+
+# Вебхук бота. Секрет у шляху видно в логах проксі; заголовок від
+# Telegram не видно ніде, і саме він доводить справжність відправника.
+_tg = read("backend/api/routers/telegram.py")
+check("x_telegram_bot_api_secret_token" in _tg,
+      "вебхук перевіряє підпис заголовка від Telegram")
+check("secret_token=" in _tg,
+      "секрет заголовка реєструється в setWebhook — інакше Telegram "
+      "його не надсилатиме й перевіряти буде нічого")
+check("compare_digest(secret" in _tg,
+      "секрет шляху звіряється сталим часом, а не звичайним !=")
+
 # Відсічення розвідки. Перевірки навмисно про звʼязність, а не про сам
 # шаблон: його правильність стереже окремий набір qa_recon, який ганяє
 # правило по всіх справжніх маршрутах застосунку.

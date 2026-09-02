@@ -225,10 +225,45 @@ server {
     location /app {
         proxy_pass $miniapp_static;
         proxy_set_header Host $host;
+
+        # add_header у location скасовує всі успадковані від server —
+        # це не доповнення, а заміна. Тому загальні заголовки тут
+        # перелічені повторно; без цього вітрина лишилась би зовсім без них.
+        include /etc/nginx/hsts.d/*.conf;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+
+        # X-Frame-Options тут навмисно немає, а frame-ancestors дозволяє
+        # Telegram. Telegram Desktop і застосунки на телефоні відкривають
+        # Mini App у власному WebView, але Telegram Web — у звичайному
+        # iframe зі свого домену. Спільний для сервера SAMEORIGIN такий
+        # iframe забороняє: у застосунку вітрина працює, у браузері —
+        # порожнє вікно без жодного повідомлення про причину.
+        #
+        # script-src дозволяє telegram.org: звідти вантажиться SDK, без
+        # якого немає ні initData, ні теми, ні кнопки «назад».
+        # style-src з unsafe-inline — через style={{...}} у React: це
+        # атрибути елементів, а не сторонній код.
+        add_header Content-Security-Policy "default-src 'self'; script-src 'self' https://telegram.org; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self'; font-src 'self' data:; frame-ancestors https://web.telegram.org https://*.telegram.org; base-uri 'self'; form-action 'self'; object-src 'none'" always;
     }
 
     location / {
         proxy_pass $dashboard_static;
         proxy_set_header Host $host;
+
+        include /etc/nginx/hsts.d/*.conf;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+
+        # Панель у рамку не вставляє ніхто й ніколи — frame-ancestors 'none'
+        # жорсткіший за SAMEORIGIN і закриває клікджекінг остаточно.
+        add_header X-Frame-Options "DENY" always;
+
+        # Головне тут — script-src без unsafe-inline. Токен панелі лежить
+        # у localStorage, тобто будь-який виконаний на сторінці чужий
+        # скрипт забирає повний доступ до замовлень і клієнтів. Заборона
+        # вбудованих скриптів прибирає основний спосіб його туди занести.
+        # Шрифти — з Google, тому style-src і font-src ширші за 'self'.
+        add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'" always;
     }
 }

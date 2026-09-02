@@ -71,3 +71,38 @@ class Report:
         print(f"\n{s.title}: {s.count - len(s.fails)}/{s.count}")
         for f in s.fails: print("   ✗", f)
         return s.fails
+
+
+async def seed_operators(repo, people: dict[int, tuple[str, str, object]]) -> None:
+    """Створює менеджерів під заздалегідь видані токени.
+
+    Наборам зручно робити токени наперед, одним рядком угорі файлу. Поки
+    токен приймався за самим лише підписом, рядка в базі за ним могло не
+    бути взагалі — і набори перевіряли доступ від людей, яких не існує.
+
+    Тепер токен звіряється з базою на кожному запиті: вимкнений або
+    видалений менеджер втрачає доступ негайно. Тож набір мусить створити
+    тих, від чийого імені ходить, — інакше він перевіряє не права ролі,
+    а те, що незнайомця не пускають.
+
+    people: {operator_id: (логін, імʼя, роль)}
+    """
+    from shop.services.passwords import hash_password
+
+    for operator_id, (login, name, role) in people.items():
+        if await repo.get_operator(operator_id):
+            continue
+        # Ідентифікатор задаємо явно, а не покладаємось на порядок вставки:
+        # токени виписані вгорі файлу під конкретні номери, і залежність
+        # від того, кого створили першим, зламалася б від перестановки
+        # двох рядків — мовчки, з перевіркою прав від чужого імені.
+        created = await repo.create_operator({
+            "id": operator_id,
+            "login": login, "name": name, "role": role,
+            "password_hash": hash_password("Qa!Passw0rd"), "is_active": True,
+        })
+        if created.id != operator_id:
+            raise RuntimeError(
+                f"Менеджер {login} отримав id={created.id}, а токен виписано "
+                f"на {operator_id}."
+            )
