@@ -63,6 +63,15 @@ async def lifespan(app: FastAPI):
         )
     yield
 
+    # Бот, яким API шле сповіщення, тримає власну сесію aiohttp. Ніхто її
+    # не закривав, тому кожне вимкнення контейнера давало в журналі
+    # «Unclosed client session» рівнем error — а на кожен error іде
+    # сповіщення в Telegram. Через це звичайний деплой виглядав як аварія,
+    # і справжні помилки губилися серед хибних тривог.
+    from api.routers.telegram import close_bot
+
+    await close_bot()
+
 
 # Документація закрита за замовчуванням.
 #

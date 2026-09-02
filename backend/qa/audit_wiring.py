@@ -12,6 +12,36 @@ def read(p):
     f = root / p
     return f.read_text() if f.exists() else ""
 
+def before(text, first, second, label):
+    """Перевіряє, що перший фрагмент іде раніше за другий.
+
+    Раніше порядок звірявся через str.index. Щойно один із фрагментів
+    зникав після рефакторингу, index кидав ValueError — і ревізія не
+    провалювала перевірку, а обривалася трейсбеком просто посеред списку.
+    run_all.sh шукає «✗» у stdout, трейсбек іде в stderr, тому в зведенні
+    зʼявлялося голе «ПРОВАЛ» без жодної деталі, а всі перевірки нижче
+    взагалі не виконувались. Тепер зниклий фрагмент — це звичайний ✗.
+    """
+    a, b = text.find(first), text.find(second)
+    if a < 0 or b < 0:
+        check(False, label, f"немає фрагмента «{first if a < 0 else second}»")
+        return
+    check(a < b, label, f"«{first}» іде після «{second}»")
+
+def css_block(css, selector):
+    """Тіло правила, у переліку селекторів якого є `selector`.
+
+    Не split і не index. «.input:focus» трапляється в переліку двічі —
+    у «.input:focus,» і в «.input:focus-visible», — тому split(...)[1]
+    повертав кому між селекторами замість оголошень, і перевірка падала,
+    хоча з самим CSS усе гаразд. Будь-який новий селектор у переліку
+    ламав би її знову.
+    """
+    for head, body in re.findall(r"([^{}]*)\{([^{}]*)\}", css):
+        if selector in head:
+            return body
+    return ""
+
 print("=== ФАЙЛИ ===")
 must = [
  "backend/requirements.txt","deploy/bootstrap.sh","deploy/elfar.service",
@@ -78,7 +108,7 @@ check("openssl req -x509" in cert,
       "certbot-init кладе тимчасовий сертифікат — інакше nginx не підніметься")
 check("--force-renewal" in cert,
       "справжній сертифікат замінює тимчасовий, а не пропускається")
-check(cert.index("nginx/app.conf") < cert.index("openssl req -x509"),
+before(cert, "render-nginx.sh", "openssl req -x509",
       "домен підставляється до створення сертифіката, інакше nginx шукає не той файл")
 check("--force-recreate nginx" in cert,
       "nginx перестворюється — зациклений у рестарті контейнер звичайним up не полагодити")
@@ -91,12 +121,12 @@ check("--cert-name" in cert,
 check("SCRIPT_VERSION" in cert, "скрипт друкує свою версію")
 check("renewal/${DOMAIN}.conf" in cert,
       "заглушка відрізняється від справжнього сертифіката за renewal-конфігом")
-check(cert.index("rm -rf /etc/letsencrypt/live") < cert.index("certonly --webroot"),
+before(cert, "rm -rf /etc/letsencrypt/live", "certonly --webroot",
       "заглушка прибирається до запиту — інакше certbot скаржиться на live directory")
 check("--force-renewal" in cert and "FORCE=()" in cert,
       "--force-renewal лише при поновленні, щоб не палити ліміт Let's Encrypt")
 check("--staging" in cert, "є режим перевірки без витрати лімітів")
-check(cert.index("STAGING=0") < cert.index("DOMAIN_ARGS=()"),
+before(cert, "STAGING=0", "DOMAIN_ARGS=()",
       "прапорці розбираються до доменів — інакше поїдуть у certbot як -d")
 
 log_setup = read("backend/shop/logging_setup.py")
@@ -277,8 +307,7 @@ check("color-scheme" in _mini_css,
       "вітрина оголошує схему — інакше iOS малює свої елементи світлими")
 check("-webkit-text-fill-color" in _mini_css,
       "автозаповнення не робить текст невидимим")
-_focus = _mini_css[_mini_css.index(".input:focus,"):]
-_focus = _focus[:_focus.index("}")]
+_focus = css_block(_mini_css, ".input:focus")
 check("!important" in _focus,
       "кольори у фокусі перекривають стилі WebView — інакше текст зникає при введенні")
 check("background" in _focus, "фон поля у фокусі закріплений")
@@ -323,7 +352,7 @@ check("field-error" in read("miniapp/src/styles.css"),
 _css = read("miniapp/src/styles.css")
 check(_css.count("-webkit-text-fill-color") >= 5,
       "текст полів малюється явно — інакше введене зникає на темній темі")
-check("input:focus" in _css and "text-fill-color" in _css.split(".input:focus")[1][:200],
+check("input:focus" in _css and "text-fill-color" in css_block(_css, ".input:focus"),
       "колір тексту закріплений і на фокусі")
 check("err.status !== 409" in read("miniapp/src/screens/Wishlists.jsx"),
       "конфлікт назви списку не показується як помилка")
@@ -377,7 +406,7 @@ check("render-nginx.sh" in boot, "bootstrap готує конфіг nginx із �
 
 dockerfile = read("backend/Dockerfile")
 check("USER shop" in dockerfile, "бекенд працює не від root")
-check(dockerfile.index("pip install") < dockerfile.index("USER shop"),
+before(dockerfile, "pip install", "USER shop",
       "залежності ставляться до перемикання користувача")
 check("APP_UID" in compose, "UID передається у збірку через compose")
 
@@ -385,7 +414,9 @@ restore = read("deploy/restore.sh")
 check(".dump" in restore and ".sql.gz" in restore,
       "restore розуміє формат, у якому пише планувальник")
 
-nginx = read("deploy/nginx/app.conf")
+# Робочий конфіг генерується render-nginx.sh у nginx/generated/ і в архів
+# не потрапляє — перевіряти треба шаблон, з якого його роблять.
+nginx = read("deploy/nginx/app.conf.template")
 for location in ["/api/", "/app"]:
     check(location in nginx, f"nginx проксює {location}")
 
@@ -426,9 +457,16 @@ for pack, css_path, srcs_glob in [("вітрина","miniapp/src/styles.css","mi
 
 print("\n=== ВЕРСІЇ Й ДОКУМЕНТИ ===")
 dv = read("dashboard/src/version.js"); mv = read("miniapp/src/version.js")
-check("APP_VERSION" in dv and "AUTHOR" in dv, "версія панелі задана")
-check("APP_VERSION" in mv and "AUTHOR" in mv, "версія вітрини задана")
-check("Halytskyi Dmytro" in dv and "Halytskyi Dmytro" in mv, "автор вказаний в обох")
+# Перевіряємо не лише наявність APP_VERSION, а й формат. Порожній рядок
+# або «1.9» імпортувався б без помилки і виліз би вже в інтерфейсі.
+_semver = re.compile(r"""APP_VERSION\s*=\s*['"](\d+\.\d+\.\d+)['"]""")
+check(bool(_semver.search(dv)), "версія панелі задана і у форматі X.Y.Z")
+check(bool(_semver.search(mv)), "версія вітрини задана і у форматі X.Y.Z")
+# AUTHOR колись експортувався звідси, але його ніхто не імпортував —
+# перевірка стерегла константу, якої вже немає. Авторство має значення
+# в тексті угоди, який читає покупець, тому звіряємо саме там.
+check("Halytskyi Dmytro" in read("miniapp/src/legal.js"),
+      "авторство вказане в правових документах")
 # Версії ведуться окремо, але файли мають бути різними сутностями
 check(read("dashboard/src/version.js") != read("miniapp/src/version.js") or True,
       "версії зберігаються окремими файлами")
@@ -459,7 +497,9 @@ print("\n=== РОЗГОРТАННЯ НА СВОЄМУ СЕРВЕРІ ===")
 compose = read("deploy/docker-compose.prod.yml")
 for svc in ["api","bot","dashboard","miniapp","nginx","db","redis"]:
     check(f"\n  {svc}:" in compose, f"сервіс {svc}")
-nginx = read("deploy/nginx/app.conf")
+# Робочий конфіг генерується render-nginx.sh у nginx/generated/ і в архів
+# не потрапляє — перевіряти треба шаблон, з якого його роблять.
+nginx = read("deploy/nginx/app.conf.template")
 check("/app" in nginx and "miniapp_static" in nginx, "nginx віддає вітрину")
 
 sys.exit(1 if fails else 0)

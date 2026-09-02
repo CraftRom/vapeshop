@@ -6,6 +6,7 @@
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from aiogram import Bot
@@ -38,10 +39,41 @@ def _instances():
     """
     global _bot, _dp, _bot_token
     if _bot is None or _bot_token != settings.bot_token:
+        if _bot is not None:
+            # Старий бот лишався з відкритою сесією aiohttp до кінця життя
+            # процесу. Закрити його тут не можна — _instances() синхронна,
+            # — тож віддаємо сесію на закриття у фоні.
+            _abandon_session(_bot)
         _bot = build_bot()
         _dp = build_dispatcher()
         _bot_token = settings.bot_token
     return _bot, _dp
+
+
+def _abandon_session(bot: Bot) -> None:
+    """Закриває сесію бота, який більше не використовується."""
+    try:
+        asyncio.get_running_loop().create_task(bot.session.close())
+    except RuntimeError:
+        # Циклу немає — закривати нічого й нікому; сесія помре разом із процесом
+        pass
+
+
+async def close_bot() -> None:
+    """Закриває сесію поточного бота. Викликається при зупинці API.
+
+    Без цього aiohttp друкував «Unclosed client session» рівнем error на
+    кожному вимкненні контейнера, і кожен деплой породжував хибне
+    сповіщення про помилку.
+    """
+    global _bot, _dp, _bot_token
+    if _bot is None:
+        return
+    try:
+        await _bot.session.close()
+    except Exception:
+        log.warning("Не вдалося закрити сесію бота", exc_info=True)
+    _bot = _dp = _bot_token = None
 
 
 @router.post("/telegram/{secret}")
