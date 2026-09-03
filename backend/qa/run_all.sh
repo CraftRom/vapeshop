@@ -35,13 +35,17 @@ fi
 # Тести вітрини на Node. Їх не було в цьому переліку взагалі: три набори
 # лежали в miniapp/tests і не запускались ніколи, хоч саме вони стережуть
 # стан «Збереженого» й видимість полів введення.
+# $1 — назва в зведенні, $2 — шлях до набору, $3 — каталог застосунку
+# (за замовчуванням вітрина). Каталог параметром, а не другою копією
+# цього ж блоку: копія для панелі вже існувала окремо, і будь-яка правка
+# тут довелося б робити двічі.
 run_node() {
   printf '  %-13s ' "$1"
   if ! command -v node >/dev/null 2>&1; then
     echo "пропущено — немає node"
     return
   fi
-  out=$(cd ../miniapp && node "$2" 2>&1)
+  out=$(cd "../${3:-miniapp}" && node "$2" 2>&1)
   if echo "$out" | grep -qE '✗|ПРОВАЛЕНО'; then
     echo "ПРОВАЛ"
     echo "$out" | grep -E '✗' | head -5 | sed 's/^/      /'
@@ -53,10 +57,13 @@ run_node() {
 
 echo
 echo "Вітрина"
+run_node cart-response tests/cart-response.mjs
 run_node wishlist-state tests/wishlist-state.mjs
 run_node wishlist-wiring tests/wishlist-wiring.mjs
+run_node checkout tests/checkout-validation.mjs
 run_node input-visibility tests/input-visibility.mjs
 run_node phone tests/phone.mjs
+run_node filters tests/filters.mjs dashboard
 
 echo
 echo "Контракти й дані"

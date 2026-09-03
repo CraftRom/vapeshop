@@ -380,6 +380,16 @@ check("compare_digest(" in _tg and "secret.encode(" in _tg,
       "compare_digest падає на кирилиці, тобто чужий символ в адресі "
       "давав би 500 замість «не знайдено»")
 
+# Відбір у панелі живе в адресі сторінки, а не в стані компонента.
+# Інакше він скидається при кожному поверненні зі сторінки замовлення —
+# а таких повернень за зміну десятки.
+for _page in ("Orders", "Catalog", "Customers", "Logs"):
+    check("useFilters(" in read(f"dashboard/src/pages/{_page}.jsx"),
+          f"{_page}: відбір переживає перехід на іншу сторінку")
+check("resetFilters" in read("dashboard/src/pages/Orders.jsx")
+      and "Нічого не знайдено" in read("dashboard/src/pages/Orders.jsx"),
+      "порожньо через відбір і порожньо взагалі — різні тексти")
+
 # Журнал безпеки. Перевірки про звʼязність — саму поведінку ганяє
 # набір qa_security_log.
 _seclog = read("backend/shop/security_log.py")

@@ -601,6 +601,35 @@ async def checkout(
                     order.id, exc_info=True)
 
     shop = await get_shop_settings(repo)
+
+    # Підтвердження самому покупцеві. Досі його не було зовсім: вітрина
+    # показувала реквізити у спливному вікні Telegram і обіцяла, що
+    # «деталі надійдуть у чат», а не надходило нічого. Номер картки з
+    # такого вікна не скопіювати — його доводилось переписувати з екрана
+    # по пам'яті або не платити взагалі.
+    #
+    # У чаті картка йде тегом <code>: Telegram копіює такий текст одним
+    # дотиком. Те саме, що вже роблять замовлення, оформлені в боті.
+    try:
+        from bot import texts
+
+        confirmation = texts.ORDER_DONE.format(
+            id=order.id, total=f"{order.total:.0f}", currency=shop.currency,
+        )
+        if order.payment_method == "card" and shop.card_number:
+            confirmation += "\n\n" + texts.PAYMENT_INFO.format(
+                card=shop.card_number,
+                holder=shop.card_holder or "—",
+                total=f"{order.total:.0f}",
+                currency=shop.currency,
+            )
+        await bot.send_message(user.tg_id, confirmation)
+    except Exception:
+        # Замовлення вже прийнято, і провал сповіщення його не скасовує.
+        # Але покупець лишився без реквізитів, тож це попередження, а не
+        # мовчазний пропуск.
+        log.warning("Замовлення №%s: покупець не отримав підтвердження",
+                    order.id, exc_info=True)
     return CheckoutOut(
         order_id=order.id, total=order.total, payment_method=order.payment_method,
         card_number=shop.card_number if order.payment_method == "card" else None,

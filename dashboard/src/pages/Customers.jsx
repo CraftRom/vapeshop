@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 
 import { api } from '../api'
+import { useFilters } from '../components/useFilters'
 import { STATUS_LABELS } from '../components/StatusRail'
 import { Empty, ErrorBar, Field, Loading, Modal, date, money, useToast } from '../components/ui'
 
@@ -132,7 +133,8 @@ function CustomerOrders({ customer, onClose }) {
 export default function Customers() {
   const notify = useToast()
   const [customers, setCustomers] = useState(null)
-  const [search, setSearch] = useState('')
+  const [{ search }, setQuery, resetFilters] = useFilters({ search: '' })
+  const setSearch = (v) => setQuery('search', v)
   const [error, setError] = useState('')
   const [bonusFor, setBonusFor] = useState(null)
   const [ordersFor, setOrdersFor] = useState(null)
@@ -184,9 +186,21 @@ export default function Customers() {
       {!customers ? (
         <Loading />
       ) : customers.length === 0 ? (
-        <Empty title="Клієнтів немає">
-          Тут з'являться всі, хто запустив бота.
-        </Empty>
+        search ? (
+          <Empty title="Нічого не знайдено">
+            За запитом «{search}» клієнтів немає. Пошук працює за імʼям
+            і номером телефону.
+            <div style={{ marginTop: 12 }}>
+              <button className="btn ghost small" onClick={resetFilters}>
+                Очистити пошук
+              </button>
+            </div>
+          </Empty>
+        ) : (
+          <Empty title="Клієнтів немає">
+            Тут зʼявляться всі, хто запустив бота.
+          </Empty>
+        )
       ) : (
         <div className="card" style={{ padding: '18px 6px' }}>
           <div className="table-wrap">

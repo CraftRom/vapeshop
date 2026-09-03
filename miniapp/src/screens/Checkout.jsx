@@ -193,19 +193,46 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
     ? Number(profile?.max_bonus_now || 0) : 0
   const total = Math.max(0, subtotal - discount - bonus)
 
-  const required = ['contact_surname', 'contact_name', 'contact_phone', 'city', 'address']
-  const filled = required.every((k) => form[k].trim().length > 0)
+  // Порядок збігається з порядком полів на екрані: за ним ведемо людину
+  // до першого незаповненого, а не до випадкового.
+  const REQUIRED = [
+    ['contact_surname', 'surname', 'Вкажіть прізвище'],
+    ['contact_name', 'name', 'Вкажіть імʼя'],
+    ['contact_phone', 'phone', 'Вкажіть телефон'],
+    ['city', 'city', 'Вкажіть місто'],
+    ['address', 'address', 'Вкажіть відділення або адресу'],
+  ]
+  const missing = REQUIRED.filter(([key]) => !form[key].trim())
+  const filled = missing.length === 0
 
   const submit = async () => {
     if (!filled) {
-      setTouched({ contact_phone: true })
-      setError('Заповніть прізвище, імʼя, телефон, місто та адресу.')
+      // Раніше тут був один банер з переліком усіх пʼяти полів, а
+      // підсвічувався лише телефон. Людина читала речення й сама шукала
+      // очима, яке саме поле пропустила — на телефоні, де на екран
+      // вміщається два поля з семи. Тепер помічаємо всі порожні одразу
+      // і прокручуємо до першого.
+      setTouched((t) => ({
+        ...t, ...Object.fromEntries(REQUIRED.map(([key]) => [key, true])),
+      }))
+      setError('')
+      const [, id] = missing[0]
+      const node = document.getElementById(id)
+      if (node) {
+        node.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        // Фокус після прокрутки: інакше Telegram піднімає клавіатуру
+        // й гасить саму прокрутку на півдорозі.
+        setTimeout(() => node.focus({ preventScroll: true }), 300)
+      }
+      notify('error')
       return
     }
     const phoneProblem = phoneError(form.contact_phone)
     if (phoneProblem) {
       setTouched((t) => ({ ...t, contact_phone: true }))
       setError(`Телефон: ${phoneProblem.toLowerCase()}`)
+      const node = document.getElementById('phone')
+      if (node) node.scrollIntoView({ behavior: 'smooth', block: 'center' })
       return
     }
     setBusy(true)
@@ -237,6 +264,15 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
     }
   }
 
+  // Обовʼязкове поле, яке лишили порожнім. Один помічник на всі — інакше
+  // підсвітка з часом розійдеться: у телефона вона була, у решти ні.
+  const blank = (key) => touched[key] && !form[key].trim()
+  const cls = (key) => `input ${blank(key) ? 'bad' : ''}`
+  const hint = (key) => {
+    const found = REQUIRED.find(([k]) => k === key)
+    return blank(key) && found ? <div className="field-error">{found[2]}</div> : null
+  }
+
   return (
     <>
       <div className="head">
@@ -250,14 +286,17 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
           одним рядком люди вписують його в довільному порядку */}
       <div className="field">
         <label htmlFor="surname">Прізвище</label>
-        <input id="surname" className="input" value={form.contact_surname}
+        <input id="surname" className={cls('contact_surname')}
+               value={form.contact_surname}
                onChange={set('contact_surname')} autoComplete="family-name" />
+        {hint('contact_surname')}
       </div>
 
       <div className="field">
         <label htmlFor="name">Імʼя</label>
-        <input id="name" className="input" value={form.contact_name}
+        <input id="name" className={cls('contact_name')} value={form.contact_name}
                onChange={set('contact_name')} autoComplete="given-name" />
+        {hint('contact_name')}
       </div>
 
       <div className="field">
@@ -272,7 +311,10 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
         <label htmlFor="phone">Телефон</label>
         <input
           id="phone"
-          className={`input ${touched.contact_phone && phoneError(form.contact_phone) ? 'bad' : ''}`}
+          className={`input ${
+            touched.contact_phone
+            && (blank('contact_phone') || phoneError(form.contact_phone)) ? 'bad' : ''
+          }`}
           type="tel"
           inputMode="tel"
           placeholder="+380XXXXXXXXX"
@@ -287,19 +329,25 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
           }))}
           onBlur={() => setTouched((t) => ({ ...t, contact_phone: true }))}
         />
-        {touched.contact_phone && phoneError(form.contact_phone) && (
+        {hint('contact_phone')}
+        {touched.contact_phone && !blank('contact_phone')
+          && phoneError(form.contact_phone) && (
           <div className="field-error">{phoneError(form.contact_phone)}</div>
         )}
       </div>
 
       <div className="field">
         <label htmlFor="city">Місто</label>
-        <input id="city" className="input" value={form.city} onChange={set('city')} />
+        <input id="city" className={cls('city')} value={form.city}
+               onChange={set('city')} />
+        {hint('city')}
       </div>
 
       <div className="field">
         <label htmlFor="address">Відділення або адреса</label>
-        <input id="address" className="input" value={form.address} onChange={set('address')} />
+        <input id="address" className={cls('address')} value={form.address}
+               onChange={set('address')} />
+        {hint('address')}
       </div>
 
       <div className="field">

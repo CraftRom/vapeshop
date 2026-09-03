@@ -111,10 +111,17 @@ export default function Orders() {
   const navigate = useNavigate()
   const notify = useToast()
   const [orders, setOrders] = useState(null)
-  const [status, setStatus] = useState('')
-  const [dateFrom, setDateFrom] = useState('')
-  const [dateTo, setDateTo] = useState('')
-  const [search, setSearch] = useState('')
+  // Фільтри — в адресі сторінки. Менеджер відбирає замовлення, відкриває
+  // одне, повертається — і відбір на місці. З useState він щоразу
+  // скидався, а за зміну таких повернень десятки.
+  const [{ status, dateFrom, dateTo, search }, setFilter, resetFilters] = useFilters(
+    { status: '', dateFrom: '', dateTo: '', search: '' },
+  )
+  const setStatus = (v) => setFilter('status', v)
+  const setDateFrom = (v) => setFilter('dateFrom', v)
+  const setDateTo = (v) => setFilter('dateTo', v)
+  const setSearch = (v) => setFilter('search', v)
+  const filtered = Boolean(status || dateFrom || dateTo || search)
   const [error, setError] = useState('')
   const [selected, setSelected] = useState(null)
   // Клієнт відповідає в боті, тож панель має сама помічати нові повідомлення
@@ -271,11 +278,40 @@ export default function Orders() {
       {!orders ? (
         <Loading />
       ) : orders.length === 0 ? (
-        <Empty title="Замовлень немає">
-          Щойно клієнт оформить замовлення в боті, воно з'явиться тут.
-        </Empty>
+        /* Порожньо через фільтр і порожньо взагалі — різні речі, а текст
+           був один. Менеджер відбирав за датою, нічого не знаходив і читав
+           «щойно клієнт оформить замовлення, воно зʼявиться тут» — тобто
+           панель повідомляла, що замовлень у магазині немає жодного. */
+        filtered ? (
+          <Empty title="Нічого не знайдено">
+            За цим відбором замовлень немає. Спробуйте розширити діапазон
+            дат або очистити пошук.
+            <div style={{ marginTop: 12 }}>
+              <button className="btn ghost small" onClick={resetFilters}>
+                Скинути відбір
+              </button>
+            </div>
+          </Empty>
+        ) : (
+          <Empty title="Замовлень немає">
+            Щойно клієнт оформить замовлення в боті, воно зʼявиться тут.
+          </Empty>
+        )
       ) : (
         <div className="card" style={{ padding: '18px 6px' }}>
+          {filtered && (
+            <p className="faint" style={{ margin: '0 12px 10px' }}>
+              Знайдено: {orders.length}
+              {' · '}
+              <button
+                className="btn ghost small"
+                onClick={resetFilters}
+                style={{ padding: '2px 8px' }}
+              >
+                скинути відбір
+              </button>
+            </p>
+          )}
           <div className="table-wrap">
             <table>
               <thead>

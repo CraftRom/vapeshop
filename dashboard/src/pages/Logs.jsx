@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../api'
+import { useFilters } from '../components/useFilters'
 
 const SERVICE_LABEL = {
   api: 'Сайт і панель',
@@ -148,14 +149,23 @@ const SEVERITY_LABELS = {
 }
 
 export default function Logs() {
-  const [service, setService] = useState('api')
-  const [level, setLevel] = useState('')
-  const [event, setEvent] = useState('')
-  const [search, setSearch] = useState('')
-  const [severity, setSeverity] = useState('')
-  const [limit, setLimit] = useState(200)
-  const [since, setSince] = useState('')
-  const [until, setUntil] = useState('')
+  // Тут це важить найбільше: розбір інциденту — це десятки уточнень
+  // відбору, і посиланням на конкретну вибірку зручно ділитися.
+  const [
+    { service, level, event, search, severity, limit, since, until },
+    setFilter,
+  ] = useFilters({
+    service: 'api', level: '', event: '', search: '',
+    severity: '', limit: 200, since: '', until: '',
+  })
+  const setService = (v) => setFilter('service', v)
+  const setLevel = (v) => setFilter('level', v)
+  const setEvent = (v) => setFilter('event', v)
+  const setSearch = (v) => setFilter('search', v)
+  const setSeverity = (v) => setFilter('severity', v)
+  const setLimit = (v) => setFilter('limit', v)
+  const setSince = (v) => setFilter('since', v)
+  const setUntil = (v) => setFilter('until', v)
   const [auto, setAuto] = useState(false)
 
   const [meta, setMeta] = useState(null)
@@ -184,6 +194,7 @@ export default function Logs() {
   }, [])
 
   const [catalog, setCatalog] = useState([])
+  const previousService = useRef(null)
 
   useEffect(() => {
     api.logs.events(service)
@@ -195,8 +206,16 @@ export default function Logs() {
         setCatalog(r.catalog || [])
       })
       .catch(() => { setEvents([]); setCatalog([]) })
-    setEvent('')
-    setSeverity('')
+
+    // Скидаємо відбір лише коли сервіс справді змінили. На першому
+    // рендері цей ефект теж виконується — і без перевірки він стирав би
+    // фільтри з відкритого посилання: колега надсилає «журнал безпеки,
+    // невдалі входи за вчора», а одержувач бачить усі записи підряд.
+    if (previousService.current !== null && previousService.current !== service) {
+      setEvent('')
+      setSeverity('')
+    }
+    previousService.current = service
   }, [service])
 
   // Підпис події людською мовою. Голий код нічого не каже тому, хто його

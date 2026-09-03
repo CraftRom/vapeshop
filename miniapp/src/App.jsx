@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { api } from './api'
 import { AgeGate, Catalog } from './screens/Catalog'
@@ -10,7 +10,7 @@ import { SavePicker, WishlistPage, Wishlists, isSaved } from './screens/Wishlist
 import { Profile } from './screens/Profile'
 import {
   applyTheme, backButton, getInitData, hideMainButton, initDataSource, isTelegram,
-  launchParamNames, onThemeChange, ready, startTarget,
+  launchParamNames, notify, onThemeChange, ready, startTarget,
 } from './telegram'
 
 export default function App() {
@@ -35,6 +35,16 @@ export default function App() {
   // Екран документів: відкривається з підвалу й з оформлення
   const [legal, setLegal] = useState(null)
   const [fatal, setFatal] = useState('')
+
+  // Кількості, які людина щойно натиснула, але сервер ще не підтвердив.
+  // Показуємо суму «серверне + очікуване», тож лічильник реагує на дотик
+  // одразу, а не через півсекунди.
+  const [pendingQty, setPendingQty] = useState({})
+  const [cartError, setCartError] = useState('')
+  // Накопичені дельти й таймер відправки. У ref, а не в стані: їх читає
+  // таймер, і перемальовування тут ні до чого.
+  const pendingRef = useRef({})
+  const flushTimer = useRef(null)
 
   useEffect(() => {
     ready()
@@ -126,18 +136,104 @@ export default function App() {
     api.wishlists.list().then(setWishlists).catch(() => {})
   }, [])
 
+  /** Відправляє накопичені зміни кошика одним запитом на товар.
+   *
+   * Раніше кожне натискання «+» було окремим запитом, і нічого не
+   * малювалось, поки він не повернеться. На телефоні з поганим звʼязком
+   * три швидкі дотики виглядали як зламана кнопка: лічильник стоїть,
+   * потім стрибає на три. Тепер він рухається одразу, а на сервер іде
+   * одна зміна замість трьох.
+   */
+  const flushCart = useCallback(async () => {
+    const batch = pendingRef.current
+    pendingRef.current = {}
+    const ids = Object.keys(batch)
+    if (!ids.length) return
+
+    try {
+      let next = null
+      for (const id of ids) {
+        if (!batch[id]) continue
+        next = await api.changeCart(Number(id), batch[id])
+      }
+      if (next) setCart(next)
+      setCartError('')
+    } catch (err) {
+      // Мовчазна відмова тут найгірша: людина бачить товар у кошику,
+      // якого там немає, і дізнається про це аж на оформленні.
+      setCartError(err.message || 'Не вдалося змінити кошик')
+      notify('error')
+      try {
+        setCart(await api.cart())
+      } catch {
+        // Якщо і перечитати не вдалося — лишаємо як є: наступна дія
+        // однаково піде на сервер і принесе правду.
+      }
+    } finally {
+      // Очікуване прибираємо лише після відповіді, інакше лічильник
+      // блимне на старе значення й повернеться.
+      setPendingQty((prev) => {
+        const rest = { ...prev }
+        for (const id of ids) delete rest[id]
+        return rest
+      })
+    }
+  }, [])
+
   const changeCart = useCallback(
     async (productId, delta, opts = {}) => {
-      const next = opts.clear
-        ? await api.clearCart()
-        : await api.changeCart(productId, delta)
-      setCart(next)
-      // Профіль тут не перечитуємо: у ньому змінюється лише доступний
-      // ліміт бонусів, а він потрібен аж на екрані оформлення
-      return next
+      if (opts.clear) {
+        try {
+          setCart(await api.clearCart())
+          setPendingQty({})
+          pendingRef.current = {}
+          setCartError('')
+        } catch (err) {
+          setCartError(err.message || 'Не вдалося очистити кошик')
+        }
+        return
+      }
+
+      setPendingQty((prev) => ({
+        ...prev,
+        [productId]: (prev[productId] || 0) + delta,
+      }))
+      pendingRef.current[productId] = (pendingRef.current[productId] || 0) + delta
+
+      // Коротка пауза злипає серію дотиків в один запит. 350 мс —
+      // помітно менше, ніж пауза між свідомими натисканнями, і достатньо,
+      // щоб зловити «плюс-плюс-плюс» поспіль.
+      clearTimeout(flushTimer.current)
+      flushTimer.current = setTimeout(flushCart, 350)
     },
-    [],
+    [flushCart],
   )
+
+  // Незбережені зміни не мають зникнути разом із екраном.
+  useEffect(() => () => clearTimeout(flushTimer.current), [])
+
+  /** Кошик, яким його бачить людина: серверний плюс те, що вже натиснуто. */
+  const shownCart = useMemo(() => {
+    if (!cart) return cart
+    const ids = Object.keys(pendingQty).filter((id) => pendingQty[id])
+    if (!ids.length) return cart
+
+    const lines = cart.lines.map((line) => ({ ...line }))
+    for (const id of ids) {
+      const productId = Number(id)
+      const line = lines.find((l) => l.product_id === productId)
+      if (line) {
+        line.qty = Math.max(0, line.qty + pendingQty[id])
+      } else if (pendingQty[id] > 0) {
+        // Товару в кошику ще немає — показуємо рядок наперед, інакше
+        // перше натискання «У кошик» не дає жодного відгуку.
+        lines.push({ product_id: productId, qty: pendingQty[id], name: '', price: 0 })
+      }
+    }
+    // Суми лишаються серверними: знижки, промокод і бонуси рахує сервер,
+    // і вигадувати їх тут означало б показати число, яке потім зміниться.
+    return { ...cart, lines: lines.filter((l) => l.qty > 0) }
+  }, [cart, pendingQty])
 
   if (fatal) {
     return (
@@ -230,7 +326,7 @@ initData: ${getInitData() ? `${getInitData().length} символів` : 'пор
         <WishlistPage
           config={config}
           list={openedList}
-          cart={cart}
+          cart={shownCart}
           onChanged={onWishlistChanged}
           onOpenProduct={setOpenProduct}
           onCartChange={(product, delta) => changeCart(product.id, delta)}
@@ -251,7 +347,7 @@ initData: ${getInitData() ? `${getInitData().length} символів` : 'пор
         <ProductPage
           config={config}
           product={openProduct}
-          cart={cart}
+          cart={shownCart}
           onCartChange={changeCart}
           onBack={() => setOpenProduct(null)}
           saved={isSaved(wishlists, openProduct.id)}
@@ -329,7 +425,7 @@ initData: ${getInitData() ? `${getInitData().length} символів` : 'пор
       {tab === 'catalog' && (
         <Catalog
           config={config}
-          cart={cart}
+          cart={shownCart}
           onCartChange={changeCart}
           seed={seed}
           onOpenProduct={setOpenProduct}
@@ -337,6 +433,10 @@ initData: ${getInitData() ? `${getInitData().length} символів` : 'пор
           onSave={setSaving}
         />
       )}
+      {/* Кошик і оформлення читають серверний стан, а не очікуваний:
+          саме тут показані суми, знижки й бонуси, і розійтися вони не
+          мають навіть на пів секунди. Додати новий товар звідси не можна,
+          тож миттєвий відгук лічильника тут і не потрібен. */}
       {tab === 'cart' && (
         <Cart config={config} cart={cart} onCartChange={changeCart} />
       )}
@@ -356,6 +456,16 @@ initData: ${getInitData() ? `${getInitData().length} символів` : 'пор
             onOpenList={(list) => setOpenListId(list.id)}
           />
         </>
+      )}
+
+      {/* Помилка кошика показується поверх усіх вкладок: натиснути «+»
+          можна і в каталозі, і на сторінці товару, і в списку бажаного,
+          а мовчазна відмова тут найгірша — людина побачить порожній
+          кошик аж на оформленні. */}
+      {cartError && (
+        <div className="banner warn" style={{ margin: '0 14px 10px' }}>
+          {cartError}
+        </div>
       )}
 
       {/* Вибір списку — тут, а не всередині однієї вкладки. «Відкласти»
@@ -390,7 +500,13 @@ initData: ${getInitData() ? `${getInitData().length} символів` : 'пор
           </span>
         </div>
         <button
-          onClick={() => {
+          onClick={async () => {
+            // Спершу дописуємо кошик. Натиснути «+» і одразу «Оформити»
+            // цілком реально, а екран оформлення читає серверний стан —
+            // без цього останнє натискання просто не потрапило б до
+            // замовлення.
+            clearTimeout(flushTimer.current)
+            await flushCart()
             // Ліміт бонусів міг змінитися, поки набирали кошик
             api.profile().then(setProfile).catch(() => {})
             setCheckingOut(true)

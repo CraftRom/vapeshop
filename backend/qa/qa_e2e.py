@@ -68,6 +68,15 @@ c.post(f"/api/orders/{oid}/messages", json={"text":"Вітаю! Підтверд
 det = c.get(f"/api/orders/{oid}", headers=O).json()
 r.check(det["operator_name"] == "Олена", "менеджера закріплено", det["operator_name"])
 r.check(any("Олена" in t for _, t in fake.sent), "клієнт дізнався, хто веде")
+
+# Покупець має отримати підтвердження з реквізитами. Раніше вітрина
+# показувала їх у спливному вікні Telegram, звідки номер картки не
+# скопіювати, і обіцяла, що «деталі надійдуть у чат» — а не надходило
+# нічого. Тег <code> дає Telegram копіювання одним дотиком.
+paid = [t for _, t in fake.sent if "Оплата на картку" in t]
+r.check(paid, "покупець отримав реквізити в чат")
+r.check(any("<code>" in t for t in paid),
+        "картка надіслана так, щоб її можна було скопіювати дотиком")
 chat = c.get(f"/api/shop/orders/{oid}/chat", headers=H).json()
 r.check(any(m["direction"] == "out" for m in chat), "клієнт бачить повідомлення менеджера")
 c.post(f"/api/shop/orders/{oid}/chat", json={"text":"Адреса вірна"}, headers=H)

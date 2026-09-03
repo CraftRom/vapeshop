@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import ImageField from '../components/ImageField'
 
 import { api } from '../api'
+import { useFilters } from '../components/useFilters'
 import { Empty, ErrorBar, Field, Loading, Modal, confirmPurge, money, useToast } from '../components/ui'
 
 const EMPTY_PRODUCT = {
@@ -295,8 +296,14 @@ export default function Catalog() {
   const notify = useToast()
   const [categories, setCategories] = useState([])
   const [products, setProducts] = useState(null)
-  const [filter, setFilter] = useState('')
-  const [search, setSearch] = useState('')
+  // Категорія й пошук — в адресі: після правки товару список має лишитись
+  // тим самим, а не скинутись на «усі категорії».
+  const [{ category, search }, setQuery, resetFilters] = useFilters(
+    { category: '', search: '' },
+  )
+  const filter = category
+  const setFilter = (v) => setQuery('category', v)
+  const setSearch = (v) => setQuery('search', v)
   const [error, setError] = useState('')
   const [editing, setEditing] = useState(null)
   const [managingCategories, setManagingCategories] = useState(false)
@@ -384,9 +391,20 @@ export default function Catalog() {
       {!products ? (
         <Loading />
       ) : products.length === 0 ? (
-        <Empty title="Товарів немає">
-          Додайте перший товар — він одразу з'явиться в каталозі бота.
-        </Empty>
+        (category || search) ? (
+          <Empty title="Нічого не знайдено">
+            За цим відбором товарів немає. Можливо, вони в іншій категорії.
+            <div style={{ marginTop: 12 }}>
+              <button className="btn ghost small" onClick={resetFilters}>
+                Показати всі товари
+              </button>
+            </div>
+          </Empty>
+        ) : (
+          <Empty title="Товарів немає">
+            Додайте перший товар — він одразу зʼявиться в каталозі бота.
+          </Empty>
+        )
       ) : (
         <div className="card" style={{ padding: '18px 6px' }}>
           <div className="table-wrap">

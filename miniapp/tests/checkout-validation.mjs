@@ -1,0 +1,64 @@
+// Перевірка полів при оформленні.
+//
+// Оформлення — єдиний екран, де помилка коштує грошей: людина не
+// розібралася, чому кнопка не спрацювала, і пішла. Раніше всі пʼять
+// обовʼязкових полів давали один банер угорі з переліком, а підсвічувався
+// лише телефон. На екрані телефона з семи полів видно два, тож людина
+// читала речення й шукала очима, яке саме поле пропустила — при тому що
+// банер міг лишитися вище за межею екрана.
+import { readFileSync } from 'node:fs'
+
+const src = readFileSync('src/screens/Checkout.jsx', 'utf8')
+
+let bad = 0
+const check = (ok, label, detail = '') => {
+  if (!ok) bad++
+  console.log(`  ${ok ? '✓' : '✗'} ${label}${ok || !detail ? '' : ` — ${detail}`}`)
+}
+
+console.log('\n--- помічаються всі порожні поля, не лише телефон ---')
+const submit = src.slice(src.indexOf('const submit ='), src.indexOf('setBusy(true)'))
+check(/REQUIRED\.map\(\[?\(?\[key\]\)? => \[key, true\]\)/.test(submit)
+      || submit.includes('REQUIRED.map(([key]) => [key, true])'),
+      'при відправці всі обовʼязкові поля стають поміченими')
+check(!submit.includes("setTouched({ contact_phone: true })"),
+      'помічається не лише телефон')
+
+console.log('\n--- людину ведуть до першого пропущеного ---')
+check(submit.includes('scrollIntoView'),
+      'екран прокручується до поля, а не лишає банер за межею видимого')
+check(submit.includes('.focus('),
+      'у поле ставиться курсор')
+check(submit.includes('setTimeout'),
+      'фокус із затримкою: інакше клавіатура Telegram гасить прокрутку')
+
+console.log('\n--- у кожного поля власна підказка ---')
+const required = src.slice(src.indexOf('const REQUIRED'), src.indexOf('const missing'))
+for (const key of ['contact_surname', 'contact_name', 'contact_phone',
+                   'city', 'address']) {
+  check(required.includes(`'${key}'`), `${key} у переліку обовʼязкових`)
+}
+// Порядок у переліку має збігатися з порядком полів на екрані — за ним
+// вибирається, куди прокрутити. Розбіжність відправила б людину не туди.
+const order = ['contact_surname', 'contact_name', 'contact_phone', 'city', 'address']
+const listed = order.map((k) => required.indexOf(`'${k}'`))
+check(listed.every((v, i) => i === 0 || v > listed[i - 1]),
+      'порядок у переліку збігається з порядком полів на екрані', listed)
+
+console.log('\n--- підсвітка однакова для всіх полів ---')
+// Один помічник на всі: інакше підсвітка з часом розійдеться —
+// у телефона вона є, у решти немає, і саме так було до цієї правки.
+check(src.includes('const cls =') && src.includes('const hint ='),
+      'підсвітка й підказка йдуть через спільні помічники')
+for (const id of ['surname', 'name', 'city', 'address']) {
+  const field = src.slice(src.indexOf(`id="${id}"`), src.indexOf(`id="${id}"`) + 300)
+  check(field.includes('cls('), `поле ${id} підсвічується`)
+}
+
+console.log('\n--- порожнє поле не показує дві помилки одразу ---')
+// Порожній телефон — це «вкажіть телефон», а не «номер має 9 цифр».
+check(src.includes("!blank('contact_phone')"),
+      'у порожньому телефоні не зʼявляється ще й скарга на формат')
+
+console.log(`\nОФОРМЛЕННЯ: ${bad === 0 ? 'усе витримано' : `ПРОВАЛЕНО: ${bad}`}`)
+process.exit(bad ? 1 : 0)
