@@ -383,6 +383,67 @@ button { font: inherit; color: inherit; cursor: pointer; }
   opacity: 1; /* Firefox приглушує підказку власним opacity */
 }
 
+/* Автозаповнення. Саме воно лишалось незакритим, і симптом у нього
+ * характерний: текст не видно, поки поле активне, а щойно перейшли в
+ * інше — він проявляється.
+ *
+ * Chromium (а WebView у Telegram на Android — це Chromium) малює
+ * автозаповнене поле стилями рівня рушія, з власним !important. Наші
+ * `color` і `background` його не перекривають узагалі: правило автора
+ * програє UA-стилю з !important, скільки б важливостей ми не додали.
+ * Саме тому попередні виправлення тут не спрацювали — вони били не в
+ * той шар.
+ *
+ * Обійти можна лише двома лазівками, які рушій лишає навмисно:
+ * -webkit-text-fill-color для гліфів і внутрішня тінь на всю висоту
+ * поля замість тла.
+ */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+input:-webkit-autofill:active,
+textarea:-webkit-autofill,
+textarea:-webkit-autofill:focus,
+select:-webkit-autofill {
+  -webkit-text-fill-color: var(--tg-text) !important;
+  caret-color: var(--tg-text) !important;
+  /* Тло автозаповнення інакше не прибрати: background воно ігнорує,
+     а тінь на 1000px закриває поле цілком за будь-якої висоти. */
+  -webkit-box-shadow: 0 0 0 1000px var(--tg-secondary-bg) inset !important;
+  box-shadow: 0 0 0 1000px var(--tg-secondary-bg) inset !important;
+  /* Chromium повертає своє тло анімацією. Перехід на 100000 секунд —
+     відомий спосіб дочекатися, поки він передумає: анімація починається,
+     але видимого кроку не робить. */
+  transition: background-color 100000s ease-in-out 0s !important;
+}
+
+/* Поле з помилкою лишається червонуватим і в автозаповненні —
+   інакше підсвітка зникала б саме там, де вона найпотрібніша. */
+.input.bad:-webkit-autofill {
+  -webkit-box-shadow: 0 0 0 1000px var(--warn-soft) inset !important;
+  box-shadow: 0 0 0 1000px var(--warn-soft) inset !important;
+}
+
+/* Автозаповнений текст Chromium малює через ::first-line, а не через
+   звичайні правила поля. Без цього рядка колір лишається рушійним
+   навіть тоді, коли все інше вже наше. */
+input:-webkit-autofill::first-line,
+textarea:-webkit-autofill::first-line {
+  color: var(--tg-text);
+  -webkit-text-fill-color: var(--tg-text);
+  font-family: inherit;
+  font-size: 16px;
+}
+
+/* Стандартний відповідник тих же станів. Підтримується новішими
+   рушіями; лишаємо обидва, бо клієнти Telegram оновлюються нерівно. */
+input:autofill,
+textarea:autofill {
+  -webkit-text-fill-color: var(--tg-text) !important;
+  caret-color: var(--tg-text) !important;
+  box-shadow: 0 0 0 1000px var(--tg-secondary-bg) inset !important;
+}
+
 /* Автозаповнення. Safari та Chrome підмінюють і колір тексту, і тло
    власними — на темній темі виходив чорний текст на чорному. color тут
    не діє взагалі, працює лише -webkit-text-fill-color. */
@@ -1054,23 +1115,41 @@ textarea.input { min-height: 74px; resize: vertical; }
 
 /* ------------------------------------------------ довідник Нової пошти
  *
- * Список підказок під полем, а не окремий екран вибору. На екрані
- * телефона перехід «туди-назад» коштує людині втрати контексту: вона
- * бачила форму з сімома полями, а повернулася до неї з відчуттям, що
- * почала спочатку. Тут вибір лишається на місці, у потоці заповнення.
+ * Список підказок — накладкою поверх форми, а не вставкою в потік.
+ *
+ * Так було спершу, і це повернуло стару поломку: під час набору тексту
+ * в полі не видно, поки не перейдеш в інше. Причина не в кольорі —
+ * кольори закріплені вище й не мінялись. Причина в тому, що список
+ * зʼявлявся й зникав просто під активним полем: кожна натиснута літера
+ * рухала розмітку, а поруч виникав новий шар прокрутки. WebView
+ * Telegram у такій ситуації перестає перемальовувати поле у фокусі —
+ * значення в ньому є, каретка рухається, гліфів не видно до втрати
+ * фокуса.
+ *
+ * Накладка не рухає нічого: форма лишається на місці, а список лежить
+ * над нею. Заразом це й краще на вигляд — кнопка підтвердження не
+ * стрибає вниз на пів екрана щоразу, коли зʼявляються підказки.
  */
 .combo { position: relative; }
 
 .combo-list {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 20;
   margin-top: 6px;
   border: 1px solid var(--tg-secondary-bg);
   border-radius: var(--radius-sm);
   background: var(--tg-bg);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
   /* Понад тисячу відділень у великому місті не вміщаються нікуди —
-     показуємо перші й прокручуємо, а звужує перелік поле пошуку */
-  max-height: 260px;
+     показуємо перші й прокручуємо, а звужує перелік поле пошуку.
+     Плавної прокрутки з окремим шаром тут навмисно немає: саме вона
+     піднімала список над формою, через що сусіднє поле переставало
+     перемальовуватись. Сучасний WebView гортає плавно й без неї. */
+  max-height: 240px;
   overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
 }
 
 .combo-item {

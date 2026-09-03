@@ -1,4 +1,4 @@
-import { Suspense, lazy, useEffect, useState } from 'react'
+import { Component, Suspense, lazy, useEffect, useState } from 'react'
 import { NavLink, Navigate, Route, Routes, useNavigate } from 'react-router-dom'
 
 import { api, clearToken, getSession, getToken, isAdmin, isSysadmin } from './api'
@@ -6,20 +6,88 @@ import { APP_VERSION } from './version'
 import { Loading, ToastProvider } from './components/ui'
 import Login from './pages/Login'
 
-// Кожна сторінка — окремий чанк. Головне навантаження давав recharts (390 kB):
-// тепер він тягнеться лише коли реально відкривають «Огляд».
-const Overview = lazy(() => import('./pages/Overview'))
-const Orders = lazy(() => import('./pages/Orders'))
-const Catalog = lazy(() => import('./pages/Catalog'))
-const Customers = lazy(() => import('./pages/Customers'))
-const Promos = lazy(() => import('./pages/Promos'))
-const Broadcasts = lazy(() => import('./pages/Broadcasts'))
-const Settings = lazy(() => import('./pages/Settings'))
-const Operators = lazy(() => import('./pages/Operators'))
-const Logs = lazy(() => import('./pages/Logs'))
-const Backups = lazy(() => import('./pages/Backups'))
-const Instructions = lazy(() => import('./pages/Instructions'))
-const OrderPage = lazy(() => import('./pages/OrderPage'))
+// Позначка одноразового перезавантаження після оновлення панелі.
+const RELOAD_MARK = 'elfar:chunk-reload'
+
+/** Сторінка окремим чанком — із поверненням після оновлення панелі.
+ *
+ * Кожна сторінка вантажиться окремим файлом: головне навантаження давав
+ * recharts (390 kB), тепер він тягнеться лише коли відкривають «Огляд».
+ * Ціна цього рішення виявилась така. Після деплою старі файли зникають
+ * із сервера, а вкладка, відкрита до нього, і далі просить їх за
+ * старими іменами. Такий запит не падає видимою помилкою — Suspense
+ * показує скелет і чекає вічно. Ззовні це виглядає як «сторінка не
+ * грузиться взагалі»: меню живе, лічильники оновлюються, вміст не
+ * приходить ніколи. А сторінки, відкриті до деплою, працюють — їхні
+ * файли вже в памʼяті вкладки, і саме тому поломка здається вибірковою.
+ *
+ * Перезавантажуємось один раз: свіжий index.html підтягне нові імена.
+ * Позначка не дає зациклитись, якщо причина інша — тоді помилка дійде
+ * до запобіжника нижче, і людина побачить її, а не порожнечу.
+ */
+const page = (load) => lazy(() => load().then((mod) => {
+  // Будь-яка вдало завантажена сторінка означає, що вкладка знову
+  // збігається з сервером — знімаємо позначку, щоб наступне оновлення
+  // панелі так само могло полагодити себе одним перезавантаженням.
+  sessionStorage.removeItem(RELOAD_MARK)
+  return mod
+}).catch((err) => {
+  if (sessionStorage.getItem(RELOAD_MARK)) throw err
+  sessionStorage.setItem(RELOAD_MARK, '1')
+  window.location.reload()
+  // Сторінка вже зникає — не даємо React показати помилку по дорозі.
+  return new Promise(() => {})
+}))
+
+const Overview = page(() => import('./pages/Overview'))
+const Orders = page(() => import('./pages/Orders'))
+const Catalog = page(() => import('./pages/Catalog'))
+const Customers = page(() => import('./pages/Customers'))
+const Promos = page(() => import('./pages/Promos'))
+const Broadcasts = page(() => import('./pages/Broadcasts'))
+const Settings = page(() => import('./pages/Settings'))
+const Operators = page(() => import('./pages/Operators'))
+const Logs = page(() => import('./pages/Logs'))
+const Backups = page(() => import('./pages/Backups'))
+const Instructions = page(() => import('./pages/Instructions'))
+const OrderPage = page(() => import('./pages/OrderPage'))
+
+/** Запобіжник навколо вмісту сторінки.
+ *
+ * Без нього будь-яка помилка в рендері зносить усе дерево разом із
+ * меню, і лишається білий екран без жодної підказки, куди дивитись.
+ */
+class PageBoundary extends Component {
+  constructor(props) {
+    super(props)
+    this.state = { failed: null }
+  }
+
+  static getDerivedStateFromError(error) {
+    return { failed: error }
+  }
+
+  componentDidCatch(error) {
+    console.error('Сторінка не відкрилась:', error)
+  }
+
+  render() {
+    if (!this.state.failed) return this.props.children
+    return (
+      <div className="card">
+        <h2 style={{ marginTop: 0 }}>Сторінка не відкрилась</h2>
+        <p className="faint">
+          Найчастіше так буває одразу після оновлення панелі: вкладка
+          лишилась зі старої версії. Перезавантажте сторінку — якщо не
+          допоможе, подробиці є в консолі браузера.
+        </p>
+        <button className="btn" onClick={() => window.location.reload()}>
+          Перезавантажити
+        </button>
+      </div>
+    )
+  }
+}
 
 const NAV = [
   { to: '/', label: 'Огляд', end: true },
@@ -102,7 +170,9 @@ function Shell({ children }) {
         </div>
       </aside>
       <main className="main">
-        <Suspense fallback={<Loading rows={4} />}>{children}</Suspense>
+        <PageBoundary>
+          <Suspense fallback={<Loading rows={4} />}>{children}</Suspense>
+        </PageBoundary>
       </main>
     </div>
   )

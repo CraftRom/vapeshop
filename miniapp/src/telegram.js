@@ -168,6 +168,22 @@ function deriveSecondary(bg, text) {
   return toHex(a.map((channel, i) => channel + (b[i] - channel) * 0.08))
 }
 
+/** Наскільки два кольори різняться на око: 0 — однакові, 1 — чорне з білим.
+ *
+ *  Потрібно для одного рішення: чи можна довіряти підкладці, яку надіслав
+ *  клієнт. Тема в Telegram налаштовується користувачем, і серед
+ *  користувацьких тем трапляються такі, де колір панелей майже збігається
+ *  з кольором тексту. Наш застосунок у такій темі виглядав би зламаним,
+ *  хоч зламана в ній саме тема.
+ */
+function contrast(first, second) {
+  const a = parseHex(first)
+  const b = parseHex(second)
+  if (!a || !b) return 1
+  const luminance = ([r, g, blue]) => (0.2126 * r + 0.7152 * g + 0.0722 * blue) / 255
+  return Math.abs(luminance(a) - luminance(b))
+}
+
 /** Кольори з клієнта користувача: міні-апп має збігатися з його темою.
  *
  *  Застосовуємо все разом або нічого. Раніше кожна змінна ставилась
@@ -190,6 +206,15 @@ export function applyTheme() {
     return
   }
 
+  // Підкладка полів — єдиний колір, який ми перевіряємо, а не беремо на
+  // віру. Решта тільки псує вигляд; ця — робить введений текст
+  // невидимим, і людина бачить не «негарно», а «зламано».
+  const fieldBackground = (sent, background, foreground) => {
+    const own = deriveSecondary(background, foreground)
+    if (!sent || !parseHex(sent)) return own
+    return contrast(sent, foreground) < 0.2 ? own : sent
+  }
+
   const map = {
     '--tg-bg': bg,
     '--tg-text': text,
@@ -197,7 +222,7 @@ export function applyTheme() {
     '--tg-link': p.link_color,
     '--tg-button': p.button_color,
     '--tg-button-text': p.button_text_color,
-    '--tg-secondary-bg': p.secondary_bg_color || deriveSecondary(bg, text),
+    '--tg-secondary-bg': fieldBackground(p.secondary_bg_color, bg, text),
   }
   for (const [name, value] of Object.entries(map)) {
     if (value) root.style.setProperty(name, value)
@@ -207,7 +232,7 @@ export function applyTheme() {
 
 // Експортуємо для тестів: логіка кольорів надто дорога, щоб перевіряти
 // її очима на живому пристрої.
-export const _theme = { parseHex, toHex, deriveSecondary }
+export const _theme = { parseHex, toHex, deriveSecondary, contrast }
 
 export function onThemeChange(handler) {
   tg?.onEvent?.('themeChanged', handler)
