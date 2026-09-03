@@ -101,4 +101,47 @@ ops = c.get("/api/stats/by-operator", params={"days":1}, headers=A).json()
 r.check(any(o["operator_name"] == "Олена" and o["orders"] == 1 for o in ops), "розріз по менеджеру", ops)
 hist = c.get("/api/shop/orders", headers=H).json()
 r.check(any(o["id"] == oid for o in hist), "клієнт бачить замовлення в історії")
+print("\n[покупець] скасовує сам")
+# Замовлення вище вже пройшло шлях до кінця, тож для скасування треба
+# нове: з «Виконаного» назад дороги немає — і це правильно.
+c.post("/api/shop/cart", json={"product_id": pr["id"], "delta": 2}, headers=H)
+fresh = c.post("/api/shop/checkout", json={
+    "contact_surname": "Шевченко", "contact_name": "Тарас",
+    "contact_phone": "+380671112233", "city": "Київ",
+    "address": "Відділення 1", "payment_method": "card",
+}, headers=H)
+new_id = fresh.json()["order_id"]
+stock_before = c.get(f"/api/catalog/products/{pr['id']}", headers=A).json()["stock"]
+mine = c.get("/api/shop/orders", headers=H).json()
+r.check(any(o["id"] == new_id and o["can_cancel"] for o in mine),
+        "нове замовлення можна скасувати з застосунку")
+
+done = c.post(f"/api/shop/orders/{new_id}/cancel", headers=H)
+r.check(done.status_code == 200, "скасування прийнято", done.text[:120])
+after = {o["id"]: o for o in done.json()["orders"]}
+r.check(after[new_id]["status"] == "cancelled", "статус змінився",
+        after[new_id]["status"])
+r.check(after[new_id]["can_cancel"] is False,
+        "скасоване вже не пропонує скасування")
+
+# Головне, заради чого скасування взагалі існує: товар мусить
+# повернутись у продаж, а не лишитись зарезервованим за тим, хто
+# передумав.
+restored = c.get(f"/api/catalog/products/{pr['id']}", headers=A).json()
+# Замір зроблено вже після оформлення, тож дві штуки замовлення на той
+# момент зі складу зняті — після скасування вони мають повернутись.
+r.check(restored["stock"] == stock_before + 2, "залишок повернувся на склад",
+        (stock_before, restored["stock"]))
+
+again = c.post(f"/api/shop/orders/{new_id}/cancel", headers=H)
+r.check(again.status_code == 200,
+        "повторне натискання не помилка: людина могла не побачити першого",
+        again.status_code)
+
+r.check(c.post(f"/api/shop/orders/{oid}/cancel", headers=H).status_code == 409,
+        "виконане замовлення покупець не скасовує — тільки через менеджера")
+
+r.check(c.post("/api/shop/orders/999999/cancel", headers=H).status_code == 404,
+        "чуже або неіснуюче замовлення — 404, без підтверджень існування")
+
 sys.exit(1 if r.done() else 0)

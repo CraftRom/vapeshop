@@ -63,6 +63,8 @@ export const api = {
   // Довідник Нової пошти. Ходимо через свій бекенд, а не напряму до
   // перевізника: ключ приватний, а політика безпеки вітрини й так
   // дозволяє запити лише на власний домен.
+  cancelOrder: (id) => request(`/orders/${id}/cancel`, { method: 'POST' }),
+
   delivery: {
     cities: (q) => request(`/delivery/cities?q=${encodeURIComponent(q)}`),
     price: (cityRef, settlementRef, method, paymentMethod) =>

@@ -18,7 +18,7 @@ from pydantic import BaseModel, Field, field_validator
 from api.schemas import CategoryOut, ProductOut
 from shop.links import app_link
 from api.webapp_auth import require_webapp_user
-from shop.entities import User
+from shop.entities import OrderStatus, User
 from shop.repo.base import Repository
 from shop.repo.factory import get_repo
 from shop.services import novaposhta as np
@@ -566,6 +566,10 @@ async def _orders_payload(repo: Repository, user_id: int) -> list[dict]:
             "operator_name": o.operator_name,
             "tracking_number": o.tracking_number,
             "is_open": o.status in svc_chat.OPEN_STATUSES,
+            # Правило скасування живе на сервері, а вітрина лише показує
+            # кнопку. Дві копії умови розійшлись би при першій же зміні
+            # маршруту статусів.
+            "can_cancel": o.status in SELF_CANCELLABLE,
             "items": [{"name": i.name, "qty": i.qty, "price": i.price} for i in o.items],
         }
         for o in orders
@@ -578,6 +582,78 @@ async def my_orders(
 ):
     _require_age(user)
     return await _orders_payload(repo, user.id)
+
+
+# Статуси, з яких покупець скасовує сам.
+#
+# Далі — ні. Оплачене замовлення означає, що гроші вже в нас і їх треба
+# повертати; відправлене — що посилка вже їде, і скасування коштує
+# зворотної пересилки. Обидва випадки вимагають людини, а не кнопки,
+# тож із них ведемо в чат замовлення.
+SELF_CANCELLABLE = {OrderStatus.NEW, OrderStatus.ACCEPTED}
+
+
+@router.post("/orders/{order_id}/cancel")
+async def cancel_my_order(
+    order_id: int,
+    user: User = Depends(require_webapp_user),
+    repo: Repository = Depends(get_repo),
+):
+    """Скасування замовлення покупцем.
+
+    Дає ту саму дію, що й менеджер у панелі: залишки повертаються на
+    склад, списані бонуси — на рахунок. Без цієї кнопки людина писала в
+    чат «скасуйте, будь ласка» і чекала, а товар усі ці години лишався
+    зарезервованим за нею.
+    """
+    _require_age(user)
+    order = await repo.get_order(order_id)
+    # Чуже замовлення — 404, а не 403: підтверджувати існування чужого
+    # номера немає потреби, а перебором номерів так нічого не дізнатись.
+    if not order or order.user_id != user.id:
+        raise HTTPException(404, "Замовлення не знайдено")
+
+    if order.status == OrderStatus.CANCELLED:
+        # Повторне натискання не помилка: людина могла не побачити
+        # результату першого. Відповідаємо тим самим, що й тоді.
+        return {"orders": await _orders_payload(repo, user.id)}
+
+    if order.status not in SELF_CANCELLABLE:
+        raise HTTPException(
+            409,
+            "Це замовлення вже в роботі — скасувати його самостійно не вийде. "
+            "Напишіть у чат замовлення, і менеджер усе владнає.",
+        )
+
+    await svc.change_order_status(repo, order, OrderStatus.CANCELLED)
+    await _tell_managers_cancelled(repo, order, user)
+    return {"orders": await _orders_payload(repo, user.id)}
+
+
+async def _tell_managers_cancelled(repo: Repository, order, user: User) -> None:
+    """Повідомляє менеджерів у чат замовлення.
+
+    Без цього скасування було б видно лише в списку — а менеджер, який
+    уже пакує посилку, у список не дивиться.
+    """
+    try:
+        bot = None
+        try:
+            from api.routers.telegram import _instances
+
+            bot, _ = _instances()
+        except Exception:  # noqa: BLE001
+            log.warning("Бот недоступний — про скасування не сповістимо")
+
+        await svc_chat.save_incoming(
+            repo, order, user,
+            "Скасував замовлення у застосунку. Товар повернуто в наявність.",
+            bot=bot,
+        )
+    except Exception:  # noqa: BLE001
+        # Скасування вже відбулось і відкотити його не можна. Впасти тут
+        # означало б показати покупцеві помилку на успішній дії.
+        log.warning("Не вдалось сповістити про скасування №%s", order.id)
 
 
 # --------------------------------------------------------------- доставка

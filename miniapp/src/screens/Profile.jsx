@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 
 import { api } from '../api'
-import { haptic, openLink } from '../telegram'
+import { confirm, haptic, notify, openLink } from '../telegram'
 
 const STATUS = {
   new: 'Нове',
@@ -16,10 +16,41 @@ const STATUS = {
 export function Profile({ config, profile }) {
   const [orders, setOrders] = useState(null)
   const [copied, setCopied] = useState(false)
+  // Номер замовлення, яке саме скасовується. Не булеве значення: із
+  // кількома замовленнями на екрані треба знати, на якій саме кнопці
+  // показувати очікування.
+  const [cancelling, setCancelling] = useState(null)
+  const [cancelError, setCancelError] = useState('')
 
   useEffect(() => {
     api.orders().then(setOrders).catch(() => setOrders([]))
   }, [])
+
+  const cancel = async (order) => {
+    // Питаємо підтвердження нативним вікном Telegram: скасування
+    // повертає товар на склад і бонуси на рахунок, відкотити його
+    // назад покупець уже не зможе.
+    const sure = await confirm(
+      `Скасувати замовлення №${order.id}? Повернути його потім не вийде — `
+      + 'доведеться оформити наново.',
+    )
+    if (!sure) return
+
+    setCancelling(order.id)
+    setCancelError('')
+    try {
+      const data = await api.cancelOrder(order.id)
+      setOrders(data.orders)
+      notify('success')
+    } catch (err) {
+      // Найчастіша причина — менеджер устиг узяти замовлення в роботу
+      // між тим, як екран намалювався, і натисканням кнопки.
+      setCancelError(err.message)
+      notify('error')
+    } finally {
+      setCancelling(null)
+    }
+  }
 
   const share = () => {
     haptic('light')
@@ -106,6 +137,8 @@ export function Profile({ config, profile }) {
         <h1 style={{ fontSize: 17 }}>Замовлення</h1>
       </div>
 
+      {cancelError && <div className="banner warn">{cancelError}</div>}
+
       {orders === null ? (
         <div className="list">
           <div className="skeleton" />
@@ -135,6 +168,18 @@ export function Profile({ config, profile }) {
                 </li>
               ))}
             </ul>
+            {/* Кнопку показуємо лише там, де скасування ще можливе, і
+                вирішує це сервер. Дві копії правила розійшлися б при
+                першій зміні маршруту статусів. */}
+            {o.can_cancel && (
+              <button
+                className="order-cancel"
+                disabled={cancelling === o.id}
+                onClick={() => cancel(o)}
+              >
+                {cancelling === o.id ? 'Скасовуємо…' : 'Скасувати замовлення'}
+              </button>
+            )}
           </div>
         ))
       )}

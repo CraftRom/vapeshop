@@ -1243,3 +1243,22 @@ body.editing .tabs {
   transform: translateZ(0);
   will-change: contents;
 }
+
+/* Скасування замовлення покупцем. Кнопка навмисно стримана: це дія
+   з наслідками, але не небезпечна — товар повертається на склад,
+   бонуси на рахунок. Червона кнопка на видноті лякала б більше, ніж
+   вартує. */
+.order-cancel {
+  width: 100%;
+  margin-top: 10px;
+  padding: 9px;
+  border: 1px solid var(--tg-secondary-bg);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--tg-hint);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.order-cancel:active { background: var(--tg-secondary-bg); }
+.order-cancel:disabled { opacity: 0.5; }

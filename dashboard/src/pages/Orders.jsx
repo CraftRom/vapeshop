@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 
 import { api, isSysadmin } from '../api'
-import StatusRail, { STATUS_LABELS } from '../components/StatusRail'
+import StatusRail, { STATUS_LABELS, allowedFrom } from '../components/StatusRail'
 import { Empty, ErrorBar, Field, Info, Loading, Modal, dateTime, money, useToast } from '../components/ui'
 import { useFilters } from '../components/useFilters'
 
@@ -170,6 +170,18 @@ export default function Orders() {
    *  Помилкове скасовують статусом, так лишається слід. Стирати доводиться
    *  хіба що тестові записи після налаштування.
    */
+  const cancelOrder = async (order) => {
+    // Підтвердження тут не формальність: скасування повертає товар на
+    // склад і бонуси клієнту, а зворотного шляху зі «Скасованого» немає
+    // — повторне списання зіпсувало б облік.
+    if (!window.confirm(
+      `Скасувати замовлення №${order.id} на ${money(order.total)}? `
+      + 'Товар повернеться в наявність, бонуси — клієнту. '
+      + 'Повернути замовлення в роботу після цього не можна.',
+    )) return
+    await changeStatus(order, 'cancelled')
+  }
+
   const removeOrder = async (order) => {
     if (!window.confirm(
       `Стерти замовлення №${order.id} на ${money(order.total)}? ` +
@@ -400,6 +412,18 @@ export default function Orders() {
                         <button className="btn ghost small" onClick={() => setSelected(order)}>
                           Швидкий перегляд
                         </button>
+                        {/* Скасування не входить у доріжку статусів: вона
+                            веде замовлення вперед, а це крок убік. Раніше
+                            заради нього доводилось відкривати картку. */}
+                        {allowedFrom(order.status, order.payment_method)
+                          .includes('cancelled') && (
+                          <button
+                            className="btn ghost small"
+                            onClick={() => cancelOrder(order)}
+                          >
+                            Скасувати
+                          </button>
+                        )}
                         {isSysadmin() && (
                           <button
                             className="btn danger small"
