@@ -581,6 +581,25 @@ dash = read("dashboard/src/App.jsx")
 for page in ["Orders","OrderPage","Catalog","Customers","Promos","Broadcasts","Operators","Settings","Overview"]:
     check(page in dash, f"панель використовує {page}")
 
+print("\n=== ФАЙЛИ ЗБІРКИ: ВІДДАЮТЬСЯ ЯК ФАЙЛИ ===")
+# Поломка, заради якої тут зʼявились ці перевірки: nginx підставляв
+# index.html замість ненайденого файлу збірки — і робив це з кодом 200.
+# Браузер просив Orders-XXXX.js, отримував сторінку HTML із відповіддю
+# «усе гаразд» і не міг її виконати. Сторінка не відкривалась, у журналі
+# сервера — жодної помилки. А 200 ще й кешується, тож HTML лишався
+# лежати під імʼям скрипта і після перерозгортання.
+for who, path, prefix in [("панель", "dashboard/nginx.conf", "/assets/"),
+                          ("вітрина", "miniapp/nginx.conf", "/app/assets/")]:
+    conf = read(path)
+    block = conf[conf.index(f"location {prefix}"):] if f"location {prefix}" in conf else ""
+    block = block[:block.index("}")] if "}" in block else block
+    check(bool(block), f"{who}: файли збірки мають власне правило", prefix)
+    check("=404" in block,
+          f"{who}: відсутній файл дає 404, а не сторінку під виглядом скрипта")
+    check("no-store" in conf,
+          f"{who}: index.html не кешується — інакше вкладка переживе деплой "
+          f"і питатиме файли, яких уже немає")
+
 print("\n=== КЛІЄНТИ API ===")
 mapi = read("miniapp/src/api.js")
 # Фото товару вітрина тягне прямим fetch із заголовком підпису, а не через

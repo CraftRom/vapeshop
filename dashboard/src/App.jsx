@@ -73,13 +73,30 @@ class PageBoundary extends Component {
 
   render() {
     if (!this.state.failed) return this.props.children
+
+    const detail = String(this.state.failed?.message || this.state.failed)
+    // Не змогли завантажити файл сторінки — це інша поломка, ніж
+    // помилка в самому коді, і лікується вона інакше.
+    const missing = /dynamically imported module|module script|Unexpected token/i
+      .test(detail)
+
     return (
       <div className="card">
         <h2 style={{ marginTop: 0 }}>Сторінка не відкрилась</h2>
         <p className="faint">
-          Найчастіше так буває одразу після оновлення панелі: вкладка
-          лишилась зі старої версії. Перезавантажте сторінку — якщо не
-          допоможе, подробиці є в консолі браузера.
+          {missing
+            ? 'Не вдалось завантажити файл сторінки. Найчастіше так буває '
+              + 'одразу після оновлення панелі: вкладка лишилась зі старої '
+              + 'версії. Перезавантажте — якщо не допоможе, файлу немає на '
+              + 'сервері, і потрібне повторне розгортання.'
+            : 'Помилка під час відкриття сторінки. Текст нижче варто '
+              + 'показати розробнику — за ним видно, де саме зламалось.'}
+        </p>
+        {/* Текст помилки на екрані, а не лише в консолі: коли панеллю
+            користується менеджер, «подивіться в консолі» — це порада в
+            нікуди, і причина втрачається разом із вкладкою. */}
+        <p className="mono" style={{ fontSize: 12, wordBreak: 'break-word' }}>
+          {detail}
         </p>
         <button className="btn" onClick={() => window.location.reload()}>
           Перезавантажити
