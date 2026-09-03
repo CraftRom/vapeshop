@@ -511,3 +511,64 @@ textarea.input { resize: vertical; min-height: 88px; }
   text-align: center;
   font-variant-numeric: tabular-nums;
 }
+
+/* --------------------------------------------------- довідка про замовлення
+ *
+ * Підпис зверху, значення знизу. Раніше картка отримувача була
+ * суцільним сірим текстом: імʼя, телефон і адреса виглядали однаково,
+ * і щоб знайти телефон, доводилось прочитати весь блок. Тепер око
+ * чіпляється за підпис, а не перебирає рядки.
+ */
+.info-row {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.info-row:last-child { border-bottom: 0; padding-bottom: 0; }
+
+.info-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 26px;
+}
+
+.info-label {
+  color: var(--faint);
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.info-value {
+  margin-top: 3px;
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.45;
+  /* Значення виділяються мишею окремо від підпису: скопіювати телефон,
+     не зачепивши слово «Номер телефону», інакше не вийде. */
+  user-select: text;
+  word-break: break-word;
+}
+
+/* Те, що переписують у накладну або читають уголос. Більший кегль і
+   моноширинні цифри: у пропорційному шрифті 1 і 7 на швидку руку
+   плутаються, а помилка в цифрі — це посилка не туди. */
+.info-strong {
+  display: inline-block;
+  color: var(--text);
+  font-size: 16px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-decoration: none;
+}
+
+a.info-strong:hover { color: var(--violet); }
+
+.info-codes {
+  margin-top: 4px;
+  color: var(--faint);
+  font-size: 11.5px;
+}

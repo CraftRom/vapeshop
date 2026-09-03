@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 
 import { api, getToken } from '../api'
-import { ErrorBar, Field, Loading, Modal, money, useToast } from '../components/ui'
+import { ErrorBar, Field, Info, Loading, Modal, money, useToast } from '../components/ui'
 import { allowedFrom, stagesFor } from '../components/StatusRail'
 
 // Спосіб доставки, обраний покупцем. Порожнє значення — замовлення з
@@ -14,8 +14,7 @@ const DELIVERY_METHODS = {
 
 const PAYMENT = { card: 'На картку', cod: 'Накладений платіж' }
 
-// Повні підписи кроків. Доріжка й дозволені переходи живуть у StatusRail —
-// дві копії тих самих таблиць уже розходились між списком і карткою.
+
 const STAGE_LABELS = {
   new: 'Нове',
   accepted: 'Прийнято',
@@ -312,6 +311,10 @@ export default function OrderPage() {
   if (!order) return <Loading />
 
   const client = order.user || {}
+  // Прізвище першим: саме в такому порядку його вписують у накладну, і
+  // саме так його шукає менеджер у списку відправлень перевізника.
+  const fullName = [order.contact_surname, order.contact_name, order.contact_patronymic]
+    .filter(Boolean).join(' ')
 
   return (
     <>
@@ -439,28 +442,63 @@ export default function OrderPage() {
 
         <div>
           <div className="card" style={{ marginBottom: 18 }}>
-            <h2 style={{ marginTop: 0 }}>Клієнт</h2>
-            <p style={{ margin: '0 0 4px' }}>{order.contact_name}</p>
-            <p className="faint" style={{ margin: '0 0 4px' }}>{order.contact_phone}</p>
-            <p className="faint" style={{ margin: '0 0 4px' }}>
-              {DELIVERY_METHODS[order.delivery_method] || 'Доставка'}:{' '}
-              {[order.delivery_city, order.delivery_address].filter(Boolean).join(', ')}
-            </p>
-            {/* Коди довідника показуємо лише тоді, коли вони є: у
-                замовленнях, оформлених до появи вибору відділення, їх
-                немає й не буде. Порожній рядок «Код: —» лише збивав би
-                з пантелику того, хто створює накладну. */}
-            {order.delivery_warehouse_ref && (
-              <p className="faint" style={{ margin: '0 0 4px', fontSize: 12 }}>
-                Коди НП: {order.delivery_city_ref} / {order.delivery_warehouse_ref}
-              </p>
+            <h2 style={{ marginTop: 0 }}>Отримувач</h2>
+
+            <Info label="Прізвище, імʼя, по батькові" copy={fullName}>
+              {fullName || <span className="faint">не вказано</span>}
+            </Info>
+
+            {/* Телефон окремим блоком і великим шрифтом: його читають
+                вголос під час дзвінка й переписують у накладну. Одна
+                перевернута цифра — і посилка їде не туди. */}
+            <Info label="Номер телефону" copy={order.contact_phone}>
+              <a className="info-strong" href={`tel:${order.contact_phone}`}>
+                {order.contact_phone}
+              </a>
+            </Info>
+
+            <Info
+              label={DELIVERY_METHODS[order.delivery_method] || 'Доставка'}
+              copy={[order.delivery_city, order.delivery_address]
+                .filter(Boolean).join(', ')}
+            >
+              {order.delivery_city && <div>{order.delivery_city}</div>}
+              <div className="info-strong">{order.delivery_address}</div>
+              {/* Коди довідника показуємо лише там, де вони є: у
+                  замовленнях, оформлених до появи вибору відділення,
+                  їх немає й не буде. Порожній рядок «Код: —» лише
+                  збивав би з пантелику того, хто робить накладну. */}
+              {order.delivery_warehouse_ref && (
+                <div className="info-codes num">
+                  {order.delivery_city_ref} / {order.delivery_warehouse_ref}
+                </div>
+              )}
+            </Info>
+
+            {/* Накладна дублюється тут навмисно. Змінюють її внизу, у
+                панелі статусу, а дивляться сюди — коли клієнт питає
+                «де посилка», лізти по номер в іншу картку незручно. */}
+            {order.tracking_number && (
+              <Info label="Накладна" copy={order.tracking_number}>
+                <a
+                  className="info-strong num"
+                  href={`https://novaposhta.ua/tracking/?cargo_number=${order.tracking_number}`}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  {order.tracking_number}
+                </a>
+              </Info>
             )}
-            {client.username && <p className="faint" style={{ margin: 0 }}>@{client.username}</p>}
+
+            <Info label="Telegram" copy={client.username ? `@${client.username}` : ''}>
+              {client.username
+                ? `@${client.username}`
+                : <span className="faint">без імені користувача</span>}
+            </Info>
+
             {order.comment && (
-              <p style={{ marginTop: 10 }}>
-                <span className="faint">Коментар: </span>
-                {order.comment}
-              </p>
+              <Info label="Коментар покупця">{order.comment}</Info>
             )}
           </div>
 

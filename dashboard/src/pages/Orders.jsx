@@ -3,7 +3,13 @@ import { Link, useNavigate } from 'react-router-dom'
 
 import { api, isSysadmin } from '../api'
 import StatusRail, { STATUS_LABELS } from '../components/StatusRail'
-import { Empty, ErrorBar, Field, Loading, Modal, dateTime, money, useToast } from '../components/ui'
+import { Empty, ErrorBar, Field, Info, Loading, Modal, dateTime, money, useToast } from '../components/ui'
+
+// Той самий перелік, що й на сторінці замовлення.
+const DELIVERY_METHODS = {
+  warehouse: 'Відділення НП',
+  courier: 'Курʼєр',
+}
 
 const FILTERS = [
   { value: '', label: 'Усі' },
@@ -38,6 +44,8 @@ function OrderDetails({ order, onClose, onSaved }) {
     }
   }
 
+  const fullName = [order.contact_surname, order.contact_name, order.contact_patronymic]
+    .filter(Boolean).join(' ')
   const customer = order.user
   const contact = customer?.username ? `@${customer.username}` : `id${customer?.tg_id ?? '—'}`
 
@@ -89,14 +97,42 @@ function OrderDetails({ order, onClose, onSaved }) {
         </div>
 
         <div>
-          <h3>Клієнт і доставка</h3>
-          <p className="muted" style={{ margin: '8px 0 0' }}>
-            {order.contact_name} · <span className="mono">{order.contact_phone}</span> · {contact}<br />
-            {order.delivery_city}, {order.delivery_address}<br />
-            Оплата: {order.payment_method === 'card' ? 'переказ на картку' : 'накладений платіж'}<br />
-            Створено: {dateTime(order.created_at)}
-          </p>
-          {order.comment && <p style={{ marginBottom: 0 }}>Коментар клієнта: {order.comment}</p>}
+          <h3>Отримувач і доставка</h3>
+          {/* Той самий вигляд, що й на сторінці замовлення: підпис
+              зверху, значення знизу. Раніше все це йшло одним рядком
+              через крапки, і телефон доводилось вишукувати очима
+              посеред імені та адреси. */}
+          <Info label="Прізвище, імʼя" copy={fullName}>{fullName}</Info>
+          <Info label="Номер телефону" copy={order.contact_phone}>
+            <a className="info-strong" href={`tel:${order.contact_phone}`}>
+              {order.contact_phone}
+            </a>
+          </Info>
+          <Info
+            label={DELIVERY_METHODS[order.delivery_method] || 'Доставка'}
+            copy={[order.delivery_city, order.delivery_address].filter(Boolean).join(', ')}
+          >
+            {order.delivery_city && <div>{order.delivery_city}</div>}
+            <div className="info-strong">{order.delivery_address}</div>
+          </Info>
+          {order.tracking_number && (
+            <Info label="Накладна" copy={order.tracking_number}>
+              <a
+                className="info-strong num"
+                href={`https://novaposhta.ua/tracking/?cargo_number=${order.tracking_number}`}
+                target="_blank"
+                rel="noreferrer"
+              >
+                {order.tracking_number}
+              </a>
+            </Info>
+          )}
+          <Info label="Telegram">{contact}</Info>
+          <Info label="Оплата">
+            {order.payment_method === 'card' ? 'Переказ на картку' : 'Накладений платіж'}
+          </Info>
+          <Info label="Створено">{dateTime(order.created_at)}</Info>
+          {order.comment && <Info label="Коментар покупця">{order.comment}</Info>}
         </div>
 
         <Field label="Нотатка менеджера" hint="Видно лише в панелі, клієнт її не бачить">

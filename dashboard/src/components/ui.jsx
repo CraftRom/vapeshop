@@ -125,3 +125,43 @@ export function confirmPurge(label, extra = '') {
   }
   return true
 }
+
+/** Рядок довідки: підпис зверху, значення знизу.
+ *
+ * Раніше все це йшло суцільним сірим текстом в один стовпчик — імʼя,
+ * телефон, адреса виглядали однаково, і щоб знайти потрібне, доводилось
+ * читати весь блок. Підпис над значенням дає зачепитись оком за те, що
+ * шукаєш, не читаючи решти.
+ */
+export function Info({ label, children, copy }) {
+  const notify = useToast()
+
+  const copyValue = async () => {
+    try {
+      await navigator.clipboard.writeText(copy)
+      notify('Скопійовано')
+    } catch {
+      // Буфер обміну недоступний (старий браузер, доступ заборонено).
+      // Значення й так на екрані — виділити його можна руками.
+      notify('Не вдалось скопіювати — виділіть текст', 'bad')
+    }
+  }
+
+  return (
+    <div className="info-row">
+      <div className="info-head">
+        <span className="info-label">{label}</span>
+        {copy && (
+          <button className="btn ghost small" onClick={copyValue}>
+            Копіювати
+          </button>
+        )}
+      </div>
+      <div className="info-value">{children}</div>
+    </div>
+  )
+}
+
+
+// Повні підписи кроків. Доріжка й дозволені переходи живуть у StatusRail —
+// дві копії тих самих таблиць уже розходились між списком і карткою.
