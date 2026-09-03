@@ -56,6 +56,21 @@ class Settlement:
 
 
 @dataclass
+class Price:
+    """Попередній розрахунок доставки.
+
+    Саме попередній, і це не обережність у формулюваннях. Перевізник
+    рахує за фактичною вагою й габаритами, а їх ніхто не знає, поки
+    посилку не зважать на відділенні. Ми підставляємо припущену вагу з
+    налаштувань — тож число показуємо як орієнтир, а не як ціну.
+    """
+
+    cost: int
+    redelivery: int
+    weight: float
+
+
+@dataclass
 class Warehouse:
     ref: str
     number: int
@@ -259,3 +274,61 @@ async def warehouses(api_key: str, city_ref: str, settlement_ref: str = "",
     else:
         picked = everything
     return picked[:limit]
+
+
+# ----------------------------------------------------------- розрахунок
+
+
+async def city_ref_by_name(api_key: str, name: str) -> str:
+    """Код міста відправлення за назвою з налаштувань.
+
+    Адміністратор вписує «Хмельницький», а не набір із тридцяти шести
+    символів: код відправника нікого не цікавить, і помилитись у ньому
+    легше, ніж у назві міста.
+    """
+    found = await search_settlements(api_key, name, limit=1)
+    return found[0].ref or found[0].settlement_ref if found else ""
+
+
+async def document_price(api_key: str, sender_ref: str, recipient_ref: str,
+                         to_door: bool, declared: float, weight: float,
+                         cash_on_delivery: float = 0) -> Price:
+    """Скільки перевізник візьме за таку посилку.
+
+    Оголошена вартість впливає на ціну — страхування рахується від неї,
+    тож підставляємо суму замовлення, а не нуль.
+    """
+    props = {
+        "CitySender": sender_ref,
+        "CityRecipient": recipient_ref,
+        "ServiceType": "WarehouseDoors" if to_door else "WarehouseWarehouse",
+        "CargoType": "Cargo",
+        "Cost": str(int(declared)),
+        "Weight": str(weight),
+        "SeatsAmount": "1",
+    }
+    if cash_on_delivery > 0:
+        # Комісія за переказ грошей назад продавцеві. Її платить покупець
+        # окремо від доставки, і не показати її означає здивувати людину
+        # на відділенні.
+        props["RedeliveryCalculate"] = {
+            "CargoType": "Money", "Amount": str(int(cash_on_delivery)),
+        }
+
+    key = f"price:{sender_ref}:{recipient_ref}:{int(to_door)}:{int(declared)}:{weight}:{int(cash_on_delivery)}"
+    hit = _cached(key)
+    if hit is not None:
+        return hit[0]
+
+    rows = await _call(api_key, "InternetDocument", "getDocumentPrice", props)
+    if not rows:
+        raise NovaPoshtaError("Перевізник не повернув розрахунку")
+
+    row = rows[0]
+    price = Price(
+        cost=_int(row.get("Cost")),
+        redelivery=_int(row.get("CostRedelivery")),
+        weight=weight,
+    )
+    _store(key, [price])
+    return price

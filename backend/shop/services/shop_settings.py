@@ -65,6 +65,8 @@ class ShopSettings:
     # Ключ до довідника Нової пошти. Єдине налаштування, яке не читається
     # назад: панель бачить лише ознаку «підключено» (novaposhta_connected).
     novaposhta_api_key: str
+    novaposhta_sender_city: str
+    delivery_weight_per_item: Decimal
 
     admin_topic_id: int
     chat_topic_id: int
@@ -129,6 +131,8 @@ class ShopSettings:
             cod_commission_percent=Decimal(str(settings.cod_commission_percent)),
             cod_commission_fixed=Decimal(str(settings.cod_commission_fixed)),
             novaposhta_api_key=settings.novaposhta_api_key,
+            novaposhta_sender_city=settings.novaposhta_sender_city,
+            delivery_weight_per_item=Decimal(str(settings.delivery_weight_per_item)),
             admin_topic_id=settings.admin_topic_id,
             chat_topic_id=settings.chat_topic_id,
             error_topic_id=settings.error_topic_id,

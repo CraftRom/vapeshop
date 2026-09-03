@@ -52,6 +52,44 @@ export default function App() {
     return onThemeChange(applyTheme)
   }, [])
 
+  /* Поки людина друкує — жодних плаваючих панелей на екрані.
+   *
+   * Це та сама поломка, що поверталась тричі: у полі не видно, що
+   * набираєш, поки не перейдеш в інше. Кольори до неї непричетні —
+   * вони закріплені в стилях і не мінялись. Причина в тому, як WebView
+   * Telegram малює сторінку: нижня панель кошика прибита до низу
+   * екрана й має transform, тобто живе окремим шаром компонування.
+   * Коли зʼявляється клавіатура, вікно змінює висоту, шар
+   * перераховується — і растр сторінки під ним лишається старим.
+   * Значення в полі є, каретка рухається, нових гліфів не видно до
+   * події, яка змусить перемалювати все: саме нею і є перехід в інше
+   * поле.
+   *
+   * Лікувати це кольорами було безнадійно. Тут ми прибираємо саму
+   * причину: поки поле у фокусі, плаваючих шарів на екрані немає.
+   * Панель кошика під час заповнення форми однаково не потрібна — під
+   * нею клавіатура, а рішення вже прийнято.
+   */
+  useEffect(() => {
+    const typing = (node) => Boolean(node) && (
+      node.tagName === 'INPUT' || node.tagName === 'TEXTAREA'
+      || node.tagName === 'SELECT'
+    )
+    const enter = (e) => {
+      if (typing(e.target)) document.body.classList.add('editing')
+    }
+    const leave = (e) => {
+      if (typing(e.target)) document.body.classList.remove('editing')
+    }
+    document.addEventListener('focusin', enter)
+    document.addEventListener('focusout', leave)
+    return () => {
+      document.removeEventListener('focusin', enter)
+      document.removeEventListener('focusout', leave)
+      document.body.classList.remove('editing')
+    }
+  }, [])
+
   const load = useCallback(() => {
     setFatal('')
     api

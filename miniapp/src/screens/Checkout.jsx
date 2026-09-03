@@ -175,6 +175,9 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
   // вводу мовчки. Прийняти замовлення й уточнити адресу в чаті дешевше,
   // ніж втратити покупця через чужу недоступність.
   const [directoryDown, setDirectoryDown] = useState(false)
+  // Попередній розрахунок доставки. Живе окремо від суми замовлення й
+  // ніколи в неї не входить: платять його перевізникові, а не нам.
+  const [shipping, setShipping] = useState(null)
   const directory = Boolean(config.novaposhta_enabled) && !directoryDown
   const toWarehouse = form.delivery_method === 'warehouse'
 
@@ -243,6 +246,30 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
       clearTimeout(timer)
     }
   }, [cityPick, toWarehouse, pointQuery, directory])
+
+  // Рахуємо, щойно відомо куди. Місто — найбільший множник у тарифі,
+  // спосіб доставки й накладений платіж міняють суму помітно, тож на
+  // кожну зміну питаємо заново.
+  useEffect(() => {
+    if (!cityPick) {
+      setShipping(null)
+      return undefined
+    }
+    let alive = true
+    ;(async () => {
+      try {
+        const data = await api.delivery.price(
+          cityPick.ref, cityPick.settlement_ref,
+          form.delivery_method, form.payment_method,
+        )
+        if (alive) setShipping(data)
+      } catch {
+        // Не порахували — не показуємо нічого. Оформлення це не чіпає.
+        if (alive) setShipping(null)
+      }
+    })()
+    return () => { alive = false }
+  }, [cityPick, form.delivery_method, form.payment_method])
 
   const set = (key) => (e) => {
     const value = e.target.type === 'checkbox' ? e.target.checked : e.target.value
@@ -686,6 +713,45 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
             {total.toFixed(0)} {config.currency}
           </span>
         </div>
+
+        {/* Доставка стоїть ПІСЛЯ підсумку і поза ним навмисно. Її платять
+            перевізникові на відділенні, а не нам — вписати її в «До
+            сплати» означало б показати суму, якої покупець нам не
+            переказує. */}
+        {shipping && (
+          <div className="shipping">
+            <div className="row-between num">
+              <span className="hint">
+                Доставка{shipping.source === 'novaposhta' ? ' Новою поштою' : ''}
+              </span>
+              <span>
+                {shipping.cost
+                  ? `≈ ${shipping.cost} ${config.currency}`
+                  : shipping.cost_from
+                    ? `від ${shipping.cost_from.toFixed(0)} ${config.currency}`
+                    : '—'}
+              </span>
+            </div>
+            {shipping.redelivery > 0 && (
+              <div className="row-between num">
+                <span className="hint">Переказ накладеного платежу</span>
+                <span>≈ {shipping.redelivery} {config.currency}</span>
+              </div>
+            )}
+            {/* Слово «приблизно» тут не осторога заради остороги.
+                Перевізник рахує за фактичною вагою й габаритами, а їх
+                дізнаються лише коли посилку зважать на відділенні. Ми
+                підставляємо припущену вагу — тож це орієнтир. */}
+            <p className="shipping-note">
+              {shipping.source === 'novaposhta'
+                ? `Попередній розрахунок Нової пошти за вагою ${shipping.weight} кг.`
+                : 'Приблизна вартість.'}
+              {' '}Точну суму називає перевізник при відправці — уточніть
+              її в менеджера. Оплачується окремо, у підсумок вище не
+              входить.
+            </p>
+          </div>
+        )}
       </div>
 
       {/* Згода з офертою — умова укладення договору за ст. 633 ЦК України,

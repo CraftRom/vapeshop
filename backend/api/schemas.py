@@ -306,6 +306,8 @@ class ShopSettingsIn(BaseModel):
     # Порожній рядок — це «відключити», а не «не чіпати»: інакше
     # скомпрометований ключ неможливо було б прибрати з панелі.
     novaposhta_api_key: str | None = Field(None, max_length=128)
+    novaposhta_sender_city: str | None = Field(None, max_length=128)
+    delivery_weight_per_item: Decimal | None = Field(None, gt=0, le=100)
     admin_topic_id: int | None = Field(None, ge=0)
     chat_topic_id: int | None = Field(None, ge=0)
     error_topic_id: int | None = Field(None, ge=0)
@@ -412,6 +414,8 @@ class ShopSettingsOut(BaseModel):
     # імені, тож у відповіді API йому не місце. Панель показує стан
     # «підключено», а щоб замінити ключ — його вписують наново.
     novaposhta_connected: bool
+    novaposhta_sender_city: str
+    delivery_weight_per_item: Decimal
     admin_ids: str
     bot_username: str
     miniapp_short_name: str

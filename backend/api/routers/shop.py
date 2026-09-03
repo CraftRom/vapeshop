@@ -637,6 +637,73 @@ async def delivery_warehouses(
     ]}
 
 
+@router.get("/delivery/price")
+async def delivery_price(
+    city_ref: str = "", settlement_ref: str = "", method: str = "warehouse",
+    payment_method: str = "card",
+    user: User = Depends(require_webapp_user),
+    repo: Repository = Depends(get_repo),
+):
+    """Попередній розрахунок доставки.
+
+    Саме попередній. Перевізник рахує за фактичною вагою й габаритами, а
+    їх ніхто не знає, поки посилку не зважать. Ми підставляємо припущену
+    вагу з налаштувань — тож віддаємо орієнтир і поле approximate, яке
+    вітрина зобовʼязана показати словами.
+
+    Сума замовлення береться з кошика на сервері, а не з запиту: інакше
+    її можна було б підмінити й отримати чужий розрахунок страхування.
+    """
+    _require_age(user)
+    shop = await get_shop_settings(repo)
+    lines = await repo.get_cart(user.id)
+    subtotal = sum((line.line_total for line in lines), Decimal(0))
+    quantity = sum(line.qty for line in lines) or 1
+    weight = max(float(shop.delivery_weight_per_item) * quantity, 0.1)
+
+    fallback = {
+        "approximate": True,
+        "cost": None,
+        "redelivery": 0,
+        "weight": round(weight, 2),
+        "source": "settings",
+        "cost_from": float(shop.delivery_cost_from or 0),
+    }
+
+    key = (shop.novaposhta_api_key or "").strip()
+    sender = (shop.novaposhta_sender_city or "").strip()
+    # Немає ключа або міста відправлення — це не помилка, а незавершене
+    # налаштування. Віддаємо «від» із налаштувань: приблизне число краще
+    # за порожнє місце, а покупець однаково побачить, що воно приблизне.
+    if not key or not sender or not (city_ref or settlement_ref):
+        return fallback
+
+    try:
+        sender_ref = await np.city_ref_by_name(key, sender)
+        if not sender_ref:
+            return fallback
+        price = await np.document_price(
+            key, sender_ref, city_ref or settlement_ref,
+            to_door=method == "courier",
+            declared=float(subtotal),
+            weight=round(weight, 2),
+            cash_on_delivery=float(subtotal) if payment_method == "cod" else 0,
+        )
+    except np.NovaPoshtaError as exc:
+        # Розрахунок — не та річ, заради якої варто ламати оформлення.
+        log.info("novaposhta.price unavailable: %s", exc)
+        return fallback
+
+    return {
+        "approximate": True,
+        "cost": price.cost,
+        "redelivery": price.redelivery,
+        "weight": price.weight,
+        "source": "novaposhta",
+        "cost_from": float(shop.delivery_cost_from or 0),
+    }
+
+
 # ------------------------------------------------------------- оформлення
 
 

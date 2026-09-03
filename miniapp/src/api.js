@@ -65,6 +65,13 @@ export const api = {
   // дозволяє запити лише на власний домен.
   delivery: {
     cities: (q) => request(`/delivery/cities?q=${encodeURIComponent(q)}`),
+    price: (cityRef, settlementRef, method, paymentMethod) =>
+      request(
+        `/delivery/price?city_ref=${encodeURIComponent(cityRef || '')}` +
+        `&settlement_ref=${encodeURIComponent(settlementRef || '')}` +
+        `&method=${encodeURIComponent(method)}` +
+        `&payment_method=${encodeURIComponent(paymentMethod)}`,
+      ),
     warehouses: (cityRef, settlementRef, q = '') =>
       request(
         `/delivery/warehouses?city_ref=${encodeURIComponent(cityRef || '')}` +

@@ -66,6 +66,8 @@ WAREHOUSE_ROWS = [
      "CityRef": "city-dnipro"},
 ]
 
+PRICE_ROWS = [{"AssessedCost": "1200", "Cost": "95", "CostRedelivery": "45"}]
+
 calls: list[dict] = []
 response_queue: list = []
 
@@ -84,6 +86,8 @@ async def fake_post(payload):
         return {"success": True, "data": [CITY_ROW]}
     if method == "getWarehouses":
         return {"success": True, "data": WAREHOUSE_ROWS}
+    if method == "getDocumentPrice":
+        return {"success": True, "data": PRICE_ROWS}
     return {"success": False, "errors": ["Невідомий метод"]}
 
 
@@ -203,6 +207,35 @@ async def scenario():
         r.check(not calls, "без ключа запит назовні не йде")
         r.check("Ключ" in str(exc), "сказано, чого бракує", str(exc))
 
+    print("\n--- розрахунок доставки ---")
+    reset()
+    price = await np.document_price(KEY, "city-sender", "city-dnipro",
+                                    to_door=False, declared=1200, weight=1.0)
+    r.check(price.cost == 95 and price.redelivery == 45,
+            "ціна й комісія за переказ розібрані", (price.cost, price.redelivery))
+    props = calls[0]["methodProperties"]
+    r.check(props["ServiceType"] == "WarehouseWarehouse",
+            "відділення → відділення", props["ServiceType"])
+    r.check(props["Cost"] == "1200",
+            "оголошена вартість = сума замовлення: від неї рахують страхування",
+            props["Cost"])
+    r.check("RedeliveryCalculate" not in props,
+            "без накладеного платежу комісію за переказ не питаємо")
+
+    reset()
+    await np.document_price(KEY, "city-sender", "city-dnipro",
+                            to_door=True, declared=1200, weight=1.0,
+                            cash_on_delivery=1200)
+    props = calls[0]["methodProperties"]
+    r.check(props["ServiceType"] == "WarehouseDoors", "курʼєр → до дверей")
+    r.check(props.get("RedeliveryCalculate", {}).get("Amount") == "1200",
+            "для накладеного платежу питаємо й комісію за переказ")
+
+    reset()
+    await np.document_price(KEY, "s", "c", to_door=False, declared=1200, weight=1.0)
+    await np.document_price(KEY, "s", "c", to_door=False, declared=1200, weight=1.0)
+    r.check(len(calls) == 1, "той самий розрахунок не питається двічі", len(calls))
+
     print("\n--- точки вітрини ---")
     reset()
     transport = httpx.ASGITransport(app=app)
@@ -243,6 +276,37 @@ async def scenario():
         r.check([w["number"] for w in whs.json()["items"]] == [3, 7, 100],
                 "вітрина отримує відділення по порядку")
 
+        # Розрахунок доставки: у налаштуваннях немає міста відправлення
+        priced = await client.get(
+            "/api/shop/delivery/price?city_ref=city-dnipro", headers=head)
+        body = priced.json()
+        r.check(priced.status_code == 200 and body["source"] == "settings",
+                "без міста відправлення вітрина отримує «від» із налаштувань",
+                body.get("source"))
+        r.check(body["approximate"] is True,
+                "розрахунок завжди позначений як приблизний")
+
+        await client.put("/api/settings",
+                         json={"novaposhta_sender_city": "Дніпро"}, headers=token)
+        priced = await client.get(
+            "/api/shop/delivery/price?city_ref=city-dnipro", headers=head)
+        body = priced.json()
+        r.check(body["source"] == "novaposhta" and body["cost"] == 95,
+                "з містом відправлення рахує перевізник", body)
+        r.check(body["approximate"] is True,
+                "навіть розрахунок перевізника лишається приблизним: "
+                "фактичну вагу знають лише на відділенні")
+
+        np.reset_cache()
+        response_queue.append({"success": False, "errors": ["Ліміт запитів"]})
+        broken_price = await client.get(
+            "/api/shop/delivery/price?city_ref=city-dnipro", headers=head)
+        r.check(broken_price.status_code == 200
+                and broken_price.json()["source"] == "settings",
+                "відмова перевізника не ламає оформлення — лишається «від»",
+                broken_price.status_code)
+
+        np.reset_cache()
         response_queue.append({"success": False, "errors": ["Ліміт запитів"]})
         np.reset_cache()
         broken = await client.get("/api/shop/delivery/cities?q=Одеса", headers=head)

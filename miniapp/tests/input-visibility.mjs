@@ -47,5 +47,23 @@ ok(!combo.includes('-webkit-overflow-scrolling'),
    'поруч із активним полем не створюється окремий шар прокрутки')
 ok(combo.includes('z-index'), 'накладка лежить над наступними полями')
 
+console.log('\n--- під час набору немає плаваючих шарів ---')
+// Поломка, що поверталась тричі. Кольори до неї непричетні: WebView
+// Telegram не перемальовує растр сторінки під прибитою донизу панеллю,
+// коли клавіатура міняє висоту вікна. Текст у полі є, видно його лише
+// після переходу в інше поле. Лікується прибиранням причини.
+ok(css.includes('body.editing .bar'),
+   'панель кошика ховається, поки друкують')
+ok(css.includes('body.editing .tabs'),
+   'липка смуга вкладок на час набору стає звичайною')
+ok(rule('.input:focus,\n.input:focus-visible {').includes('translateZ'),
+   'поле у фокусі має власний шар і перемальовується незалежно')
+
+const app = readFileSync('src/App.jsx', 'utf8')
+ok(app.includes("classList.add('editing')") && app.includes('focusin'),
+   'клас вішається на фокус поля')
+ok(app.includes("classList.remove('editing')") && app.includes('focusout'),
+   'і знімається, коли поле відпустили')
+
 console.log(`\nПОЛЯ ВВЕДЕННЯ: ${bad === 0 ? 'усе витримано' : `ПРОВАЛЕНО: ${bad}`}`)
 process.exit(bad ? 1 : 0)
