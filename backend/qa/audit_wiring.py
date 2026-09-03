@@ -610,6 +610,41 @@ dapi = read("dashboard/src/api.js")
 for m in ["operators","settings","messages","sendMessage","unread","byOperator","purge","fileUrl"]:
     check(m in dapi, f"панель вміє: {m}")
 
+print("\n=== ІМПОРТИ (використано → має бути імпортовано) ===")
+# Поломка, заради якої зʼявилась ця перевірка: сторінка замовлень
+# використовувала useFilters, але не імпортувала його. Збірка проходить
+# — Vite не знає, що ім'я має бути десь визначене, — а сторінка падає
+# при відкритті з «useFilters is not defined». Три інші сторінки цей
+# самий хук імпортували, тож помилку не було видно ні в збірці, ні в
+# перевірках. Саме такі недотягнуті дроти цей інструмент і шукає.
+for pack, srcs in [("вітрина", "miniapp/src"), ("панель", "dashboard/src")]:
+    exported = {}
+    for f in (root / srcs).rglob("*.js*"):
+        for name in re.findall(r"^export (?:function|const|class) (\w+)",
+                               f.read_text(), re.M):
+            exported.setdefault(name, f.name)
+
+    for f in sorted((root / srcs).rglob("*.jsx")):
+        text = f.read_text()
+        # Імпорт часто розтягнутий на кілька рядків, тож беремо його
+        # цілим виразом, а не по рядку: інакше половина привезених імен
+        # виглядала б як невідомі.
+        imports = re.findall(r"import\s[^;]*?from\s*['\"][^'\"]+['\"]", text, re.S)
+        brought = set(re.findall(r"\w+", " ".join(imports)))
+        body = text
+        for chunk in imports:
+            body = body.replace(chunk, "")
+        for name, where in exported.items():
+            if name in brought or where == f.name:
+                continue
+            # Визначене тут же — не позичене, а своє.
+            if re.search(rf"(?:function|const|class) {name}\b", body):
+                continue
+            # Крапка попереду означає властивість чужого обʼєкта.
+            if re.search(rf"(?<![.\w]){name}\b\s*[({{<]", body):
+                check(False, f"{pack}/{f.name}: {name} використано без імпорту",
+                      f"визначено в {where}")
+
 print("\n=== СТИЛІ (клас використано → має існувати) ===")
 for pack, css_path, srcs_glob in [("вітрина","miniapp/src/styles.css","miniapp/src"),
                                   ("панель","dashboard/src/styles.css","dashboard/src")]:

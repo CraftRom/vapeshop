@@ -12,6 +12,7 @@
 """
 import asyncio
 import os
+import pathlib
 import sys
 import tempfile
 
@@ -178,6 +179,14 @@ async def scenario():
     np.reset_cache()
     await np.warehouses(KEY, "city-dnipro")
     r.check(len(calls) == 2, "після скидання кешу дані беруться заново", len(calls))
+
+    print("\n--- редиректи перевізника ---")
+    # Живий довідник на частину запитів відповідає «303 See Other» на ту
+    # саму адресу. Без follow_redirects httpx вважає це помилкою, і
+    # виглядало це так: міста знаходяться, а відділення — ні.
+    source = (pathlib.Path(np.__file__)).read_text()
+    r.check("follow_redirects=True" in source,
+            "клієнт іде за редиректом, а не вважає його поломкою")
 
     print("\n--- відмови перевізника ---")
     reset()

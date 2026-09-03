@@ -121,7 +121,12 @@ def _store(key: str, value: list) -> None:
 async def _post(payload: dict) -> dict:
     """Один HTTP-запит до довідника. Винесено окремо — так набір
     перевірок підставляє свої відповіді, не чіпаючи логіки навколо."""
-    async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
+    # follow_redirects обовʼязково. Перевізник на частину запитів
+    # відповідає «303 See Other» на ту саму адресу, і httpx без цього
+    # прапорця вважає редирект помилкою. Зовні це виглядало як
+    # «довідник недоступний»: міста знаходились, а відділення — ні.
+    async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT,
+                                 follow_redirects=True) as client:
         response = await client.post(API_URL, json=payload)
         response.raise_for_status()
         return response.json()
