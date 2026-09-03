@@ -5,6 +5,13 @@ import { api, getToken } from '../api'
 import { ErrorBar, Field, Loading, Modal, money, useToast } from '../components/ui'
 import { allowedFrom, stagesFor } from '../components/StatusRail'
 
+// Спосіб доставки, обраний покупцем. Порожнє значення — замовлення з
+// часів, коли вибору не було: тоді все писалося одним рядком адреси.
+const DELIVERY_METHODS = {
+  warehouse: 'Відділення НП',
+  courier: 'Курʼєр',
+}
+
 const PAYMENT = { card: 'На картку', cod: 'Накладений платіж' }
 
 // Повні підписи кроків. Доріжка й дозволені переходи живуть у StatusRail —
@@ -436,8 +443,18 @@ export default function OrderPage() {
             <p style={{ margin: '0 0 4px' }}>{order.contact_name}</p>
             <p className="faint" style={{ margin: '0 0 4px' }}>{order.contact_phone}</p>
             <p className="faint" style={{ margin: '0 0 4px' }}>
-              {order.delivery_city}, {order.delivery_address}
+              {DELIVERY_METHODS[order.delivery_method] || 'Доставка'}:{' '}
+              {[order.delivery_city, order.delivery_address].filter(Boolean).join(', ')}
             </p>
+            {/* Коди довідника показуємо лише тоді, коли вони є: у
+                замовленнях, оформлених до появи вибору відділення, їх
+                немає й не буде. Порожній рядок «Код: —» лише збивав би
+                з пантелику того, хто створює накладну. */}
+            {order.delivery_warehouse_ref && (
+              <p className="faint" style={{ margin: '0 0 4px', fontSize: 12 }}>
+                Коди НП: {order.delivery_city_ref} / {order.delivery_warehouse_ref}
+              </p>
+            )}
             {client.username && <p className="faint" style={{ margin: 0 }}>@{client.username}</p>}
             {order.comment && (
               <p style={{ marginTop: 10 }}>

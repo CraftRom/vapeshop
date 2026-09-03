@@ -60,5 +60,52 @@ console.log('\n--- порожнє поле не показує дві помил
 check(src.includes("!blank('contact_phone')"),
       'у порожньому телефоні не зʼявляється ще й скарга на формат')
 
+console.log('\n--- довідник Нової пошти ---')
+// Раніше тут були два вільні рядки: люди писали «Київ, НП 12» або
+// «відділення №12», і менеджер вгадував, яке саме з трьох. Помилка тут
+// коштує повернення посилки, тож перевіряємо не наявність довідника, а
+// рішення, які легко зробити навпаки.
+
+// Зміна міста мусить скидати вибране відділення — і текст, и код.
+// Інакше посилка поїде в нове місто зі старим кодом, і побачать це аж
+// на відправці.
+const changeCity = src.slice(src.indexOf('const changeCity'),
+                             src.indexOf('const pickCity'))
+check(changeCity.includes("address: ''")
+      && changeCity.includes("delivery_warehouse_ref: ''"),
+      'зміна міста скидає вибране відділення')
+check(changeCity.includes("delivery_city_ref: ''"),
+      'разом із текстом скидається й код міста')
+
+// Код зберігається ПОРУЧ із текстом, а не замість: текст лишає
+// замовлення читабельним і через рік, коли відділення закриють.
+const pickPoint = src.slice(src.indexOf('const pickPoint'),
+                            src.indexOf('const pickMethod'))
+check(pickPoint.includes('address:') && pickPoint.includes('delivery_warehouse_ref:'),
+      'вибір відділення зберігає і назву, і код')
+
+// Перемикання способу доставки не має лишати «Відділення №7» як вулицю.
+const pickMethod = src.slice(src.indexOf('const pickMethod'),
+                             src.indexOf('const chosenPoint'))
+check(pickMethod.includes("address: ''"),
+      'перехід на курʼєра очищає поле адреси')
+
+// Без ключа або при недоступному довіднику форма мусить лишатися
+// придатною: краще прийняти замовлення й уточнити в чаті, ніж
+// втратити покупця через чужу недоступність.
+check(src.includes('directoryDown') && src.includes('err.status === 503'),
+      'недоступний довідник повертає ручний ввід, а не блокує оформлення')
+check(!/disabled=\{[^}]*directory/.test(src),
+      'кнопка підтвердження не залежить від довідника')
+
+// Запит на кожну натиснуту літеру — це шість звернень до перевізника
+// на слово «Дніпро».
+check(src.includes('setTimeout') && src.includes('clearTimeout'),
+      'пошук міста йде з паузою, а не на кожну літеру')
+
+// Поштомат не приймає накладений платіж.
+check(src.includes('is_postomat') && src.includes("payment_method === 'cod'"),
+      'накладений платіж у поштомат не пропускається')
+
 console.log(`\nОФОРМЛЕННЯ: ${bad === 0 ? 'усе витримано' : `ПРОВАЛЕНО: ${bad}`}`)
 process.exit(bad ? 1 : 0)

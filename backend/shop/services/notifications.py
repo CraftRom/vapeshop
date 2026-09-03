@@ -33,6 +33,14 @@ log = logging.getLogger(__name__)
 
 PAYMENT_LABELS = {"card": "картка", "cod": "накладений платіж"}
 
+# Спосіб доставки в шапці сповіщення. Менеджер бачить одразу, чи везти
+# курʼєром, чи оформляти на відділення — раніше це доводилось вгадувати
+# з тексту адреси.
+DELIVERY_LABELS = {
+    "warehouse": "Відділення",
+    "courier": "Курʼєр",
+}
+
 
 def esc(value) -> str:
     """Робить рядок безпечним для HTML-розмітки Telegram."""
@@ -56,7 +64,8 @@ async def build_order_text(repo: Repository, order: Order, user: User) -> str:
         f"<b>До сплати: {order.total:.0f} {cur}</b>\n\n"
         f"Клієнт: {esc(order.contact_name)} ({who})\n"
         f"Телефон: {esc(order.contact_phone)}\n"
-        f"Доставка: {esc(order.delivery_city)}, {esc(order.delivery_address)}\n"
+        f"{DELIVERY_LABELS.get(order.delivery_method or '', 'Доставка')}: "
+        f"{esc(', '.join(p for p in (order.delivery_city, order.delivery_address) if p))}\n"
         f"Оплата: {PAYMENT_LABELS.get(order.payment_method, esc(order.payment_method))}"
     )
     if order.comment:

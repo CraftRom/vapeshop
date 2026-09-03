@@ -5,6 +5,8 @@
 """
 from __future__ import annotations
 
+from dataclasses import fields
+
 from fastapi import APIRouter, Depends, HTTPException
 
 from api.auth import Principal, require_admin, require_staff
@@ -48,9 +50,24 @@ INFRA_FIELDS = {
 }
 
 
+def _out(shop) -> ShopSettingsOut:
+    """Налаштування у вигляді, придатному для панелі.
+
+    Складаємо вручну, а не віддаємо dataclass: серед полів є ключ Нової
+    пошти, якого у відповіді бути не повинно, і похідна від нього ознака
+    «підключено», якої немає серед збережених полів.
+    """
+    stored = {f.name: getattr(shop, f.name) for f in fields(shop)}
+    stored["novaposhta_connected"] = shop.novaposhta_connected
+    return ShopSettingsOut(**{
+        key: value for key, value in stored.items()
+        if key in ShopSettingsOut.model_fields
+    })
+
+
 @router.get("", response_model=ShopSettingsOut)
 async def read_settings(repo: Repository = Depends(get_repo)):
-    return await get_shop_settings(repo)
+    return _out(await get_shop_settings(repo))
 
 
 @router.get("/environment")
@@ -106,4 +123,4 @@ async def write_settings(
     # ідентифікатори чатів, і журнал не має ставати місцем їх витоку.
     security.record("security.settings.changed", actor=who.login,
                     role=who.role.value, reason=", ".join(sorted(payload)))
-    return saved
+    return _out(saved)

@@ -62,6 +62,9 @@ class ShopSettings:
     delivery_days: str
     cod_commission_percent: Decimal
     cod_commission_fixed: Decimal
+    # Ключ до довідника Нової пошти. Єдине налаштування, яке не читається
+    # назад: панель бачить лише ознаку «підключено» (novaposhta_connected).
+    novaposhta_api_key: str
 
     admin_topic_id: int
     chat_topic_id: int
@@ -125,6 +128,7 @@ class ShopSettings:
             delivery_days=settings.delivery_days,
             cod_commission_percent=Decimal(str(settings.cod_commission_percent)),
             cod_commission_fixed=Decimal(str(settings.cod_commission_fixed)),
+            novaposhta_api_key=settings.novaposhta_api_key,
             admin_topic_id=settings.admin_topic_id,
             chat_topic_id=settings.chat_topic_id,
             error_topic_id=settings.error_topic_id,
@@ -144,6 +148,16 @@ class ShopSettings:
             log_retention_days=settings.log_retention_days,
             broadcast_chunk=settings.broadcast_chunk,
         )
+
+    @property
+    def novaposhta_connected(self) -> bool:
+        """Чи заданий ключ. Саме це, а не сам ключ, бачить панель.
+
+        Секрет, який віддається назад, рано чи пізно опиняється в журналі
+        браузера, у скріншоті підтримки або в кеші проксі. Ознаки досить,
+        щоб зрозуміти стан: підключено чи ні.
+        """
+        return bool((self.novaposhta_api_key or "").strip())
 
     def volume_discount_for(self, subtotal: Decimal) -> Decimal:
         """Автоматична знижка за суму замовлення. Нуль — якщо не діє."""
@@ -298,4 +312,12 @@ async def save_shop_settings(repo, data: dict) -> ShopSettings:
     }})
     await repo.save_settings_map(merged.to_storage())
     prime_cache(merged)
+
+    # Зміна ключа знецінює все, що вже привезли старим. Інакше магазин
+    # ще півдоби показував би відповіді, отримані попереднім ключем, і
+    # той, хто щойно вписав новий, вирішив би, що він не спрацював.
+    if current.novaposhta_api_key != merged.novaposhta_api_key:
+        from shop.services import novaposhta
+
+        novaposhta.reset_cache()
     return merged

@@ -1051,3 +1051,66 @@ textarea.input { min-height: 74px; resize: vertical; }
   font-size: 19px;
   text-align: center;
 }
+
+/* ------------------------------------------------ довідник Нової пошти
+ *
+ * Список підказок під полем, а не окремий екран вибору. На екрані
+ * телефона перехід «туди-назад» коштує людині втрати контексту: вона
+ * бачила форму з сімома полями, а повернулася до неї з відчуттям, що
+ * почала спочатку. Тут вибір лишається на місці, у потоці заповнення.
+ */
+.combo { position: relative; }
+
+.combo-list {
+  margin-top: 6px;
+  border: 1px solid var(--tg-secondary-bg);
+  border-radius: var(--radius-sm);
+  background: var(--tg-bg);
+  /* Понад тисячу відділень у великому місті не вміщаються нікуди —
+     показуємо перші й прокручуємо, а звужує перелік поле пошуку */
+  max-height: 260px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.combo-item {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 11px 13px;
+  border: 0;
+  border-bottom: 1px solid var(--tg-secondary-bg);
+  background: transparent;
+  color: var(--tg-text);
+  font-size: 14px;
+  text-align: left;
+}
+
+.combo-item:last-child { border-bottom: 0; }
+.combo-item:active { background: var(--tg-secondary-bg); }
+
+.combo-note { flex: none; color: var(--tg-hint); font-size: 12px; }
+
+.combo-tag {
+  flex: none;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.combo-empty {
+  padding: 12px 13px;
+  color: var(--tg-hint);
+  font-size: 13px;
+}
+
+.combo-picked {
+  margin: 6px 0 0;
+  color: var(--accent);
+  font-size: 12.5px;
+}

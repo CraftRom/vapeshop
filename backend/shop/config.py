@@ -30,6 +30,9 @@ class Settings(BaseSettings):
     delivery_days: str = "1–3 дні"
     cod_commission_percent: float = 2.0
     cod_commission_fixed: float = 20.0
+    # Ключ API Нової пошти. Дефолт порожній: без нього форма замовлення
+    # працює як раніше — місто й відділення вписуються руками.
+    novaposhta_api_key: str = ""
 
     admin_topic_id: int = 0
     # Гілка для помилок сервера, бота й планувальника. Окремо від замовлень:

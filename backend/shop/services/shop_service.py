@@ -139,6 +139,8 @@ async def create_order(
     city: str, address: str, payment_method: str, comment: str | None = None,
     promo_code: str | None = None, use_bonus: bool = False,
     contact_surname: str | None = None, contact_patronymic: str | None = None,
+    delivery_method: str | None = None, delivery_city_ref: str | None = None,
+    delivery_warehouse_ref: str | None = None,
 ) -> tuple[Order | None, str | None]:
     lines = await repo.get_cart(user.id)
     if not lines:
@@ -192,6 +194,12 @@ async def create_order(
         contact_patronymic=(contact_patronymic or "").strip() or None,
         contact_phone=contact_phone, delivery_city=city,
         delivery_address=address, comment=comment,
+        # Коди можуть не прийти зовсім: якщо довідник недоступний,
+        # вітрина дає вписати адресу руками. Прийняти замовлення без
+        # кодів і уточнити в чаті дешевше, ніж втратити покупця.
+        delivery_method=delivery_method or None,
+        delivery_city_ref=(delivery_city_ref or "").strip() or None,
+        delivery_warehouse_ref=(delivery_warehouse_ref or "").strip() or None,
     )
     order_lines = [
         OrderLine(product_id=line.product_id, name=line.product.name,

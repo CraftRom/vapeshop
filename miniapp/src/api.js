@@ -60,6 +60,19 @@ export const api = {
   orders: () => request('/orders'),
   checkout: (data) => request('/checkout', { method: 'POST', body: data }),
 
+  // Довідник Нової пошти. Ходимо через свій бекенд, а не напряму до
+  // перевізника: ключ приватний, а політика безпеки вітрини й так
+  // дозволяє запити лише на власний домен.
+  delivery: {
+    cities: (q) => request(`/delivery/cities?q=${encodeURIComponent(q)}`),
+    warehouses: (cityRef, settlementRef, q = '') =>
+      request(
+        `/delivery/warehouses?city_ref=${encodeURIComponent(cityRef || '')}` +
+        `&settlement_ref=${encodeURIComponent(settlementRef || '')}` +
+        `&q=${encodeURIComponent(q)}`,
+      ),
+  },
+
   wishlists: {
     list: () => request('/wishlists'),
     create: (name) => request('/wishlists', { method: 'POST', body: { name } }),

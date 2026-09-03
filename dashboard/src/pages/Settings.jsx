@@ -8,7 +8,7 @@ import { ErrorBar, Field, Loading, useToast } from '../components/ui'
 // тут ми просто не показуємо те, що все одно не збережеться.
 // Доступно адміністраторові магазину.
 const ADMIN_ONLY = new Set([
-  'Магазин', 'Оплата', 'Реквізити продавця',
+  'Магазин', 'Оплата', 'Доставка', 'Реквізити продавця',
 ])
 
 // Доступно ЛИШЕ системному адміністраторові. Це не про довіру, а про ціну
@@ -161,6 +161,33 @@ const FIELDS = [
       { key: 'seller_address', label: 'Адреса для листування' },
       { key: 'seller_email', label: 'Email для звернень', hint: 'Вказується як контакт у документах' },
       { key: 'seller_phone', label: 'Телефон' },
+    ],
+  },
+  {
+    title: 'Доставка',
+    hint: 'Ключ до довідника Нової пошти дає вітрині показувати покупцеві ' +
+          'список населених пунктів і відділень замість двох вільних рядків. ' +
+          'Без ключа форма працює як раніше: адреса вписується руками.',
+    items: [
+      {
+        key: 'novaposhta_api_key',
+        label: 'Ключ API Нової пошти',
+        secret: 'novaposhta_connected',
+        hint: 'Кабінет Нової пошти → Налаштування → Безпека → Ключі API. ' +
+              'Потрібен ключ з доступом до довідників',
+      },
+      { key: 'delivery_cost_from', label: 'Доставка від, грн', type: 'number' },
+      { key: 'delivery_days', label: 'Строк доставки', hint: 'Текстом: «1–3 дні»' },
+      {
+        key: 'cod_commission_percent',
+        label: 'Комісія накладеного платежу, %',
+        type: 'number',
+      },
+      {
+        key: 'cod_commission_fixed',
+        label: 'Фіксована комісія, грн',
+        type: 'number',
+      },
     ],
   },
   {
@@ -379,10 +406,33 @@ export default function Settings() {
             <Field key={item.key} label={item.label} hint={item.hint}>
               <input
                 className="input"
-                type={item.type || 'text'}
+                type={item.secret ? 'password' : item.type || 'text'}
                 value={form[item.key] ?? ''}
                 onChange={set(item.key)}
+                autoComplete={item.secret ? 'new-password' : undefined}
+                placeholder={
+                  item.secret
+                    ? form[item.secret]
+                      ? 'Збережений ключ. Впишіть новий, щоб замінити'
+                      : 'Не заданий'
+                    : undefined
+                }
               />
+              {/* Секрет не читається назад: ключем Нової пошти
+                  створюються накладні від імені магазину, тож у
+                  відповіді API йому не місце. Замість значення
+                  показуємо стан — цього досить, щоб зрозуміти, чи
+                  все налаштовано. */}
+              {item.secret && (
+                <p className="faint" style={{ margin: '6px 0 0' }}>
+                  {form[item.secret]
+                    ? 'Підключено. Прочитати збережений ключ назад не можна: '
+                      + 'щоб замінити — впишіть новий, щоб відключити — очистіть '
+                      + 'поле й збережіть.'
+                    : 'Не підключено. Поки ключа немає, покупець вписує місто '
+                      + 'й відділення руками.'}
+                </p>
+              )}
             </Field>
           ))}
           </div>

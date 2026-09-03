@@ -14,7 +14,7 @@ run() {
   printf '  %-13s ' "$1"
   rm -f /tmp/qa_*.db 2>/dev/null
   out=$($PY "$2" 2>&1)
-  summary=$(echo "$out" | grep -E '^[A-ZА-Я]+: [0-9]+/[0-9]+|Всього провалено|усі контракти' | tail -1)
+  summary=$(echo "$out" | grep -E '^[A-ZА-Я ]+: [0-9]+/[0-9]+|Всього провалено|усі контракти' | tail -1)
   if echo "$out" | grep -qE '✗|ПРОВАЛЕНО'; then
     echo "ПРОВАЛ — ${summary:-див. деталі}"
     echo "$out" | grep -E '✗' | head -5 | sed 's/^/      /'
@@ -97,6 +97,7 @@ run edges qa/qa_edges.py
 run dialect qa/qa_dialect.py
 run orders_delete qa/qa_orders_delete.py
 run settings_save qa/qa_settings_save.py
+run novaposhta qa/qa_novaposhta.py
 run e2e qa/qa_e2e.py
 run performance qa/qa_perf.py
 

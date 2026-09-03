@@ -21,6 +21,7 @@ from api.webapp_auth import require_webapp_user
 from shop.entities import User
 from shop.repo.base import Repository
 from shop.repo.factory import get_repo
+from shop.services import novaposhta as np
 from shop.services import order_chat as svc_chat
 from shop.services import shop_service as svc
 from shop.services.notifications import notify_new_order
@@ -49,6 +50,9 @@ class ShopConfigOut(BaseModel):
     volume_discount_enabled: bool
     volume_discount_min: Decimal
     volume_discount_percent: Decimal
+    # Чи працює вибір відділення з довідника. Без ключа вітрина лишає
+    # два вільні рядки — рівно те, що було до появи довідника.
+    novaposhta_enabled: bool
     # Реквізити для юридичних документів. Порожні поля вітрина показує
     # як незаповнені — щоб недороблену оферту не можна було проґавити.
     seller: dict
@@ -101,6 +105,12 @@ class CheckoutIn(BaseModel):
     contact_phone: str = Field(..., min_length=5, max_length=32)
     city: str = Field(..., min_length=1, max_length=128)
     address: str = Field(..., min_length=1, max_length=255)
+    # Спосіб доставки й коди довідника. Необовʼязкові: якщо довідник
+    # недоступний або ключа немає, вітрина шле самі лише текстові поля —
+    # і замовлення все одно приймається.
+    delivery_method: str | None = Field(None, pattern="^(warehouse|courier)$")
+    delivery_city_ref: str | None = Field(None, max_length=64)
+    delivery_warehouse_ref: str | None = Field(None, max_length=64)
     payment_method: str = Field(..., pattern="^(card|cod)$")
     comment: str | None = Field(None, max_length=500)
     promo_code: str | None = Field(None, max_length=64)
@@ -129,6 +139,7 @@ def _config(shop, user) -> ShopConfigOut:
         volume_discount_enabled=shop.volume_discount_enabled,
         volume_discount_min=shop.volume_discount_min,
         volume_discount_percent=shop.volume_discount_percent,
+        novaposhta_enabled=shop.novaposhta_connected,
         seller={
             "SELLER_NAME": shop.seller_name,
             "SELLER_CODE": shop.seller_code,
@@ -569,6 +580,63 @@ async def my_orders(
     return await _orders_payload(repo, user.id)
 
 
+# --------------------------------------------------------------- доставка
+
+
+async def _novaposhta_key(repo: Repository) -> str:
+    shop = await get_shop_settings(repo)
+    key = (shop.novaposhta_api_key or "").strip()
+    if not key:
+        # 503, а не 500: це не поломка, а незавершене налаштування.
+        # Вітрина за цим кодом мовчки повертається до ручного вводу.
+        raise HTTPException(503, "Довідник Нової пошти не підключений")
+    return key
+
+
+@router.get("/delivery/cities")
+async def delivery_cities(
+    q: str = "",
+    user: User = Depends(require_webapp_user),
+    repo: Repository = Depends(get_repo),
+):
+    """Населені пункти за початком назви.
+
+    Запит іде через наш сервер, а не з браузера: ключ приватний, ним
+    створюють накладні від нашого імені.
+    """
+    _require_age(user)
+    key = await _novaposhta_key(repo)
+    try:
+        found = await np.search_settlements(key, q)
+    except np.NovaPoshtaError as exc:
+        raise HTTPException(502, str(exc)) from exc
+    return {"items": [
+        {"ref": s.ref, "settlement_ref": s.settlement_ref, "name": s.name,
+         "area": s.area, "label": s.label, "warehouses": s.warehouses}
+        for s in found
+    ]}
+
+
+@router.get("/delivery/warehouses")
+async def delivery_warehouses(
+    city_ref: str = "", settlement_ref: str = "", q: str = "",
+    user: User = Depends(require_webapp_user),
+    repo: Repository = Depends(get_repo),
+):
+    """Відділення й поштомати обраного населеного пункту."""
+    _require_age(user)
+    key = await _novaposhta_key(repo)
+    try:
+        found = await np.warehouses(key, city_ref, settlement_ref, q)
+    except np.NovaPoshtaError as exc:
+        raise HTTPException(502, str(exc)) from exc
+    return {"items": [
+        {"ref": w.ref, "number": w.number, "label": w.label,
+         "short": w.short, "is_postomat": w.is_postomat}
+        for w in found
+    ]}
+
+
 # ------------------------------------------------------------- оформлення
 
 
@@ -584,6 +652,9 @@ async def checkout(
         contact_name=data.contact_name, contact_surname=data.contact_surname,
         contact_patronymic=data.contact_patronymic, contact_phone=data.contact_phone,
         city=data.city, address=data.address, payment_method=data.payment_method,
+        delivery_method=data.delivery_method,
+        delivery_city_ref=data.delivery_city_ref,
+        delivery_warehouse_ref=data.delivery_warehouse_ref,
         comment=data.comment, promo_code=data.promo_code, use_bonus=data.use_bonus,
     )
     if error or not order:

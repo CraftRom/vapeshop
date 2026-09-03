@@ -102,6 +102,13 @@ class OrderOut(ORMModel):
     contact_phone: str | None
     delivery_city: str | None
     delivery_address: str | None
+    # Спосіб доставки й коди довідника Нової пошти. Коди лежать поруч із
+    # текстом, а не замість: текст лишає замовлення читабельним і через
+    # рік, коли відділення закриють, а коди дають створити накладну без
+    # ручного пошуку. У старих замовленнях їх немає — і не буде.
+    delivery_method: str | None = None
+    delivery_city_ref: str | None = None
+    delivery_warehouse_ref: str | None = None
     comment: str | None
     admin_note: str | None
     tracking_number: str | None = None
@@ -295,6 +302,10 @@ class ShopSettingsIn(BaseModel):
     delivery_days: str | None = Field(None, max_length=64)
     cod_commission_percent: Decimal | None = Field(None, ge=0, le=100)
     cod_commission_fixed: Decimal | None = Field(None, ge=0, le=10000)
+    # Ключ приймається, але назад не віддається — див. ShopSettingsOut.
+    # Порожній рядок — це «відключити», а не «не чіпати»: інакше
+    # скомпрометований ключ неможливо було б прибрати з панелі.
+    novaposhta_api_key: str | None = Field(None, max_length=128)
     admin_topic_id: int | None = Field(None, ge=0)
     chat_topic_id: int | None = Field(None, ge=0)
     error_topic_id: int | None = Field(None, ge=0)
@@ -396,6 +407,11 @@ class ShopSettingsOut(BaseModel):
     delivery_days: str
     cod_commission_percent: Decimal
     cod_commission_fixed: Decimal
+    # Ознака замість значення. Ключ Нової пошти — єдине налаштування,
+    # яке навмисно не читається назад: ним створюють накладні від нашого
+    # імені, тож у відповіді API йому не місце. Панель показує стан
+    # «підключено», а щоб замінити ключ — його вписують наново.
+    novaposhta_connected: bool
     admin_ids: str
     bot_username: str
     miniapp_short_name: str

@@ -181,6 +181,16 @@ class Order(Base):
     contact_phone: Mapped[str | None] = mapped_column(String(32))
     delivery_city: Mapped[str | None] = mapped_column(String(255))
     delivery_address: Mapped[str | None] = mapped_column(String(512))
+    # Спосіб доставки: warehouse (відділення чи поштомат) або courier.
+    # Порожньо — замовлення, оформлене до появи вибору.
+    delivery_method: Mapped[str | None] = mapped_column(String(16))
+    # Коди довідника Нової пошти. Зберігаються ПОРУЧ із текстом, а не
+    # замість нього: текст лишає замовлення читабельним і через рік, коли
+    # відділення закриють і код перестане щось означати, а код дає
+    # створити накладну без ручного пошуку. Порожньо — адресу вписали
+    # руками, і менеджер знайде відділення сам.
+    delivery_city_ref: Mapped[str | None] = mapped_column(String(64))
+    delivery_warehouse_ref: Mapped[str | None] = mapped_column(String(64))
     comment: Mapped[str | None] = mapped_column(Text)
     admin_note: Mapped[str | None] = mapped_column(Text)
     tracking_number: Mapped[str | None] = mapped_column(String(64))

@@ -134,8 +134,16 @@ const EMPTY_FORM = {
   contact_name: '',
   contact_patronymic: '',
   contact_phone: '',
+  // Спосіб доставки. За замовчуванням відділення: ним користується
+  // переважна більшість, і курʼєр доступний не всюди.
+  delivery_method: 'warehouse',
+  // Текст лишається головним: саме його читає менеджер і саме він
+  // залишиться осмисленим, коли відділення закриють. Коди — поруч,
+  // щоб накладну можна було створити без ручного пошуку.
   city: '',
+  delivery_city_ref: '',
   address: '',
+  delivery_warehouse_ref: '',
   payment_method: 'card',
   comment: '',
   promo_code: '',
@@ -152,16 +160,143 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
   const [touched, setTouched] = useState({})
   const [error, setError] = useState('')
 
+  // Довідник Нової пошти. Обраний пункт тримаємо окремо від форми: щоб
+  // спитати відділення, потрібні обидва коди — CityRef для міст і
+  // SettlementRef для сіл, у яких свого CityRef немає.
+  const [cityPick, setCityPick] = useState(null)
+  const [cityHits, setCityHits] = useState([])
+  const [cityOpen, setCityOpen] = useState(false)
+  const [cityBusy, setCityBusy] = useState(false)
+  const [points, setPoints] = useState([])
+  const [pointsOpen, setPointsOpen] = useState(false)
+  const [pointsBusy, setPointsBusy] = useState(false)
+  // Довідник відвалився вже після завантаження вітрини. Не показуємо
+  // порожній список і не блокуємо оформлення: повертаємось до ручного
+  // вводу мовчки. Прийняти замовлення й уточнити адресу в чаті дешевше,
+  // ніж втратити покупця через чужу недоступність.
+  const [directoryDown, setDirectoryDown] = useState(false)
+  const directory = Boolean(config.novaposhta_enabled) && !directoryDown
+  const toWarehouse = form.delivery_method === 'warehouse'
+
   useEffect(() => {
     if (profile?.first_name) {
       setForm((f) => (f.contact_name ? f : { ...f, contact_name: profile.first_name }))
     }
   }, [profile])
 
+  // Пауза перед запитом. Без неї «Дніпро» — це шість звернень до
+  // перевізника, по одному на кожну натиснуту літеру.
+  useEffect(() => {
+    if (!directory || cityPick || !cityOpen) return undefined
+    const query = form.city.trim()
+    if (query.length < 2) {
+      setCityHits([])
+      return undefined
+    }
+    let alive = true
+    const timer = setTimeout(async () => {
+      setCityBusy(true)
+      try {
+        const { items } = await api.delivery.cities(query)
+        if (alive) setCityHits(items || [])
+      } catch (err) {
+        if (!alive) return
+        setCityHits([])
+        // 503 — ключа немає зовсім; питати далі немає сенсу
+        if (err.status === 503) setDirectoryDown(true)
+      } finally {
+        if (alive) setCityBusy(false)
+      }
+    }, 350)
+    return () => {
+      alive = false
+      clearTimeout(timer)
+    }
+  }, [form.city, cityOpen, cityPick, directory])
+
+  // Відділення обраного пункту. Фільтр іде тим же запитом: у великому
+  // місті їх понад тисячу, і віддавати всі на телефон немає сенсу.
+  const pointQuery = form.delivery_warehouse_ref ? '' : form.address.trim()
+  useEffect(() => {
+    if (!directory || !cityPick || !toWarehouse) {
+      setPoints([])
+      return undefined
+    }
+    let alive = true
+    const timer = setTimeout(async () => {
+      setPointsBusy(true)
+      try {
+        const { items } = await api.delivery.warehouses(
+          cityPick.ref, cityPick.settlement_ref, pointQuery,
+        )
+        if (alive) setPoints(items || [])
+      } catch (err) {
+        if (!alive) return
+        setPoints([])
+        if (err.status === 503) setDirectoryDown(true)
+      } finally {
+        if (alive) setPointsBusy(false)
+      }
+    }, 300)
+    return () => {
+      alive = false
+      clearTimeout(timer)
+    }
+  }, [cityPick, toWarehouse, pointQuery, directory])
+
   const set = (key) => (e) => {
     const value = e.target.type === 'checkbox' ? e.target.checked : e.target.value
     setForm((f) => ({ ...f, [key]: value }))
   }
+
+  // Зміна міста скидає вибране відділення — і в тексті, і в коді. Без
+  // цього посилка поїхала б у старе місто з кодом, який там нічого не
+  // означає, а помітили б це аж на відправці.
+  const changeCity = (e) => {
+    const value = e.target.value
+    setCityPick(null)
+    setCityOpen(true)
+    setForm((f) => ({
+      ...f, city: value, delivery_city_ref: '',
+      address: '', delivery_warehouse_ref: '',
+    }))
+  }
+
+  const pickCity = (item) => {
+    setCityPick({ ref: item.ref, settlement_ref: item.settlement_ref })
+    setCityOpen(false)
+    setForm((f) => ({
+      ...f,
+      city: item.label || item.name,
+      // Для села CityRef порожній — тоді в замовлення йде код
+      // населеного пункту: за ним відділення так само знаходиться.
+      delivery_city_ref: item.ref || item.settlement_ref,
+      address: '',
+      delivery_warehouse_ref: '',
+    }))
+  }
+
+  const changeAddress = (e) => {
+    const value = e.target.value
+    setPointsOpen(true)
+    setForm((f) => ({ ...f, address: value, delivery_warehouse_ref: '' }))
+  }
+
+  const pickPoint = (point) => {
+    setPointsOpen(false)
+    setForm((f) => ({ ...f, address: point.label, delivery_warehouse_ref: point.ref }))
+  }
+
+  const pickMethod = (method) => {
+    // Адреса курʼєру й номер відділення — різні речі; лишити попереднє
+    // означало б відправити «Відділення №7» як вулицю.
+    setPointsOpen(false)
+    setForm((f) => ({
+      ...f, delivery_method: method, address: '', delivery_warehouse_ref: '',
+    }))
+  }
+
+  const chosenPoint = points.find((p) => p.ref === form.delivery_warehouse_ref)
 
   const applyPromo = async () => {
     const code = form.promo_code.trim()
@@ -233,6 +368,14 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
       setError(`Телефон: ${phoneProblem.toLowerCase()}`)
       const node = document.getElementById('phone')
       if (node) node.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      return
+    }
+    // Накладений платіж у поштомат не приймають. Дізнатися про це при
+    // спробі забрати посилку — це зіпсоване замовлення й повернення.
+    if (chosenPoint?.is_postomat && form.payment_method === 'cod') {
+      notify('error')
+      setError('У поштоматі накладений платіж не приймають — оберіть '
+               + 'відділення або оплату на картку.')
       return
     }
     setBusy(true)
@@ -337,17 +480,112 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
       </div>
 
       <div className="field">
-        <label htmlFor="city">Місто</label>
-        <input id="city" className={cls('city')} value={form.city}
-               onChange={set('city')} />
-        {hint('city')}
+        <label>Спосіб доставки</label>
+      </div>
+      <div className="choice">
+        <button
+          aria-pressed={toWarehouse}
+          onClick={() => pickMethod('warehouse')}
+        >
+          Відділення
+        </button>
+        <button
+          aria-pressed={!toWarehouse}
+          onClick={() => pickMethod('courier')}
+        >
+          Курʼєр на адресу
+        </button>
       </div>
 
-      <div className="field">
-        <label htmlFor="address">Відділення або адреса</label>
-        <input id="address" className={cls('address')} value={form.address}
-               onChange={set('address')} />
+      <div className="field combo">
+        <label htmlFor="city">Населений пункт</label>
+        <input
+          id="city"
+          className={cls('city')}
+          value={form.city}
+          onChange={changeCity}
+          onFocus={() => setCityOpen(true)}
+          onBlur={() => setTouched((t) => ({ ...t, city: true }))}
+          autoComplete="off"
+          placeholder={directory ? 'Почніть набирати назву' : 'Місто або село'}
+        />
+        {hint('city')}
+        {directory && cityOpen && !cityPick && form.city.trim().length >= 2 && (
+          <div className="combo-list">
+            {cityBusy && <div className="combo-empty">Шукаємо…</div>}
+            {!cityBusy && cityHits.length === 0 && (
+              <div className="combo-empty">
+                Нічого не знайшлося. Можна вписати руками — менеджер уточнить.
+              </div>
+            )}
+            {cityHits.map((item) => (
+              <button
+                className="combo-item"
+                key={item.settlement_ref || item.ref}
+                onClick={() => pickCity(item)}
+              >
+                <span>{item.label}</span>
+                {/* Скільки там відділень — підказка, який із однойменних
+                    пунктів потрібен: у міста їх сотні, у села одне */}
+                <span className="combo-note num">{item.warehouses}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="field combo">
+        <label htmlFor="address">
+          {toWarehouse ? 'Відділення або поштомат' : 'Адреса доставки'}
+        </label>
+        <input
+          id="address"
+          className={cls('address')}
+          value={form.address}
+          onChange={changeAddress}
+          onFocus={() => setPointsOpen(true)}
+          onBlur={() => setTouched((t) => ({ ...t, address: true }))}
+          autoComplete="off"
+          placeholder={
+            toWarehouse ? 'Номер відділення або вулиця' : 'Вулиця, будинок, квартира'
+          }
+        />
         {hint('address')}
+        {toWarehouse && directory && !cityPick && form.city.trim().length > 0 && (
+          <p className="hint">
+            Оберіть населений пункт зі списку — тоді зʼявиться перелік відділень.
+          </p>
+        )}
+        {toWarehouse && directory && cityPick && pointsOpen
+          && !form.delivery_warehouse_ref && (
+          <div className="combo-list">
+            {pointsBusy && <div className="combo-empty">Завантажуємо відділення…</div>}
+            {!pointsBusy && points.length === 0 && (
+              <div className="combo-empty">
+                Такого відділення немає. Перевірте номер або впишіть адресу руками.
+              </div>
+            )}
+            {points.map((point) => (
+              <button className="combo-item" key={point.ref} onClick={() => pickPoint(point)}>
+                <span>{point.label}</span>
+                {point.is_postomat && <span className="combo-tag">поштомат</span>}
+              </button>
+            ))}
+          </div>
+        )}
+        {chosenPoint && (
+          <p className="combo-picked">
+            Обрано: {chosenPoint.short || chosenPoint.label}
+          </p>
+        )}
+        {/* Поштомат не приймає накладений платіж — про це краще сказати
+            тут, ніж дізнатися при спробі забрати посилку */}
+        {chosenPoint?.is_postomat && form.payment_method === 'cod' && (
+          <p className="field-error">
+            У поштоматі накладений платіж не приймають. Оберіть відділення
+            або оплату на картку.
+          </p>
+        )}
       </div>
 
       <div className="field">

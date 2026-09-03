@@ -154,6 +154,9 @@ class Order:
     contact_phone: str | None = None
     delivery_city: str | None = None
     delivery_address: str | None = None
+    delivery_method: str | None = None
+    delivery_city_ref: str | None = None
+    delivery_warehouse_ref: str | None = None
     comment: str | None = None
     admin_note: str | None = None
     tracking_number: str | None = None
