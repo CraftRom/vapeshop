@@ -274,11 +274,30 @@ class TopProduct(BaseModel):
 # ----------------------------------------------------------- налаштування
 
 
+# Похідні поля відповіді: панель бачить їх у GET, але записувати нема
+# чого — вони обчислюються з інших. Перелічені поіменно, щоб одруківка
+# й далі падала, а власна ж відповідь приймалась назад без правок.
+DERIVED_FIELDS = {"novaposhta_connected"}
+
+
 class ShopSettingsIn(BaseModel):
     # extra="forbid": одруківка в назві поля має падати одразу, а не
     # мовчки ігноруватись. Інакше «Збережено» показується, значення не
     # зберігається, і причину шукають тижнями.
+    #
+    # Ціна цієї суворості: те, що API віддає в GET, має прийматись у PUT.
+    # Панель показує форму й натисканням «Зберегти» шле її назад — а у
+    # відповіді є ознака novaposhta_connected, якої на записі немає.
+    # Одне зайве ім'я відхиляло весь запит, і зберегти не вдавалось
+    # нічого. Тому похідні поля відкидаємо мовчки й поіменно.
     model_config = ConfigDict(extra="forbid")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _drop_derived(cls, data):
+        if isinstance(data, dict):
+            return {k: v for k, v in data.items() if k not in DERIVED_FIELDS}
+        return data
 
     shop_name: str | None = Field(None, min_length=1, max_length=64)
     currency: str | None = Field(None, min_length=1, max_length=16)

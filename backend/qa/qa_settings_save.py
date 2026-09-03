@@ -69,6 +69,17 @@ r.check(not (WRITE_ONLY & outgoing),
 r.check("novaposhta_connected" in outgoing,
         "замість ключа віддається ознака «підключено»")
 
+# Прочитати й зберегти без змін — те, що робить панель щоразу.
+#
+# Саме тут ховалась поломка, якої не бачив жоден із наборів: відповідь
+# містить похідну ознаку novaposhta_connected, панель шле форму назад
+# цілком, а перелік дозволених полів на записі — поіменний. Зайве ім'я
+# відхиляло весь запит, і системний адміністратор не міг зберегти нічого.
+# Перевірки нижче ганяли рукописні тіла запитів і тому проходили.
+READ_ONLY = outgoing - incoming
+r.check(bool(READ_ONLY),
+        "у відповіді є похідні поля, яких немає на записі", sorted(READ_ONLY))
+
 
 def sample(name: str, field):
     """Значення, відмінне від типового, щоб зміна була помітна."""
@@ -143,6 +154,24 @@ async def scenario():
         back = (await client.get("/api/settings", headers=head(SYSADMIN))).json()
         for key, value in batch.items():
             r.check(back.get(key) == value, f"пакет: {key}", back.get(key))
+
+        print("\n--- прочитати й зберегти без змін ---")
+        # Рівно те, що робить панель: показала форму, людина натиснула
+        # «Зберегти». Жоден із наборів цього не робив — усі надсилали
+        # рукописні тіла запитів, — і тому пропустив поломку, через яку
+        # системний адміністратор не міг зберегти нічого взагалі.
+        shown = (await client.get("/api/settings", headers=head(SYSADMIN))).json()
+        again = await client.put("/api/settings", json=shown, headers=head(SYSADMIN))
+        r.check(again.status_code != 422,
+                "відповідь із налаштуваннями приймається назад без правок",
+                (again.status_code, again.text[:160]))
+
+        # Якщо колись доведеться відхилити похідне поле — воно має
+        # відхилятись поодинці, а не разом з усім запитом.
+        editable = {k: v for k, v in shown.items() if k in set(ShopSettingsIn.model_fields)}
+        resaved = await client.put("/api/settings", json=editable, headers=head(SYSADMIN))
+        r.check(resaved.status_code == 200,
+                "збереження без похідних полів проходить", resaved.status_code)
 
         print("\n--- зміни переживають перечитування ---")
         # Кеш налаштувань живе в памʼяті процесу. Якщо він не скидається

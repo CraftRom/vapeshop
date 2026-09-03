@@ -273,6 +273,16 @@ const FIELDS = [
   },
 ]
 
+// Що панель має право надсилати назад.
+//
+// Відповідь із налаштуваннями містить не лише поля форми: у ній є ще й
+// похідні ознаки на кшталт novaposhta_connected — стан замість секрету,
+// який назад не читається. Відправити таку ознаку на запис не можна,
+// бо на боці API дозволені поля перелічені поіменно, і зайве ім'я
+// відхиляється разом з усім запитом. Тому шлемо рівно те, що є у формі,
+// а не все, що прийшло.
+const EDITABLE = new Set(FIELDS.flatMap((group) => group.items.map((i) => i.key)))
+
 const LEVEL = {
   critical: { label: 'критично', tone: 'bad' },
   important: { label: 'важливо', tone: 'warn' },
@@ -362,7 +372,10 @@ export default function Settings() {
     setBusy(true)
     setError('')
     try {
-      const saved = await api.settings.update(form)
+      const payload = Object.fromEntries(
+        Object.entries(form).filter(([key]) => EDITABLE.has(key)),
+      )
+      const saved = await api.settings.update(payload)
       setForm(saved)
       setInitial(saved)
       notify('Налаштування збережено')
