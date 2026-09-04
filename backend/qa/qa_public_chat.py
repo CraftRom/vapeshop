@@ -337,4 +337,26 @@ dead = [(x.key, w) for x in faq.RULES for g in x.groups for w in g
         if faq.normalize(w).strip() != w]
 r.check(not dead, "усі ключові слова нормалізовані", dead[:3])
 
+print("\n--- перемикач відповідей у групах ---")
+# Потреба звідси: у робочому чаті команди розмова про доставку щоразу
+# викликала довідку про доставку. Змістовно доречно, по суті — шум
+# посеред обговорення людей.
+import inspect                                     # noqa: E402
+
+from bot import middlewares                        # noqa: E402
+
+source = inspect.getsource(middlewares)
+r.check("faq_public_enabled" in source,
+        "перемикач впливає на відповіді в групах")
+gate = source[source.index("faq_public_enabled"):]
+gate = gate[:gate.index("return None")]
+r.check("not mentioned" in gate,
+        "пряме звернення працює й з вимкненим перемикачем: покликали "
+        "особисто — мовчання виглядало б поломкою")
+r.check(source.index("faq_public_enabled") < source.index("rule = faq.match(text, current(), public=True)"),
+        "перевірка стоїть ДО зіставлення — вимкнено означає навіть не питати")
+
+r.check("faq_public_enabled" in ShopSettings.__annotations__,
+        "налаштування є в моделі магазину")
+
 r.done()

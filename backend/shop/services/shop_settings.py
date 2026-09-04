@@ -67,6 +67,7 @@ class ShopSettings:
     novaposhta_api_key: str
     novaposhta_sender_city: str
     delivery_courier_enabled: bool
+    faq_public_enabled: bool
     delivery_weight_per_item: Decimal
 
     admin_topic_id: int
@@ -134,6 +135,7 @@ class ShopSettings:
             novaposhta_api_key=settings.novaposhta_api_key,
             novaposhta_sender_city=settings.novaposhta_sender_city,
             delivery_courier_enabled=settings.delivery_courier_enabled,
+            faq_public_enabled=settings.faq_public_enabled,
             delivery_weight_per_item=Decimal(str(settings.delivery_weight_per_item)),
             admin_topic_id=settings.admin_topic_id,
             chat_topic_id=settings.chat_topic_id,
