@@ -1293,3 +1293,18 @@ textarea.input { min-height: 74px; resize: vertical; }
   min-height: 20px;
   word-break: break-all;
 }
+
+/* Контейнер діагностики.
+ *
+ * Спершу я взяв тут .card — і зверстав екран колонками: у вітрині
+ * .card це горизонтальний рядок товару (`display: flex`), а не
+ * контейнер загального призначення. Підписи, поле й перелік стали
+ * сусідніми стовпчиками по три літери завширшки, і прочитати показники
+ * було неможливо — при тому, що заради читання екран і зроблено.
+ */
+.diag {
+  display: block;
+  padding: 12px;
+  border-radius: var(--radius);
+  background: var(--tg-secondary-bg);
+}

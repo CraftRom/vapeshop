@@ -82,7 +82,7 @@ export function FieldDiag() {
   }, [])
 
   return (
-    <div className="card" style={{ marginTop: 12 }}>
+    <div className="diag" style={{ marginTop: 12 }}>
       <p className="card-title">Діагностика полів</p>
       <p className="hint">
         Наберіть кілька літер у полі нижче й порівняйте його з рамкою

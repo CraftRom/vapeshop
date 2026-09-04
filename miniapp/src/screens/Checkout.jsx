@@ -34,6 +34,7 @@ export function phoneError(value) {
 import { useEffect, useState } from 'react'
 
 import { api } from '../api'
+import { TextInput } from '../fields'
 import { alert, close, confirm, haptic, notify } from '../telegram'
 
 export function Cart({ config, cart, onCartChange, onCheckout }) {
@@ -282,6 +283,10 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
     }
   }, [cityPick, hasCity, form.delivery_method, form.payment_method])
 
+  // Той самий помічник, але для полів, які віддають готовий рядок, а не
+  // подію: див. fields.jsx — там пояснено, чому вони некеровані.
+  const put = (key) => (raw) => setForm((f) => ({ ...f, [key]: raw }))
+
   const set = (key) => (e) => {
     const value = e.target.type === 'checkbox' ? e.target.checked : e.target.value
     setForm((f) => ({ ...f, [key]: value }))
@@ -290,8 +295,7 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
   // Зміна міста скидає вибране відділення — і в тексті, і в коді. Без
   // цього посилка поїхала б у старе місто з кодом, який там нічого не
   // означає, а помітили б це аж на відправці.
-  const changeCity = (e) => {
-    const value = e.target.value
+  const changeCity = (value) => {
     setCityPick(null)
     setCityOpen(true)
     setForm((f) => ({
@@ -314,8 +318,7 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
     }))
   }
 
-  const changeAddress = (e) => {
-    const value = e.target.value
+  const changeAddress = (value) => {
     setPointsOpen(true)
     setForm((f) => ({ ...f, address: value, delivery_warehouse_ref: '' }))
   }
@@ -471,16 +474,16 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
           одним рядком люди вписують його в довільному порядку */}
       <div className="field">
         <label htmlFor="surname">Прізвище</label>
-        <input id="surname" className={cls('contact_surname')}
-               value={form.contact_surname}
-               onChange={set('contact_surname')} autoComplete="family-name" />
+        <TextInput id="surname" className={cls('contact_surname')}
+                   value={form.contact_surname}
+                   onValue={put('contact_surname')} autoComplete="family-name" />
         {hint('contact_surname')}
       </div>
 
       <div className="field">
         <label htmlFor="name">Імʼя</label>
-        <input id="name" className={cls('contact_name')} value={form.contact_name}
-               onChange={set('contact_name')} autoComplete="given-name" />
+        <TextInput id="name" className={cls('contact_name')} value={form.contact_name}
+                   onValue={put('contact_name')} autoComplete="given-name" />
         {hint('contact_name')}
       </div>
 
@@ -488,13 +491,13 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
         <label htmlFor="patronymic">
           По батькові <span className="faint">— не обовʼязково</span>
         </label>
-        <input id="patronymic" className="input" value={form.contact_patronymic}
-               onChange={set('contact_patronymic')} autoComplete="additional-name" />
+        <TextInput id="patronymic" className="input" value={form.contact_patronymic}
+                   onValue={put('contact_patronymic')} autoComplete="additional-name" />
       </div>
 
       <div className="field">
         <label htmlFor="phone">Телефон</label>
-        <input
+        <TextInput
           id="phone"
           className={`input ${
             touched.contact_phone
@@ -509,8 +512,8 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
             // український номер, і людина не почне з нуля чи вісімки.
             if (!form.contact_phone) setForm((f) => ({ ...f, contact_phone: '+380' }))
           }}
-          onChange={(e) => setForm((f) => ({
-            ...f, contact_phone: normalizePhone(e.target.value),
+          onValue={(raw) => setForm((f) => ({
+            ...f, contact_phone: normalizePhone(raw),
           }))}
           onBlur={() => setTouched((t) => ({ ...t, contact_phone: true }))}
         />
@@ -545,11 +548,11 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
 
       <div className="field combo">
         <label htmlFor="city">Населений пункт</label>
-        <input
+        <TextInput
           id="city"
           className={cls('city')}
           value={form.city}
-          onChange={changeCity}
+          onValue={changeCity}
           onFocus={() => setCityOpen(true)}
           onBlur={() => setTouched((t) => ({ ...t, city: true }))}
           autoComplete="off"
@@ -584,11 +587,11 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
         <label htmlFor="address">
           {toWarehouse ? 'Відділення або поштомат' : 'Адреса доставки'}
         </label>
-        <input
+        <TextInput
           id="address"
           className={cls('address')}
           value={form.address}
-          onChange={changeAddress}
+          onValue={changeAddress}
           onFocus={() => setPointsOpen(true)}
           onBlur={() => setTouched((t) => ({ ...t, address: true }))}
           autoComplete="off"
@@ -655,13 +658,13 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
       <div className="field">
         <label htmlFor="promo">Промокод</label>
         <div style={{ display: 'flex', gap: 8 }}>
-          <input
+          <TextInput
             id="promo"
             className="input"
             value={form.promo_code}
-            onChange={(e) => {
+            onValue={(raw) => {
               setPromo(null)
-              set('promo_code')(e)
+              put('promo_code')(raw)
             }}
             placeholder="Якщо є"
           />
@@ -694,11 +697,12 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
 
       <div className="field">
         <label htmlFor="comment">Коментар</label>
-        <textarea
+        <TextInput
+          multiline
           id="comment"
           className="input"
           value={form.comment}
-          onChange={set('comment')}
+          onValue={put('comment')}
           placeholder="Необовʼязково"
         />
       </div>
