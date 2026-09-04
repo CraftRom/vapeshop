@@ -180,6 +180,23 @@ async def scenario():
     await np.warehouses(KEY, "city-dnipro")
     r.check(len(calls) == 2, "після скидання кешу дані беруться заново", len(calls))
 
+    print("\n--- крайні випадки розрахунку ---")
+    reset()
+    # Нульова оголошена вартість: кошик спорожнили в іншій вкладці,
+    # знижка зʼїла суму. Перевізник такого запиту не приймає.
+    await np.document_price(KEY, "s", "c", to_door=False, declared=0, weight=1.0)
+    r.check(calls[0]["methodProperties"]["Cost"] == "1",
+            "нульова вартість замінюється одиницею — інакше відмова",
+            calls[0]["methodProperties"]["Cost"])
+
+    reset()
+    response_queue.append({"success": True, "data": []})
+    try:
+        await np.document_price(KEY, "s", "c", to_door=False, declared=100, weight=1.0)
+        r.check(False, "порожня відповідь на розрахунок помічена")
+    except np.NovaPoshtaError:
+        r.check(True, "порожня відповідь на розрахунок не стає нулем у ціні")
+
     print("\n--- редиректи перевізника ---")
     # Живий довідник на частину запитів відповідає «303 See Other» на ту
     # саму адресу. Без follow_redirects httpx вважає це помилкою, і
@@ -285,6 +302,17 @@ async def scenario():
         r.check([w["number"] for w in whs.json()["items"]] == [3, 7, 100],
                 "вітрина отримує відділення по порядку")
 
+        # Розрахунок рахується від кошика на сервері, тож для перевірки
+        # там має щось лежати. Порожній кошик — окремий випадок нижче.
+        cat = (await client.post("/api/catalog/categories",
+                                 json={"name": "Одноразки"}, headers=token)).json()
+        prod = (await client.post("/api/catalog/products", json={
+            "category_id": cat["id"], "name": "Elf Bar 5000",
+            "price": "315", "stock": 10, "is_active": True,
+        }, headers=token)).json()
+        await client.post("/api/shop/cart",
+                          json={"product_id": prod["id"], "delta": 2}, headers=head)
+
         # Розрахунок доставки: у налаштуваннях немає міста відправлення
         priced = await client.get(
             "/api/shop/delivery/price?city_ref=city-dnipro", headers=head)
@@ -305,6 +333,40 @@ async def scenario():
         r.check(body["approximate"] is True,
                 "навіть розрахунок перевізника лишається приблизним: "
                 "фактичну вагу знають лише на відділенні")
+
+        print("\n--- курʼєр на адресу ---")
+        cfg2 = (await client.get("/api/shop/config", headers=head)).json()
+        r.check(cfg2.get("courier_enabled") is False,
+                "за замовчуванням курʼєр вимкнений", cfg2.get("courier_enabled"))
+
+        refused = await client.post("/api/shop/checkout", json={
+            "contact_surname": "Ш", "contact_name": "Т",
+            "contact_phone": "+380671112233", "city": "Дніпро",
+            "address": "вул. Січова, 12", "payment_method": "card",
+            "delivery_method": "courier",
+        }, headers=head)
+        r.check(refused.status_code == 422,
+                "вимкнений курʼєр не приймається навіть із застарілої вкладки",
+                refused.status_code)
+
+        await client.put("/api/settings",
+                         json={"delivery_courier_enabled": True}, headers=token)
+        cfg2 = (await client.get("/api/shop/config", headers=head)).json()
+        r.check(cfg2.get("courier_enabled") is True,
+                "увімкнений курʼєр видно у вітрині")
+        await client.put("/api/settings",
+                         json={"delivery_courier_enabled": False}, headers=token)
+
+        # Порожній кошик: рахувати нема чого, але й падати не можна —
+        # екран оформлення могли лишити відкритим, а товар прибрати.
+        await client.post("/api/shop/cart",
+                          json={"product_id": prod["id"], "delta": -2}, headers=head)
+        empty = await client.get(
+            "/api/shop/delivery/price?city_ref=city-dnipro", headers=head)
+        r.check(empty.status_code == 200 and empty.json()["cost"] is None,
+                "порожній кошик не ламає розрахунок", empty.status_code)
+        await client.post("/api/shop/cart",
+                          json={"product_id": prod["id"], "delta": 2}, headers=head)
 
         np.reset_cache()
         response_queue.append({"success": False, "errors": ["Ліміт запитів"]})

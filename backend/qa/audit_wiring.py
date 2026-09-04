@@ -315,10 +315,18 @@ check("color-scheme" in _mini_css,
       "вітрина оголошує схему — інакше iOS малює свої елементи світлими")
 check("-webkit-text-fill-color" in _mini_css,
       "автозаповнення не робить текст невидимим")
+# Раніше тут вимагалось протилежне: перефарбувати поле у фокусі з
+# !important. Знімки екрана показали, що це й було причиною — у полі з
+# фокусом гліфи не малюються, а в сусідньому той самий текст читається,
+# і каретка стоїть там, де текст закінчується. Отже, розмітка правильна,
+# а фарбування, перерахуване рівно в мить переходу в режим редагування,
+# губить літери. Тепер фокус міняє тільки рамку.
 _focus = css_block(_mini_css, ".input:focus")
-check("!important" in _focus,
-      "кольори у фокусі перекривають стилі WebView — інакше текст зникає при введенні")
-check("background" in _focus, "фон поля у фокусі закріплений")
+_painted = _focus.replace("border-color", "")
+for _prop in ("color:", "-webkit-text-fill-color", "background", "opacity"):
+    check(_prop not in _painted,
+          f"фокус не перефарбовує поле ({_prop.rstrip(':')})", _focus.strip())
+check("border-color" in _focus, "фокус міняє рамку — і лише її")
 check("::selection" in _mini_css, "виділений текст теж лишається видимим")
 check("--tg-text" in _mini_css.split("data-scheme='light'")[1].split("}")[0],
       "світла тема має власні кольори тексту, а не лише акценти")
@@ -505,8 +513,8 @@ check("field-error" in read("miniapp/src/styles.css"),
 _css = read("miniapp/src/styles.css")
 check(_css.count("-webkit-text-fill-color") >= 5,
       "текст полів малюється явно — інакше введене зникає на темній темі")
-check("input:focus" in _css and "text-fill-color" in css_block(_css, ".input:focus"),
-      "колір тексту закріплений і на фокусі")
+check("text-fill-color" in css_block(_css, ".input"),
+      "колір тексту закріплений у звичайному стані — саме там, а не на фокусі")
 check("err.status !== 409" in read("miniapp/src/screens/Wishlists.jsx"),
       "конфлікт назви списку не показується як помилка")
 check("const known = prev.some" in read("miniapp/src/App.jsx"),
@@ -624,7 +632,11 @@ for pack, srcs in [("вітрина", "miniapp/src"), ("панель", "dashboar
                                f.read_text(), re.M):
             exported.setdefault(name, f.name)
 
-    for f in sorted((root / srcs).rglob("*.jsx")):
+    # І .js теж, не лише .jsx: у telegram.js та api.js так само легко
+    # покликати те, чого не привезли, а збірка цього не помітить.
+    files = sorted(list((root / srcs).rglob("*.jsx"))
+                   + list((root / srcs).rglob("*.js")))
+    for f in files:
         text = f.read_text()
         # Імпорт часто розтягнутий на кілька рядків, тож беремо його
         # цілим виразом, а не по рядку: інакше половина привезених імен

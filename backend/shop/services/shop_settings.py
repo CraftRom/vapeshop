@@ -66,6 +66,7 @@ class ShopSettings:
     # назад: панель бачить лише ознаку «підключено» (novaposhta_connected).
     novaposhta_api_key: str
     novaposhta_sender_city: str
+    delivery_courier_enabled: bool
     delivery_weight_per_item: Decimal
 
     admin_topic_id: int
@@ -132,6 +133,7 @@ class ShopSettings:
             cod_commission_fixed=Decimal(str(settings.cod_commission_fixed)),
             novaposhta_api_key=settings.novaposhta_api_key,
             novaposhta_sender_city=settings.novaposhta_sender_city,
+            delivery_courier_enabled=settings.delivery_courier_enabled,
             delivery_weight_per_item=Decimal(str(settings.delivery_weight_per_item)),
             admin_topic_id=settings.admin_topic_id,
             chat_topic_id=settings.chat_topic_id,

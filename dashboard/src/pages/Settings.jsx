@@ -191,6 +191,14 @@ const FIELDS = [
               + 'подається покупцеві як приблизний',
       },
       {
+        key: 'delivery_courier_enabled',
+        label: 'Курʼєр на адресу',
+        bool: true,
+        hint: 'Вимкнено — покупець бачить лише відділення, і вибору способу '
+              + 'доставки у формі немає зовсім. Показана, але недоступна '
+              + 'насправді опція коштує скасованого замовлення',
+      },
+      {
         key: 'delivery_cost_from',
         label: 'Доставка від, грн',
         type: 'number',
@@ -281,7 +289,12 @@ const FIELDS = [
 // бо на боці API дозволені поля перелічені поіменно, і зайве ім'я
 // відхиляється разом з усім запитом. Тому шлемо рівно те, що є у формі,
 // а не все, що прийшло.
-const EDITABLE = new Set(FIELDS.flatMap((group) => group.items.map((i) => i.key)))
+const EDITABLE = new Set(FIELDS.flatMap(
+  // Разом із перемикачем розділу: він живе поруч із заголовком, а не
+  // серед полів, і його легко загубити. Саме так і сталось — після
+  // введення цього фільтра перемикач «Бонуси» переставав зберігатися.
+  (group) => [...group.items.map((i) => i.key), group.toggle].filter(Boolean),
+))
 
 const LEVEL = {
   critical: { label: 'критично', tone: 'bad' },
@@ -437,6 +450,18 @@ export default function Settings() {
           <div style={{ opacity: group.toggle && !form[group.toggle] ? 0.45 : 1 }}>
           {group.items.map((item) => (
             <Field key={item.key} label={item.label} hint={item.hint}>
+              {item.bool ? (
+                <label className="row" style={{ gap: 8, cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={Boolean(form[item.key])}
+                    onChange={(e) =>
+                      setForm((f) => ({ ...f, [item.key]: e.target.checked }))
+                    }
+                  />
+                  {form[item.key] ? 'Увімкнено' : 'Вимкнено'}
+                </label>
+              ) : (
               <input
                 className="input"
                 type={item.secret ? 'password' : item.type || 'text'}
@@ -451,6 +476,7 @@ export default function Settings() {
                     : undefined
                 }
               />
+              )}
               {/* Секрет не читається назад: ключем Нової пошти
                   створюються накладні від імені магазину, тож у
                   відповіді API йому не місце. Замість значення

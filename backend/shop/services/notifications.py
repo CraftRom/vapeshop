@@ -99,3 +99,32 @@ async def notify_new_order(bot, repo: Repository, order: Order, user: User) -> b
         log.warning("Не вдалося надіслати замовлення №%s в адмінський чат",
                     order.id, exc_info=True)
         return False
+
+
+async def notify_cancelled_by_client(bot, repo, order, user) -> None:
+    """Повідомляє команду, що покупець скасував замовлення сам.
+
+    Окремим повідомленням, а не записом у чат замовлення: менеджер, який
+    саме пакує посилку, у чат не дивиться, а «💬 Питання по замовленню»
+    він прочитає як питання й відповість на нього, замість того щоб
+    зупинити відправку.
+    """
+    if bot is None:
+        return
+    shop = await get_shop_settings(repo)
+    if not shop.admin_chat_id:
+        return
+
+    who = f"@{esc(user.username)}" if user.username else esc(user.first_name or "клієнт")
+    try:
+        await bot.send_message(
+            shop.admin_chat_id,
+            f"🚫 <b>Замовлення №{order.id} скасоване покупцем</b>\n"
+            f"Хто: {who}\n"
+            f"Сума: {order.total} грн\n\n"
+            "<i>Товар повернуто в наявність, бонуси — на рахунок. "
+            "Якщо посилку вже зібрано — розберіть.</i>",
+            **topic_kwargs(shop.admin_topic_id),
+        )
+    except Exception:
+        log.info("Не вдалося сповістити команду про скасування", exc_info=True)

@@ -308,7 +308,10 @@ async def document_price(api_key: str, sender_ref: str, recipient_ref: str,
         "CityRecipient": recipient_ref,
         "ServiceType": "WarehouseDoors" if to_door else "WarehouseWarehouse",
         "CargoType": "Cargo",
-        "Cost": str(int(declared)),
+        # Перевізник не приймає нульову оголошену вартість, а нуль сюди
+        # потрапляє легко: кошик спорожнили в іншій вкладці, знижка
+        # зʼїла суму. Одна гривня — достатньо, щоб розрахунок пройшов.
+        "Cost": str(max(int(declared), 1)),
         "Weight": str(weight),
         "SeatsAmount": "1",
     }

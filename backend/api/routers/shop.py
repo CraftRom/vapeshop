@@ -24,7 +24,7 @@ from shop.repo.factory import get_repo
 from shop.services import novaposhta as np
 from shop.services import order_chat as svc_chat
 from shop.services import shop_service as svc
-from shop.services.notifications import notify_new_order
+from shop.services.notifications import notify_cancelled_by_client, notify_new_order
 from shop.services import wishlist as wl
 from shop.services.shop_settings import get_shop_settings
 
@@ -53,6 +53,10 @@ class ShopConfigOut(BaseModel):
     # Чи працює вибір відділення з довідника. Без ключа вітрина лишає
     # два вільні рядки — рівно те, що було до появи довідника.
     novaposhta_enabled: bool
+    # Чи пропонувати курʼєра. Вимкнений — вітрина взагалі не показує
+    # вибору способу доставки: один варіант краще подати як даність,
+    # ніж як вибір із одного.
+    courier_enabled: bool
     # Реквізити для юридичних документів. Порожні поля вітрина показує
     # як незаповнені — щоб недороблену оферту не можна було проґавити.
     seller: dict
@@ -140,6 +144,7 @@ def _config(shop, user) -> ShopConfigOut:
         volume_discount_min=shop.volume_discount_min,
         volume_discount_percent=shop.volume_discount_percent,
         novaposhta_enabled=shop.novaposhta_connected,
+        courier_enabled=shop.delivery_courier_enabled,
         seller={
             "SELLER_NAME": shop.seller_name,
             "SELLER_CODE": shop.seller_code,
@@ -636,24 +641,23 @@ async def _tell_managers_cancelled(repo: Repository, order, user: User) -> None:
     Без цього скасування було б видно лише в списку — а менеджер, який
     уже пакує посилку, у список не дивиться.
     """
+    bot = None
     try:
-        bot = None
-        try:
-            from api.routers.telegram import _instances
+        from api.routers.telegram import _instances
 
-            bot, _ = _instances()
-        except Exception:  # noqa: BLE001
-            log.warning("Бот недоступний — про скасування не сповістимо")
+        bot, _ = _instances()
+    except Exception:
+        # exc_info обовʼязково: мовчазний except тут означав би, що
+        # сповіщення тихо не працює, і дізнаємось ми про це від клієнта,
+        # якому привезли скасовану посилку.
+        log.warning("Бот недоступний — про скасування не сповістимо", exc_info=True)
 
-        await svc_chat.save_incoming(
-            repo, order, user,
-            "Скасував замовлення у застосунку. Товар повернуто в наявність.",
-            bot=bot,
-        )
-    except Exception:  # noqa: BLE001
+    try:
+        await notify_cancelled_by_client(bot, repo, order, user)
+    except Exception:
         # Скасування вже відбулось і відкотити його не можна. Впасти тут
         # означало б показати покупцеві помилку на успішній дії.
-        log.warning("Не вдалось сповістити про скасування №%s", order.id)
+        log.warning("Не вдалось сповістити про скасування №%s", order.id, exc_info=True)
 
 
 # --------------------------------------------------------------- доставка
@@ -737,6 +741,13 @@ async def delivery_price(
     quantity = sum(line.qty for line in lines) or 1
     weight = max(float(shop.delivery_weight_per_item) * quantity, 0.1)
 
+    # Порожній кошик — рахувати нема чого. Трапляється, якщо екран
+    # оформлення лишили відкритим, а товар тим часом прибрали.
+    if not lines:
+        return {"approximate": True, "cost": None, "redelivery": 0,
+                "weight": 0, "source": "settings",
+                "cost_from": float(shop.delivery_cost_from or 0)}
+
     fallback = {
         "approximate": True,
         "cost": None,
@@ -760,7 +771,7 @@ async def delivery_price(
             return fallback
         price = await np.document_price(
             key, sender_ref, city_ref or settlement_ref,
-            to_door=method == "courier",
+            to_door=method == "courier" and shop.delivery_courier_enabled,
             declared=float(subtotal),
             weight=round(weight, 2),
             cash_on_delivery=float(subtotal) if payment_method == "cod" else 0,
@@ -790,6 +801,15 @@ async def checkout(
     repo: Repository = Depends(get_repo),
 ):
     _require_age(user)
+    shop_now = await get_shop_settings(repo)
+    if data.delivery_method == "courier" and not shop_now.delivery_courier_enabled:
+        # Вітрина такого не покаже, але запит міг лишитись у відкритій
+        # вкладці з часів, коли курʼєр був увімкнений. Мовчки підмінити
+        # спосіб не можна: адресу вписано вулицею, а не відділенням.
+        raise HTTPException(
+            422, "Доставка курʼєром зараз недоступна — оберіть відділення",
+        )
+
     order, error = await svc.create_order(
         repo, user,
         contact_name=data.contact_name, contact_surname=data.contact_surname,

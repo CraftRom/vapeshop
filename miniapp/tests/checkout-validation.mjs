@@ -107,5 +107,17 @@ check(src.includes('setTimeout') && src.includes('clearTimeout'),
 check(src.includes('is_postomat') && src.includes("payment_method === 'cod'"),
       'накладений платіж у поштомат не пропускається')
 
+console.log('\n--- попередній розрахунок доставки ---')
+// Він мусить бути видимим і тоді, коли довідник вимкнений: без ключа
+// покупець інакше не бачив би про вартість доставки нічого взагалі.
+check(src.includes('form.city.trim().length > 1'),
+      'вписане руками місто теж дає розрахунок')
+check(/shipping\.cost \|\| shipping\.cost_from > 0/.test(src),
+      'порожній блок із прочерком не показується')
+check(src.includes('Точну суму називає перевізник'),
+      'сказано, що число приблизне й уточнюється в менеджера')
+check(src.includes('у підсумок вище не'),
+      'сказано, що доставка не входить у суму замовлення')
+
 console.log(`\nОФОРМЛЕННЯ: ${bad === 0 ? 'усе витримано' : `ПРОВАЛЕНО: ${bad}`}`)
 process.exit(bad ? 1 : 0)

@@ -179,7 +179,11 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
   // ніколи в неї не входить: платять його перевізникові, а не нам.
   const [shipping, setShipping] = useState(null)
   const directory = Boolean(config.novaposhta_enabled) && !directoryDown
-  const toWarehouse = form.delivery_method === 'warehouse'
+  // Курʼєр вимкнений — вибору немає взагалі. Один варіант краще подати
+  // як даність, ніж як вибір із одного: зайва кнопка змушує зупинитись
+  // і подумати там, де думати нема над чим.
+  const courier = Boolean(config.courier_enabled)
+  const toWarehouse = form.delivery_method === 'warehouse' || !courier
 
   useEffect(() => {
     if (profile?.first_name) {
@@ -250,16 +254,20 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
   // Рахуємо, щойно відомо куди. Місто — найбільший множник у тарифі,
   // спосіб доставки й накладений платіж міняють суму помітно, тож на
   // кожну зміну питаємо заново.
+  // Місто вписали руками — це теж привід показати «від N грн». Раніше
+  // розрахунок вимагав вибору з довідника, тож без ключа Нової пошти
+  // покупець не бачив узагалі нічого про вартість доставки.
+  const hasCity = Boolean(cityPick) || form.city.trim().length > 1
   useEffect(() => {
-    if (!cityPick) {
+    if (!hasCity) {
       setShipping(null)
       return undefined
     }
     let alive = true
-    ;(async () => {
+    const timer = setTimeout(async () => {
       try {
         const data = await api.delivery.price(
-          cityPick.ref, cityPick.settlement_ref,
+          cityPick?.ref || '', cityPick?.settlement_ref || '',
           form.delivery_method, form.payment_method,
         )
         if (alive) setShipping(data)
@@ -267,9 +275,12 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
         // Не порахували — не показуємо нічого. Оформлення це не чіпає.
         if (alive) setShipping(null)
       }
-    })()
-    return () => { alive = false }
-  }, [cityPick, form.delivery_method, form.payment_method])
+    }, 300)
+    return () => {
+      alive = false
+      clearTimeout(timer)
+    }
+  }, [cityPick, hasCity, form.delivery_method, form.payment_method])
 
   const set = (key) => (e) => {
     const value = e.target.type === 'checkbox' ? e.target.checked : e.target.value
@@ -410,6 +421,10 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
     try {
       const order = await api.checkout({
         ...form,
+        // Курʼєра могли вимкнути, поки вкладка була відкрита. Шлемо те,
+        // що покупець реально бачив на екрані, інакше замовлення
+        // відхилиться з приводу, якого людина не розуміє.
+        delivery_method: toWarehouse ? 'warehouse' : 'courier',
         comment: form.comment.trim() || null,
         promo_code: promo?.ok ? form.promo_code.trim() : null,
       })
@@ -506,23 +521,27 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
         )}
       </div>
 
-      <div className="field">
-        <label>Спосіб доставки</label>
-      </div>
-      <div className="choice">
-        <button
-          aria-pressed={toWarehouse}
-          onClick={() => pickMethod('warehouse')}
-        >
-          Відділення
-        </button>
-        <button
-          aria-pressed={!toWarehouse}
-          onClick={() => pickMethod('courier')}
-        >
-          Курʼєр на адресу
-        </button>
-      </div>
+      {courier && (
+        <>
+          <div className="field">
+            <label>Спосіб доставки</label>
+          </div>
+          <div className="choice">
+            <button
+              aria-pressed={toWarehouse}
+              onClick={() => pickMethod('warehouse')}
+            >
+              Відділення
+            </button>
+            <button
+              aria-pressed={!toWarehouse}
+              onClick={() => pickMethod('courier')}
+            >
+              Курʼєр на адресу
+            </button>
+          </div>
+        </>
+      )}
 
       <div className="field combo">
         <label htmlFor="city">Населений пункт</label>
@@ -718,7 +737,7 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
             перевізникові на відділенні, а не нам — вписати її в «До
             сплати» означало б показати суму, якої покупець нам не
             переказує. */}
-        {shipping && (
+        {shipping && (shipping.cost || shipping.cost_from > 0) && (
           <div className="shipping">
             <div className="row-between num">
               <span className="hint">
@@ -727,9 +746,7 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
               <span>
                 {shipping.cost
                   ? `≈ ${shipping.cost} ${config.currency}`
-                  : shipping.cost_from
-                    ? `від ${shipping.cost_from.toFixed(0)} ${config.currency}`
-                    : '—'}
+                  : `від ${shipping.cost_from.toFixed(0)} ${config.currency}`}
               </span>
             </div>
             {shipping.redelivery > 0 && (

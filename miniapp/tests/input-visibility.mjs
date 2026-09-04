@@ -14,19 +14,39 @@ const rule = (selector) => {
   return css.slice(i, css.indexOf('}', i))
 }
 
-console.log('\n--- поле у фокусі ---')
+console.log('\n--- кольори задані у звичайному стані ---')
+const base = rule('.input {')
+ok(base.includes('-webkit-text-fill-color'),
+   'заливка гліфів задана: WebKit малює текст поля саме через неї')
+ok(base.includes('color:'), 'колір тексту задано')
+ok(base.includes('background'), 'фон задано')
+
+console.log('\n--- у фокусі не міняється фарбування ---')
+// Шоста спроба полагодити невидимий текст, і підозрюваний саме тут.
+// Правило фокуса повторювало колір, заливку, фон і непрозорість — з
+// тими самими значеннями, тобто на вигляд не робило нічого. Але воно
+// змушувало движок перерахувати фарбування рівно тоді, коли поле стає
+// редагованим, а редагований текст WebView малює окремим шаром. Зі
+// знімків видно: у полі з фокусом гліфів немає, у сусідньому той самий
+// текст читається, каретка стоїть там, де текст закінчується.
 const focus = rule('.input:focus,')
-ok(focus.includes('-webkit-text-fill-color'), 'заливка гліфів задана')
-ok(focus.includes('!important'), 'перекриває стилі WebView')
-ok(focus.includes('background'), 'фон закріплений')
+// border-color лишається дозволеним: рамка — єдине, що фокус міняє.
+const painted = focus.replace(/border-color:[^;]*;?/g, '')
+for (const prop of ['color', '-webkit-text-fill-color', 'background', 'opacity']) {
+  ok(!painted.includes(`${prop}:`), `фокус не перевизначає ${prop}`, painted.trim())
+}
+ok(focus.includes('border-color'), 'фокус міняє рамку — і лише її')
+ok(!/input:focus[^{]*\{[^}]*-webkit-text-fill-color/.test(css),
+   'жодне правило фокуса не чіпає заливку гліфів')
 
 console.log('\n--- поле з помилкою ---')
 const badRule = rule('.input.bad,')
-ok(badRule.includes('-webkit-text-fill-color'), 'текст лишається видимим')
 ok(badRule.includes('warn-soft'), 'фон помилки не втрачено')
+ok(!badRule.includes('-webkit-text-fill-color'),
+   'і воно теж не перефарбовує редаговане поле')
 
 console.log('\n--- поля без класу ---')
-ok(css.includes('input:focus, textarea:focus, select:focus'), 'запобіжник є')
+ok(css.includes('input, textarea, select {'), 'запобіжник є')
 
 console.log('\n--- виділення ---')
 ok(css.includes('.input::selection'), 'колір виділення заданий')
