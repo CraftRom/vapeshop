@@ -26,9 +26,21 @@ const WATCHED = [
   ['Розмір шрифту', 'fontSize'],
 ]
 
+function Row({ label, value }) {
+  return (
+    <li>
+      <span className="diag-key">{label}</span>
+      <span className="diag-value num">{String(value)}</span>
+    </li>
+  )
+}
+
 export function FieldDiag() {
   const probe = useRef(null)
   const [rows, setRows] = useState(null)
+  // Те, що набрали, у власному стані — щоб намалювати ті самі літери
+  // звичайним текстом поруч із полем.
+  const [typed, setTyped] = useState('')
 
   const read = () => {
     const node = probe.current
@@ -37,6 +49,11 @@ export function FieldDiag() {
     setRows({
       focused: document.activeElement === node,
       length: node.value.length,
+      // Найважливіше число після довжини: якщо вміст поля прокручений
+      // убік, літери просто поза видимою частиною, і жоден колір тут ні
+      // до чого.
+      scroll: `${node.scrollLeft} із ${node.scrollWidth} (видимо ${node.clientWidth})`,
+      caretAt: `${node.selectionStart}`,
       computed: WATCHED.map(([label, prop]) => [label, style[prop] || '—']),
       // Припис просто на елементі переважає будь-яку таблицю стилів.
       // Якщо він тут не наш — його поставило оточення.
@@ -68,9 +85,9 @@ export function FieldDiag() {
     <div className="card" style={{ marginTop: 12 }}>
       <p className="card-title">Діагностика полів</p>
       <p className="hint">
-        Станьте в поле нижче, наберіть кілька літер і надішліть знімок
-        екрана розробнику. Якщо літер не видно — саме це й потрібно
-        зафіксувати разом із показниками.
+        Наберіть кілька літер у полі нижче й порівняйте його з рамкою
+        під ним: там ті самі символи, намальовані звичайним текстом.
+        Далі — знімок екрана з показниками.
       </p>
 
       <div className="field">
@@ -80,26 +97,35 @@ export function FieldDiag() {
           className="input"
           ref={probe}
           onFocus={read}
-          onInput={read}
+          onInput={(e) => {
+            setTyped(e.target.value)
+            read()
+          }}
           placeholder="Наберіть тут"
         />
+        {/* Вирішальне порівняння: ті самі літери, намальовані звичайним
+            текстом. Якщо тут вони є, а в полі вище їх немає, причина не
+            в кольорі й не в стилях — не малюється саме редаговане
+            поле, і лікувати треба інакше. */}
+        <div className="diag-mirror">{typed || '(тут зʼявиться те саме)'}</div>
       </div>
 
       {rows && (
         <ul className="diag-list">
-          <li><span>Версія вітрини</span><span className="num">{APP_VERSION}</span></li>
-          <li>
-            <span>Поле у фокусі</span>
-            <span>{rows.focused ? 'так' : 'ні'}</span>
-          </li>
-          <li><span>Символів у полі</span><span className="num">{rows.length}</span></li>
+          {/* Найважливіше вгорі: на телефоні до низу довгого переліку
+              просто не догортають, а знімок екрана обрізає його. */}
+          <Row label="Символів у полі" value={rows.length} />
+          <Row label="Каретка стоїть після символа" value={rows.caretAt} />
+          <Row label="Прокрутка вмісту" value={rows.scroll} />
+          <Row label="Поле у фокусі" value={rows.focused ? 'так' : 'ні'} />
+          <Row label="Версія вітрини" value={APP_VERSION} />
           {rows.computed.map(([label, value]) => (
-            <li key={label}><span>{label}</span><span className="num">{value}</span></li>
+            <Row key={label} label={label} value={value} />
           ))}
-          <li><span>Припис на елементі</span><span className="num">{rows.inline}</span></li>
-          <li><span>Таблиці стилів</span><span className="num">{rows.sheets}</span></li>
-          <li><span>Сторож</span><span className="num">{rows.guard}</span></li>
-          <li><span>Висота вікна</span><span className="num">{rows.viewport}</span></li>
+          <Row label="Припис на елементі" value={rows.inline} />
+          <Row label="Таблиці стилів" value={rows.sheets} />
+          <Row label="Сторож" value={rows.guard} />
+          <Row label="Висота вікна" value={rows.viewport} />
         </ul>
       )}
     </div>
