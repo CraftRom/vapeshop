@@ -306,12 +306,34 @@ const FIELDS = [
 // бо на боці API дозволені поля перелічені поіменно, і зайве ім'я
 // відхиляється разом з усім запитом. Тому шлемо рівно те, що є у формі,
 // а не все, що прийшло.
-const EDITABLE = new Set(FIELDS.flatMap(
-  // Разом із перемикачем розділу: він живе поруч із заголовком, а не
-  // серед полів, і його легко загубити. Саме так і сталось — після
-  // введення цього фільтра перемикач «Бонуси» переставав зберігатися.
-  (group) => [...group.items.map((i) => i.key), group.toggle].filter(Boolean),
-))
+/** Розділи, доступні поточній ролі.
+ *
+ * Одне джерело і для показу, і для запису. Раніше показ фільтрувався за
+ * роллю, а на збереження йшли ВСІ поля — включно з розділами, яких роль
+ * навіть не бачить. Бекенд перевіряє права поіменно й відхиляє весь
+ * запит цілком, тож менеджер не міг зберегти нічого взагалі, а
+ * адміністратор спотикався об інфраструктурні поля. Ззовні це виглядало
+ * як «налаштування не працюють».
+ */
+function visibleGroups() {
+  return FIELDS.filter((group) => {
+    if (SYSADMIN_ONLY.has(group.title)) return isSysadmin()
+    if (ADMIN_ONLY.has(group.title)) return isAdmin()
+    return true
+  })
+}
+
+/** Що саме ця роль має право надсилати.
+ *
+ * Разом із перемикачем розділу: він живе поруч із заголовком, а не серед
+ * полів, і його легко загубити. Саме так і сталось — перемикач «Бонуси»
+ * переставав зберігатися.
+ */
+function editableKeys() {
+  return new Set(visibleGroups().flatMap(
+    (group) => [...group.items.map((i) => i.key), group.toggle].filter(Boolean),
+  ))
+}
 
 const LEVEL = {
   critical: { label: 'критично', tone: 'bad' },
@@ -395,15 +417,17 @@ export default function Settings() {
 
   const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }))
 
-  const dirty =
-    form && initial && Object.keys(form).some((k) => String(form[k]) !== String(initial[k]))
+  const dirty = Boolean(form && initial) && [...editableKeys()].some(
+    (key) => String(form[key]) !== String(initial[key]),
+  )
 
   const save = async () => {
     setBusy(true)
     setError('')
     try {
+      const mine = editableKeys()
       const payload = Object.fromEntries(
-        Object.entries(form).filter(([key]) => EDITABLE.has(key)),
+        Object.entries(form).filter(([key]) => mine.has(key)),
       )
       const saved = await api.settings.update(payload)
       setForm(saved)
@@ -440,11 +464,7 @@ export default function Settings() {
 
       <ErrorBar error={error} />
 
-      {FIELDS.filter((g) => {
-        if (SYSADMIN_ONLY.has(g.title)) return isSysadmin()
-        if (ADMIN_ONLY.has(g.title)) return isAdmin()
-        return true
-      }).map((group) => (
+      {visibleGroups().map((group) => (
         <div className="card" key={group.title} style={{ marginBottom: 18 }}>
           <div className="row-between">
             <h2 style={{ margin: 0 }}>{group.title}</h2>

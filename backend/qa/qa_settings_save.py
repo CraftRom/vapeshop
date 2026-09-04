@@ -173,6 +173,41 @@ async def scenario():
         r.check(resaved.status_code == 200,
                 "збереження без похідних полів проходить", resaved.status_code)
 
+        print("\n--- кожна роль зберігає свої розділи ---")
+        # Панель показує ролі лише її розділи, але на збереження раніше
+        # йшли ВСІ поля форми. Бекенд перевіряє права поіменно й
+        # відхиляє запит цілком — тож менеджер не міг зберегти нічого, а
+        # адміністратор спотикався об інфраструктурні поля. Ззовні це
+        # виглядало як «налаштування не працюють».
+        #
+        # Перевіряємо саме те, що робить панель: беремо відповідь, лишаємо
+        # поля своєї ролі й надсилаємо назад.
+        # Облікові записи мають існувати в базі: токен живий лише поки
+        # живий оператор — так влаштована відкликуваність доступу.
+        from shop.repo.factory import open_repo as _open
+
+        async with _open() as _seed_repo:
+            await seed_operators(_seed_repo, {
+                5: ("shopadmin", "Адмін", OperatorRole.ADMIN),
+                7: ("manager", "Менеджер", OperatorRole.MANAGER),
+            })
+
+        shown = (await client.get("/api/settings", headers=head(SYSADMIN))).json()
+        writable = set(ShopSettingsIn.model_fields)
+
+        for role, allowed, label in [
+            (MANAGER, OPERATOR_FIELDS - INFRA_FIELDS, "менеджер"),
+            (ADMIN, writable - INFRA_FIELDS, "адміністратор"),
+            (SYSADMIN, writable, "системний адміністратор"),
+        ]:
+            payload = {k: v for k, v in shown.items() if k in allowed}
+            resp = await client.put("/api/settings", json=payload, headers=head(role))
+            r.check(resp.status_code == 200,
+                    f"{label}: зберігає свої розділи",
+                    (resp.status_code, resp.text[:120]))
+            r.check(bool(payload), f"{label}: розділи для запису взагалі є",
+                    len(payload))
+
         print("\n--- зміни переживають перечитування ---")
         # Кеш налаштувань живе в памʼяті процесу. Якщо він не скидається
         # при записі, панель показуватиме нове, а бот працюватиме зі старим.

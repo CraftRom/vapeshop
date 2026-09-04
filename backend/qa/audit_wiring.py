@@ -657,6 +657,48 @@ for pack, srcs in [("вітрина", "miniapp/src"), ("панель", "dashboar
                 check(False, f"{pack}/{f.name}: {name} використано без імпорту",
                       f"визначено в {where}")
 
+print("\n=== ПРАВА: РОЗДІЛИ ПАНЕЛІ ↔ ДОЗВОЛЕНІ ПОЛЯ ===")
+# Роль бачить розділ, але не має права зберегти поле з нього — і
+# натискання «Зберегти» відхиляє весь запит цілком. Ззовні це виглядає
+# як «налаштування не працюють», причому мовчки: жодного натяку, яке
+# саме поле винне.
+from api.routers.settings import INFRA_FIELDS, OPERATOR_FIELDS  # noqa: E402
+
+_settings_jsx = read("dashboard/src/pages/Settings.jsx")
+
+
+def _named_set(name):
+    chunk = _settings_jsx[_settings_jsx.index(f"const {name} = new Set(["):]
+    return set(re.findall(r"'([^']+)'", chunk[:chunk.index("])")]))
+
+
+_admin_only = _named_set("ADMIN_ONLY")
+_sysadmin_only = _named_set("SYSADMIN_ONLY")
+
+_groups = []
+for _chunk in _settings_jsx.split("title: '")[1:]:
+    _title = _chunk[:_chunk.index("'")]
+    _body = _chunk[:_chunk.index("\n  },\n") if "\n  },\n" in _chunk else len(_chunk)]
+    _keys = set(re.findall(r"(?:key|toggle): '([^']+)'", _body))
+    if _keys:
+        _groups.append((_title, _keys))
+
+check(bool(_groups), "розділи налаштувань розібрані", len(_groups))
+
+for _title, _keys in _groups:
+    if _title in _sysadmin_only:
+        continue
+    if _title in _admin_only:
+        # Адміністратор: усе, крім інфраструктури.
+        _bad = _keys & INFRA_FIELDS
+        check(not _bad, f"«{_title}»: адміністратор може зберегти всі поля розділу",
+              sorted(_bad))
+    else:
+        # Менеджер бачить розділ — отже, має право на кожне його поле.
+        _bad = _keys - (OPERATOR_FIELDS - INFRA_FIELDS)
+        check(not _bad, f"«{_title}»: менеджер може зберегти всі поля розділу",
+              sorted(_bad))
+
 print("\n=== СТИЛІ (клас використано → має існувати) ===")
 for pack, css_path, srcs_glob in [("вітрина","miniapp/src/styles.css","miniapp/src"),
                                   ("панель","dashboard/src/styles.css","dashboard/src")]:
