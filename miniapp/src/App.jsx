@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { api } from './api'
+import { watchFields } from './fieldGuard'
 import { AgeGate, Catalog } from './screens/Catalog'
 import { Cart, Checkout } from './screens/Checkout'
 import { ChatList, ChatRoom } from './screens/Chat'
@@ -52,49 +53,21 @@ export default function App() {
     return onThemeChange(applyTheme)
   }, [])
 
-  /* Поки людина друкує — жодних плаваючих панелей на екрані.
+  /* Поля введення: сторож і піднімання з-під клавіатури.
    *
-   * Це та сама поломка, що поверталась тричі: у полі не видно, що
-   * набираєш, поки не перейдеш в інше. Кольори до неї непричетні —
-   * вони закріплені в стилях і не мінялись. Причина в тому, як WebView
-   * Telegram малює сторінку: нижня панель кошика прибита до низу
-   * екрана й має transform, тобто живе окремим шаром компонування.
-   * Коли зʼявляється клавіатура, вікно змінює висоту, шар
-   * перераховується — і растр сторінки під ним лишається старим.
-   * Значення в полі є, каретка рухається, нових гліфів не видно до
-   * події, яка змусить перемалювати все: саме нею і є перехід в інше
-   * поле.
-   *
-   * Лікувати це кольорами було безнадійно. Тут ми прибираємо саму
-   * причину: поки поле у фокусі, плаваючих шарів на екрані немає.
-   * Панель кошика під час заповнення форми однаково не потрібна — під
-   * нею клавіатура, а рішення вже прийнято.
+   * Клас `editing`, який ховав плаваючі панелі на час набору, звідси
+   * прибрано. Він міняв розмітку в мить фокуса — і саме через нього
+   * форма смикалась при кожному натисканні на поле. Поломки він не
+   * лікував, а зайвий рух на екрані створював.
    */
   useEffect(() => {
     const typing = (node) => Boolean(node) && (
       node.tagName === 'INPUT' || node.tagName === 'TEXTAREA'
-      || node.tagName === 'SELECT'
     )
-    const enter = (e) => {
-      if (typing(e.target)) document.body.classList.add('editing')
-    }
-    const leave = (e) => {
-      if (typing(e.target)) document.body.classList.remove('editing')
-    }
-    /* Друга половина тієї ж поломки — і, схоже, головна.
-     *
-     * Це Mini App у телефоні: клавіатура займає нижню половину екрана.
-     * Telegram зменшує вікно під неї, але сторінка при цьому не
-     * прокручується — поле, у яке щойно стали, лишається під
-     * клавіатурою. Людина друкує й не бачить ані тексту, ані самого
-     * поля. Щойно вона тицяє в наступне поле, розмітка зміщується — і
-     * попереднє вигулькує вже із заповненим текстом. Звідси й опис:
-     * «не видно, поки не натиснеш інше».
-     *
-     * Тому після появи клавіатури піднімаємо активне поле в центр
-     * видимої частини. Затримка — на анімацію клавіатури: прокрутка
-     * до неї нічого не дасть, бо вікно ще не змінило висоти.
-     */
+
+    // Клавіатура займає нижню половину екрана, а сторінка під неї не
+    // прокручується сама. Затримка — на анімацію клавіатури: до неї
+    // вікно ще старої висоти, і прокрутка нічого не дасть.
     const reveal = () => {
       const node = document.activeElement
       if (!typing(node)) return
@@ -104,18 +77,13 @@ export default function App() {
       if (typing(e.target)) setTimeout(reveal, 320)
     }
 
-    document.addEventListener('focusin', enter)
     document.addEventListener('focusin', revealSoon)
-    document.addEventListener('focusout', leave)
-    // Клавіатура міняє висоту вікна не лише при появі: перемикання мов,
-    // рядок підказок, поворот екрана — усе це та сама подія.
     window.visualViewport?.addEventListener('resize', reveal)
+    const unwatch = watchFields()
     return () => {
-      document.removeEventListener('focusin', enter)
       document.removeEventListener('focusin', revealSoon)
-      document.removeEventListener('focusout', leave)
       window.visualViewport?.removeEventListener('resize', reveal)
-      document.body.classList.remove('editing')
+      unwatch()
     }
   }, [])
 

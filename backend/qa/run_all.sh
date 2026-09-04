@@ -62,6 +62,7 @@ run_node wishlist-state tests/wishlist-state.mjs
 run_node wishlist-wiring tests/wishlist-wiring.mjs
 run_node checkout tests/checkout-validation.mjs
 run_node input-visibility tests/input-visibility.mjs
+run_node field-guard tests/field-guard.mjs
 run_node phone tests/phone.mjs
 run_node filters tests/filters.mjs dashboard
 
