@@ -359,4 +359,21 @@ r.check(source.index("faq_public_enabled") < source.index("rule = faq.match(text
 r.check("faq_public_enabled" in ShopSettings.__annotations__,
         "налаштування є в моделі магазину")
 
+# Перемикачі два, бо чати різні за призначенням: у клієнтській групі
+# нічна відповідь про доставку — користь, у робочому чаті команди та
+# сама відповідь — шум посеред їхньої розмови.
+r.check("faq_admin_chat_enabled" in ShopSettings.__annotations__,
+        "робочий чат має власний перемикач")
+r.check("faq_admin_chat_enabled" in source and "admin_chat_id" in gate + source,
+        "вибір перемикача залежить від того, чи це робочий чат")
+
+from shop.config import Settings                   # noqa: E402
+
+r.check(Settings.model_fields["faq_admin_chat_enabled"].default is False,
+        "у робочому чаті вимкнено за замовчуванням",
+        Settings.model_fields["faq_admin_chat_enabled"].default)
+r.check(Settings.model_fields["faq_public_enabled"].default is True,
+        "у звичайних групах лишається як було",
+        Settings.model_fields["faq_public_enabled"].default)
+
 r.done()

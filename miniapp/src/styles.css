@@ -1245,3 +1245,25 @@ textarea.input { min-height: 74px; resize: vertical; }
 
 .order-cancel:active { background: var(--tg-secondary-bg); }
 .order-cancel:disabled { opacity: 0.5; }
+
+/* Перелік показників діагностики: підпис ліворуч, значення праворуч,
+   значення переносяться — кольори на кшталт rgba(…) довгі, а обрізати
+   їх не можна, бо саме в них і відповідь. */
+.diag-list {
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+}
+
+.diag-list li {
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--tg-secondary-bg);
+}
+
+.diag-list li:last-child { border-bottom: 0; }
+.diag-list li > span:first-child { color: var(--tg-hint); flex: none; }
+.diag-list li > span:last-child { text-align: right; word-break: break-all; }

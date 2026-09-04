@@ -328,6 +328,7 @@ class ShopSettingsIn(BaseModel):
     novaposhta_sender_city: str | None = Field(None, max_length=128)
     delivery_courier_enabled: bool | None = None
     faq_public_enabled: bool | None = None
+    faq_admin_chat_enabled: bool | None = None
     delivery_weight_per_item: Decimal | None = Field(None, gt=0, le=100)
     admin_topic_id: int | None = Field(None, ge=0)
     chat_topic_id: int | None = Field(None, ge=0)
@@ -438,6 +439,7 @@ class ShopSettingsOut(BaseModel):
     novaposhta_sender_city: str
     delivery_courier_enabled: bool
     faq_public_enabled: bool
+    faq_admin_chat_enabled: bool
     delivery_weight_per_item: Decimal
     admin_ids: str
     bot_username: str

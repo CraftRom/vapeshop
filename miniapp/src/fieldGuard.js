@@ -71,6 +71,11 @@ export function enforceReadable(node) {
   const merged = text.a < 0.5
     || Math.abs(luminance(text) - luminance(background)) < MERGED
 
+  lastReport.at = Date.now()
+  lastReport.text = style.webkitTextFillColor || style.color
+  lastReport.background = `${style.backgroundColor} → ${JSON.stringify(background)}`
+  lastReport.acted = merged
+
   if (!merged) return false
 
   const safe = readableOn(background)
@@ -80,8 +85,24 @@ export function enforceReadable(node) {
   node.style.setProperty('color', safe, 'important')
   node.style.setProperty('-webkit-text-fill-color', safe, 'important')
   node.style.setProperty('caret-color', safe, 'important')
+  // Підкладку теж закріплюємо: якщо колір тексту вже підмінили ззовні,
+  // фон наступним кроком підмінять так само, і ми знову опинимось із
+  // текстом кольору тла.
+  node.style.setProperty(
+    'background-color',
+    luminance(background) > 0.5 ? '#ffffff' : '#1f1c2b',
+    'important',
+  )
   return true
 }
+
+/** Останній замір — для екрана діагностики.
+ *
+ * Сторож працює мовчки, і коли він не допомагає, незрозуміло навіть, чи
+ * він узагалі щось побачив. Тут лежить те, що він виміряв востаннє:
+ * без цього кожна наступна спроба знову була б здогадкою.
+ */
+export const lastReport = { at: 0, text: '', background: '', acted: false }
 
 const EDITABLE = new Set(['INPUT', 'TEXTAREA'])
 
