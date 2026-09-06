@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { api } from './api'
-import { watchFields } from './fieldGuard'
 import { AgeGate, Catalog } from './screens/Catalog'
 import { Cart, Checkout } from './screens/Checkout'
 import { ChatList, ChatRoom } from './screens/Chat'
@@ -53,21 +52,14 @@ export default function App() {
     return onThemeChange(applyTheme)
   }, [])
 
-  /* Поля введення: сторож і піднімання з-під клавіатури.
-   *
-   * Клас `editing`, який ховав плаваючі панелі на час набору, звідси
-   * прибрано. Він міняв розмітку в мить фокуса — і саме через нього
-   * форма смикалась при кожному натисканні на поле. Поломки він не
-   * лікував, а зайвий рух на екрані створював.
+  /* Клавіатура займає нижню половину екрана, а сторінка під неї не
+   * прокручується сама. Піднімаємо активне поле у видиму частину із
+   * затримкою на анімацію клавіатури: до неї вікно ще старої висоти.
    */
   useEffect(() => {
     const typing = (node) => Boolean(node) && (
       node.tagName === 'INPUT' || node.tagName === 'TEXTAREA'
     )
-
-    // Клавіатура займає нижню половину екрана, а сторінка під неї не
-    // прокручується сама. Затримка — на анімацію клавіатури: до неї
-    // вікно ще старої висоти, і прокрутка нічого не дасть.
     const reveal = () => {
       const node = document.activeElement
       if (!typing(node)) return
@@ -76,14 +68,11 @@ export default function App() {
     const revealSoon = (e) => {
       if (typing(e.target)) setTimeout(reveal, 320)
     }
-
     document.addEventListener('focusin', revealSoon)
     window.visualViewport?.addEventListener('resize', reveal)
-    const unwatch = watchFields()
     return () => {
       document.removeEventListener('focusin', revealSoon)
       window.visualViewport?.removeEventListener('resize', reveal)
-      unwatch()
     }
   }, [])
 

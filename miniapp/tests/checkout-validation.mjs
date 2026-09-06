@@ -119,15 +119,16 @@ check(src.includes('Точну суму називає перевізник'),
 check(src.includes('у підсумок вище не'),
       'сказано, що доставка не входить у суму замовлення')
 
-console.log('\n--- поля форми некеровані ---')
-// Керованому полю React присвоює value на кожному перемальовуванні, а
-// присвоєння посеред композиції Android-клавіатури її скидає — саме це
-// й лишало поле візуально порожнім під час набору.
-check(!/<input[^>]*\svalue=\{form\./.test(src),
-      'жодне текстове поле форми не кероване через value')
-check(!/<textarea[^>]*\svalue=\{form\./.test(src),
-      'коментар теж')
-check(src.includes('TextInput'), 'усі вони йдуть через спільний компонент')
+console.log('\n--- телефон береться з Telegram ---')
+// Єдине поле форми, яке Telegram уміє заповнити сам. Набрати тринадцять
+// цифр і помилитись в одній — найдорожча помилка у формі: замовлення
+// приймається, а додзвонитись нікуди.
+check(src.includes('requestContact'), 'номер можна взяти з Telegram')
+check(src.includes('canRequestContact'),
+      'у старих клієнтах методу немає — кнопку тоді не показуємо')
+const phoneBlock = src.slice(src.indexOf('id="phone"'), src.indexOf("{hint('contact_phone')}"))
+check(phoneBlock.includes('onChange='),
+      'поле лишається поруч: хтось замовляє не на свій номер')
 
 console.log(`\nОФОРМЛЕННЯ: ${bad === 0 ? 'усе витримано' : `ПРОВАЛЕНО: ${bad}`}`)
 process.exit(bad ? 1 : 0)

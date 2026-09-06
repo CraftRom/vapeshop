@@ -306,184 +306,70 @@ button { font: inherit; color: inherit; cursor: pointer; }
   font-weight: 600;
 }
 
+/* ============================================================ ПОЛЯ ВВОДУ
+ *
+ * Написано з нуля. Попередня версія була нашаруванням із семи спроб
+ * полагодити невидимий під час набору текст: дублювання кольору через
+ * -webkit-text-fill-color, перефарбування у фокусі з !important,
+ * закріплення підкладки, окремі правила для автозаповнення, шар
+ * компонування на активному полі. Жодна з них не допомогла, а разом
+ * вони зробили поле складнішим за будь-яке звичайне — і неможливим для
+ * розбору.
+ *
+ * Тут лишилось те, без чого поле не працює, і нічого більше. Кольори
+ * беруться з теми Telegram один раз, у звичайному стані. Фокус міняє
+ * рамку. !important немає ніде.
+ */
 .input {
   width: 100%;
+  box-sizing: border-box;
   padding: 11px 13px;
   border: 1px solid transparent;
   border-radius: var(--radius-sm);
   background: var(--tg-secondary-bg);
   color: var(--tg-text);
-  /* Дублює color навмисно. WebKit і WebView в Telegram малюють текст поля
-     через -webkit-text-fill-color, і поки він не заданий, перемагає
-     значення від системи: на темній підкладці виходить чорне на чорному.
-     Саме тому текст був видимий у полі, яке вже заповнене, і зникав під
-     час введення — заповнене малює сторінка, а те, що набирають, — движок. */
-  -webkit-text-fill-color: var(--tg-text);
-  caret-color: var(--tg-text);
-  opacity: 1;
   /* Поля не успадковують шрифт сторінки самі — беруть системний шрифт
-     елементів керування. Досі ми його не задавали, і це єдина знайдена
-     відмінність між полем, де текст не малюється, і звичайним блоком
-     поруч, де той самий рядок тим самим кольором читається. Проба 4 в
-     діагностиці перевіряє саме це. */
-  font-family: inherit;
-  font-size: 16px; /* нижче 16px мобільний Safari зумить сторінку при фокусі */
+     елементів керування. */
+  font: inherit;
+  /* Менше 16px — і мобільний браузер зумить сторінку при фокусі. */
+  font-size: 16px;
+  line-height: 1.35;
+  /* Прибирає власне оформлення поля від системи: тіні, градієнти й
+     власні кольори, які на темній темі дають чорне на чорному. */
+  -webkit-appearance: none;
+  appearance: none;
   outline: none;
-  transition: border-color 0.15s;
 }
 
-/* У фокусі не міняється НІЧОГО, крім рамки.
- *
- * Шоста спроба, і цього разу підозрюваний — цей самий блок. Раніше він
- * повторював у фокусі колір, заливку гліфів, фон і непрозорість — усе
- * з !important. Значення ті самі, що й у звичайному стані, тож на
- * вигляд правило не робило нічого. Але воно змушувало движок
- * перерахувати фарбування рівно тієї миті, коли поле стає редагованим,
- * — а редагований текст WebView малює окремим шаром.
- *
- * Зі знімків екрана видно саме це: у полі, де фокус, гліфів немає, а в
- * сусідньому той самий текст читається. Причому каретка стоїть там, де
- * текст закінчується, тобто розмітка правильна — не намальовані лише
- * літери. Колір тут ні до чого: він однаковий в обох станах.
- *
- * Тепер фокус міняє рамку й більше нічого, а за фактичною читабельністю
- * стежить fieldGuard.js — він міряє готовий колір і втручається, лише
- * якщо той злився з підкладкою.
- */
-.input:focus,
-.input:focus-visible,
-.input:active {
-  border-color: var(--accent);
-}
+.input::placeholder { color: var(--tg-hint); opacity: 1; }
 
-/* Виділення тексту. Якщо тло виділення збігається з кольором гліфів,
-   виділений фрагмент теж зникає — а виділяє його система сама, коли
-   показує підказки заміни. */
-.input::selection,
-.input::-moz-selection {
-  background: var(--accent-soft);
-  color: var(--tg-text);
+.input:focus { border-color: var(--accent); }
+
+.input.bad { border-color: var(--warn); background: var(--warn-soft); }
+
+textarea.input { min-height: 74px; resize: vertical; }
+
+/* Автозаповнення — єдине місце, де без -webkit-text-fill-color не
+   обійтись: браузер підмінює і колір тексту, і тло власними, і звичайним
+   оголошенням color це не перекривається. */
+input:-webkit-autofill,
+textarea:-webkit-autofill {
   -webkit-text-fill-color: var(--tg-text);
+  box-shadow: 0 0 0 1000px var(--tg-secondary-bg) inset;
 }
 
-/* Поле з помилкою. Підсвічуємо саме поле, а не показуємо загальне
-   повідомлення внизу форми: людині треба знати, куди дивитись, а не
-   що «щось не так». */
-.input.bad,
-.input.bad:focus {
-  border-color: var(--warn);
-  /* !important більше не потрібен: правило фокуса вище фарбування не
-     чіпає взагалі. Колір і заливку тут не повторюємо — вони вже задані
-     на .input, а зайве оголошення саме на редагованому полі і є те, що
-     ми звідси прибрали. */
-  background: var(--warn-soft);
-}
-
+/* Повідомлення під полем із помилкою. Підсвічуємо саме поле, а не
+   показуємо загальний рядок унизу форми: людині треба знати, куди
+   дивитись, а не що «щось не так». */
 .field-error {
   color: var(--warn);
   font-size: 13px;
   margin-top: 4px;
 }
 
-.input::placeholder {
-  color: var(--tg-hint);
-  -webkit-text-fill-color: var(--tg-hint);
-  opacity: 1; /* Firefox приглушує підказку власним opacity */
-}
-
-/* Автозаповнення. Саме воно лишалось незакритим, і симптом у нього
- * характерний: текст не видно, поки поле активне, а щойно перейшли в
- * інше — він проявляється.
- *
- * Chromium (а WebView у Telegram на Android — це Chromium) малює
- * автозаповнене поле стилями рівня рушія, з власним !important. Наші
- * `color` і `background` його не перекривають узагалі: правило автора
- * програє UA-стилю з !important, скільки б важливостей ми не додали.
- * Саме тому попередні виправлення тут не спрацювали — вони били не в
- * той шар.
- *
- * Обійти можна лише двома лазівками, які рушій лишає навмисно:
- * -webkit-text-fill-color для гліфів і внутрішня тінь на всю висоту
- * поля замість тла.
- */
-input:-webkit-autofill,
-input:-webkit-autofill:hover,
-input:-webkit-autofill:focus,
-input:-webkit-autofill:active,
-textarea:-webkit-autofill,
-textarea:-webkit-autofill:focus,
-select:-webkit-autofill {
-  -webkit-text-fill-color: var(--tg-text) !important;
-  caret-color: var(--tg-text) !important;
-  /* Тло автозаповнення інакше не прибрати: background воно ігнорує,
-     а тінь на 1000px закриває поле цілком за будь-якої висоти. */
-  -webkit-box-shadow: 0 0 0 1000px var(--tg-secondary-bg) inset !important;
-  box-shadow: 0 0 0 1000px var(--tg-secondary-bg) inset !important;
-  /* Chromium повертає своє тло анімацією. Перехід на 100000 секунд —
-     відомий спосіб дочекатися, поки він передумає: анімація починається,
-     але видимого кроку не робить. */
-  transition: background-color 100000s ease-in-out 0s !important;
-}
-
-/* Поле з помилкою лишається червонуватим і в автозаповненні —
-   інакше підсвітка зникала б саме там, де вона найпотрібніша. */
-.input.bad:-webkit-autofill {
-  -webkit-box-shadow: 0 0 0 1000px var(--warn-soft) inset !important;
-  box-shadow: 0 0 0 1000px var(--warn-soft) inset !important;
-}
-
-/* Автозаповнений текст Chromium малює через ::first-line, а не через
-   звичайні правила поля. Без цього рядка колір лишається рушійним
-   навіть тоді, коли все інше вже наше. */
-input:-webkit-autofill::first-line,
-textarea:-webkit-autofill::first-line {
-  color: var(--tg-text);
-  -webkit-text-fill-color: var(--tg-text);
-  font-family: inherit;
-  font-size: 16px;
-}
-
-/* Стандартний відповідник тих же станів. Підтримується новішими
-   рушіями; лишаємо обидва, бо клієнти Telegram оновлюються нерівно. */
-input:autofill,
-textarea:autofill {
-  -webkit-text-fill-color: var(--tg-text) !important;
-  caret-color: var(--tg-text) !important;
-  box-shadow: 0 0 0 1000px var(--tg-secondary-bg) inset !important;
-}
-
-/* Автозаповнення. Safari та Chrome підмінюють і колір тексту, і тло
-   власними — на темній темі виходив чорний текст на чорному. color тут
-   не діє взагалі, працює лише -webkit-text-fill-color. */
-.input:-webkit-autofill,
-.input:-webkit-autofill:hover,
-.input:-webkit-autofill:focus {
-  -webkit-text-fill-color: var(--tg-text);
-  -webkit-box-shadow: 0 0 0 1000px var(--tg-secondary-bg) inset;
-  caret-color: var(--tg-text);
-}
-
-/* Запобіжник на майбутнє: будь-яке поле введення успадковує колір, навіть
-   якщо хтось забуде клас .input. Невидимий текст — надто дорога помилка,
-   щоб залежати від уважності. */
-/* Запобіжник для полів, які колись забудуть позначити класом .input.
-   Кнопок це не стосується: у них власні кольори, і успадкування зробило б
-   текст на кнопці кольором сторінки. */
-input, textarea, select {
-  font-family: inherit;
-  color: var(--tg-text);
-  -webkit-text-fill-color: var(--tg-text);
-}
-
-/* Той самий захист для полів без класу .input. Невидимий текст — надто
-   дорога помилка, щоб залежати від того, чи не забув хтось клас. */
-/* Поля без класу .input — теж наші кольори, але задані у ЗВИЧАЙНОМУ
-   стані, а не у фокусі. Оголошення фарбування саме на редагованому полі
-   ми звідусіль прибрали: підозра, що воно й ламало малювання літер. */
+/* Поля без класу .input — ті самі правила, коротко. */
 input, textarea, select {
   color: var(--tg-text);
-  -webkit-text-fill-color: var(--tg-text);
-  opacity: 1;
   font-family: inherit;
 }
 
@@ -1225,15 +1111,6 @@ textarea.input { min-height: 74px; resize: vertical; }
   line-height: 1.45;
 }
 
-/* Плаваючі панелі під час набору ми більше не ховаємо.
- *
- * Правило `body.editing` міняло розмітку в мить фокуса: панель кошика
- * зникала, смуга вкладок переставала бути липкою — і форма помітно
- * смикалась при кожному натисканні на поле. Поломки з невидимим
- * текстом воно не лікувало, тож лишився самий лише зайвий рух.
- * Замість нього за читабельністю тексту стежить fieldGuard.js: він
- * міряє готовий колір і втручається, тільки коли той злився з
- * підкладкою. */
 /* Скасування замовлення покупцем. Кнопка навмисно стримана: це дія
    з наслідками, але не небезпечна — товар повертається на склад,
    бонуси на рахунок. Червона кнопка на видноті лякала б більше, ніж
@@ -1253,65 +1130,4 @@ textarea.input { min-height: 74px; resize: vertical; }
 .order-cancel:active { background: var(--tg-secondary-bg); }
 .order-cancel:disabled { opacity: 0.5; }
 
-/* Перелік показників діагностики.
- *
- * Підпис над значенням, а не поруч. Поруч не вийшло: підписи на кшталт
- * «Припис на елементі» забирали майже всю ширину, і значення падало в
- * колонку по одній літері — прочитати його на телефоні було неможливо,
- * а саме заради читання екран і зроблено.
- */
-.diag-list {
-  margin: 12px 0 0;
-  padding: 0;
-  list-style: none;
-}
 
-.diag-list li {
-  display: block;
-  padding: 7px 0;
-  border-bottom: 1px solid var(--tg-secondary-bg);
-}
-
-.diag-list li:last-child { border-bottom: 0; }
-
-.diag-key {
-  display: block;
-  color: var(--tg-hint);
-  font-size: 11.5px;
-}
-
-.diag-value {
-  display: block;
-  margin-top: 2px;
-  font-size: 13px;
-  word-break: break-all;
-}
-
-/* Те саме значення, намальоване звичайним текстом. Якщо тут літери
-   видно, а в полі поруч — ні, питання закрите: справа не в кольорі й не
-   в стилях, а в тому, як WebView малює саме редаговане поле. */
-.diag-mirror {
-  margin-top: 6px;
-  padding: 10px 13px;
-  border: 1px dashed var(--accent);
-  border-radius: var(--radius-sm);
-  color: var(--tg-text);
-  font-size: 16px;
-  min-height: 20px;
-  word-break: break-all;
-}
-
-/* Контейнер діагностики.
- *
- * Спершу я взяв тут .card — і зверстав екран колонками: у вітрині
- * .card це горизонтальний рядок товару (`display: flex`), а не
- * контейнер загального призначення. Підписи, поле й перелік стали
- * сусідніми стовпчиками по три літери завширшки, і прочитати показники
- * було неможливо — при тому, що заради читання екран і зроблено.
- */
-.diag {
-  display: block;
-  padding: 12px;
-  border-radius: var(--radius);
-  background: var(--tg-secondary-bg);
-}

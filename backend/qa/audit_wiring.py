@@ -327,7 +327,10 @@ for _prop in ("color:", "-webkit-text-fill-color", "background", "opacity"):
     check(_prop not in _painted,
           f"фокус не перефарбовує поле ({_prop.rstrip(':')})", _focus.strip())
 check("border-color" in _focus, "фокус міняє рамку — і лише її")
-check("::selection" in _mini_css, "виділений текст теж лишається видимим")
+# ::selection із власним кольором гліфів звідси прибрано разом з усіма
+# іншими нашаруваннями: поле лишилось простим, а виділення малює система.
+check("box-sizing: border-box" in css_block(_mini_css, ".input"),
+      "поле не вилазить за ширину екрана")
 check("--tg-text" in _mini_css.split("data-scheme='light'")[1].split("}")[0],
       "світла тема має власні кольори тексту, а не лише акценти")
 check("err.status !== 409" in read("miniapp/src/screens/Wishlists.jsx"),
@@ -511,10 +514,17 @@ check("normalizePhone" in read("miniapp/src/screens/Checkout.jsx"),
 check("field-error" in read("miniapp/src/styles.css"),
       "помилка показується біля свого поля")
 _css = read("miniapp/src/styles.css")
-check(_css.count("-webkit-text-fill-color") >= 5,
-      "текст полів малюється явно — інакше введене зникає на темній темі")
-check("text-fill-color" in css_block(_css, ".input"),
-      "колір тексту закріплений у звичайному стані — саме там, а не на фокусі")
+# Раніше тут вимагалось п'ять і більше оголошень -webkit-text-fill-color:
+# так виглядала одна з семи спроб полагодити невидимий текст. Жодна не
+# допомогла, і правила полів переписані з нуля. Тепер вимога зворотна:
+# колір задається один раз, звичайним оголошенням, і лише автозаповнення
+# лишається винятком — його браузер фарбує сам і по-іншому не перекрити.
+check("color: var(--tg-text)" in css_block(_css, ".input"),
+      "колір тексту заданий у звичайному стані")
+check("-webkit-text-fill-color" not in css_block(_css, ".input"),
+      "і не дублюється: одного оголошення досить")
+check("-webkit-text-fill-color" in css_block(_css, "input:-webkit-autofill"),
+      "автозаповнення лишається винятком — його фарбує сам браузер")
 check("err.status !== 409" in read("miniapp/src/screens/Wishlists.jsx"),
       "конфлікт назви списку не показується як помилка")
 check("const known = prev.some" in read("miniapp/src/App.jsx"),

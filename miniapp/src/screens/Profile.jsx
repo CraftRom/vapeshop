@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 
 import { api } from '../api'
-import { FieldDiag } from './FieldDiag'
 import { confirm, haptic, notify, openLink } from '../telegram'
 
 const STATUS = {
@@ -22,10 +21,6 @@ export function Profile({ config, profile }) {
   // показувати очікування.
   const [cancelling, setCancelling] = useState(null)
   const [cancelError, setCancelError] = useState('')
-  // Діагностика полів — за окремим натисканням, а не одразу на екрані:
-  // покупцеві вона не потрібна, а розробнику потрібна саме з цього
-  // телефона, бо на іншому поломка не відтворюється.
-  const [diag, setDiag] = useState(false)
 
   useEffect(() => {
     api.orders().then(setOrders).catch(() => setOrders([]))
@@ -189,17 +184,6 @@ export function Profile({ config, profile }) {
         ))
       )}
 
-      {/* Службовий блок унизу профілю. Покупцеві він не заважає — його
-          не видно, доки не натиснути, — а розробнику дає показники
-          саме з того телефона, де поломка відтворюється. */}
-      <button
-        className="order-cancel"
-        style={{ marginTop: 18 }}
-        onClick={() => setDiag((on) => !on)}
-      >
-        {diag ? 'Сховати діагностику полів' : 'Діагностика полів'}
-      </button>
-      {diag && <FieldDiag />}
     </>
   )
 }

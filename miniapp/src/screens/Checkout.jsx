@@ -34,8 +34,9 @@ export function phoneError(value) {
 import { useEffect, useState } from 'react'
 
 import { api } from '../api'
-import { TextInput } from '../fields'
-import { alert, close, confirm, haptic, notify } from '../telegram'
+import {
+  alert, canRequestContact, close, confirm, haptic, notify, requestContact,
+} from '../telegram'
 
 export function Cart({ config, cart, onCartChange, onCheckout }) {
   const [error, setError] = useState('')
@@ -283,9 +284,19 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
     }
   }, [cityPick, hasCity, form.delivery_method, form.payment_method])
 
-  // Той самий помічник, але для полів, які віддають готовий рядок, а не
-  // подію: див. fields.jsx — там пояснено, чому вони некеровані.
-  const put = (key) => (raw) => setForm((f) => ({ ...f, [key]: raw }))
+  /** Номер із Telegram замість набору руками. */
+  const pullPhone = async () => {
+    haptic('light')
+    const phone = await requestContact()
+    if (!phone) {
+      // Відмовили або клієнт старий — мовчки лишаємо поле під набір.
+      // Пояснювати тут нічого: людина щойно сама натиснула «ні».
+      return
+    }
+    setForm((f) => ({ ...f, contact_phone: normalizePhone(phone) }))
+    setTouched((t) => ({ ...t, contact_phone: true }))
+    notify('success')
+  }
 
   const set = (key) => (e) => {
     const value = e.target.type === 'checkbox' ? e.target.checked : e.target.value
@@ -474,16 +485,16 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
           одним рядком люди вписують його в довільному порядку */}
       <div className="field">
         <label htmlFor="surname">Прізвище</label>
-        <TextInput id="surname" className={cls('contact_surname')}
-                   value={form.contact_surname}
-                   onValue={put('contact_surname')} autoComplete="family-name" />
+        <input id="surname" className={cls('contact_surname')}
+               value={form.contact_surname}
+               onChange={set('contact_surname')} autoComplete="family-name" />
         {hint('contact_surname')}
       </div>
 
       <div className="field">
         <label htmlFor="name">Імʼя</label>
-        <TextInput id="name" className={cls('contact_name')} value={form.contact_name}
-                   onValue={put('contact_name')} autoComplete="given-name" />
+        <input id="name" className={cls('contact_name')} value={form.contact_name}
+               onChange={set('contact_name')} autoComplete="given-name" />
         {hint('contact_name')}
       </div>
 
@@ -491,13 +502,23 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
         <label htmlFor="patronymic">
           По батькові <span className="faint">— не обовʼязково</span>
         </label>
-        <TextInput id="patronymic" className="input" value={form.contact_patronymic}
-                   onValue={put('contact_patronymic')} autoComplete="additional-name" />
+        <input id="patronymic" className="input" value={form.contact_patronymic}
+               onChange={set('contact_patronymic')} autoComplete="additional-name" />
       </div>
 
       <div className="field">
         <label htmlFor="phone">Телефон</label>
-        <TextInput
+        {/* Єдине поле, яке Telegram уміє заповнити сам. Кнопку ставимо
+            перед полем: набирати тринадцять цифр із помилкою в одній —
+            найдорожча дія у формі, а тут вона зводиться до підтвердження
+            у вікні застосунку. Поле лишається поруч: у старих клієнтах
+            методу немає, а хтось замовляє не на свій номер. */}
+        {canRequestContact() && (
+          <button className="add" style={{ marginBottom: 8 }} onClick={pullPhone}>
+            Взяти номер із Telegram
+          </button>
+        )}
+        <input
           id="phone"
           className={`input ${
             touched.contact_phone
@@ -508,12 +529,12 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
           placeholder="+380XXXXXXXXX"
           value={form.contact_phone}
           onFocus={() => {
-            // Підставляємо префікс одразу: так одразу видно, що чекають
+            // Підставляємо префікс одразу: так видно, що чекають
             // український номер, і людина не почне з нуля чи вісімки.
             if (!form.contact_phone) setForm((f) => ({ ...f, contact_phone: '+380' }))
           }}
-          onValue={(raw) => setForm((f) => ({
-            ...f, contact_phone: normalizePhone(raw),
+          onChange={(e) => setForm((f) => ({
+            ...f, contact_phone: normalizePhone(e.target.value),
           }))}
           onBlur={() => setTouched((t) => ({ ...t, contact_phone: true }))}
         />
@@ -548,11 +569,11 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
 
       <div className="field combo">
         <label htmlFor="city">Населений пункт</label>
-        <TextInput
+        <input
           id="city"
           className={cls('city')}
           value={form.city}
-          onValue={changeCity}
+          onChange={(e) => changeCity(e.target.value)}
           onFocus={() => setCityOpen(true)}
           onBlur={() => setTouched((t) => ({ ...t, city: true }))}
           autoComplete="off"
@@ -587,11 +608,11 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
         <label htmlFor="address">
           {toWarehouse ? 'Відділення або поштомат' : 'Адреса доставки'}
         </label>
-        <TextInput
+        <input
           id="address"
           className={cls('address')}
           value={form.address}
-          onValue={changeAddress}
+          onChange={(e) => changeAddress(e.target.value)}
           onFocus={() => setPointsOpen(true)}
           onBlur={() => setTouched((t) => ({ ...t, address: true }))}
           autoComplete="off"
@@ -658,13 +679,13 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
       <div className="field">
         <label htmlFor="promo">Промокод</label>
         <div style={{ display: 'flex', gap: 8 }}>
-          <TextInput
+          <input
             id="promo"
             className="input"
             value={form.promo_code}
-            onValue={(raw) => {
+            onChange={(e) => {
               setPromo(null)
-              put('promo_code')(raw)
+              set('promo_code')(e)
             }}
             placeholder="Якщо є"
           />
@@ -697,12 +718,11 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
 
       <div className="field">
         <label htmlFor="comment">Коментар</label>
-        <TextInput
-          multiline
+        <textarea
           id="comment"
           className="input"
           value={form.comment}
-          onValue={put('comment')}
+          onChange={set('comment')}
           placeholder="Необовʼязково"
         />
       </div>

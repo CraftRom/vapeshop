@@ -284,6 +284,52 @@ export function notify(type = 'success') {
   tg?.HapticFeedback?.notificationOccurred?.(type)
 }
 
+/** Номер телефону з Telegram, без набору руками.
+ *
+ * Єдине поле форми, яке Telegram уміє заповнити сам: людина підтверджує
+ * доступ у власному вікні застосунку, і номер приходить готовим. Решту —
+ * прізвище, адресу, коментар — Telegram увести не вміє, для них інтерфейсу
+ * не існує, тож вони лишаються звичайними полями сторінки.
+ *
+ * Метод зʼявився в Bot API 6.9; у старіших клієнтах його просто немає,
+ * тому відповідь може бути «не підтримується», і кнопку тоді не показуємо.
+ */
+export function requestContact() {
+  return new Promise((resolve) => {
+    if (typeof tg?.requestContact !== 'function') {
+      resolve(null)
+      return
+    }
+    try {
+      tg.requestContact((granted, event) => {
+        if (!granted) {
+          resolve(null)
+          return
+        }
+        // Клієнти віддають результат по-різному: подією з розібраними
+        // полями або рядком запиту, як в initData.
+        const direct = event?.responseUnsafe?.contact?.phone_number
+        if (direct) {
+          resolve(String(direct))
+          return
+        }
+        try {
+          const raw = new URLSearchParams(event?.response || '').get('contact')
+          resolve(raw ? String(JSON.parse(raw).phone_number || '') || null : null)
+        } catch {
+          resolve(null)
+        }
+      })
+    } catch {
+      resolve(null)
+    }
+  })
+}
+
+export function canRequestContact() {
+  return typeof tg?.requestContact === 'function'
+}
+
 export function close() {
   tg?.close()
 }
