@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 
 import { api } from '../api'
+import { APP_VERSION } from '../version'
 import { confirm, haptic, notify, openLink } from '../telegram'
 
 const STATUS = {

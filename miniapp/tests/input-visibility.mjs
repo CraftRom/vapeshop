@@ -60,8 +60,19 @@ const autofill = rule('input:-webkit-autofill,')
 ok(autofill.includes('-webkit-text-fill-color'), 'колір гліфів закріплений')
 ok(autofill.includes('box-shadow'), 'тло закріплене внутрішньою тінню')
 
-console.log('\n--- жодного прозорого тексту ---')
-ok(!/color:\s*transparent/.test(css), 'немає color: transparent')
+console.log('\n--- прозорий текст лише там, де він навмисний ---')
+// Одне місце, і воно назване поіменно: поле, значення якого малює блок
+// над ним (.input.ghost). Скрізь інде прозорий текст — це поломка, і
+// саме її ця перевірка й ловить.
+const transparent = css.split('\n')
+  .map((line, index) => [line, index])
+  .filter(([line]) => /(^|[^-])color:\s*transparent/.test(line))
+ok(transparent.length > 0, 'прозорий текст узагалі є — у полі під блоком')
+for (const [line, index] of transparent) {
+  const context = css.split('\n').slice(Math.max(0, index - 12), index).join('\n')
+  ok(context.includes('.input.ghost'),
+     `прозорий текст лише в .input.ghost (рядок ${index + 1})`, line.trim())
+}
 
 console.log(`\nПОЛЯ ВВОДУ: ${bad === 0 ? 'усе витримано' : `ПРОВАЛЕНО: ${bad}`}`)
 process.exit(bad === 0 ? 0 : 1)

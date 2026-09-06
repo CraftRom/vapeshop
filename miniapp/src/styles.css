@@ -343,6 +343,50 @@ button { font: inherit; color: inherit; cursor: pointer; }
 
 .input::placeholder { color: var(--tg-hint); opacity: 1; }
 
+/* Поле, значення якого малює блок над ним. Див. fields.jsx — там
+   пояснено, чому: цей WebView не малює гліфи саме в полі введення, тоді
+   як у звичайному блоці той самий рядок тим самим кольором читається. */
+.field-paint { position: relative; }
+
+.input.ghost {
+  /* Поле лишається робочим: приймає введення, тримає каретку, віддає
+     значення. Не показує тільки свій текст — його показує блок нижче. */
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  caret-color: var(--tg-text);
+}
+
+/* Підказку малює саме поле: доки значення немає, малювати блоку нічого,
+   а порожня підказка з двох джерел двоїлася б. */
+.input.ghost::placeholder {
+  color: var(--tg-hint);
+  -webkit-text-fill-color: var(--tg-hint);
+}
+
+.echo {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  padding: 11px 13px;
+  /* Ті самі метрики, що й у поля: інакше рядок поїде відносно каретки. */
+  font: inherit;
+  font-size: 16px;
+  line-height: 1.35;
+  color: var(--tg-text);
+  /* Пробіли зберігаються, перенесення немає — як у однорядковому полі. */
+  white-space: pre;
+  overflow: hidden;
+  /* Дотики проходять крізь блок до поля під ним. */
+  pointer-events: none;
+}
+
+.echo-multiline {
+  display: block;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .input:focus { border-color: var(--accent); }
 
 .input.bad { border-color: var(--warn); background: var(--warn-soft); }

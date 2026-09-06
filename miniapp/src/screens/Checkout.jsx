@@ -34,6 +34,7 @@ export function phoneError(value) {
 import { useEffect, useState } from 'react'
 
 import { api } from '../api'
+import { Field } from '../fields'
 import {
   alert, canRequestContact, close, confirm, haptic, notify, requestContact,
 } from '../telegram'
@@ -485,7 +486,7 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
           одним рядком люди вписують його в довільному порядку */}
       <div className="field">
         <label htmlFor="surname">Прізвище</label>
-        <input id="surname" className={cls('contact_surname')}
+        <Field id="surname" className={cls('contact_surname')}
                value={form.contact_surname}
                onChange={set('contact_surname')} autoComplete="family-name" />
         {hint('contact_surname')}
@@ -493,7 +494,7 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
 
       <div className="field">
         <label htmlFor="name">Імʼя</label>
-        <input id="name" className={cls('contact_name')} value={form.contact_name}
+        <Field id="name" className={cls('contact_name')} value={form.contact_name}
                onChange={set('contact_name')} autoComplete="given-name" />
         {hint('contact_name')}
       </div>
@@ -502,7 +503,7 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
         <label htmlFor="patronymic">
           По батькові <span className="faint">— не обовʼязково</span>
         </label>
-        <input id="patronymic" className="input" value={form.contact_patronymic}
+        <Field id="patronymic" value={form.contact_patronymic}
                onChange={set('contact_patronymic')} autoComplete="additional-name" />
       </div>
 
@@ -518,7 +519,7 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
             Взяти номер із Telegram
           </button>
         )}
-        <input
+        <Field
           id="phone"
           className={`input ${
             touched.contact_phone
@@ -569,7 +570,7 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
 
       <div className="field combo">
         <label htmlFor="city">Населений пункт</label>
-        <input
+        <Field
           id="city"
           className={cls('city')}
           value={form.city}
@@ -608,7 +609,7 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
         <label htmlFor="address">
           {toWarehouse ? 'Відділення або поштомат' : 'Адреса доставки'}
         </label>
-        <input
+        <Field
           id="address"
           className={cls('address')}
           value={form.address}
@@ -679,9 +680,8 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
       <div className="field">
         <label htmlFor="promo">Промокод</label>
         <div style={{ display: 'flex', gap: 8 }}>
-          <input
+          <Field
             id="promo"
-            className="input"
             value={form.promo_code}
             onChange={(e) => {
               setPromo(null)
@@ -718,9 +718,9 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
 
       <div className="field">
         <label htmlFor="comment">Коментар</label>
-        <textarea
+        <Field
+          multiline
           id="comment"
-          className="input"
           value={form.comment}
           onChange={set('comment')}
           placeholder="Необовʼязково"
