@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 
 import { api } from '../api'
+import { Photo } from '../photo'
 import { close, haptic } from '../telegram'
 
 /** Той самий 18+ бар'єр, що й у боті. Каталог до підтвердження недоступний. */
@@ -71,61 +72,68 @@ export function ProductCard({
     : 0
 
   return (
-    <div className="card">
-      {/* Тіло картки — кнопка: дотик по назві чи опису відкриває товар,
-          а лічильник праворуч лишається окремою дією */}
-      <button className="card-body card-open" onClick={() => onOpen(product)}>
-        <p className="card-title">{product.name}</p>
-        {product.description && <p className="card-note clamp">{product.description}</p>}
-        <div className={`price num ${discount ? 'has-discount' : ''}`}>
-          {Number(product.price).toFixed(0)} <small>{currency}</small>
-          {discount > 0 && (
-            <>
-              <span className="old-price num">{oldPrice.toFixed(0)}</span>
-              <span className="discount-badge">−{discount}%</span>
-            </>
+    <div className="item">
+      {/* Ліва колонка — усе, що читають: назва, ціна, склад, наявність.
+          Дотик по ній відкриває товар. Праворуч — фото й дія, щоб великий
+          палець не мандрував через увесь екран між «подивитись» і
+          «купити». */}
+      <div className="item-main">
+        <button className="item-open" onClick={() => onOpen(product)}>
+          <p className="item-title">{product.name}</p>
+          {/* Ціна одразу під назвою й акцентним кольором: у списку її
+              шукають першою, а не після опису. */}
+          <p className="item-price num">
+            {Number(product.price).toFixed(0)} {currency}
+            {discount > 0 && (
+              <>
+                <span className="old-price num">{oldPrice.toFixed(0)}</span>
+                <span className="discount-badge">−{discount}%</span>
+              </>
+            )}
+          </p>
+          {product.description && (
+            <p className="item-note clamp">{product.description}</p>
           )}
-          {'  '}
-          {stockLabel(product.stock)}
-        </div>
-      </button>
+          <p className="item-meta">{stockLabel(product.stock)}</p>
+        </button>
 
-      {/* Права колонка: спершу дія з кошиком, під нею — відкласти.
-          Так обидві кнопки під великим пальцем і не конкурують за увагу */}
-      <div className="card-actions">
-      {qty > 0 ? (
-        <div className="stepper">
-          <button onClick={() => onChange(product, -1)} aria-label="Прибрати одну штуку">
-            −
-          </button>
-          <span className="qty num">{qty}</span>
+        {onSave && (
           <button
-            onClick={() => onChange(product, 1)}
-            disabled={atMax}
-            aria-label="Додати ще одну штуку"
+            className={`heart small ${saved ? 'on' : ''}`}
+            onClick={() => onSave(product)}
+            aria-label={saveLabel || (saved ? 'У списку бажаного' : 'Відкласти')}
+            title={saveLabel || (saved ? 'У списку бажаного' : 'Відкласти')}
           >
-            +
+            {/* Сама іконка, без підпису: у рядку списку її розуміють і
+                так, а підпис забирав місце в описі товару. Стан читається
+                і кольором, і заливкою серця, і aria-label для читача
+                екрана лишився повним. */}
+            {saveLabel || (saved ? '♥' : '♡')}
           </button>
-        </div>
-      ) : (
-        <button className="add" disabled={out} onClick={() => onChange(product, 1)}>
-          {out ? 'Немає' : 'У кошик'}
-        </button>
-      )}
+        )}
+      </div>
 
-      {onSave && (
-        <button
-          className={`heart small ${saved ? 'on' : ''}`}
-          onClick={() => onSave(product)}
-          aria-label={saveLabel || (saved ? 'У списку бажаного' : 'Відкласти')}
-          title={saveLabel || (saved ? 'У списку бажаного' : 'Відкласти')}
-        >
-          {/* Стан підписом, а не самим кольором: на дрібній кнопці
-              заливка читається погано, а тут одразу видно, що товар уже
-              відкладений — і людина не додає його вдруге */}
-          {saveLabel || (saved ? '♥ У списку' : '♡ Відкласти')}
-        </button>
-      )}
+      <div className="item-side">
+        <Photo product={product} className="item-photo" />
+        {qty > 0 ? (
+          <div className="stepper">
+            <button onClick={() => onChange(product, -1)} aria-label="Прибрати одну штуку">
+              −
+            </button>
+            <span className="qty num">{qty}</span>
+            <button
+              onClick={() => onChange(product, 1)}
+              disabled={atMax}
+              aria-label="Додати ще одну штуку"
+            >
+              +
+            </button>
+          </div>
+        ) : (
+          <button className="add" disabled={out} onClick={() => onChange(product, 1)}>
+            {out ? 'Немає' : '+ Додати'}
+          </button>
+        )}
       </div>
     </div>
   )

@@ -1,46 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 
 import { api } from '../api'
-import { getInitData, haptic } from '../telegram'
-
-/** Фото товару.
- *
- * photo_url показуємо напряму. Якщо фото завантажене через бота, тягнемо
- * його з нашого проксі — запит потребує підпису, тож просто підставити
- * адресу в src не можна.
- */
-function Photo({ product }) {
-  const [blobUrl, setBlobUrl] = useState(null)
-  const [failed, setFailed] = useState(false)
-
-  useEffect(() => {
-    if (product.photo_url) return undefined
-    let revoked = null
-    let cancelled = false
-
-    fetch(`/api/shop/products/${product.id}/photo`, {
-      headers: { 'X-Telegram-Init-Data': getInitData() },
-    })
-      .then((r) => (r.ok ? r.blob() : Promise.reject(new Error(String(r.status)))))
-      .then((blob) => {
-        if (cancelled) return
-        revoked = URL.createObjectURL(blob)
-        setBlobUrl(revoked)
-      })
-      .catch(() => !cancelled && setFailed(true))
-
-    return () => {
-      cancelled = true
-      if (revoked) URL.revokeObjectURL(revoked)
-    }
-  }, [product.id, product.photo_url])
-
-  const src = product.photo_url || blobUrl
-  if (failed && !product.photo_url) return null
-  if (!src) return <div className="product-photo skeleton" />
-
-  return <img className="product-photo" src={src} alt={product.name} />
-}
+import { Photo } from '../photo'
+import { haptic } from '../telegram'
 
 function stockNote(stock) {
   if (stock <= 0) return { text: 'Немає в наявності', tone: 'out' }

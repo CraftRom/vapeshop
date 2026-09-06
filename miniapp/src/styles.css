@@ -228,20 +228,24 @@ button { font: inherit; color: inherit; cursor: pointer; }
 
 /* ------------------------------------------------------ лічильник штук */
 
+/* Лічильник стає на місце кнопки додавання, тож повторює її форму й
+   висоту: інакше рядок сіпався б, щойно товар потрапляє в кошик. */
 .stepper {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 2px;
   padding: 3px;
-  border-radius: 999px;
-  background: var(--tg-bg);
+  border: 1.5px solid var(--accent);
+  border-radius: 12px;
+  background: transparent;
 }
 
 .stepper button {
-  width: 32px;
-  height: 32px;
+  width: 34px;
+  height: 34px;
   border: 0;
-  border-radius: 50%;
+  border-radius: 9px;
   background: transparent;
   color: var(--accent);
   font-size: 19px;
@@ -255,17 +259,34 @@ button { font: inherit; color: inherit; cursor: pointer; }
 
 .stepper .qty { min-width: 22px; text-align: center; font-weight: 700; }
 
+/* Кнопка додавання — контурна, а не залита.
+ *
+ * У рядку списку залита кнопка перетягує на себе весь погляд: на екрані
+ * їх одночасно пʼять-шість, і вони починають конкурувати з фотографіями
+ * та цінами замість того, щоб просто бути під рукою. Контур лишає
+ * акцент там, де він потрібен, — на ціні.
+ */
 .add {
-  padding: 9px 16px;
-  border: 0;
-  border-radius: 999px;
-  background: var(--accent);
-  color: var(--tg-bg);
-  font-size: 14px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1.5px solid var(--accent);
+  border-radius: 12px;
+  background: transparent;
+  color: var(--accent);
+  font-size: 13px;
   font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
 }
 
-.add:disabled { background: var(--tg-secondary-bg); color: var(--tg-hint); }
+.add:active { background: var(--accent-soft); }
+
+.add:disabled {
+  border-color: var(--tg-secondary-bg);
+  color: var(--tg-hint);
+  text-transform: none;
+  letter-spacing: 0;
+}
 
 /* ----------------------------------------------------------- підсумок */
 
@@ -852,19 +873,26 @@ textarea.input { min-height: 74px; resize: vertical; }
 
 /* ------------------------------------------------------ списки бажаного */
 
+/* Відкласти. У зразку це компактна кнопка з іконкою в окремій
+   плашці — так вона не тягне на себе увагу й не з'їдає рядок під
+   довгою назвою. */
 .heart {
-  margin-left: auto;
-  padding: 6px 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
   border: 1px solid var(--tg-secondary-bg);
-  border-radius: 999px;
+  border-radius: 12px;
   background: var(--tg-secondary-bg);
   color: var(--tg-hint);
-  font-size: 18px;
+  font-size: 16px;
   line-height: 1;
 }
 
+/* Відкладений товар — теплим кольором, а не акцентним: акцент у списку
+   вже зайнятий ціною, і два однакові кольори поруч сперечалися б. */
 .heart.on {
-  border-color: var(--warn);
+  border-color: var(--warn-soft);
   background: var(--warn-soft);
   color: var(--warn);
 }
@@ -1035,10 +1063,12 @@ textarea.input { min-height: 74px; resize: vertical; }
 .card-actions .add,
 .card-actions .stepper { width: 100%; }
 
+/* У рядку списку — компактна плашка з іконкою, як у зразку: вона стоїть
+   під описом і не має конкурувати ні з ціною, ні з кнопкою додавання. */
 .heart.small {
-  width: 100%;
-  padding: 6px 8px;
-  font-size: 12.5px;
+  margin-left: 0;
+  padding: 8px 14px;
+  font-size: 15px;
   font-weight: 600;
   white-space: nowrap;
 }
@@ -1175,3 +1205,113 @@ textarea.input { min-height: 74px; resize: vertical; }
 .order-cancel:disabled { opacity: 0.5; }
 
 
+
+/* ======================================================== СПИСОК ТОВАРІВ
+ *
+ * Розкладка як у знайомих застосунках доставки їжі: зліва читане —
+ * назва, ціна, склад; справа фото й дія. Так великий палець не мандрує
+ * через увесь екран між «подивитись» і «покласти в кошик», а ціна
+ * стоїть одразу під назвою, де її й шукають першою.
+ *
+ * Картки розділені пунктиром замість плашок: на телефоні перелік із
+ * десяти окремих плашок перетворюється на сходинки, і читати його
+ * важче, ніж суцільний список.
+ */
+.item {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 18px 0;
+  border-bottom: 1px dashed var(--tg-secondary-bg);
+}
+
+.item:last-child { border-bottom: 0; }
+
+.item-main {
+  flex: 1;
+  min-width: 0; /* без цього довга назва розпирає рядок і тисне фото */
+}
+
+.item-open {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+}
+
+.item-title {
+  margin: 0;
+  color: var(--tg-text);
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.item-price {
+  margin: 6px 0 0;
+  color: var(--accent);
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.item-note {
+  margin: 8px 0 0;
+  color: var(--tg-hint);
+  font-size: 13.5px;
+  line-height: 1.4;
+}
+
+.item-meta {
+  margin: 8px 0 0;
+  color: var(--tg-hint);
+  font-size: 12px;
+}
+
+/* Права колонка. Ширина фіксована: інакше фото стрибає від картки до
+   картки залежно від довжини назви, і список «дихає» при гортанні. */
+.item-side {
+  flex: none;
+  width: 140px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.item-photo {
+  width: 140px;
+  height: 112px;
+  border-radius: var(--radius);
+  background: var(--tg-secondary-bg);
+  /* contain, а не cover. У зразку обрізання доречне — там піца, і край
+     кадру нічого не вирішує. У нас на фото сам товар: обрізавши, можна
+     зрізати назву смаку чи мітку міцності, а саме їх і роздивляються. */
+  object-fit: contain;
+  padding: 4px;
+  box-sizing: border-box;
+}
+
+/* Кнопка в списку — контурна, а не залита.
+ *
+ * У переліку з десяти позицій десять залитих кнопок перетягують на себе
+ * весь погляд, і товару вже не видно. Контур лишає дію помітною, але не
+ * головною на екрані. На сторінці товару, де дія одна, вона й далі
+ * залита — там перетягувати нема в кого. */
+.item-side .add {
+  width: 100%;
+  border: 1.5px solid var(--accent);
+  background: transparent;
+  color: var(--accent);
+}
+
+.item-side .add:disabled {
+  border-color: var(--tg-secondary-bg);
+  background: transparent;
+  color: var(--tg-hint);
+}
+
+.item-side .stepper { width: 100%; justify-content: space-between; }
+
+.item-main .heart { margin-top: 12px; }
