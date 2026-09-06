@@ -35,6 +35,57 @@ function Row({ label, value }) {
   )
 }
 
+/** Проба з рівно однією відмінністю від нашого поля.
+ *
+ * Заповнена наперед: щоб побачити результат, набирати нічого не треба —
+ * досить подивитись, у яких рядках текст видно. Далі можна стати в
+ * кожен по черзі й подивитись, чи зникає він у фокусі.
+ */
+function Probe({ title, className = 'input', style, editable = false }) {
+  const SAMPLE = 'Тест 12345'
+  return (
+    <div className="field">
+      <label>{title}</label>
+      {editable ? (
+        <div className={className} style={style} contentEditable suppressContentEditableWarning>
+          {SAMPLE}
+        </div>
+      ) : (
+        <input className={className} style={style} defaultValue={SAMPLE} />
+      )}
+    </div>
+  )
+}
+
+/** Перелік проб.
+ *
+ * Кожен рядок відрізняється від першого рівно одним оголошенням — тож
+ * рядок, у якому текст раптом зʼявиться, і є винним. Так само цінна
+ * зворотна відповідь: якщо текст не видно в жодному, включно з голим
+ * полем без єдиного нашого стилю, — справа взагалі не в стилях.
+ */
+function Lab() {
+  return (
+    <>
+      <p className="hint" style={{ marginTop: 14 }}>
+        Нижче вісім однакових полів, у кожному вже написано «Тест 12345».
+        Кожне відрізняється від першого однією дрібницею. Надішліть знімок:
+        видно чи не видно текст у кожному — і те саме, коли стати в них.
+      </p>
+      <Probe title="1. Наше поле — як зараз" />
+      <Probe title="2. Голе поле, без наших стилів" className="" />
+      <Probe title="3. Без заливки гліфів"
+             style={{ WebkitTextFillColor: 'initial' }} />
+      <Probe title="4. Зі шрифтом сторінки" style={{ fontFamily: 'inherit' }} />
+      <Probe title="5. Без вигляду від системи"
+             style={{ WebkitAppearance: 'none' }} />
+      <Probe title="6. Без підкладки" style={{ background: 'transparent' }} />
+      <Probe title="7. Каретка від системи" style={{ caretColor: 'auto' }} />
+      <Probe title="8. Не поле, а звичайний блок" editable />
+    </>
+  )
+}
+
 export function FieldDiag() {
   const probe = useRef(null)
   const [rows, setRows] = useState(null)
@@ -109,6 +160,8 @@ export function FieldDiag() {
             поле, і лікувати треба інакше. */}
         <div className="diag-mirror">{typed || '(тут зʼявиться те саме)'}</div>
       </div>
+
+      <Lab />
 
       {rows && (
         <ul className="diag-list">

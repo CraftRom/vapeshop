@@ -321,6 +321,12 @@ button { font: inherit; color: inherit; cursor: pointer; }
   -webkit-text-fill-color: var(--tg-text);
   caret-color: var(--tg-text);
   opacity: 1;
+  /* Поля не успадковують шрифт сторінки самі — беруть системний шрифт
+     елементів керування. Досі ми його не задавали, і це єдина знайдена
+     відмінність між полем, де текст не малюється, і звичайним блоком
+     поруч, де той самий рядок тим самим кольором читається. Проба 4 в
+     діагностиці перевіряє саме це. */
+  font-family: inherit;
   font-size: 16px; /* нижче 16px мобільний Safari зумить сторінку при фокусі */
   outline: none;
   transition: border-color 0.15s;
@@ -478,6 +484,7 @@ input, textarea, select {
   color: var(--tg-text);
   -webkit-text-fill-color: var(--tg-text);
   opacity: 1;
+  font-family: inherit;
 }
 
 button { font-family: inherit; }
