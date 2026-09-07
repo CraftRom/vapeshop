@@ -16,7 +16,7 @@ print("\n--- Broken Access Control ---")
 for path in ["/api/orders","/api/customers","/api/promos","/api/settings","/api/operators","/api/stats/summary"]:
     r.check(c.get(path).status_code in (401,403), f"без токена закрито: {path}", c.get(path).status_code)
 r.check(c.get("/api/operators", headers=O).status_code == 403, "менеджер не бачить менеджерів")
-r.check(c.put("/api/settings", json={"card_number":"9999"}, headers=O).status_code == 403, "менеджер не змінює реквізити")
+r.check(c.put("/api/settings", json={"seller_name":"Хтось"}, headers=O).status_code == 403, "менеджер не змінює реквізити продавця")
 
 print("\n--- JWT ---")
 raw = A["Authorization"].split()[1]

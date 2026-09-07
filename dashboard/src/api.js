@@ -122,6 +122,7 @@ export const api = {
     series: (days = 30) => request('/stats/series', { params: { days } }),
     topProducts: (days = 30) => request('/stats/top-products', { params: { days } }),
     breakdown: () => request('/stats/status-breakdown'),
+    insights: (days = 30) => request('/stats/insights', { params: { days } }),
   },
 
   categories: {

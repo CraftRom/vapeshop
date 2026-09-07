@@ -733,14 +733,15 @@ textarea.input { min-height: 74px; resize: vertical; }
   cursor: pointer;
 }
 
-.card-note.clamp {
+/* Опис у два рядки й трикрапка. Клас окремий від .card-note: у списку
+   товарів той самий прийом потрібен для .item-note, а прив'язка до
+   одного місця означала, що в іншому опис розпирав рядок. */
+.clamp {
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
   overflow: hidden;
   white-space: normal;
-  line-height: 1.35;
-  max-height: 2.7em;
 }
 
 /* --------------------------------------------------------- сторінка товару */
@@ -1242,33 +1243,50 @@ textarea.input { min-height: 74px; resize: vertical; }
   text-align: left;
 }
 
+/* Назва — найбільший текст у рядку. У зразку вона помітно більша за
+   опис, і саме за нею ковзають очима, гортаючи список. */
 .item-title {
   margin: 0;
   color: var(--tg-text);
-  font-size: 16px;
+  font-size: 17px;
   font-weight: 700;
-  line-height: 1.25;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
 }
 
+/* Ціна одразу під назвою, акцентним кольором і майже того ж кегля:
+   у списку її шукають другою після назви. */
 .item-price {
-  margin: 6px 0 0;
+  margin: 5px 0 0;
   color: var(--accent);
-  font-size: 16px;
+  font-size: 16.5px;
   font-weight: 700;
 }
 
+/* Короткий опис — два рядки, далі трикрапка. У зразку це склад страви
+   у два рядки, і рівно стільки ж вміщається до того, як список стане
+   довшим за екран. */
 .item-note {
-  margin: 8px 0 0;
-  color: var(--tg-hint);
-  font-size: 13.5px;
-  line-height: 1.4;
+  margin: 9px 0 0;
+  color: var(--tg-text);
+  opacity: 0.72;
+  font-size: 14px;
+  line-height: 1.45;
 }
 
+/* Наявність — найдрібніший рядок, поруч із міткою новинки. */
 .item-meta {
-  margin: 8px 0 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 9px 0 0;
   color: var(--tg-hint);
-  font-size: 12px;
+  font-size: 12.5px;
 }
+
+/* Дії під описом: відкладене й нічого більше. Верхнє поле більше за
+   решту проміжків — так рядок ділиться на «що це» і «що з цим робити». */
+.item-actions { margin-top: 12px; }
 
 /* Права колонка. Ширина фіксована: інакше фото стрибає від картки до
    картки залежно від довжини назви, і список «дихає» при гортанні. */

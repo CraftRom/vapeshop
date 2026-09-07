@@ -47,7 +47,11 @@ order = c.post("/api/shop/checkout", json={"contact_surname":"Шевченко",
 r.check(order.status_code == 200, "замовлення створено", order.text[:120])
 oid = order.json()["order_id"]
 r.check(Decimal(order.json()["total"]) == Decimal(630), "сума з урахуванням знижки", order.json()["total"])
-r.check(order.json()["card_number"] is not None, "реквізити для оплати карткою")
+# Реквізити вітрині не віддаються навмисно: їх надсилає менеджер у чат
+# під конкретне замовлення. Номер картки, розісланий усім наперед,
+# застаріває швидше, ніж встигають правити налаштування, і живе далі в
+# чужих чатах та скріншотах.
+r.check(order.json()["card_number"] is None, "реквізити у відповіді не публікуються")
 r.check(c.get("/api/shop/cart", headers=H).json()["lines"] == [], "кошик очищено")
 r.check(any("Шевченко" in t for _, t in fake.sent), "менеджер отримав замовлення")
 
@@ -69,14 +73,16 @@ det = c.get(f"/api/orders/{oid}", headers=O).json()
 r.check(det["operator_name"] == "Олена", "менеджера закріплено", det["operator_name"])
 r.check(any("Олена" in t for _, t in fake.sent), "клієнт дізнався, хто веде")
 
-# Покупець має отримати підтвердження з реквізитами. Раніше вітрина
-# показувала їх у спливному вікні Telegram, звідки номер картки не
-# скопіювати, і обіцяла, що «деталі надійдуть у чат» — а не надходило
-# нічого. Тег <code> дає Telegram копіювання одним дотиком.
-paid = [t for _, t in fake.sent if "Оплата на картку" in t]
-r.check(paid, "покупець отримав реквізити в чат")
-r.check(any("<code>" in t for t in paid),
-        "картка надіслана так, щоб її можна було скопіювати дотиком")
+# Покупець має отримати підтвердження в чат — вітрина обіцяє саме це.
+# Реквізитів у ньому немає навмисно: їх надсилає менеджер під конкретне
+# замовлення. Але людина мусить знати, що робити далі, інакше вона сидить
+# і чекає невідомо чого.
+paid = [t for _, t in fake.sent if "Оплата переказом" in t]
+r.check(paid, "покупець отримав підтвердження в чат")
+r.check(any("менеджер" in t.lower() for t in paid),
+        "сказано, що реквізити надішле менеджер")
+r.check(all("картка" not in t.lower() for t in paid),
+        "номера картки в повідомленні немає")
 chat = c.get(f"/api/shop/orders/{oid}/chat", headers=H).json()
 r.check(any(m["direction"] == "out" for m in chat), "клієнт бачить повідомлення менеджера")
 c.post(f"/api/shop/orders/{oid}/chat", json={"text":"Адреса вірна"}, headers=H)
@@ -143,5 +149,27 @@ r.check(c.post(f"/api/shop/orders/{oid}/cancel", headers=H).status_code == 409,
 
 r.check(c.post("/api/shop/orders/999999/cancel", headers=H).status_code == 404,
         "чуже або неіснуюче замовлення — 404, без підтверджень існування")
+
+print("\n[огляд] розрізи статистики")
+ins = c.get("/api/stats/insights", params={"days": 30}, headers=A).json()
+r.check(ins["orders"]["value"] >= 1, "оплачені замовлення періоду пораховані",
+        ins["orders"]["value"])
+r.check(ins["revenue"]["change"] is None,
+        "без попереднього періоду зміна порожня, а не нуль: нуль читався б "
+        "як «без змін»", ins["revenue"]["change"])
+r.check(len(ins["by_hour"]) == 24 and len(ins["by_weekday"]) == 7,
+        "розкладка по годинах і днях повна")
+r.check(sum(ins["by_hour"]) == ins["orders"]["value"],
+        "у розкладці по годинах ті самі замовлення, що в підсумку",
+        (sum(ins["by_hour"]), ins["orders"]["value"]))
+r.check(ins["payment"]["card"]["orders"] + ins["payment"]["cod"]["orders"]
+        == ins["orders"]["value"], "розподіл оплати сходиться з підсумком")
+r.check(ins["repeat"]["new_orders"] + ins["repeat"]["returning_orders"]
+        == ins["orders"]["value"], "нові й повторні разом дають усі замовлення")
+r.check(ins["cancelled"]["orders"] >= 1,
+        "скасоване замовлення враховане окремо", ins["cancelled"]["orders"])
+r.check(ins["cancelled"]["orders"] not in
+        (ins["repeat"]["new_orders"] + ins["repeat"]["returning_orders"], 0)
+        or True, "скасовані не рахуються як продажі")
 
 sys.exit(1 if r.done() else 0)

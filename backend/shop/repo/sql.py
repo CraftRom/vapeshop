@@ -22,6 +22,18 @@ ALPHABET = string.ascii_uppercase + string.digits
 PAID_SQL = [OrderStatus(s.value) for s in PAID_STATUSES]
 
 
+def _change(now: Decimal, before: Decimal) -> float | None:
+    """Зміна у відсотках до попереднього періоду.
+
+    None, а не нуль, коли порівнювати нема з чим: нуль читається як «без
+    змін», а це протилежне до «даних за той період немає». Різниця
+    важлива в перший місяць роботи магазину.
+    """
+    if not before:
+        return None
+    return round(float((now - before) / before * 100), 1)
+
+
 def _dec(value) -> Decimal:
     return Decimal(str(value or 0))
 
@@ -690,6 +702,130 @@ class SqlRepository(Repository):
             orders_period=period_count,
             low_stock=await self.count_low_stock(),
         )
+
+    async def stats_insights(self, days: int) -> dict:
+        """Показники, які міняють рішення.
+
+        Рахуємо в Python, а не в SQL, свідомо. Потрібні розрізи — година
+        доби, день тижня, «перше замовлення чи ні» — у SQLite і Postgres
+        пишуться по-різному, і кожен такий вираз довелося б тримати у
+        двох варіантах. Обсяг тут малий: два періоди замовлень магазину,
+        а не таблиця подій.
+        """
+        now = datetime.now(timezone.utc)
+        span = days if days > 0 else 3650
+        since = now - timedelta(days=span)
+        previous_since = since - timedelta(days=span)
+
+        rows = (await self.s.execute(
+            select(
+                m.Order.created_at, m.Order.total, m.Order.status,
+                m.Order.payment_method, m.Order.delivery_method, m.Order.user_id,
+            ).where(m.Order.created_at >= previous_since)
+        )).all()
+
+        # Дата першого оплаченого замовлення кожного покупця — щоб
+        # відрізнити нового від того, хто повернувся. Саме повернення, а
+        # не кількість замовлень, показує, чи вартий магазин другого разу.
+        first_seen = dict((await self.s.execute(
+            select(m.Order.user_id, func.min(m.Order.created_at))
+            .where(m.Order.status.in_(PAID_SQL))
+            .group_by(m.Order.user_id)
+        )).all())
+
+        paid = {status for status in PAID_SQL}
+
+        def moment(value: datetime) -> datetime:
+            """Час у UTC, навіть якщо база віддала його без зони.
+
+            SQLite зберігає datetime без зони, Postgres — із зоною. Порівняння
+            наївного часу з часом у зоні падає, і це видно лише на одному з
+            двох рушіїв — тобто в проді, а не в перевірках.
+            """
+            return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+
+        now_window, past_window = [], []
+        for row in rows:
+            (now_window if moment(row.created_at) >= since else past_window).append(row)
+
+        def money(bucket):
+            return sum((_dec(r.total) for r in bucket if r.status in paid), Decimal(0))
+
+        def count(bucket):
+            return sum(1 for r in bucket if r.status in paid)
+
+        revenue, orders = money(now_window), count(now_window)
+        was_revenue, was_orders = money(past_window), count(past_window)
+
+        by_hour = [0] * 24
+        by_weekday = [0] * 7
+        payment = {"card": {"orders": 0, "revenue": Decimal(0)},
+                   "cod": {"orders": 0, "revenue": Decimal(0)}}
+        delivery = {"warehouse": 0, "courier": 0, "unknown": 0}
+        returning_orders, new_orders = 0, 0
+
+        for row in now_window:
+            if row.status not in paid:
+                continue
+            when = moment(row.created_at)
+            by_hour[when.hour] += 1
+            by_weekday[when.weekday()] += 1
+
+            slot = payment.get(row.payment_method or "")
+            if slot is not None:
+                slot["orders"] += 1
+                slot["revenue"] += _dec(row.total)
+
+            delivery[row.delivery_method if row.delivery_method in delivery else "unknown"] += 1
+
+            earliest = first_seen.get(row.user_id)
+            if earliest is not None and moment(earliest) < when:
+                returning_orders += 1
+            else:
+                new_orders += 1
+
+        cancelled = [r for r in now_window if r.status == OrderStatus.CANCELLED]
+        created_in_period = len(now_window)
+
+        return {
+            "days": span,
+            "revenue": {
+                "value": float(revenue), "was": float(was_revenue),
+                "change": _change(revenue, was_revenue),
+            },
+            "orders": {
+                "value": orders, "was": was_orders,
+                "change": _change(Decimal(orders), Decimal(was_orders)),
+            },
+            "avg_check": {
+                "value": float(revenue / orders) if orders else 0.0,
+                "was": float(was_revenue / was_orders) if was_orders else 0.0,
+                "change": _change(
+                    revenue / orders if orders else Decimal(0),
+                    was_revenue / was_orders if was_orders else Decimal(0),
+                ),
+            },
+            # Повторні — головний показник здоров'я магазину: приплив
+            # нових можна купити рекламою, повернення — ні.
+            "repeat": {
+                "new_orders": new_orders,
+                "returning_orders": returning_orders,
+                "share": round(returning_orders * 100 / orders, 1) if orders else 0.0,
+            },
+            "cancelled": {
+                "orders": len(cancelled),
+                "lost": float(sum((_dec(r.total) for r in cancelled), Decimal(0))),
+                "share": round(len(cancelled) * 100 / created_in_period, 1)
+                if created_in_period else 0.0,
+            },
+            "payment": {
+                key: {"orders": slot["orders"], "revenue": float(slot["revenue"])}
+                for key, slot in payment.items()
+            },
+            "delivery": delivery,
+            "by_hour": by_hour,
+            "by_weekday": by_weekday,
+        }
 
     async def stats_by_operator(self, days: int) -> list[dict]:
         since = (

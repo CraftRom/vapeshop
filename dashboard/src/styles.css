@@ -572,3 +572,79 @@ a.info-strong:hover { color: var(--violet); }
   color: var(--faint);
   font-size: 11.5px;
 }
+
+/* --------------------------------------------------- показники огляду
+ *
+ * Зміна до попереднього періоду. Колір тут несе сенс, а не настрій:
+ * зелене — більше, ніж було, червоне — менше. Стрілка дублює колір,
+ * щоб напрям читався і в чорно-білому друці, і при дальтонізмі.
+ */
+.metric .delta {
+  margin-top: 6px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.metric .delta.up { color: var(--mint); }
+.metric .delta.down { color: var(--rose); }
+
+/* Стовпчики годин і днів тижня. Двадцять чотири значення в ряд — це
+   рівно те, що вміщається без прокрутки й читається одним поглядом. */
+.bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 120px;
+  margin-top: 12px;
+}
+
+.bar-slot {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  height: 100%;
+}
+
+.bar-track {
+  flex: 1;
+  width: 100%;
+  display: flex;
+  align-items: flex-end;
+}
+
+.bar-fill {
+  width: 100%;
+  min-height: 2px;
+  border-radius: 4px 4px 0 0;
+  background: var(--violet-dim);
+}
+
+/* Пік підсвічений: без нього на двох десятках стовпчиків доводиться
+   вишукувати найвищий очима. */
+.bar-fill.peak { background: var(--violet); }
+
+.bar-label {
+  color: var(--faint);
+  font-size: 10px;
+  line-height: 1;
+}
+
+/* Розподіли: смуга під рядком замість кругової діаграми. Частки тут
+   порівнюють між собою, а не з цілим, і смуги для цього точніші. */
+.split-row { margin-top: 12px; }
+
+.split-track {
+  height: 6px;
+  margin-top: 5px;
+  border-radius: 999px;
+  background: var(--line-soft);
+  overflow: hidden;
+}
+
+.split-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--violet);
+}

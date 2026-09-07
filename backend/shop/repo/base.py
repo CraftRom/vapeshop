@@ -266,6 +266,17 @@ class Repository(ABC):
     @abstractmethod
     async def stats_top_products(self, days: int, limit: int) -> list[dict]: ...
 
+    async def stats_insights(self, days: int) -> dict:
+        """Показники, які міняють рішення, а не просто описують минуле.
+
+        Зведення відповідає на «скільки», але не на «краще чи гірше»,
+        «хто саме купує» і «коли по нас приходять». Тут — порівняння з
+        попереднім таким самим періодом, частка повторних покупців,
+        скасування, розподіл оплати й доставки та розкладка замовлень
+        по годинах і днях тижня.
+        """
+        ...
+
     @abstractmethod
     async def stats_by_operator(self, days: int) -> list[dict]:
         """Виторг у розрізі менеджерів: {operator_name, orders, revenue, avg_check}.

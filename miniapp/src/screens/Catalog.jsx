@@ -98,6 +98,7 @@ export function ProductCard({
         </button>
 
         {onSave && (
+          <div className="item-actions">
           <button
             className={`heart small ${saved ? 'on' : ''}`}
             onClick={() => onSave(product)}
@@ -110,6 +111,7 @@ export function ProductCard({
                 екрана лишився повним. */}
             {saveLabel || (saved ? '♥' : '♡')}
           </button>
+          </div>
         )}
       </div>
 

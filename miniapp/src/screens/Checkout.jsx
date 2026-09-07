@@ -444,11 +444,12 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
         promo_code: promo?.ok ? form.promo_code.trim() : null,
       })
       notify('success')
+      // Реквізити тут не показуємо: їх надсилає менеджер у чат під
+      // конкретне замовлення. Номер картки, розісланий усім наперед,
+      // застаріває швидше, ніж встигають правити налаштування.
       const payment =
-        order.payment_method === 'card' && order.card_number
-          ? `\n\nОплата на картку:\n${order.card_number}${
-              order.card_holder ? `\n${order.card_holder}` : ''
-            }`
+        order.payment_method === 'card'
+          ? '\n\nМенеджер надішле реквізити для оплати вам у чат.'
           : ''
       alert(
         `Замовлення №${order.order_id} прийнято.\nДо сплати ${Number(order.total).toFixed(

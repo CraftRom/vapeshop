@@ -230,8 +230,6 @@ async def confirm_order(
         await state.update_data(order_id=order.id)
         await callback.message.answer(
             texts.PAYMENT_INFO.format(
-                card=shop.card_number,
-                holder=shop.card_holder or "—",
                 total=f"{order.total:.0f}",
                 currency=shop.currency,
             )

@@ -43,3 +43,16 @@ async def top_products(
 async def status_breakdown(repo: Repository = Depends(get_repo)):
     breakdown = await repo.status_breakdown()
     return [{"status": status, "count": count} for status, count in breakdown.items()]
+
+
+@router.get("/insights")
+async def insights(
+    days: int = Query(30, ge=1, le=365), repo: Repository = Depends(get_repo)
+):
+    """Порівняння з попереднім періодом і розрізи, яких немає у зведенні.
+
+    Окремою точкою, а не полями в /summary: зведення читається на кожній
+    сторінці панелі й має лишатись дешевим, а це — дані для однієї
+    сторінки, які там і потрібні.
+    """
+    return await repo.stats_insights(days)

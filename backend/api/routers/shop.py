@@ -850,12 +850,9 @@ async def checkout(
         confirmation = texts.ORDER_DONE.format(
             id=order.id, total=f"{order.total:.0f}", currency=shop.currency,
         )
-        if order.payment_method == "card" and shop.card_number:
+        if order.payment_method == "card":
             confirmation += "\n\n" + texts.PAYMENT_INFO.format(
-                card=shop.card_number,
-                holder=shop.card_holder or "—",
-                total=f"{order.total:.0f}",
-                currency=shop.currency,
+                total=f"{order.total:.0f}", currency=shop.currency,
             )
         await bot.send_message(user.tg_id, confirmation)
     except Exception:
@@ -866,6 +863,7 @@ async def checkout(
                     order.id, exc_info=True)
     return CheckoutOut(
         order_id=order.id, total=order.total, payment_method=order.payment_method,
-        card_number=shop.card_number if order.payment_method == "card" else None,
-        card_holder=shop.card_holder if order.payment_method == "card" else None,
+        # Реквізити вітрині більше не віддаються: їх надсилає менеджер у
+        # чат замовлення, під конкретну суму й актуальну картку.
+        card_number=None, card_holder=None,
     )
