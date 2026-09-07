@@ -1333,3 +1333,45 @@ textarea.input { min-height: 74px; resize: vertical; }
 .item-side .stepper { width: 100%; justify-content: space-between; }
 
 .item-main .heart { margin-top: 12px; }
+
+/* ------------------------------------------------ каталог: пошук і відбір
+ *
+ * Хрестик усередині поля, а не кнопкою поруч. Поруч він забирав би
+ * ширину в самого пошуку, а на телефоні кожен піксель рядка помітний.
+ */
+.field.search { position: relative; }
+
+.search-clear {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--tg-hint);
+  font-size: 15px;
+  line-height: 1;
+}
+
+.search-clear:active { background: var(--tg-secondary-bg); }
+
+/* Порядок і фільтр — окремим рядком під категоріями. Той самий рейок,
+   але візуально тихіший: категорія відповідає «що дивимось», а це —
+   «як показати», і в одному ряду вони читались би як рівноцінні. */
+.rail-sort { padding-top: 0; }
+
+.rail-sort .chip {
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+/* Скільки знайшлося. Число потрібне тоді, коли увімкнено фільтр: без
+   нього незрозуміло, чи список короткий, бо товарів мало, чи бо щось
+   відсіялось. */
+.found {
+  margin: 0 0 4px;
+  color: var(--tg-hint);
+  font-size: 12.5px;
+}

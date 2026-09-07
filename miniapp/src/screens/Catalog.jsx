@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { api } from '../api'
+import { Field } from '../fields'
 import { Photo } from '../photo'
 import { close, haptic } from '../telegram'
 
@@ -31,6 +32,33 @@ export function AgeGate({ config, onConfirmed }) {
       <p>
         Нікотин викликає залежність. Продукція не є засобом для відмови від куріння.
       </p>
+      {/* Порядок і фільтр окремим рядком під категоріями. Змішувати їх
+          із категоріями не можна: категорія відповідає «що дивимось»,
+          а це — «як показати», і в одному ряду вони читались би як
+          рівноцінні. */}
+      <div className="rail rail-sort">
+        <button className="chip" aria-pressed={sort === 'default'}
+                onClick={() => setSort('default')}>
+          За порядком
+        </button>
+        <button className="chip" aria-pressed={sort === 'cheap'}
+                onClick={() => setSort('cheap')}>
+          Спершу дешеві
+        </button>
+        <button className="chip" aria-pressed={sort === 'pricey'}
+                onClick={() => setSort('pricey')}>
+          Спершу дорогі
+        </button>
+        <button className="chip" aria-pressed={sort === 'fresh'}
+                onClick={() => setSort('fresh')}>
+          Новинки
+        </button>
+        <button className="chip" aria-pressed={inStock}
+                onClick={() => setInStock((on) => !on)}>
+          Лише в наявності
+        </button>
+      </div>
+
       {error && <div className="banner warn">{error}</div>}
       <div className="actions">
         <button className="primary" onClick={confirm} disabled={busy}>
@@ -42,6 +70,15 @@ export function AgeGate({ config, onConfirmed }) {
       </div>
     </div>
   )
+}
+
+/** «товар / товари / товарів» — інакше число читається як помилка. */
+function plural(count) {
+  const tail = count % 100
+  if (tail >= 11 && tail <= 14) return 'товарів'
+  if (count % 10 === 1) return 'товар'
+  if (count % 10 >= 2 && count % 10 <= 4) return 'товари'
+  return 'товарів'
 }
 
 function stockLabel(stock) {
@@ -146,6 +183,11 @@ export function Catalog({ config, cart, onCartChange, seed, onOpenProduct, wishl
   const [products, setProducts] = useState(seed?.products || null)
   const [active, setActive] = useState(null)
   const [search, setSearch] = useState('')
+  // Порядок і фільтр — на боці вітрини. Сервер віддає категорію цілком,
+  // а перекладати сортування на нього означало б новий запит на кожне
+  // натискання й порожній екран між ними.
+  const [sort, setSort] = useState('default')
+  const [inStock, setInStock] = useState(false)
   const [error, setError] = useState('')
 
   useEffect(() => {
@@ -185,20 +227,51 @@ export function Catalog({ config, cart, onCartChange, seed, onOpenProduct, wishl
     }
   }
 
+  const view = useMemo(() => {
+    if (!products) return null
+    // Немає в наявності — не помилка списку, але коли шукають, що купити
+    // зараз, ці рядки лише заважають. Тому фільтр є, але вимкнений: за
+    // замовчуванням показуємо весь асортимент.
+    let rows = inStock ? products.filter((p) => p.stock > 0) : [...products]
+    if (sort === 'cheap') rows.sort((a, b) => Number(a.price) - Number(b.price))
+    if (sort === 'pricey') rows.sort((a, b) => Number(b.price) - Number(a.price))
+    // «Новинки» — за спаданням номера товару. Дати створення в каталозі
+    // немає, а номер зростає з кожним доданим товаром, тож порядок той
+    // самий. Якщо колись знадобиться справжня дата — це місце для неї.
+    if (sort === 'fresh') rows.sort((a, b) => b.id - a.id)
+    return rows
+  }, [products, sort, inStock])
+
+  const filtered = sort !== 'default' || inStock || Boolean(search.trim())
+
+  const reset = () => {
+    setSearch('')
+    setSort('default')
+    setInStock(false)
+  }
+
   const qtyOf = (id) => cart?.lines?.find((l) => l.product_id === id)?.qty || 0
   // Один набір на весь список замість пошуку по кожній картці
   const savedIds = new Set((wishlists || []).flatMap((w) => w.product_ids || []))
 
   return (
     <>
-      <div className="field" style={{ paddingTop: 12 }}>
-        <input
-          className="input"
+      <div className="field search" style={{ paddingTop: 12 }}>
+        {/* Той самий компонент, що й у формі замовлення: цей WebView не
+            малює текст у полі сам, і пошук страждав від того ж, від чого
+            й оформлення. Дві різні реалізації поля розійшлися б при
+            першій же правці. */}
+        <Field
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Пошук за назвою"
           inputMode="search"
         />
+        {search && (
+          <button className="search-clear" onClick={() => setSearch('')} aria-label="Очистити">
+            ✕
+          </button>
+        )}
       </div>
 
       {categories.length > 0 && (
@@ -231,18 +304,32 @@ export function Catalog({ config, cart, onCartChange, seed, onOpenProduct, wishl
             <div key={i} className="skeleton" />
           ))}
         </div>
-      ) : products.length === 0 ? (
+      ) : view.length === 0 ? (
         <div className="empty">
           <h2>Нічого не знайшли</h2>
           <p>
-            {search
-              ? 'Спробуйте іншу назву або оберіть категорію.'
-              : 'У цій категорії поки порожньо.'}
+            {inStock && products.length > 0
+              ? 'Усе з цього переліку зараз закінчилось.'
+              : search
+                ? 'Спробуйте іншу назву або оберіть категорію.'
+                : 'У цій категорії поки порожньо.'}
           </p>
+          {/* Порожній екран без виходу — глухий кут: людина не завжди
+              памʼятає, що сама увімкнула фільтр. */}
+          {filtered && (
+            <div className="actions" style={{ maxWidth: 260, margin: '18px auto 0' }}>
+              <button className="secondary" onClick={reset}>Скинути пошук і фільтри</button>
+            </div>
+          )}
         </div>
       ) : (
         <div className="list">
-          {products.map((p) => (
+          <p className="found">
+            {view.length === products.length
+              ? `${view.length} ${plural(view.length)}`
+              : `${view.length} із ${products.length}`}
+          </p>
+          {view.map((p) => (
             <ProductCard
               key={p.id}
               product={p}

@@ -58,6 +58,7 @@ run_node() {
 echo
 echo "Вітрина"
 run_node cart-response tests/cart-response.mjs
+run_node catalog-order tests/catalog-order.mjs
 run_node wishlist-state tests/wishlist-state.mjs
 run_node wishlist-wiring tests/wishlist-wiring.mjs
 run_node checkout tests/checkout-validation.mjs
