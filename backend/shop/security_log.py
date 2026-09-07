@@ -23,6 +23,7 @@
 from __future__ import annotations
 
 import logging
+from contextvars import ContextVar
 import logging.handlers
 from dataclasses import dataclass
 from pathlib import Path
@@ -170,6 +171,19 @@ def describe(code: str) -> Event:
                  "з помилкою або забули додати його в security_log.CATALOG.")
 
 
+# Контекст запиту, який доклеюється до кожної події безпеки.
+#
+# Заводиться тут, а не в шарі API, свідомо: журнал безпеки не має
+# залежати від того, звідки прийшла подія — з HTTP-запиту, з бота чи з
+# планувальника. Хто знає контекст, той його й кладе.
+#
+# Потреба звідси: у журналі за добу набралося 33 відхилення підпису
+# Mini App — і в жодному не було IP. Тобто подія, заради якої журнал
+# безпеки взагалі існує, не давала відповіді на перше ж питання: звідки
+# це прийшло і чи це та сама адреса, що й хвилину тому.
+request_context: ContextVar[dict] = ContextVar("security_context", default={})
+
+
 def record(code: str, /, **fields) -> None:
     """Записує подію безпеки.
 
@@ -188,6 +202,10 @@ def record(code: str, /, **fields) -> None:
                 "severity": event.severity,
                 "detail": event.detail,
                 "security": True,
+                # Контекст запиту йде першим, а поля виклику — після:
+                # обробник знає про подію більше, ніж middleware, і його
+                # значення мають перекривати загальні.
+                **request_context.get(),
                 **fields,
             },
         )

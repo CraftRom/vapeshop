@@ -1,4 +1,5 @@
 """SECURITY: доступ, ін'єкції, токени, витік секретів."""
+import logging
 import sys, json, base64, time; sys.path.insert(0,"/tmp")
 from qa_common import boot, init_data, Report, TOKEN
 app, Session, fake = boot("/tmp/qa_sec.db")
@@ -108,6 +109,44 @@ r.check(c.post("/api/auth/login",
                json={"login": "admin", "password": "secret"}).status_code == 429,
         "під блокуванням вірний пароль теж не пускає")
 login_guard.reset()
+
+print("\n--- контекст події безпеки ---")
+# У журналі за добу набралося 33 відхилення підпису Mini App — і в
+# жодному не було IP. Подія, заради якої журнал безпеки й існує, не
+# давала відповіді на перше ж питання: звідки це прийшло.
+_events = []
+
+
+class _Catch(logging.Handler):
+    def emit(self, record):
+        if getattr(record, "security", False):
+            _events.append(record.__dict__)
+
+
+_catcher = _Catch()
+logging.getLogger("security").addHandler(_catcher)
+c.get("/api/shop/config", headers={
+    "X-Telegram-Init-Data": "user=%7B%22id%22%3A1%7D&hash=deadbeef",
+    "CF-Connecting-IP": "203.0.113.7",
+    "CF-IPCountry": "PL",
+    "User-Agent": "qa-probe",
+})
+logging.getLogger("security").removeHandler(_catcher)
+
+_rejected = [e for e in _events if e.get("event") == "security.initdata.rejected"]
+r.check(_rejected, "підроблений підпис записаний у журнал безпеки")
+_last = _rejected[-1] if _rejected else {}
+r.check(_last.get("ip") == "203.0.113.7",
+        "адреса є — і взята з заголовка Cloudflare, який не підмінити ззовні",
+        _last.get("ip"))
+r.check(_last.get("country") == "PL",
+        "країна є: магазин возить лише по Україні, тож звернення з-за кордону "
+        "показове саме по собі", _last.get("country"))
+r.check(_last.get("path") == "/api/shop/config", "видно, куди саме стукали",
+        _last.get("path"))
+r.check(_last.get("userAgent") == "qa-probe", "і чим", _last.get("userAgent"))
+r.check(bool(_last.get("requestId")),
+        "подія звʼязана із запитом — по ньому знаходиться решта журналу")
 
 print("\n--- порожній підпис і підроблений — різні події ---")
 # Тривога, що спрацьовує на буденне, вчить не звертати на неї уваги.
