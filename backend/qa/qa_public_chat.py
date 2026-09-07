@@ -376,4 +376,40 @@ r.check(Settings.model_fields["faq_public_enabled"].default is True,
         "у звичайних групах лишається як було",
         Settings.model_fields["faq_public_enabled"].default)
 
+print("\n--- входи у вітрину ---")
+# Кнопка з web_app у клавіатурі під полем вводу на частині клієнтів не
+# спрацьовує: натискання є, застосунок не відкривається. Синя кнопка
+# «Магазин» біля поля вводу при цьому працює, тож справа не в адресі й
+# не в домені бота. Тому входів має бути щонайменше два, і другий —
+# вбудована кнопка під повідомленням, яку підтримують усі клієнти.
+import pathlib                                                       # noqa: E402
+
+from bot import keyboards as _kb                                     # noqa: E402
+from shop.services.shop_settings import current as _now              # noqa: E402
+from shop.services.shop_settings import prime_cache as _prime        # noqa: E402
+
+# Без адреси вітрини кнопок Mini App не існує взагалі — це окремий,
+# уже перевірений випадок. Тут перевіряємо налаштований магазин.
+_shop = _now()
+_shop.public_url = "https://example.test"
+_prime(_shop)
+
+_menu = _kb.main_menu()
+_web_in_keyboard = any(
+    getattr(button, "web_app", None)
+    for row in _menu.keyboard for button in row
+)
+_inline = _kb.open_shop()
+r.check(_inline is not None, "вбудована кнопка вітрини існує")
+r.check(
+    _inline and any(
+        getattr(button, "web_app", None)
+        for row in _inline.inline_keyboard for button in row
+    ),
+    "і вона справді відкриває Mini App, а не веде посиланням",
+)
+r.check(_web_in_keyboard, "кнопка в клавіатурі лишається: на більшості клієнтів вона працює")
+r.check("_offer_shop" in pathlib.Path("bot/handlers/start.py").read_text(),
+        "вітальне повідомлення несе вбудовану кнопку з собою")
+
 r.done()

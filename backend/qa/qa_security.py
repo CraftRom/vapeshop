@@ -108,4 +108,25 @@ r.check(c.post("/api/auth/login",
                json={"login": "admin", "password": "secret"}).status_code == 429,
         "під блокуванням вірний пароль теж не пускає")
 login_guard.reset()
+
+print("\n--- порожній підпис і підроблений — різні події ---")
+# Тривога, що спрацьовує на буденне, вчить не звертати на неї уваги.
+# Вітрину відкрили в браузері — це не напад; підпис не зійшовся — уже так.
+from shop import security_log as _sec                                # noqa: E402
+
+r.check("security.initdata.missing" in _sec.CATALOG,
+        "для звернення без підпису є окрема подія")
+r.check(_sec.describe("security.initdata.missing").severity == "info",
+        "і вона спокійного рівня",
+        _sec.describe("security.initdata.missing").severity)
+r.check(_sec.describe("security.initdata.rejected").severity == "notice",
+        "а підроблений підпис лишається вартим уваги",
+        _sec.describe("security.initdata.rejected").severity)
+
+import pathlib                                                        # noqa: E402
+
+_auth = pathlib.Path("api/webapp_auth.py").read_text()
+r.check("security.initdata.missing" in _auth and "if not x_telegram_init_data" in _auth,
+        "вибір події залежить від того, чи підпис узагалі був")
+
 sys.exit(1 if r.done() else 0)

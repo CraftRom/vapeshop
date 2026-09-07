@@ -57,6 +57,28 @@ def faq_reply(with_shop: bool = True) -> InlineKeyboardMarkup | None:
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
+def open_shop() -> InlineKeyboardMarkup | None:
+    """Кнопка вітрини під самим повідомленням.
+
+    Другий вхід поруч із кнопкою в клавіатурі — і він потрібен, а не
+    надлишковий. Кнопка з web_app у клавіатурі під полем вводу на частині
+    клієнтів просто не спрацьовує: натискання є, застосунок не
+    відкривається. Синя кнопка «Магазин» біля поля вводу при цьому працює,
+    тобто справа не в адресі й не в домені бота.
+
+    Вбудована кнопка під повідомленням — найнадійніший із трьох входів:
+    її підтримують усі клієнти, які взагалі вміють Mini App. Тому вітальне
+    повідомлення тепер несе її з собою, і людині не треба знати, що є
+    якась синя кнопка збоку.
+    """
+    url = _shop_url()
+    if not url:
+        return None
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🛍 Відкрити магазин", web_app=WebAppInfo(url=url))]
+    ])
+
+
 def main_menu() -> ReplyKeyboardMarkup:
     """Головне меню.
 

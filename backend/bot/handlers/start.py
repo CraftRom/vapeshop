@@ -14,6 +14,23 @@ from shop.repo.base import Repository
 router = Router()
 
 
+async def _offer_shop(message: Message) -> None:
+    """Друга кнопка вітрини — під повідомленням.
+
+    Кнопка з web_app у клавіатурі під полем вводу на частині клієнтів не
+    спрацьовує: натискання є, застосунок не відкривається. Синя кнопка
+    «Магазин» біля поля вводу при цьому працює, тож справа не в адресі й
+    не в домені. Вбудована кнопка під повідомленням підтримується скрізь,
+    де Mini App узагалі є, і не змушує людину шукати вхід збоку.
+    """
+    shop_button = kb.open_shop()
+    if not shop_button:
+        # Без PUBLIC_URL вітрини не існує — окремого повідомлення про це
+        # не робимо, у меню вже є текстовий запасний варіант.
+        return
+    await message.answer(texts.OPEN_SHOP_HINT, reply_markup=shop_button)
+
+
 @router.message(CommandStart(deep_link=True))
 @router.message(CommandStart())
 async def cmd_start(
@@ -38,6 +55,7 @@ async def cmd_start(
     await message.answer(
         texts.WELCOME.format(shop=shop.shop_name), reply_markup=kb.main_menu()
     )
+    await _offer_shop(message)
 
 
 @router.callback_query(F.data == "age:yes")
@@ -51,6 +69,7 @@ async def age_yes(callback: CallbackQuery, repo: Repository, user: User) -> None
     await callback.message.answer(
         texts.WELCOME.format(shop=shop.shop_name), reply_markup=kb.main_menu()
     )
+    await _offer_shop(callback.message)
     await callback.answer()
 
 
@@ -77,6 +96,7 @@ async def cmd_shop(message: Message, repo: Repository, user: User) -> None:
     await message.answer(
         texts.WELCOME.format(shop=shop.shop_name), reply_markup=kb.main_menu()
     )
+    await _offer_shop(message)
 
 
 @router.message(Command("help"))

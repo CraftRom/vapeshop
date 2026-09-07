@@ -93,7 +93,13 @@ async def require_webapp_user(
             len(x_telegram_init_data or ""),
             ",".join(sorted(dict(parse_qsl(x_telegram_init_data or "")).keys())) or "—",
         )
-        security.record("security.initdata.rejected", reason=str(exc))
+        # Порожній підпис і підроблений — різні події. Перше буденне,
+        # друге варте уваги; змішавши їх, ми навчили б не помічати обидва.
+        security.record(
+            "security.initdata.missing" if not x_telegram_init_data
+            else "security.initdata.rejected",
+            reason=str(exc),
+        )
         raise HTTPException(401, str(exc))
 
     tg_user = data.get("user") or {}
