@@ -197,8 +197,19 @@ export function ChatRoom({ config, order, onBack }) {
           onKeyDown={(e) => e.key === 'Enter' && send()}
           placeholder="Повідомлення менеджеру"
         />
-        <button className="add" onClick={send} disabled={busy || !text.trim()}>
-          {busy ? '…' : 'Надіслати'}
+        {/* Кругла кнопка зі стрілкою замість підпису «Надіслати».
+            Раніше тут стояв каталожний клас .add, а він на всю ширину
+            колонки — кнопка не вміщалася в рядок і перестрибувала під
+            скріпку з полем. Та й у месенджерах цю дію впізнають за
+            формою й стрілкою, а не за словом: підпис забирав пів рядка,
+            який потрібен самому повідомленню. */}
+        <button
+          className="send"
+          onClick={send}
+          disabled={busy || !text.trim()}
+          aria-label="Надіслати"
+        >
+          {busy ? '·' : '↑'}
         </button>
       </div>
     </div>

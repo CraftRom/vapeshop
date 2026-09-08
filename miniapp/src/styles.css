@@ -721,6 +721,8 @@ textarea.input { min-height: 74px; resize: vertical; }
    саме поле: значення в ньому малює блок над полем, тож у рядку стоїть
    обгортка, і flex треба саме їй. Без цього поле стискалось до ширини
    вмісту, а скріпка й кнопка розʼїжджались по краях. */
+.chat-compose .input { min-height: 44px; }
+
 .chat-compose .field-paint {
   flex: 1;
   /* Без min-width довгий рядок без пробілів розпирає гнучкий елемент і
@@ -1391,22 +1393,53 @@ textarea.input { min-height: 74px; resize: vertical; }
 
 /* Кнопка вкладення в стрічці замовлення. Скріпка ліворуч від поля —
    там, де її шукають за звичкою з усіх месенджерів. */
-.attach {
+/* Скріпка й «надіслати» — квадрати рівно у висоту поля.
+ *
+ * 44px — не круглe число заради краси: це і є висота поля з нашими
+ * відступами (11px зверху, 11px знизу, рядок 16px), і це нижня межа
+ * зручного дотику на телефоні. Коли всі три елементи однієї висоти,
+ * рядок читається як один блок, а не як три припасовані деталі.
+ */
+.attach,
+.send {
   flex: none;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 42px;
-  height: 42px;
-  border: 1px solid var(--tg-secondary-bg);
+  width: 44px;
+  height: 44px;
   border-radius: 12px;
-  background: var(--tg-secondary-bg);
-  color: var(--tg-hint);
-  font-size: 17px;
+  font-size: 18px;
+  line-height: 1;
   cursor: pointer;
 }
 
+.attach {
+  border: 1px solid var(--tg-secondary-bg);
+  background: var(--tg-secondary-bg);
+  color: var(--tg-hint);
+}
+
 .attach:active { background: var(--tg-bg); }
+
+/* Головна дія рядка — залита акцентом. У чаті вона одна, конкурувати
+   їй нема з чим, тож тут заливка доречна, на відміну від списку
+   товарів, де таких кнопок пів екрана. */
+.send {
+  border: 0;
+  background: var(--accent);
+  color: var(--tg-bg);
+  font-weight: 700;
+}
+
+/* Порожнє поле — кнопка є, але не кличе. Ховати її не можна: рядок
+   стрибав би на кожну літеру. */
+.send:disabled {
+  background: var(--tg-secondary-bg);
+  color: var(--tg-hint);
+}
+
+.send:active:not(:disabled) { opacity: 0.85; }
 
 /* -------------------------------------------------------- рух в інтерфейсі
  *

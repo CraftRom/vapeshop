@@ -68,5 +68,25 @@ ok(composer.includes('min-width: 0'),
 ok(rule('.chat-compose {').includes('align-items: flex-end'),
    'кнопки лишаються на лінії останнього рядка, коли поле росте')
 
+console.log('\n--- рядок написання не переноситься ---')
+// Кнопка надсилання користувалась каталожним класом .add, а він на всю
+// ширину колонки: кнопка не вміщалась у рядок і перестрибувала під
+// скріпку з полем.
+const chat = readFileSync('src/screens/Chat.jsx', 'utf8')
+ok(!/className="add"/.test(chat),
+   'кнопка чату не бере клас каталогу, який розтягнутий на всю ширину')
+ok(chat.includes('className="send"'), 'у неї власний клас')
+ok(chat.includes('aria-label="Надіслати"'),
+   'підпис для читача екрана лишився: сама стрілка йому нічого не скаже')
+
+const trio = rule('.attach,')
+ok(trio.includes('width: 44px') && trio.includes('height: 44px'),
+   'скріпка й кнопка — квадрати однакового розміру')
+ok(trio.includes('flex: none'), 'вони не стискаються, коли текст довгий')
+ok(rule('.chat-compose .input {').includes('min-height: 44px'),
+   'поле тієї ж висоти: три елементи однієї висоти читаються як один блок')
+ok(rule('.send:disabled').includes('background'),
+   'на порожньому полі кнопка не кличе, але лишається на місці')
+
 console.log(`\nПОЛЕ МАЛЮЄ САМЕ: ${bad === 0 ? 'усе витримано' : `ПРОВАЛЕНО: ${bad}`}`)
 process.exit(bad === 0 ? 0 : 1)
