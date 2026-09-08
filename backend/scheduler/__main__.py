@@ -17,12 +17,15 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import time
 
 import signal
 
 from shop.config import settings
 from shop.logging_setup import setup as setup_logging
-from scheduler.tasks import run_backup_if_due, run_due_broadcasts
+from scheduler.tasks import (
+    forget_old_chat_files, run_backup_if_due, run_due_broadcasts,
+)
 
 setup_logging("scheduler")
 log = logging.getLogger("scheduler")
@@ -41,6 +44,16 @@ async def tick(state: dict) -> None:
         await run_backup_if_due(state)
     except Exception:
         log.exception("Помилка під час бекапу")
+
+    # Раз на добу, а не щотіку: запит проходить по всіх виконаних
+    # замовленнях, а строк зберігання рахується днями — частіше просто
+    # нічого не змінить.
+    if time.time() - state.get("files_pruned_at", 0) >= 24 * 3600:
+        try:
+            await forget_old_chat_files()
+            state["files_pruned_at"] = time.time()
+        except Exception:
+            log.exception("Помилка під час прибирання вкладень")
 
 
 async def main() -> None:

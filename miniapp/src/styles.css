@@ -1470,3 +1470,55 @@ textarea.input { min-height: 74px; resize: vertical; }
   .bubble { animation: none; }
   .chat-log { scroll-behavior: auto; }
 }
+
+/* --------------------------------------------------- вкладення у стрічці
+ *
+ * Мініатюра, а не назва файлу. Рядок «Вкладення: screenshot.jpg» казав,
+ * що щось надіслали, але не казав, що саме — а для квитанції це головне:
+ * помилилися файлом і дізнаєтесь про це вже від менеджера.
+ */
+.thumb-open {
+  display: block;
+  margin-top: 6px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  cursor: pointer;
+}
+
+.thumb {
+  display: block;
+  width: 100%;
+  max-width: 220px;
+  max-height: 220px;
+  border-radius: var(--radius-sm);
+  /* Обрізаємо, а не вписуємо: у стрічці мініатюра має тримати рівний
+     прямокутник, інакше довгий знімок екрана розтягне бульбашку на
+     півекрана. Ціле фото людина побачить за дотиком. */
+  object-fit: cover;
+}
+
+.skeleton.thumb { height: 140px; max-width: 220px; margin-top: 6px; }
+
+/* Перегляд на весь екран. Поверх усього, включно з панеллю кошика:
+   дивитись квитанцію крізь чужі кнопки незручно. */
+.viewer {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.92);
+}
+
+.viewer img {
+  max-width: 100%;
+  max-height: 100%;
+  /* Тут навпаки — вписуємо: у переглядачі важливо бачити все фото
+     цілком, а не рівний прямокутник. */
+  object-fit: contain;
+  border-radius: var(--radius-sm);
+}

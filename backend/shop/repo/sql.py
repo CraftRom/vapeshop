@@ -1003,6 +1003,35 @@ class SqlRepository(Repository):
         await self._commit()
         return int(result.rowcount or 0)
 
+    async def forget_chat_files(self, older_than_days: int) -> int:
+        """Забуває коди вкладень виконаних замовлень.
+
+        Часом виконання вважаємо updated_at: окремої позначки «коли
+        завершили» в замовленні немає, а updated_at міняється при кожній
+        зміні статусу, тож для замовлення, яке вже в «Виконано», це і є
+        момент останньої дії з ним. Якщо менеджер потім щось поправить,
+        відлік почнеться заново — це радше добре: значить, до замовлення
+        ще поверталися.
+
+        Назву файлу лишаємо: у стрічці має бути видно, що вкладення було,
+        інакше розмова читається як обірвана.
+        """
+        edge = datetime.now(timezone.utc) - timedelta(days=older_than_days)
+        stale = (
+            select(m.Order.id)
+            .where(m.Order.status == OrderStatus.DONE, m.Order.updated_at < edge)
+        )
+        result = await self.s.execute(
+            update(m.OrderMessage)
+            .where(
+                m.OrderMessage.order_id.in_(stale),
+                m.OrderMessage.file_id.is_not(None),
+            )
+            .values(file_id=None)
+        )
+        await self._commit()
+        return int(result.rowcount or 0)
+
     async def unread_counts(self) -> dict[int, int]:
         rows = await self.s.execute(
             select(m.OrderMessage.order_id, func.count(m.OrderMessage.id))

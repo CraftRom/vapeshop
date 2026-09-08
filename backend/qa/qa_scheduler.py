@@ -177,4 +177,77 @@ async def scenario():
 
 asyncio.run(scenario())
 
+
+print("\n--- строк зберігання вкладень ---")
+# Файли лежать у Telegram, у нас — коди доступу до них. Код дає вміст,
+# тож тримати його після виконаного замовлення немає причин: витік бази
+# означав би витік чужих квитанцій із банківськими додатками.
+import asyncio as _aio                                              # noqa: E402
+from datetime import datetime as _dt                                # noqa: E402
+from datetime import timedelta as _td                               # noqa: E402
+from datetime import timezone as _tz                                # noqa: E402
+
+from scheduler.tasks import CHAT_FILE_RETENTION_DAYS                # noqa: E402
+from scheduler.tasks import forget_old_chat_files                   # noqa: E402
+from shop import models as _m                                       # noqa: E402
+from shop.repo.factory import open_repo as _repo                    # noqa: E402
+from sqlalchemy import select as _select                            # noqa: E402
+from sqlalchemy import update as _update                            # noqa: E402
+
+
+async def _retention():
+    async with _repo() as repo:
+        session = repo.s
+        buyer = _m.User(id=99001, tg_id=99001, first_name="Тест", age_confirmed=True,
+                        referral_code="QA99001")
+        session.add(buyer)
+        await session.flush()
+        order = _m.Order(
+            user_id=buyer.id, status="new", total=100, subtotal=100,
+            contact_name="Тест", contact_phone="+380670000000",
+            delivery_city="Київ", delivery_address="Відділення 1",
+            payment_method="card",
+        )
+        session.add(order)
+        await session.flush()
+        order_id = order.id
+        note = _m.OrderMessage(
+            order_id=order_id, user_id=buyer.id,
+            direction="in", author="Клієнт", text="Квитанція",
+            file_id="AgACAgIAAx", file_kind="photo", file_name="receipt.jpg",
+        )
+        session.add(note)
+        await session.commit()
+
+        # Свіже виконане замовлення — вкладення лишається на місці.
+        await session.execute(
+            _update(_m.Order).where(_m.Order.id == order_id)
+            .values(status="done", updated_at=_dt.now(_tz.utc))
+        )
+        await session.commit()
+    r.check(await forget_old_chat_files() == 0,
+            "щойно виконане замовлення вкладення не втрачає")
+
+    async with _repo() as repo:
+        await repo.s.execute(
+            _update(_m.Order).where(_m.Order.id == order_id).values(
+                updated_at=_dt.now(_tz.utc) - _td(days=CHAT_FILE_RETENTION_DAYS + 1))
+        )
+        await repo.s.commit()
+    r.check(await forget_old_chat_files() >= 1,
+            "після строку код вкладення прибирається")
+
+    async with _repo() as repo:
+        left = (await repo.s.execute(
+            _select(_m.OrderMessage.file_id, _m.OrderMessage.file_name)
+            .where(_m.OrderMessage.id == note.id))).first()
+    r.check(left[0] is None, "коду більше немає", left[0])
+    r.check(left[1] == "receipt.jpg",
+            "назва лишилась: без неї розмова читається як обірвана", left[1])
+    r.check(await forget_old_chat_files() == 0,
+            "повторний прохід не робить зайвої роботи")
+
+
+_aio.run(_retention())
+
 r.done()

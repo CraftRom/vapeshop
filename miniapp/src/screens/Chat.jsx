@@ -60,12 +60,61 @@ export function ChatList({ config, orders, onOpen }) {
   )
 }
 
+/** Вкладення у стрічці: спершу мініатюра, за дотиком — на весь екран.
+ *
+ * Раніше тут був рядок «Вкладення: screenshot.jpg» — тобто людина
+ * бачила, що щось надіслала, але не бачила, що саме. Для квитанції це
+ * особливо погано: помилилися файлом — дізнаєтесь від менеджера.
+ *
+ * Тягнемо двійкові дані, а не ставимо посилання в src: до запиту треба
+ * додати підпис Telegram, а тег <img> заголовків не надсилає.
+ */
+function Attachment({ order, message, onOpen }) {
+  const [src, setSrc] = useState(null)
+  const [failed, setFailed] = useState('')
+
+  useEffect(() => {
+    if (message.file_kind !== 'photo') return undefined
+    let alive = true
+    let created = null
+    api.chatFile(order, message.id)
+      .then((url) => {
+        created = url
+        if (alive) setSrc(url)
+        else URL.revokeObjectURL(url)
+      })
+      .catch((err) => alive && setFailed(err.message))
+    return () => {
+      alive = false
+      // Обʼєктні посилання тримають файл у памʼяті вкладки, доки їх не
+      // звільнити. У довгій стрічці це десятки мегабайт.
+      if (created) URL.revokeObjectURL(created)
+    }
+  }, [order, message.id, message.file_kind])
+
+  if (failed) return <div className="bubble-head">{failed}</div>
+  if (message.file_kind !== 'photo') {
+    return <div className="bubble-head">Вкладення: {message.file_name || message.file_kind}</div>
+  }
+  if (!src) return <div className="skeleton thumb" />
+
+  return (
+    <button className="thumb-open" onClick={() => onOpen(src)}>
+      <img className="thumb" src={src} alt={message.file_name || 'Вкладення'} />
+    </button>
+  )
+}
+
 export function ChatRoom({ config, order, onBack }) {
   const [messages, setMessages] = useState(null)
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [sendError, setSendError] = useState('')
+  // Відкрите на весь екран фото. Окремим станом, а не станом картинки:
+  // з нього треба виходити системною кнопкою «назад», і знати про це
+  // має екран, а не вкладення.
+  const [viewing, setViewing] = useState(null)
   const [error, setError] = useState('')
   const bottom = useRef(null)
 
@@ -137,6 +186,13 @@ export function ChatRoom({ config, order, onBack }) {
 
   return (
     <div className="chat-screen">
+      {viewing && (
+        // Дотик будь-де закриває: у переглядачі фото це очікувана дія,
+        // і окремий хрестик у куті лише додає, що промахнутись повз.
+        <div className="viewer" onClick={() => setViewing(null)} role="presentation">
+          <img src={viewing} alt="Вкладення" />
+        </div>
+      )}
       <div className="head">
         <button className="chip" onClick={onBack} style={{ marginBottom: 8 }}>
           ← Замовлення
@@ -162,9 +218,7 @@ export function ChatRoom({ config, order, onBack }) {
               </div>
               {m.text && <div className="bubble-text">{m.text}</div>}
               {m.file_kind && (
-                <div className="bubble-head">
-                  Вкладення: {m.file_name || m.file_kind}
-                </div>
+                <Attachment order={order.id} message={m} onOpen={setViewing} />
               )}
             </div>
           ))

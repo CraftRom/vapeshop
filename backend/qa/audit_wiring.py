@@ -244,10 +244,17 @@ check("{{?SELLER_EMAIL}}" in _legal,
 check("sellerIsUsable" in _legal, "є перевірка мінімального набору реквізитів")
 _mini_css2 = read("miniapp/src/styles.css")
 check("discount-badge" in _mini_css2, "знижка виділена як акційна пропозиція")
-check("object-fit: contain" in _mini_css2,
-      "фото товару не обрізається — на ньому сам товар")
-check("object-fit: cover" not in _mini_css2,
-      "у вітрині не лишилось обрізання зображень")
+check("object-fit: contain" in css_block(_mini_css2, ".item-photo"),
+      "фото товару не обрізається — на ньому сам товар, і зрізаний край "
+      "може забрати назву смаку чи мітку міцності")
+# Мініатюра вкладення — свідомий виняток: у стрічці вона має тримати
+# рівний прямокутник, інакше довгий знімок екрана розтягне бульбашку на
+# пів екрана. Ціле фото людина бачить за дотиком, у переглядачі, де
+# стоїть contain.
+check("object-fit: cover" in css_block(_mini_css2, ".thumb "),
+      "мініатюра вкладення тримає рівний прямокутник")
+check("object-fit: contain" in css_block(_mini_css2, ".viewer img"),
+      "а на весь екран фото показується цілком")
 _img_field = read("dashboard/src/components/ImageField.jsx")
 check("objectFit: 'cover'" not in _img_field,
       "прев'ю у сховищі не обрізані — інакше картинку не впізнати")

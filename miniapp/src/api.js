@@ -65,6 +65,25 @@ export const api = {
   // дозволяє запити лише на власний домен.
   // Вкладення йде окремим шляхом: multipart, а не JSON, тож спільний
   // request() з його заголовками тут не підходить.
+  // Вкладення тягнемо як двійкові дані, а не посилання в src: до запиту
+  // треба додати підпис Telegram, а тег <img> заголовків не надсилає.
+  chatFile: async (orderId, messageId) => {
+    const res = await fetch(
+      `${BASE}/orders/${orderId}/chat/${messageId}/file`,
+      { headers: { 'X-Telegram-Init-Data': getInitData() } },
+    )
+    if (!res.ok) {
+      const error = new Error(
+        res.status === 410
+          ? 'Вкладення видалене за строком зберігання'
+          : 'Не вдалося завантажити вкладення',
+      )
+      error.status = res.status
+      throw error
+    }
+    return URL.createObjectURL(await res.blob())
+  },
+
   chatPhoto: async (orderId, file) => {
     const body = new FormData()
     body.append('file', file)

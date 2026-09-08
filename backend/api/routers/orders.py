@@ -273,9 +273,14 @@ async def order_file(order_id: int, message_id: int, repo: Repository = Depends(
     посилання на Telegram містить його у відкритому вигляді.
     """
     messages = await repo.list_order_messages(order_id)
-    target = next((m for m in messages if m.id == message_id and m.file_id), None)
+    target = next((m for m in messages if m.id == message_id), None)
     if not target:
         raise HTTPException(404, "Вкладення не знайдено")
+    if not target.file_id:
+        # Файл був, але код доступу до нього прибрано за строком
+        # зберігання. Окремий код відповіді, щоб панель сказала саме це,
+        # а не «Telegram видалив» — Telegram тут ні до чого.
+        raise HTTPException(410, "Вкладення прибране за строком зберігання")
 
     bot = _bot()
     if not bot:

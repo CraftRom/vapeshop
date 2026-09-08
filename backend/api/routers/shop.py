@@ -544,6 +544,60 @@ PHOTO_TYPES = {"image/jpeg", "image/png", "image/webp"}
 PHOTO_LIMIT = 8 * 1024 * 1024
 
 
+@router.get("/orders/{order_id}/chat/{message_id}/file")
+async def order_chat_file(
+    order_id: int,
+    message_id: int,
+    user: User = Depends(require_webapp_user),
+    repo: Repository = Depends(get_repo),
+):
+    """Вкладення зі стрічки — покупцеві його ж замовлення.
+
+    Дзеркальне до точки в панелі, але з перевіркою власника: у панель
+    ходить менеджер, сюди — людина, і чужий номер замовлення тут має
+    впиратись у 404, а не віддавати чиюсь квитанцію.
+
+    Файл у нас не лежить — тягнемо його з Telegram на льоту. Прямим
+    посиланням віддати не можна: адреса файлу в Telegram містить токен
+    бота у відкритому вигляді.
+    """
+    _require_age(user)
+    await _own_order(repo, user, order_id)
+
+    messages = await repo.list_order_messages(order_id)
+    target = next((m for m in messages if m.id == message_id), None)
+    if not target:
+        raise HTTPException(404, "Вкладення не знайдено")
+    if not target.file_id:
+        # Файл був, але його вже прибрали за строком зберігання. Це не
+        # помилка й не втрата: так і задумано, тому й код інший.
+        raise HTTPException(410, "Вкладення видалене за строком зберігання")
+
+    bot = None
+    try:
+        from api.routers.telegram import _instances
+
+        bot, _ = _instances()
+    except Exception:
+        log.warning("Бот недоступний — вкладення не віддати", exc_info=True)
+    if not bot:
+        raise HTTPException(503, "Бот недоступний — файл не отримати")
+
+    try:
+        info = await bot.get_file(target.file_id)
+        content = await bot.download_file(info.file_path)
+    except Exception:
+        log.warning("Не вдалося отримати файл %s", target.file_id, exc_info=True)
+        raise HTTPException(502, "Telegram не віддав файл")
+
+    media = {"photo": "image/jpeg", "video": "video/mp4", "voice": "audio/ogg"}
+    return Response(
+        content=content.read(),
+        media_type=media.get(target.file_kind, "application/octet-stream"),
+        headers={"Cache-Control": "private, max-age=300"},
+    )
+
+
 @router.post("/orders/{order_id}/chat/photo", status_code=201)
 async def order_chat_photo(
     order_id: int,

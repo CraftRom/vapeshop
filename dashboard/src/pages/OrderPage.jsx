@@ -55,7 +55,7 @@ function Attachment({ orderId, message }) {
         revoked = URL.createObjectURL(blob)
         setUrl(revoked)
       })
-      .catch(() => !cancelled && setFailed(true))
+      .catch((err) => !cancelled && setFailed(err.message === '410' ? 'gone' : true))
     return () => {
       cancelled = true
       if (revoked) URL.revokeObjectURL(revoked)
@@ -67,7 +67,12 @@ function Attachment({ orderId, message }) {
   if (failed) {
     return (
       <div className="faint" style={{ fontSize: 12.5 }}>
-        {label} недоступний — Telegram видаляє старі вкладення
+        {failed === 'gone'
+          // Не поломка, а строк зберігання: коди вкладень виконаних
+          // замовлень прибираються через три дні, щоб база не тримала
+          // доступу до чужих квитанцій довше, ніж це комусь потрібно.
+          ? `${label} прибрано за строком зберігання`
+          : `${label} недоступний — Telegram видаляє старі вкладення`}
       </div>
     )
   }
