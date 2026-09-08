@@ -57,5 +57,16 @@ ok(!/<input[^>]*className=\{?["`]?input/.test(form),
 ok(!form.includes('<textarea'), 'коментар теж через спільний компонент')
 ok((form.match(/<Field/g) || []).length >= 8, 'усі поля форми', (form.match(/<Field/g) || []).length)
 
+console.log('\n--- поле в рядку з кнопками ---')
+// Значення малює блок над полем, тож у гнучкому рядку стоїть обгортка,
+// а не саме поле. Без flex саме на обгортці поле стискалось до ширини
+// вмісту, а скріпка й «Надіслати» розʼїжджались по краях.
+const composer = rule('.chat-compose .field-paint {')
+ok(composer.includes('flex: 1'), 'обгортка займає вільну ширину')
+ok(composer.includes('min-width: 0'),
+   'довгий рядок без пробілів не виштовхує кнопку за екран')
+ok(rule('.chat-compose {').includes('align-items: flex-end'),
+   'кнопки лишаються на лінії останнього рядка, коли поле росте')
+
 console.log(`\nПОЛЕ МАЛЮЄ САМЕ: ${bad === 0 ? 'усе витримано' : `ПРОВАЛЕНО: ${bad}`}`)
 process.exit(bad === 0 ? 0 : 1)

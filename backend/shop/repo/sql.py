@@ -983,6 +983,26 @@ class SqlRepository(Repository):
         await self._commit()
         return int(result.rowcount or 0)
 
+    async def mark_client_read(self, order_id) -> int:
+        """Клієнт відкрив стрічку — повідомлення менеджера прочитані.
+
+        Дзеркальне до mark_messages_read, але в інший бік. Раніше
+        повідомлення менеджера зберігались одразу як прочитані, тож
+        «прочитано» не означало нічого: менеджер не міг відрізнити
+        мовчання від «не бачив».
+        """
+        result = await self.s.execute(
+            update(m.OrderMessage)
+            .where(
+                m.OrderMessage.order_id == order_id,
+                m.OrderMessage.direction == "out",
+                m.OrderMessage.is_read.is_(False),
+            )
+            .values(is_read=True)
+        )
+        await self._commit()
+        return int(result.rowcount or 0)
+
     async def unread_counts(self) -> dict[int, int]:
         rows = await self.s.execute(
             select(m.OrderMessage.order_id, func.count(m.OrderMessage.id))

@@ -195,6 +195,15 @@ function Chat({ orderId, messages, onSent }) {
               </div>
               {m.text && <div className="bubble-text">{m.text}</div>}
               {m.file_kind && <Attachment orderId={orderId} message={m} />}
+              {/* Квитанція про прочитання — лише на своїх повідомленнях.
+                  Без неї мовчання клієнта нічого не означає: незрозуміло,
+                  чи він читає й не відповідає, чи просто не відкривав
+                  застосунок, і чи варто дзвонити. */}
+              {m.direction === 'out' && (
+                <div className={`receipt ${m.is_read ? 'seen' : ''}`}>
+                  {m.is_read ? '✓✓ Прочитано' : '✓ Надіслано'}
+                </div>
+              )}
             </div>
           ))
         )}

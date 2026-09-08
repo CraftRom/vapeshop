@@ -334,6 +334,32 @@ async def scenario():
                 "навіть розрахунок перевізника лишається приблизним: "
                 "фактичну вагу знають лише на відділенні")
 
+        print("\n--- комісія рахується від того, що віддадуть ---")
+        # Знижка за обсяг зменшує суму, яку покупець платить на
+        # відділенні, — отже, і комісію за переказ. Раніше сюди йшла сума
+        # до знижки: людина бачила завищене число й відмовлялась від
+        # накладеного платежу.
+        await client.put("/api/settings", json={
+            "volume_discount_enabled": True,
+            "volume_discount_min": "100",
+            "volume_discount_percent": "10",
+        }, headers=token)
+        np.reset_cache()
+        reset()
+        await client.get(
+            "/api/shop/delivery/price?city_ref=city-dnipro&payment_method=cod",
+            headers=head)
+        cod_call = [c for c in calls
+                    if c["calledMethod"] == "getDocumentPrice"][-1]["methodProperties"]
+        r.check(cod_call["Cost"] == "630",
+                "оголошена вартість — сума товарів: везуть товар, а не гроші",
+                cod_call["Cost"])
+        r.check(cod_call["RedeliveryCalculate"]["Amount"] == "567",
+                "комісія — від суми зі знижкою, яку покупець реально віддасть",
+                cod_call["RedeliveryCalculate"]["Amount"])
+        await client.put("/api/settings",
+                         json={"volume_discount_enabled": False}, headers=token)
+
         print("\n--- курʼєр на адресу ---")
         cfg2 = (await client.get("/api/shop/config", headers=head)).json()
         r.check(cfg2.get("courier_enabled") is False,

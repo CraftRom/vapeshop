@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { api } from '../api'
-import { haptic } from '../telegram'
+import { Field } from '../fields'
+import { haptic, notify } from '../telegram'
 
 const STATUS = {
   new: 'Нове',
@@ -63,6 +64,8 @@ export function ChatRoom({ config, order, onBack }) {
   const [messages, setMessages] = useState(null)
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
+  const [uploading, setUploading] = useState(false)
+  const [sendError, setSendError] = useState('')
   const [error, setError] = useState('')
   const bottom = useRef(null)
 
@@ -93,6 +96,27 @@ export function ChatRoom({ config, order, onBack }) {
   useEffect(() => {
     bottom.current?.scrollIntoView({ block: 'end' })
   }, [messages])
+
+  const attach = async (event) => {
+    const file = event.target.files?.[0]
+    // Скидаємо одразу: інакше повторний вибір того самого файлу не
+    // викличе подію, і людині здасться, що кнопка зламалась.
+    event.target.value = ''
+    if (!file) return
+
+    setUploading(true)
+    setSendError('')
+    try {
+      const data = await api.chatPhoto(order.id, file)
+      setMessages(data.messages)
+      notify('success')
+    } catch (err) {
+      setSendError(err.message)
+      notify('error')
+    } finally {
+      setUploading(false)
+    }
+  }
 
   const send = async () => {
     const body = text.trim()
@@ -148,9 +172,26 @@ export function ChatRoom({ config, order, onBack }) {
         <div ref={bottom} />
       </div>
 
+      {sendError && <div className="banner warn">{sendError}</div>}
+
       <div className="chat-compose">
-        <input
-          className="input"
+        {/* Скріншот квитанції — рівно те, чого просить текст після
+            оформлення. Досі вітрина це обіцяла, а надіслати не давала:
+            вкладення приймала тільки розмова з ботом. */}
+        <label className="attach" aria-label="Додати фото">
+          {uploading ? '…' : '📎'}
+          <input
+            type="file"
+            accept="image/*"
+            hidden
+            onChange={attach}
+            disabled={uploading}
+          />
+        </label>
+        {/* Той самий компонент, що й у формі замовлення. Тут його
+            бракувало найбільше: людина писала менеджеру наосліп — у полі
+            не було видно жодної літери, поки не перейдеш кудись інде. */}
+        <Field
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && send()}

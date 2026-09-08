@@ -63,6 +63,30 @@ export const api = {
   // Довідник Нової пошти. Ходимо через свій бекенд, а не напряму до
   // перевізника: ключ приватний, а політика безпеки вітрини й так
   // дозволяє запити лише на власний домен.
+  // Вкладення йде окремим шляхом: multipart, а не JSON, тож спільний
+  // request() з його заголовками тут не підходить.
+  chatPhoto: async (orderId, file) => {
+    const body = new FormData()
+    body.append('file', file)
+    const res = await fetch(`${BASE}/orders/${orderId}/chat/photo`, {
+      method: 'POST',
+      headers: { 'X-Telegram-Init-Data': getInitData() },
+      body,
+    })
+    if (!res.ok) {
+      let detail = `Помилка ${res.status}`
+      try {
+        detail = (await res.json()).detail || detail
+      } catch {
+        /* тіло не JSON — лишаємо код статусу */
+      }
+      const error = new Error(detail)
+      error.status = res.status
+      throw error
+    }
+    return res.json()
+  },
+
   cancelOrder: (id) => request(`/orders/${id}/cancel`, { method: 'POST' }),
 
   delivery: {

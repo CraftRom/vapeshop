@@ -707,13 +707,26 @@ textarea.input { min-height: 74px; resize: vertical; }
   position: sticky;
   bottom: 0;
   display: flex;
+  /* По нижньому краю, а не по центру: коли поле виростає під довгий
+     текст, скріпка й «Надіслати» мають лишатись на одній лінії з
+     останнім рядком, а не поїхати вгору разом із ним. */
+  align-items: flex-end;
   gap: 8px;
   padding: 10px 14px calc(10px + env(safe-area-inset-bottom, 0px));
   background: var(--tg-bg);
   border-top: 1px solid var(--tg-secondary-bg);
 }
 
-.chat-compose .input { flex: 1; }
+/* Поле займає всю вільну ширину. Правило вказує на обгортку, а не на
+   саме поле: значення в ньому малює блок над полем, тож у рядку стоїть
+   обгортка, і flex треба саме їй. Без цього поле стискалось до ширини
+   вмісту, а скріпка й кнопка розʼїжджались по краях. */
+.chat-compose .field-paint {
+  flex: 1;
+  /* Без min-width довгий рядок без пробілів розпирає гнучкий елемент і
+     виштовхує кнопку за екран. */
+  min-width: 0;
+}
 
 /* ------------------------------------------------------- картка товару
  *
@@ -1374,4 +1387,53 @@ textarea.input { min-height: 74px; resize: vertical; }
   margin: 0 0 4px;
   color: var(--tg-hint);
   font-size: 12.5px;
+}
+
+/* Кнопка вкладення в стрічці замовлення. Скріпка ліворуч від поля —
+   там, де її шукають за звичкою з усіх месенджерів. */
+.attach {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  border: 1px solid var(--tg-secondary-bg);
+  border-radius: 12px;
+  background: var(--tg-secondary-bg);
+  color: var(--tg-hint);
+  font-size: 17px;
+  cursor: pointer;
+}
+
+.attach:active { background: var(--tg-bg); }
+
+/* -------------------------------------------------------- рух в інтерфейсі
+ *
+ * Анімацій рівно стільки, скільки пояснюють, що сталося. Нове
+ * повідомлення в стрічці зʼявляється з ледь помітним підйомом — так
+ * видно, що воно щойно прийшло, а не було там весь час. Довше за 160 мс
+ * анімація вже не пояснює, а затримує.
+ */
+@keyframes rise {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+
+.bubble { animation: rise 0.16s ease-out; }
+
+/* Стрічка догортується плавно — стрибок на кінець читається як
+   перезавантаження екрана. */
+.chat-log { scroll-behavior: smooth; }
+
+/* Натискання дає відгук миттєво: без нього на повільному звʼязку
+   здається, що дотик не зарахувався. */
+.add,
+.chip,
+.primary,
+.secondary { transition: background 0.12s ease, border-color 0.12s ease; }
+
+@media (prefers-reduced-motion: reduce) {
+  .bubble { animation: none; }
+  .chat-log { scroll-behavior: auto; }
 }

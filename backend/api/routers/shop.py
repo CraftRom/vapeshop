@@ -12,7 +12,7 @@ from __future__ import annotations
 import logging
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, Response
 from pydantic import BaseModel, Field, field_validator
 
 from api.schemas import CategoryOut, ProductOut
@@ -526,7 +526,87 @@ async def order_chat_log(
 ):
     _require_age(user)
     await _own_order(repo, user, order_id)
-    return await repo.list_order_messages(order_id)
+    messages = await repo.list_order_messages(order_id)
+    # Читаємо стрічку — отже, повідомлення менеджера побачені. Позначаємо
+    # після вибірки, щоб у цій же відповіді клієнт не побачив «прочитано»
+    # на тому, що йому щойно віддали: квитанція призначена менеджеру.
+    await repo.mark_client_read(order_id)
+    return messages
+
+
+# Скріншот квитанції — те, чого просить текст після оформлення.
+#
+# Раніше вітрина обіцяла «надішліть скріншот у цей чат», а надіслати його
+# з неї було нічим: вкладення вміла приймати лише розмова з ботом. Людина
+# або шукала бота вручну, або писала «оплатив» словами, і менеджер звіряв
+# оплату наосліп.
+PHOTO_TYPES = {"image/jpeg", "image/png", "image/webp"}
+PHOTO_LIMIT = 8 * 1024 * 1024
+
+
+@router.post("/orders/{order_id}/chat/photo", status_code=201)
+async def order_chat_photo(
+    order_id: int,
+    file: UploadFile = File(...),
+    user: User = Depends(require_webapp_user),
+    repo: Repository = Depends(get_repo),
+):
+    """Фото у стрічку замовлення: квитанція, фото товару, скарга."""
+    _require_age(user)
+    order = await _own_order(repo, user, order_id)
+
+    if file.content_type not in PHOTO_TYPES:
+        raise HTTPException(422, "Підійде знімок екрана або фото: JPEG, PNG або WebP")
+
+    # Читаємо з межею: без неї один запит із відео на сотні мегабайт
+    # займе памʼять процесу, який обслуговує всіх інших.
+    blob = await file.read(PHOTO_LIMIT + 1)
+    if len(blob) > PHOTO_LIMIT:
+        raise HTTPException(413, "Файл завеликий — до 8 МБ")
+    if not blob:
+        raise HTTPException(422, "Порожній файл")
+
+    bot = None
+    try:
+        from api.routers.telegram import _instances
+
+        bot, _ = _instances()
+    except Exception:
+        log.warning("Бот недоступний — фото не дійде в чат команди", exc_info=True)
+
+    attachment = None
+    if bot is not None:
+        from aiogram.types import BufferedInputFile
+
+        from shop.services.shop_settings import get_shop_settings
+
+        shop = await get_shop_settings(repo)
+        if shop.admin_chat_id:
+            from shop.services.notifications import topic_kwargs
+
+            try:
+                sent = await bot.send_photo(
+                    shop.admin_chat_id,
+                    BufferedInputFile(blob, filename=file.filename or "screenshot.jpg"),
+                    caption=f"📎 Вкладення до замовлення №{order.id}",
+                    **topic_kwargs(shop.chat_topic_id or shop.admin_topic_id),
+                )
+                # Зберігаємо file_id, а не сам файл: у Telegram він уже
+                # лежить, і панель тягне його звідти, коли менеджер
+                # відкриває стрічку. Другої копії на диску не потрібно.
+                attachment = {
+                    "file_id": sent.photo[-1].file_id if sent.photo else None,
+                    "file_kind": "photo",
+                    "file_name": file.filename or "screenshot.jpg",
+                }
+            except Exception:
+                log.warning("Не вдалося переслати фото в чат команди", exc_info=True)
+
+    await svc_chat.save_incoming(
+        repo, order, user, "Надіслав вкладення", bot=None, attachment=attachment,
+    )
+    await repo.set_chat_order(user.id, order.id)
+    return {"messages": await repo.list_order_messages(order_id)}
 
 
 @router.post("/orders/{order_id}/chat", response_model=ChatMessageOut, status_code=201)
@@ -739,7 +819,10 @@ async def delivery_price(
     lines = await repo.get_cart(user.id)
     subtotal = sum((line.line_total for line in lines), Decimal(0))
     quantity = sum(line.qty for line in lines) or 1
-    weight = max(float(shop.delivery_weight_per_item) * quantity, 0.1)
+    # Вагу округляємо тут, один раз. Раніше в кеш ішло одне число, а
+    # перевізникові — інше, округлене, і той самий кошик міг питатися
+    # двічі поспіль.
+    weight = round(max(float(shop.delivery_weight_per_item) * quantity, 0.1), 2)
 
     # Порожній кошик — рахувати нема чого. Трапляється, якщо екран
     # оформлення лишили відкритим, а товар тим часом прибрали.
@@ -757,6 +840,15 @@ async def delivery_price(
         "cost_from": float(shop.delivery_cost_from or 0),
     }
 
+    # Скільки покупець віддасть на відділенні: сума товарів мінус знижка
+    # за обсяг. Промокод і бонуси тут не враховуємо — вони застосовуються
+    # при оформленні, а цей розрахунок робиться до нього.
+    payable = subtotal
+    if shop.volume_discount_enabled and subtotal >= shop.volume_discount_min:
+        payable = subtotal - (
+            subtotal * Decimal(shop.volume_discount_percent) / Decimal(100)
+        ).quantize(Decimal("0.01"))
+
     key = (shop.novaposhta_api_key or "").strip()
     sender = (shop.novaposhta_sender_city or "").strip()
     # Немає ключа або міста відправлення — це не помилка, а незавершене
@@ -772,9 +864,15 @@ async def delivery_price(
         price = await np.document_price(
             key, sender_ref, city_ref or settlement_ref,
             to_door=method == "courier" and shop.delivery_courier_enabled,
+            # Оголошена вартість — сума товарів: страхування рахують від
+            # неї, і знижка на неї не впливає, бо везуть саме товар.
             declared=float(subtotal),
-            weight=round(weight, 2),
-            cash_on_delivery=float(subtotal) if payment_method == "cod" else 0,
+            weight=weight,
+            # А комісія за переказ — від того, що покупець реально
+            # віддасть на відділенні. Раніше сюди йшла сума до знижки, і
+            # комісія виходила більшою, ніж буде насправді: людина бачила
+            # завищене число й відмовлялась від накладеного платежу.
+            cash_on_delivery=float(payable) if payment_method == "cod" else 0,
         )
     except np.NovaPoshtaError as exc:
         # Розрахунок — не та річ, заради якої варто ламати оформлення.

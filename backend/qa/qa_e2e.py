@@ -150,6 +150,39 @@ r.check(c.post(f"/api/shop/orders/{oid}/cancel", headers=H).status_code == 409,
 r.check(c.post("/api/shop/orders/999999/cancel", headers=H).status_code == 404,
         "чуже або неіснуюче замовлення — 404, без підтверджень існування")
 
+print("\n[чат] квитанції про прочитання й вкладення")
+# Раніше повідомлення менеджера зберігалися одразу як прочитані, тож
+# «прочитано» не означало нічого: менеджер не міг відрізнити мовчання
+# від «не бачив» — і не знав, чи варто дзвонити.
+c.post(f"/api/orders/{oid}/messages", json={"text": "Уточніть адресу"}, headers=A)
+_mine = [m for m in c.get(f"/api/orders/{oid}/messages", headers=A).json()
+         if m["direction"] == "out"]
+r.check(_mine and _mine[-1]["is_read"] is False,
+        "щойно надіслане менеджером ще не прочитане",
+        _mine[-1]["is_read"] if _mine else None)
+
+c.get(f"/api/shop/orders/{oid}/chat", headers=H)
+_mine = [m for m in c.get(f"/api/orders/{oid}/messages", headers=A).json()
+         if m["direction"] == "out"]
+r.check(all(m["is_read"] for m in _mine),
+        "клієнт відкрив стрічку — менеджер бачить «прочитано»")
+
+# Скріншот квитанції — те, чого просить текст після оформлення. Досі
+# вітрина це обіцяла, а надіслати не давала.
+_png = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+)
+_up = c.post(f"/api/shop/orders/{oid}/chat/photo", headers=H,
+             files={"file": ("receipt.png", _png, "image/png")})
+r.check(_up.status_code == 201, "вкладення приймається", _up.status_code)
+r.check(any(m.get("file_kind") == "photo" or "вкладення" in (m.get("text") or "").lower()
+            for m in _up.json()["messages"]),
+        "і потрапляє у стрічку замовлення")
+
+_bad = c.post(f"/api/shop/orders/{oid}/chat/photo", headers=H,
+              files={"file": ("payload.exe", b"MZ", "application/octet-stream")})
+r.check(_bad.status_code == 422, "не-зображення не приймається", _bad.status_code)
+
 print("\n[огляд] розрізи статистики")
 ins = c.get("/api/stats/insights", params={"days": 30}, headers=A).json()
 r.check(ins["orders"]["value"] >= 1, "оплачені замовлення періоду пораховані",

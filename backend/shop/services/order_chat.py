@@ -101,7 +101,7 @@ async def announce_accepted(
     await repo.add_order_message({
         "order_id": order.id, "user_id": order.user_id, "direction": "out",
         "author": "Система", "text": note,
-        "tg_message_id": sent.message_id, "is_read": True,
+        "tg_message_id": sent.message_id, "is_read": False,
     })
     return True
 
@@ -136,7 +136,7 @@ async def send_to_client(
     await repo.add_order_message({
         "order_id": order.id, "user_id": order.user_id, "direction": "out",
         "author": author, "text": text, "tg_message_id": sent.message_id,
-        "is_read": True,
+        "is_read": False,
     })
     return True
 
@@ -161,7 +161,7 @@ async def send_tracking(bot, repo: Repository, order: Order, tracking: str) -> b
     await repo.add_order_message({
         "order_id": order.id, "user_id": order.user_id, "direction": "out",
         "author": "Система", "text": f"Відправлено. ТТН: {tracking}",
-        "tg_message_id": sent.message_id, "is_read": True,
+        "tg_message_id": sent.message_id, "is_read": False,
     })
     return True
 
@@ -200,7 +200,7 @@ async def send_tracking_update(bot, repo: Repository, order: Order, tracking: st
     await repo.add_order_message({
         "order_id": order.id, "user_id": order.user_id, "direction": "out",
         "author": "Система", "text": f"Накладну змінено на {tracking}",
-        "tg_message_id": sent.message_id, "is_read": True,
+        "tg_message_id": sent.message_id, "is_read": False,
     })
     return True
 

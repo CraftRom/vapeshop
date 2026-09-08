@@ -648,3 +648,14 @@ a.info-strong:hover { color: var(--violet); }
   border-radius: 999px;
   background: var(--violet);
 }
+
+/* Квитанція про прочитання під повідомленням менеджера. Дрібна й тиха:
+   її шукають очима лише тоді, коли клієнт мовчить довше, ніж очікувано. */
+.receipt {
+  margin-top: 4px;
+  color: var(--faint);
+  font-size: 11px;
+  text-align: right;
+}
+
+.receipt.seen { color: var(--mint); }

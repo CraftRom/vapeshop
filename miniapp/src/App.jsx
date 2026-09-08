@@ -144,16 +144,24 @@ export default function App() {
     if (config?.age_confirmed && !cart) refresh().catch(() => {})
   }, [config?.age_confirmed, cart, refresh])
 
-  // Кнопка «Відкрити чат» у боті веде одразу на потрібну розмову
+  // Кнопка «Відкрити чат» у боті веде одразу на потрібну розмову.
+  //
+  // Спрацьовує рівно один раз за запуск. Раніше умови не було, і вихід
+  // із чату не працював зовсім: людина натискала «Назад», chatOrder
+  // ставав порожнім, ефект бачив це як «розмову ще не відкрито» і
+  // відкривав її знову. Ззовні кнопка просто не діяла, і Telegram
+  // доводилось закривати цілком.
+  const deepLinkUsed = useRef(false)
   useEffect(() => {
+    if (deepLinkUsed.current || orders.length === 0) return
     const target = startTarget()
-    if (!target || chatOrder || orders.length === 0) return
+    if (!target) return
     const found = orders.find((o) => o.id === target.orderId)
-    if (found) {
-      setTab('chat')
-      setChatOrder(found)
-    }
-  }, [orders, chatOrder])
+    if (!found) return
+    deepLinkUsed.current = true
+    setTab('chat')
+    setChatOrder(found)
+  }, [orders])
 
   // Системна кнопка «назад» веде з оформлення до кошика, а не закриває вікно
   useEffect(() => {
