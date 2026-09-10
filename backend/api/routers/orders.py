@@ -176,11 +176,29 @@ async def patch_order(
 
             shop = await get_shop_settings(repo)
             text = compose(fresh or order, data.status, shop)
-            await notify_user(
+            delivered = await notify_user(
                 order.user.tg_id,
                 text or f"Замовлення №{order.id}: статус — "
                         f"«{STATUS_LABELS[data.status]}».",
             )
+            # Памʼятаємо результат: за ним вітрина покаже людині, що
+            # їй нікуди писати, а панель — попередить менеджера ще до
+            # того, як він натисне «Відправлено».
+            await repo.set_bot_reachable(order.user.tg_id, delivered)
+            if not delivered:
+                # Раніше відповідь просто відкидалась: менеджер міняв
+                # статус із панелі, бачив «збережено» і вважав, що клієнта
+                # сповіщено. У журналі не лишалось нічого — на відміну від
+                # тієї самої дії з чату, де запис був. Тепер подія одна й
+                # та сама, звідки б не натиснули, і сповіщення команді про
+                # неї приходить саме.
+                log.warning(
+                    "Клієнт не отримав сповіщення про статус замовлення %s",
+                    order.id,
+                    extra={"event": "order.notify.failed", "orderId": order.id,
+                           "clientId": order.user.tg_id,
+                           "status": data.status.value},
+                )
 
     return await repo.get_order(order_id)
 

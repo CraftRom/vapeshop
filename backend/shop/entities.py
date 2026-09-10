@@ -67,6 +67,9 @@ class User:
     age_confirmed: bool = False
     chat_order_id: int | None = None
     is_blocked: bool = False
+    # False — бот не може написати цій людині: вона не відкривала з ним
+    # чат або заблокувала його.
+    bot_reachable: bool = True
     referrer_id: int | None = None
     bonus_balance: Decimal = Decimal(0)
     # Денормалізовані лічильники. У SQL їх можна було б порахувати JOIN'ом,

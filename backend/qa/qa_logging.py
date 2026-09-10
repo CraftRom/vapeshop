@@ -226,4 +226,35 @@ for name, should_pass in [("DEBUG", True), ("ERROR", False)]:
 
 r.check(len(LEVELS) >= 9, f"перелік рівнів повний: {len(LEVELS)}")
 
+
+print("\n--- недоставлене сповіщення видно звідусіль ---")
+# У журналі бота за тиждень знайшлися три записи «клієнт не отримав
+# сповіщення про статус замовлення 21» — усі з чату. З панелі та сама
+# невдача не лишала нічого: відповідь Telegram просто відкидалась.
+import pathlib                                                       # noqa: E402
+
+from shop.services.status_messages import undelivered_reason        # noqa: E402
+
+_panel = pathlib.Path("api/routers/orders.py").read_text()
+r.check("order.notify.failed" in _panel,
+        "панель записує ту саму подію, що й чат")
+r.check("delivered = await notify_user" in _panel,
+        "відповідь про доставку перевіряється, а не відкидається")
+
+_chat = pathlib.Path("bot/handlers/admin.py").read_text()
+r.check("order.notify.failed" in _chat, "чат записує її ж")
+r.check("undelivered_reason" in _chat,
+        "менеджерові пояснюють причину, а не здогад")
+
+# Дві причини вимагають різних дій, і плутати їх дорого: у першому
+# випадку досить написати в стрічку замовлення, у другому — телефонувати.
+r.check("стрічку замовлення" in undelivered_reason(
+    Exception("Bad Request: chat not found")),
+        "«чат не знайдено» веде в стрічку замовлення")
+r.check("телефон" in undelivered_reason(
+    Exception("Forbidden: bot was blocked by the user")),
+        "«заблокував» веде до телефону")
+r.check("ще раз" in undelivered_reason(Exception("Bad Gateway")),
+        "тимчасовий збій не виглядає як вирок")
+
 r.done()

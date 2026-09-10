@@ -138,6 +138,30 @@ export function Profile({ config, profile }) {
         <h1 style={{ fontSize: 17 }}>Замовлення</h1>
       </div>
 
+      {/* Головне попередження профілю.
+          У Mini App можна зайти з групи, купити й жодного разу не
+          натиснути «Старт» — приватного чату з ботом тоді немає. Ззовні
+          це виглядає як мовчазний магазин: ні статусів, ні реквізитів
+          для оплати. Людина при цьому впевнена, що про неї забули, і йде
+          в підтримку. Тому кажемо прямо й даємо кнопку, що це лікує. */}
+      {profile && profile.bot_reachable === false && (
+        <div className="banner warn">
+          <b>Ви не отримуєте повідомлень від бота</b>
+          <p style={{ margin: '6px 0 0' }}>
+            Статуси замовлень і реквізити для оплати приходять у чат із ботом,
+            а він у вас не відкритий. Натисніть кнопку нижче й «Старт» —
+            після цього все почне приходити.
+          </p>
+          {profile.bot_link && (
+            <div className="actions" style={{ marginTop: 10 }}>
+              <button className="primary" onClick={() => openLink(profile.bot_link)}>
+                Відкрити чат із ботом
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
       {cancelError && <div className="banner warn">{cancelError}</div>}
 
       {orders === null ? (

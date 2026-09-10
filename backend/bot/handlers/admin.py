@@ -89,8 +89,10 @@ async def admin_change_status(callback: CallbackQuery, repo: Repository) -> None
             client.tg_id,
             text or f"Замовлення №{order.id}: статус — «{label}».",
         )
-    except Exception:
-        # Найчастіша причина — клієнт заблокував бота або видалив чат.
+        await repo.set_bot_reachable(client.tg_id, True)
+    except Exception as exc:
+        # Найчастіша причина — клієнт заблокував бота або жодного разу
+        # його не відкривав.
         # Мовчати тут не можна: менеджер натиснув кнопку, побачив «Статус
         # змінено» і вважає, що клієнта сповіщено. Насправді ні, і про
         # доставку доведеться домовлятися телефоном.
@@ -100,9 +102,12 @@ async def admin_change_status(callback: CallbackQuery, repo: Repository) -> None
                    "clientId": client.tg_id, "status": status.value},
             exc_info=True,
         )
+        from shop.services.status_messages import undelivered_reason
+
+        await repo.set_bot_reachable(client.tg_id, False)
         await callback.answer(
-            f"Статус: {label}. Але клієнт не отримав сповіщення — "
-            "напевно заблокував бота",
+            f"Статус: {label}. Але сповіщення не дійшло: "
+            f"{undelivered_reason(exc)}",
             show_alert=True,
         )
 

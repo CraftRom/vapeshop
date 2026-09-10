@@ -174,6 +174,9 @@ class CustomerOut(ORMModel):
     orders_count: int = 0
     total_spent: Decimal = Decimal(0)
     referrals_count: int = 0
+    # Чи доходять до людини повідомлення бота: у Mini App можна купити,
+    # жодного разу не відкривши чат із ботом.
+    bot_reachable: bool = True
 
 
 class CustomerPatch(BaseModel):

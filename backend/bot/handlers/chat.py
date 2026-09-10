@@ -82,15 +82,22 @@ async def incoming_file(
             await message.answer("Щоб надіслати файл менеджеру, потрібне активне замовлення.")
             return
         await message.answer(
-            "Оберіть замовлення, до якого належить файл, і надішліть його ще раз.",
+            # Фото в магазин — це майже завжди квитанція, тож питаємо
+            # прямо про замовлення, а не про абстрактний «файл».
+            "До якого замовлення цей знімок? Оберіть кнопкою — і надішліть "
+            "його ще раз.",
             reply_markup=chat.pick_order_keyboard(open_orders),
         )
         return
 
     caption = (message.caption or "").strip() or f"[{attachment['file_name']}]"
-    await message.answer(
-        await _deliver(repo, user, caption, order_id, message.bot, attachment)
-    )
+    delivered = await _deliver(repo, user, caption, order_id, message.bot, attachment)
+    if attachment.get("file_kind") == "photo":
+        # Бот не вміє читати суму зі знімка й не вдає, що вміє: обіцяти
+        # автоматичну перевірку означало б, що людина чекатиме підтвердження,
+        # якого ніхто не надішле.
+        delivered += "\n\nМенеджер перевірить і підтвердить замовлення."
+    await message.answer(delivered)
 
 
 @router.message(F.text & ~F.text.startswith("/"))
@@ -113,8 +120,17 @@ async def incoming(
     # Відповідь на цитату — це свідоме звернення до менеджера, туди й веде.
     # На решту спершу пробуємо відповісти самі: типові питання не мають
     # чекати на людину, а менеджер не має відповідати на них удвадцяте.
+    # Повідомлення про оплату довідка не перехоплює.
+    #
+    # «Оплачено» збігається з правилом про оплату за коренем «оплат», і
+    # бот у відповідь пояснював, ЯК платити. Людина щойно переказала
+    # гроші, а їй розповідають про накладений платіж — і жодного натяку,
+    # що повідомлення кудись передали. Такі слова означають дію, яка вже
+    # сталася, і належать менеджеру, а не автовідповідачу.
+    claims_payment = faq.payment_claim(text)
+
     quoted = getattr(message, "reply_to_message", None) is not None
-    if not quoted:
+    if not quoted and not claims_payment:
         shop = await get_shop_settings(repo)
         rule = faq.match(text, shop)
         if rule:
@@ -126,7 +142,16 @@ async def incoming(
 
     order_id = await chat.route_incoming(repo, user, message)
     if order_id:
-        await message.answer(await _deliver(repo, user, text, order_id, message.bot))
+        delivered = await _deliver(repo, user, text, order_id, message.bot)
+        if claims_payment:
+            # Окреме підтвердження саме про оплату. Людина, яка щойно
+            # переказала гроші, чекає не «передали менеджеру», а відповіді
+            # на своє питання: дійшло чи ні. Сказати, що перевірять
+            # вручну, — чесніше, ніж мовчати: бот не бачить рахунку й
+            # підтвердити оплату не може.
+            delivered += ("\n\nМенеджер звірить надходження й підтвердить "
+                          "замовлення. Якщо є квитанція — надішліть її сюди.")
+        await message.answer(delivered)
         return
 
     open_orders = await chat.open_orders_for(repo, user.id)
@@ -141,6 +166,9 @@ async def incoming(
     # Текст не зберігаємо — просимо повторити після вибору, бо FSM у
     # serverless ненадійний, а мовчки загубити повідомлення гірше.
     await message.answer(
+        "Яке саме замовлення оплачено? Оберіть кнопкою — і надішліть "
+        "повідомлення ще раз, воно піде менеджеру цього замовлення."
+        if claims_payment else
         "У вас кілька активних замовлень. Оберіть, до якого стосується "
         "повідомлення, і надішліть його ще раз.",
         reply_markup=chat.pick_order_keyboard(open_orders),

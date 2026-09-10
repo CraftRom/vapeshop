@@ -545,8 +545,21 @@ check("unlink(missing_ok=True)" in read("backend/qa/qa_common.py"),
 _admin_bot = read("backend/bot/handlers/admin.py")
 check("order.notify.failed" in _admin_bot,
       "недоставлене сповіщення клієнту не ковтається мовчки")
-check("show_alert=True" in _admin_bot.split("order.notify.failed")[1][:400],
+check("show_alert=True" in _admin_bot.split("order.notify.failed")[1][:700],
       "менеджер бачить, що клієнт не отримав повідомлення")
+# Та сама невдача з панелі раніше не лишала нічого: відповідь Telegram
+# просто відкидалась, і менеджер вважав, що клієнта сповіщено.
+check("order.notify.failed" in read("backend/api/routers/orders.py"),
+      "панель записує ту саму подію, що й чат")
+# Позначка живе довше за одну спробу: за нею вітрина каже людині, що їй
+# нікуди писати, а панель попереджає менеджера заздалегідь.
+check("set_bot_reachable" in read("backend/api/routers/orders.py")
+      and "set_bot_reachable" in _admin_bot,
+      "результат доставки запамʼятовується")
+check("bot_reachable" in read("miniapp/src/screens/Profile.jsx"),
+      "клієнт бачить попередження у вітрині")
+check("bot_reachable" in read("dashboard/src/pages/OrderPage.jsx"),
+      "і менеджер — у картці замовлення")
 check("onClose()" in read("miniapp/src/screens/Wishlists.jsx").split("const toggle")[1][:900],
       "після додавання вікно вибору закривається — інакше незрозуміло, чи спрацювало")
 check("useEffect(() => { setError('') }" in read("miniapp/src/screens/Wishlists.jsx"),

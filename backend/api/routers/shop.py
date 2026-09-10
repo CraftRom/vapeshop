@@ -99,6 +99,11 @@ class ProfileOut(BaseModel):
     bonus_balance: Decimal
     referrals_count: int
     referral_link: str
+    # Чи доходять до людини повідомлення бота, і куди її відправити, якщо
+    # ні: у Mini App можна купити, жодного разу не відкривши чат із ботом,
+    # і тоді ні статуси, ні реквізити для оплати нікуди не приходять.
+    bot_reachable: bool = True
+    bot_link: str = ""
     max_bonus_now: Decimal
 
 
@@ -384,6 +389,11 @@ async def _profile_payload(repo: Repository, shop, user: User) -> ProfileOut:
         ),
         referral_link=app_link(fresh.referral_code) if shop.referral_enabled else "",
         referrals_count=fresh.referrals_count if shop.referral_enabled else 0,
+        # Чи доходять до людини повідомлення бота. False — вітрина
+        # покаже, що статуси й реквізити їй нікуди слати, і дасть
+        # посилання, яким це виправити за один дотик.
+        bot_reachable=fresh.bot_reachable,
+        bot_link=f"https://t.me/{shop.bot_username}" if shop.bot_username else "",
     )
 
 

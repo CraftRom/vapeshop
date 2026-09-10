@@ -72,6 +72,14 @@ class User(Base):
     # базі, а не в FSM: у serverless стан між викликами не переживає
     chat_order_id: Mapped[int | None] = mapped_column(Integer)
     is_blocked: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Чи доходять до людини повідомлення бота.
+    #
+    # У Mini App можна зайти з групи, купити й жодного разу не натиснути
+    # «Старт» — приватного чату з ботом тоді просто немає, і Telegram
+    # відповідає «chat not found». Ззовні це виглядає як мовчазний
+    # магазин: статуси не приходять, реквізити не приходять, а людина
+    # думає, що про неї забули.
+    bot_reachable: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
 
     referral_code: Mapped[str] = mapped_column(String(12), unique=True, index=True)
     referrer_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))

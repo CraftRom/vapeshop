@@ -52,7 +52,8 @@ def _user(row: m.User | None) -> User | None:
         username=row.username, first_name=row.first_name, phone=row.phone,
         full_name=row.full_name, age_confirmed=row.age_confirmed,
         chat_order_id=row.chat_order_id,
-        is_blocked=row.is_blocked, referrer_id=row.referrer_id,
+        is_blocked=row.is_blocked, bot_reachable=row.bot_reachable,
+        referrer_id=row.referrer_id,
         bonus_balance=_dec(row.bonus_balance), orders_count=row.orders_count,
         total_spent=_dec(row.total_spent), referrals_count=row.referrals_count,
         created_at=row.created_at, last_seen_at=row.last_seen_at,
@@ -1031,6 +1032,20 @@ class SqlRepository(Repository):
         )
         await self._commit()
         return int(result.rowcount or 0)
+
+    async def set_bot_reachable(self, tg_id: int, reachable: bool) -> None:
+        """Позначає, чи доходять до людини повідомлення бота.
+
+        Пишемо лише при зміні: інакше кожне вдале сповіщення оновлювало б
+        рядок користувача й тягло за собою запис у базу на порожньому
+        місці.
+        """
+        await self.s.execute(
+            update(m.User)
+            .where(m.User.tg_id == tg_id, m.User.bot_reachable.is_(not reachable))
+            .values(bot_reachable=reachable)
+        )
+        await self._commit()
 
     async def unread_counts(self) -> dict[int, int]:
         rows = await self.s.execute(

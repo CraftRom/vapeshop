@@ -338,6 +338,10 @@ class Repository(ABC):
         """
         ...
 
+    async def set_bot_reachable(self, tg_id: int, reachable: bool) -> None:
+        """Позначає, чи доходять до людини повідомлення бота."""
+        ...
+
     async def unread_counts(self) -> dict[int, int]:
         """Скільки непрочитаних у кожного замовлення: {order_id: кількість}."""
 
