@@ -159,6 +159,7 @@ export const api = {
 
   support: {
     list: (status = 'open') => request('/support', { params: { status } }),
+    stats: () => request('/support/stats'),
     get: (id) => request(`/support/${id}`),
     messages: (id, markRead = false) =>
       request(`/support/${id}/messages`, { params: { mark_read: markRead || undefined } }),
@@ -166,6 +167,7 @@ export const api = {
       request(`/support/${id}/messages`, { method: 'POST', body: { text } }),
     setStatus: (id, status) =>
       request(`/support/${id}`, { method: 'PATCH', body: { status } }),
+    remove: (id) => request(`/support/${id}`, { method: 'DELETE' }),
     unread: () => request('/support/unread/count'),
     fileUrl: (threadId, messageId) => `${BASE}/support/${threadId}/files/${messageId}`,
   },

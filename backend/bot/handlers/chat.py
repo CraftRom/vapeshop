@@ -33,44 +33,40 @@ def _hint(order_id: int) -> str:
     )
 
 
-def _support_intro(has_orders: bool) -> str:
-    order_note = (
-        "\n\n📦 <b>Питання про замовлення?</b>\n"
-        "Натисніть кнопку потрібного замовлення нижче — відкриється саме "
-        "його чат з історією. Так менеджеру не доведеться уточнювати номер."
-        if has_orders else ""
-    )
+def _support_intro() -> str:
     return (
         "🆘 <b>Менеджер / техпідтримка</b>\n\n"
-        "Опишіть, що сталося або що хочете уточнити. Можна надіслати "
-        "кілька повідомлень поспіль, фото, скриншот чи документ. "
-        "Менеджер отримає звернення й відповість прямо тут, у Telegram."
-        f"{order_note}\n\n"
-        "Коли питання вирішено — натисніть «Завершити звернення» або введіть /done."
+        "Режим підтримки увімкнено. Усі наступні повідомлення, фото, "
+        "скриншоти, документи, відео та голосові будуть передані менеджеру.\n\n"
+        "Менеджер відповість прямо в цьому чаті Telegram. Поки звернення "
+        "відкрите, звичайне меню приховане, щоб повідомлення випадково не "
+        "потрапило в інший сценарій.\n\n"
+        "Коли питання вирішено — натисніть «✅ Завершити звернення» або введіть /done."
     )
 
 
+@router.message(F.text == "🆘 Підтримка")
 @router.message(Command("ask"))
 async def start_support(message: Message, repo: Repository, user: User) -> None:
-    """Відкриває загальну підтримку, яка не потребує замовлення."""
+    """Відкриває загальну підтримку, яка працює лише в приватному чаті."""
     await support.start(repo, user.id)
-    orders = await chat.open_orders_for(repo, user.id)
-    markup = chat.contact_options_keyboard(
-        orders, include_support=False, include_done=True
-    ) if orders else support.support_keyboard()
-    await message.answer(_support_intro(bool(orders)), reply_markup=markup)
+    await message.answer(_support_intro(), reply_markup=support.support_keyboard())
 
 
+@router.message(F.text == "✅ Завершити звернення")
 @router.message(Command("done", "close"))
 async def stop_support(message: Message, repo: Repository, user: User) -> None:
     closed = await support.close(repo, user.id)
     if not closed:
         await message.answer(
-            "Зараз немає відкритого звернення до підтримки. Якщо потрібна допомога — /ask."
+            "Зараз немає відкритого звернення до підтримки. Якщо потрібна допомога — /ask.",
+            reply_markup=kb.main_menu(),
         )
         return
     await message.answer(
-        "✅ Звернення завершено. Якщо з’явиться нове питання — введіть /ask."
+        "✅ Звернення завершено. Історія збережена. Якщо з’явиться нове питання — "
+        "натисніть «🆘 Підтримка» або введіть /ask.",
+        reply_markup=kb.main_menu(),
     )
 
 
@@ -79,11 +75,7 @@ async def start_support_button(
     callback: CallbackQuery, repo: Repository, user: User
 ) -> None:
     await support.start(repo, user.id)
-    orders = await chat.open_orders_for(repo, user.id)
-    markup = chat.contact_options_keyboard(
-        orders, include_support=False, include_done=True
-    ) if orders else support.support_keyboard()
-    await callback.message.answer(_support_intro(bool(orders)), reply_markup=markup)
+    await callback.message.answer(_support_intro(), reply_markup=support.support_keyboard())
     await callback.answer()
 
 
@@ -93,7 +85,8 @@ async def stop_support_button(
 ) -> None:
     await support.close(repo, user.id)
     await callback.message.answer(
-        "✅ Звернення завершено. Якщо потрібна допомога ще раз — /ask."
+        "✅ Звернення завершено. Історія збережена. Якщо потрібна допомога ще раз — /ask.",
+        reply_markup=kb.main_menu(),
     )
     await callback.answer()
 

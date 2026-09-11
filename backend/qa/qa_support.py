@@ -43,6 +43,17 @@ class InlineKeyboardMarkup:
     inline_keyboard: list
 
 @dataclass
+class KeyboardButton:
+    text: str
+    web_app: WebAppInfo | None = None
+
+@dataclass
+class ReplyKeyboardMarkup:
+    keyboard: list
+    resize_keyboard: bool = False
+    one_time_keyboard: bool = False
+
+@dataclass
 class ForceReply:
     selective: bool = False
     input_field_placeholder: str | None = None
@@ -50,7 +61,7 @@ class ForceReply:
 if 'aiogram.types' not in sys.modules:
     aiogram = types.ModuleType('aiogram')
     aiogram_types = types.ModuleType('aiogram.types')
-    for cls in (WebAppInfo, InlineKeyboardButton, InlineKeyboardMarkup, ForceReply):
+    for cls in (WebAppInfo, InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup, ForceReply):
         setattr(aiogram_types, cls.__name__, cls)
     aiogram.types = aiogram_types
     sys.modules['aiogram'] = aiogram
@@ -71,9 +82,10 @@ class Repo:
     def __init__(self):
         self.user = User(id=1, tg_id=99001, referral_code='qa12345',
                          username='qa_client', first_name='Клієнт', chat_order_id=777)
-        self.thread = None
+        self.threads = []
         self.messages = []
         self.seq = 0
+        self.thread_seq = 9
 
     async def set_chat_order(self, user_id, order_id):
         assert user_id == self.user.id
@@ -84,47 +96,48 @@ class Repo:
 
     async def ensure_support_thread(self, user_id):
         now = datetime.now(timezone.utc)
-        if self.thread is None:
-            self.thread = SupportThread(id=10, user_id=user_id, status='open',
-                                        created_at=now, updated_at=now,
-                                        last_message_at=now, user=self.user)
-        else:
-            self.thread.status = 'open'
-            self.thread.updated_at = now
-            self.thread.user = self.user
-        return self.thread
+        current = next((t for t in reversed(self.threads) if t.user_id == user_id and t.status == 'open'), None)
+        if current:
+            return current
+        self.thread_seq += 1
+        thread = SupportThread(id=self.thread_seq, user_id=user_id, status='open',
+                               created_at=now, updated_at=now, last_message_at=now, user=self.user)
+        self.threads.append(thread)
+        return thread
 
     async def get_support_thread_for_user(self, user_id):
-        return self.thread if self.thread and self.thread.user_id == user_id else None
+        return next((t for t in reversed(self.threads) if t.user_id == user_id and t.status == 'open'), None)
 
     async def get_support_thread(self, thread_id):
-        if not self.thread or self.thread.id != thread_id:
+        thread = next((t for t in self.threads if t.id == thread_id), None)
+        if not thread:
             return None
-        self.thread.user = self.user
-        self.thread.unread_count = sum(
-            1 for m in self.messages if m.direction == 'in' and not m.is_read
+        thread.user = self.user
+        thread.unread_count = sum(
+            1 for m in self.messages if m.thread_id == thread_id and m.direction == 'in' and not m.is_read
         )
-        return self.thread
+        return thread
 
     async def list_support_threads(self, status=None):
-        if not self.thread or (status and self.thread.status != status):
-            return []
-        return [await self.get_support_thread(self.thread.id)]
+        items = [t for t in self.threads if status is None or t.status == status]
+        return [await self.get_support_thread(t.id) for t in reversed(items)]
 
     async def set_support_thread_status(self, thread_id, status):
-        if not self.thread or self.thread.id != thread_id:
+        thread = await self.get_support_thread(thread_id)
+        if not thread:
             return None
-        self.thread.status = status
-        self.thread.updated_at = datetime.now(timezone.utc)
-        return await self.get_support_thread(thread_id)
+        thread.status = status
+        thread.updated_at = datetime.now(timezone.utc)
+        return thread
 
     async def add_support_message(self, data):
         self.seq += 1
         now = datetime.now(timezone.utc)
         msg = SupportMessage(id=self.seq, created_at=now, **data)
         self.messages.append(msg)
-        self.thread.last_message_at = now
-        self.thread.updated_at = now
+        thread = await self.get_support_thread(data['thread_id'])
+        thread.last_message_at = now
+        thread.updated_at = now
         return msg
 
     async def list_support_messages(self, thread_id, limit=300):
@@ -140,6 +153,21 @@ class Repo:
 
     async def support_unread_count(self):
         return sum(1 for m in self.messages if m.direction == 'in' and not m.is_read)
+
+    async def support_stats(self):
+        return {
+            'open': sum(t.status == 'open' for t in self.threads),
+            'closed': sum(t.status == 'closed' for t in self.threads),
+            'total': len(self.threads),
+            'clients': 1 if self.threads else 0,
+            'unread': await self.support_unread_count(),
+        }
+
+    async def delete_support_thread(self, thread_id):
+        before = len(self.threads)
+        self.threads = [t for t in self.threads if t.id != thread_id]
+        self.messages = [m for m in self.messages if m.thread_id != thread_id]
+        return len(self.threads) != before
 
     async def set_bot_reachable(self, tg_id, reachable):
         assert tg_id == self.user.tg_id
@@ -170,6 +198,11 @@ async def scenario():
     await support_chat.save_incoming(repo, repo.user, 'Не відкривається кошик')
     r.check(await repo.support_unread_count() == 1, 'нове звернення рахується непрочитаним')
 
+    mode_menu = support_chat.support_keyboard()
+    r.check(len(mode_menu.keyboard) == 1 and len(mode_menu.keyboard[0]) == 1
+            and mode_menu.keyboard[0][0].text == '✅ Завершити звернення',
+            'у /ask лишається тільки кнопка завершення')
+
     listed = await repo.list_support_threads('open')
     r.check(listed and listed[0].user.tg_id == 99001,
             'панель отримує звернення разом із клієнтом', listed)
@@ -186,8 +219,13 @@ async def scenario():
     closed = await support_chat.close(repo, repo.user.id)
     r.check(closed and closed.status == 'closed', '/done закриває звернення')
     reopened = await support_chat.start(repo, repo.user.id)
-    r.check(reopened.id == thread.id and reopened.status == 'open',
-            'наступний /ask відкриває ту саму історію')
+    r.check(reopened.id != thread.id and reopened.status == 'open',
+            'наступний /ask створює новий чат, не чіпаючи закриту історію')
+    old = await repo.get_support_thread(thread.id)
+    r.check(old and old.status == 'closed', 'закритий чат зберігається окремо')
+    stats = await repo.support_stats()
+    r.check(stats['open'] == 1 and stats['closed'] == 1 and stats['total'] == 2,
+            'статистика рахує відкриті й закриті чати окремо', stats)
 
     order = Order(id=42, user_id=repo.user.id, total=Decimal('800'))
     markup = order_chat.contact_options_keyboard([order])
@@ -198,7 +236,7 @@ async def scenario():
     r.check(markup.inline_keyboard[-1][0].callback_data == 'support:start',
             'поруч є окрема кнопка загальної підтримки')
 
-    full = await repo.get_support_thread(thread.id)
+    full = await repo.get_support_thread(reopened.id)
     delivered, sent = await support_chat.send_to_client(
         bot, repo, full, 'Перевірте, будь ласка, ще раз.', 'QA менеджер'
     )
@@ -212,23 +250,28 @@ async def scenario():
     import api.routers.support as support_api
     support_api._bot = lambda: bot
     result = await support_api.send_message(
-        thread.id,
+        reopened.id,
         type('Body', (), {'text': 'API відповідь'})(),
         Principal('qa', 'QA менеджер', OperatorRole.MANAGER, 123),
         repo,
     )
     r.check(result.delivered is True, 'API-відповідь передається в Telegram')
     r.check(result.message.direction == 'out', 'API зберігає вихідне повідомлення')
-    r.check(any(m.text == 'API відповідь' for m in await repo.list_support_messages(thread.id)),
+    r.check(any(m.text == 'API відповідь' for m in await repo.list_support_messages(reopened.id)),
             'історія містить відповідь із панелі')
+
+    deleted = await support_api.delete_thread(thread.id, repo)
+    r.check(deleted is not None and await repo.get_support_thread(thread.id) is None,
+            'закритий чат видаляється лише явною дією менеджера')
 
 
 def static_contracts():
     root = pathlib.Path(__file__).resolve().parents[1]
     handler = (root / 'bot/handlers/chat.py').read_text()
     commands = (root / 'bot/__main__.py').read_text()
+    greeting = (root / 'bot/greeting.py').read_text()
     api_main = (root / 'api/main.py').read_text()
-    migration = (root / 'alembic/versions/f1a9c4e7b2d6_support_threads.py').read_text()
+    migration = (root / 'alembic/versions/0c5a6d91e7f2_support_sessions.py').read_text()
 
     r.check('@router.message(Command("ask"))' in handler, '/ask зареєстрована в боті')
     r.check('F.data == "faq:human"' in handler and 'contact_options_keyboard(orders)' in handler,
@@ -237,10 +280,15 @@ def static_contracts():
             'активний /ask перехоплює наступні повідомлення')
     r.check('BotCommand(command="ask"' in commands and 'BotCommand(command="done"' in commands,
             'команди /ask і /done є в меню Telegram')
+    r.check('/ask' in greeting and 'PRIVATE_ONLY_COMMANDS' in greeting,
+            '/ask явно позначена як команда лише для приватного чату')
+    keyboards = (root / 'bot/keyboards.py').read_text()
+    r.check('🆘 Підтримка' in keyboards and '✅ Завершити звернення' in keyboards,
+            'reply-меню має вхід у /ask і єдину кнопку завершення в режимі підтримки')
     r.check('include_router(support.router, prefix="/api/support"' in api_main,
             'API підтримки підключений до FastAPI')
-    r.check('support_threads' in migration and 'support_messages' in migration,
-            'міграція створює обидві таблиці підтримки')
+    r.check('unique=False' in migration and 'ix_support_threads_user_status_updated' in migration,
+            'міграція дозволяє кілька збережених чатів на одного клієнта')
 
 
 static_contracts()

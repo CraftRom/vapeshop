@@ -1124,8 +1124,19 @@ class SqlRepository(Repository):
     # ------------------------------------------------ загальна підтримка
 
     async def ensure_support_thread(self, user_id: int) -> SupportThread:
+        """Повертає активне звернення або створює нову окрему сесію.
+
+        Закриті звернення ніколи не перевідкриваємо автоматично: вони є
+        історією. Наступний /ask після /done створює новий thread, а панель
+        групує всі такі thread-и під одним клієнтом.
+        """
         row = await self.s.scalar(
-            select(m.SupportThread).where(m.SupportThread.user_id == user_id)
+            select(m.SupportThread)
+            .where(
+                m.SupportThread.user_id == user_id,
+                m.SupportThread.status == "open",
+            )
+            .order_by(m.SupportThread.updated_at.desc(), m.SupportThread.id.desc())
         )
         now = datetime.now(timezone.utc)
         if row is None:
@@ -1133,11 +1144,8 @@ class SqlRepository(Repository):
                 user_id=user_id, status="open", updated_at=now, last_message_at=now
             )
             self.s.add(row)
-        else:
-            row.status = "open"
-            row.updated_at = now
-        await self.s.commit()
-        await self.s.refresh(row)
+            await self.s.commit()
+            await self.s.refresh(row)
         return _support_thread(row)
 
     async def get_support_thread(self, thread_id: int) -> SupportThread | None:
@@ -1158,10 +1166,16 @@ class SqlRepository(Repository):
         return _support_thread(row, unread_count=int(unread or 0), with_user=True)
 
     async def get_support_thread_for_user(self, user_id: int) -> SupportThread | None:
+        # Для маршрутизації повідомлення потрібен саме активний /ask.
+        # Закритий чат не можна випадково оживити звичайним повідомленням.
         row = await self.s.scalar(
             select(m.SupportThread)
             .options(selectinload(m.SupportThread.user))
-            .where(m.SupportThread.user_id == user_id)
+            .where(
+                m.SupportThread.user_id == user_id,
+                m.SupportThread.status == "open",
+            )
+            .order_by(m.SupportThread.updated_at.desc(), m.SupportThread.id.desc())
         )
         return _support_thread(row, with_user=True) if row else None
 
@@ -1254,6 +1268,34 @@ class SqlRepository(Repository):
             )
         )
         return int(count or 0)
+
+    async def support_stats(self) -> dict[str, int]:
+        open_count = await self.s.scalar(
+            select(func.count(m.SupportThread.id)).where(m.SupportThread.status == "open")
+        )
+        closed_count = await self.s.scalar(
+            select(func.count(m.SupportThread.id)).where(m.SupportThread.status == "closed")
+        )
+        clients = await self.s.scalar(
+            select(func.count(func.distinct(m.SupportThread.user_id)))
+        )
+        unread = await self.support_unread_count()
+        return {
+            "open": int(open_count or 0),
+            "closed": int(closed_count or 0),
+            "total": int(open_count or 0) + int(closed_count or 0),
+            "clients": int(clients or 0),
+            "unread": int(unread or 0),
+        }
+
+    async def delete_support_thread(self, thread_id: int) -> bool:
+        """Явне ручне видалення. Закриття саме по собі нічого не стирає."""
+        row = await self.s.get(m.SupportThread, thread_id)
+        if not row:
+            return False
+        await self.s.delete(row)
+        await self.s.commit()
+        return True
 
     # ------------------------------------------------------ менеджери
 

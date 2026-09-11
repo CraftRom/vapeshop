@@ -102,8 +102,8 @@ class User(Base):
     referrals: Mapped[list[User]] = relationship(back_populates="referrer")
     orders: Mapped[list[Order]] = relationship(back_populates="user")
     cart_items: Mapped[list[CartItem]] = relationship(back_populates="user", cascade="all, delete-orphan")
-    support_thread: Mapped[SupportThread | None] = relationship(
-        back_populates="user", cascade="all, delete-orphan", uselist=False
+    support_threads: Mapped[list[SupportThread]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
     )
 
 
@@ -360,7 +360,7 @@ class SupportThread(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE"), unique=True, index=True
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
     )
     status: Mapped[str] = mapped_column(String(16), default="open", index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -369,7 +369,7 @@ class SupportThread(Base):
     )
     last_message_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
 
-    user: Mapped[User] = relationship(back_populates="support_thread")
+    user: Mapped[User] = relationship(back_populates="support_threads")
     messages: Mapped[list[SupportMessage]] = relationship(
         back_populates="thread", cascade="all, delete-orphan"
     )

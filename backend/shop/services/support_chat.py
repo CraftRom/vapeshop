@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 from html import escape
 
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import KeyboardButton, ReplyKeyboardMarkup
 
 from shop.repo.base import Repository
 from shop.services.status_messages import is_permanent_delivery_error
@@ -23,11 +23,17 @@ def esc(value) -> str:
     return escape(str(value or ""), quote=False)
 
 
-def support_keyboard() -> InlineKeyboardMarkup:
-    """Швидке завершення режиму підтримки прямо в боті."""
-    return InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="✅ Завершити звернення", callback_data="support:done")
-    ]])
+def support_keyboard() -> ReplyKeyboardMarkup:
+    """У режимі /ask лишаємо тільки завершення звернення.
+
+    Це reply-клавіатура, а не inline: вона замінює звичайне меню
+    «Магазин / Довідка» на весь час діалогу й не дає випадково перейти
+    в інший сценарій, поки повідомлення маршрутизуються в підтримку.
+    """
+    return ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text="✅ Завершити звернення")]],
+        resize_keyboard=True,
+    )
 
 
 async def is_active(repo: Repository, user_id: int) -> bool:

@@ -8,6 +8,8 @@ const FILE_LABEL = {
   photo: 'Фото', document: 'Документ', video: 'Відео', voice: 'Голосове',
 }
 
+const EMPTY_STATS = { open: 0, closed: 0, total: 0, clients: 0, unread: 0 }
+
 function clientName(thread) {
   const user = thread?.user || {}
   return user.first_name || (user.username ? `@${user.username}` : '') || `Telegram ${user.tg_id || ''}`
@@ -17,6 +19,12 @@ function clientMeta(thread) {
   const user = thread?.user || {}
   return [user.username ? `@${user.username}` : null, user.phone, user.tg_id ? `ID ${user.tg_id}` : null]
     .filter(Boolean).join(' · ')
+}
+
+function stamp(value) {
+  if (!value) return 0
+  const n = new Date(value).getTime()
+  return Number.isFinite(n) ? n : 0
 }
 
 function Attachment({ threadId, message }) {
@@ -64,31 +72,56 @@ function Attachment({ threadId, message }) {
   )
 }
 
-function ThreadRow({ thread, active, onClick }) {
+function SessionRow({ thread, active, onClick }) {
   return (
     <button
       type="button"
-      className={`support-thread ${active ? 'active' : ''}`}
+      className={`support-session ${active ? 'active' : ''}`}
       onClick={onClick}
     >
-      <div className="support-thread-top">
-        <strong>{clientName(thread)}</strong>
-        <span className="support-thread-time">
-          {thread.last_message_at ? dateTime(thread.last_message_at) : ''}
+      <span className="support-session-main">
+        <strong>Звернення #{thread.id}</strong>
+        <span className={`support-state ${thread.status === 'closed' ? 'closed' : 'open'}`}>
+          {thread.status === 'closed' ? 'Закрито' : 'В роботі'}
         </span>
-      </div>
-      <div className="support-thread-bottom">
-        <span className="faint support-thread-meta">{clientMeta(thread) || 'Без контактів'}</span>
-        <span className="support-thread-flags">
-          {thread.status === 'closed' && <span className="support-state closed">Закрито</span>}
-          {thread.unread_count > 0 && <span className="badge">{thread.unread_count}</span>}
-        </span>
-      </div>
+      </span>
+      <span className="support-session-side">
+        <span className="faint">{thread.last_message_at ? dateTime(thread.last_message_at) : dateTime(thread.created_at)}</span>
+        {thread.unread_count > 0 && <span className="badge">{thread.unread_count}</span>}
+      </span>
     </button>
   )
 }
 
-function Conversation({ thread, messages, onBack, onRefresh, onStatus }) {
+function ClientGroup({ group, selectedId, onSelect }) {
+  return (
+    <section className="support-client-group">
+      <div className="support-client-head">
+        <div className="support-client-identity">
+          <strong>{clientName(group.threads[0])}</strong>
+          <span className="faint support-thread-meta">{clientMeta(group.threads[0]) || 'Без контактів'}</span>
+        </div>
+        <div className="support-client-counters" aria-label="Статистика клієнта">
+          <span title="Усього звернень">{group.threads.length} чат.</span>
+          {group.openCount > 0 && <span className="support-mini-open">{group.openCount} відкрито</span>}
+          {group.unread > 0 && <span className="badge">{group.unread}</span>}
+        </div>
+      </div>
+      <div className="support-session-list">
+        {group.threads.map((thread) => (
+          <SessionRow
+            key={thread.id}
+            thread={thread}
+            active={thread.id === selectedId}
+            onClick={() => onSelect(thread.id)}
+          />
+        ))}
+      </div>
+    </section>
+  )
+}
+
+function Conversation({ thread, messages, onBack, onRefresh, onStatus, onDelete }) {
   const notify = useToast()
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
@@ -120,8 +153,26 @@ function Conversation({ thread, messages, onBack, onRefresh, onStatus }) {
     try {
       const next = thread.status === 'open' ? 'closed' : 'open'
       await api.support.setStatus(thread.id, next)
-      notify(next === 'closed' ? 'Звернення закрито' : 'Звернення повернуто в роботу')
+      notify(next === 'closed' ? 'Звернення закрито, історія збережена' : 'Звернення повернуто в роботу')
       await onStatus(next)
+    } catch (err) {
+      notify(err.message, 'bad')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const remove = async () => {
+    if (!thread || thread.status !== 'closed') return
+    const yes = window.confirm(
+      `Видалити звернення #${thread.id} назавжди?\n\nБуде стерто всю історію цього конкретного чату. Інші звернення клієнта залишаться.`
+    )
+    if (!yes) return
+    setBusy(true)
+    try {
+      await api.support.remove(thread.id)
+      notify(`Звернення #${thread.id} видалено`)
+      await onDelete(thread.id)
     } catch (err) {
       notify(err.message, 'bad')
     } finally {
@@ -133,7 +184,7 @@ function Conversation({ thread, messages, onBack, onRefresh, onStatus }) {
     return (
       <div className="support-conversation-empty">
         <Empty title="Оберіть звернення">
-          Ліворуч показані клієнти, які написали через команду /ask.
+          Клієнти згруповані зліва. Відкрийте потрібний чат, щоб побачити його окрему історію.
         </Empty>
       </div>
     )
@@ -150,21 +201,28 @@ function Conversation({ thread, messages, onBack, onRefresh, onStatus }) {
             <span className={`support-state ${thread.status === 'closed' ? 'closed' : 'open'}`}>
               {thread.status === 'closed' ? 'Закрито' : 'В роботі'}
             </span>
+            <span className="support-thread-number">#{thread.id}</span>
           </div>
           <div className="faint support-chat-meta">
             {user.username && <span>@{user.username}</span>}
             {user.phone && <a href={`tel:${user.phone}`}>{user.phone}</a>}
             {user.tg_id && <span>Telegram ID {user.tg_id}</span>}
+            {thread.created_at && <span>від {dateTime(thread.created_at)}</span>}
             {user.bot_reachable === false && <span className="support-unreachable">бот недоступний</span>}
           </div>
         </div>
-        <button
-          className={`btn small ${thread.status === 'open' ? 'ghost' : ''}`}
-          onClick={toggleStatus}
-          disabled={busy}
-        >
-          {thread.status === 'open' ? 'Закрити' : 'Відкрити знову'}
-        </button>
+        <div className="support-chat-actions">
+          <button
+            className={`btn small ${thread.status === 'open' ? 'ghost' : ''}`}
+            onClick={toggleStatus}
+            disabled={busy}
+          >
+            {thread.status === 'open' ? 'Закрити' : 'Відкрити знову'}
+          </button>
+          {thread.status === 'closed' && (
+            <button className="btn danger small" onClick={remove} disabled={busy}>Видалити</button>
+          )}
+        </div>
       </header>
 
       <div className="support-chat-log">
@@ -189,7 +247,7 @@ function Conversation({ thread, messages, onBack, onRefresh, onStatus }) {
       <div className="support-compose">
         {thread.status === 'closed' && (
           <div className="support-compose-note">
-            Відповідь автоматично поверне звернення у статус «В роботі».
+            Відповідь поверне цей чат у роботу. Якщо в клієнта вже є нове відкрите звернення, система не дасть створити два активні чати одночасно.
           </div>
         )}
         <div className="support-compose-row">
@@ -219,7 +277,9 @@ function Conversation({ thread, messages, onBack, onRefresh, onStatus }) {
 export default function Support() {
   const [status, setStatus] = useState('open')
   const [query, setQuery] = useState('')
+  const [sort, setSort] = useState('recent')
   const [threads, setThreads] = useState([])
+  const [stats, setStats] = useState(EMPTY_STATS)
   const [selectedId, setSelectedId] = useState(null)
   const [thread, setThread] = useState(null)
   const [messages, setMessages] = useState([])
@@ -229,12 +289,14 @@ export default function Support() {
   const loadThreads = useCallback(async (quiet = false) => {
     if (!quiet) setLoading(true)
     try {
-      const data = await api.support.list(status)
+      const [data, nextStats] = await Promise.all([
+        api.support.list(status),
+        api.support.stats(),
+      ])
       setThreads(data)
+      setStats(nextStats || EMPTY_STATS)
       setError('')
 
-      // На широкому екрані одразу відкриваємо перше звернення. На телефоні
-      // список має лишитись списком — автоматичний перехід у чат там заважає.
       if (!selectedId && data.length && !window.matchMedia('(max-width: 760px)').matches) {
         setSelectedId(data[0].id)
       }
@@ -283,19 +345,54 @@ export default function Support() {
   }, [loadThreads, loadConversation, selectedId])
   useVisiblePolling(pollSupport, 10000)
 
-  const filtered = useMemo(() => {
+  const groups = useMemo(() => {
     const needle = query.trim().toLowerCase()
-    if (!needle) return threads
-    return threads.filter((item) => {
+    const map = new Map()
+
+    for (const item of threads) {
       const user = item.user || {}
-      return [user.first_name, user.username, user.phone, user.tg_id]
-        .filter(Boolean).some((value) => String(value).toLowerCase().includes(needle))
+      const haystack = [user.first_name, user.username, user.phone, user.tg_id, item.id]
+        .filter(Boolean).join(' ').toLowerCase()
+      if (needle && !haystack.includes(needle)) continue
+
+      const key = String(item.user_id)
+      if (!map.has(key)) {
+        map.set(key, { key, threads: [], unread: 0, openCount: 0, lastAt: 0, firstAt: Infinity })
+      }
+      const group = map.get(key)
+      group.threads.push(item)
+      group.unread += Number(item.unread_count || 0)
+      if (item.status === 'open') group.openCount += 1
+      const last = stamp(item.last_message_at || item.updated_at || item.created_at)
+      const first = stamp(item.created_at)
+      group.lastAt = Math.max(group.lastAt, last)
+      group.firstAt = Math.min(group.firstAt, first || Infinity)
+    }
+
+    const items = [...map.values()]
+    for (const group of items) {
+      group.threads.sort((a, b) => stamp(b.last_message_at || b.updated_at) - stamp(a.last_message_at || a.updated_at))
+    }
+
+    items.sort((a, b) => {
+      if (sort === 'unread') return (b.unread - a.unread) || (b.lastAt - a.lastAt)
+      if (sort === 'name') return clientName(a.threads[0]).localeCompare(clientName(b.threads[0]), 'uk')
+      if (sort === 'oldest') return (a.firstAt - b.firstAt) || (a.lastAt - b.lastAt)
+      return b.lastAt - a.lastAt
     })
-  }, [threads, query])
+    return items
+  }, [threads, query, sort])
 
   const select = (id) => {
     setSelectedId(id)
     setError('')
+  }
+
+  const changeFilter = (next) => {
+    setStatus(next)
+    setSelectedId(null)
+    setThread(null)
+    setMessages([])
   }
 
   const statusChanged = async (next) => {
@@ -310,12 +407,40 @@ export default function Support() {
     }
   }
 
+  const deleted = async () => {
+    setSelectedId(null)
+    setThread(null)
+    setMessages([])
+    await loadThreads(true)
+  }
+
   return (
     <>
       <div className="page-head support-page-head">
         <div>
           <h1>Підтримка</h1>
-          <p>Загальні питання й технічні звернення клієнтів із Telegram через /ask</p>
+          <p>Окремі звернення з /ask зберігаються в історії та групуються по клієнтах</p>
+        </div>
+        <button className="btn ghost support-refresh" onClick={() => loadThreads()} disabled={loading}>
+          Оновити
+        </button>
+      </div>
+
+      <div className="support-stats" aria-label="Статистика підтримки">
+        <button className={`support-stat ${status === 'open' ? 'active' : ''}`} onClick={() => changeFilter('open')}>
+          <span>В роботі</span><strong>{stats.open}</strong>
+        </button>
+        <button className={`support-stat ${status === 'closed' ? 'active' : ''}`} onClick={() => changeFilter('closed')}>
+          <span>Закриті</span><strong>{stats.closed}</strong>
+        </button>
+        <button className={`support-stat ${status === 'all' ? 'active' : ''}`} onClick={() => changeFilter('all')}>
+          <span>Усього чатів</span><strong>{stats.total}</strong>
+        </button>
+        <div className="support-stat passive">
+          <span>Клієнтів</span><strong>{stats.clients}</strong>
+        </div>
+        <div className={`support-stat passive ${stats.unread ? 'has-unread' : ''}`}>
+          <span>Непрочитані</span><strong>{stats.unread}</strong>
         </div>
       </div>
 
@@ -334,12 +459,7 @@ export default function Support() {
                   key={key}
                   type="button"
                   className={`btn small ${status === key ? '' : 'ghost'}`}
-                  onClick={() => {
-                    setStatus(key)
-                    setSelectedId(null)
-                    setThread(null)
-                    setMessages([])
-                  }}
+                  onClick={() => changeFilter(key)}
                 >
                   {label}
                 </button>
@@ -349,21 +469,27 @@ export default function Support() {
               className="input"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Ім’я, @username, телефон або Telegram ID"
+              placeholder="Ім’я, @username, телефон, ID або № чату"
             />
+            <select className="input support-sort" value={sort} onChange={(e) => setSort(e.target.value)}>
+              <option value="recent">Спочатку активні</option>
+              <option value="unread">Спочатку непрочитані</option>
+              <option value="name">За ім’ям клієнта</option>
+              <option value="oldest">Спочатку найстаріші</option>
+            </select>
           </div>
 
           <div className="support-thread-list">
-            {loading ? <Loading rows={5} /> : filtered.length === 0 ? (
+            {loading ? <Loading rows={5} /> : groups.length === 0 ? (
               <Empty title="Звернень немає">
-                Нові повідомлення з’являться тут після того, як клієнт введе /ask.
+                Нові чати створюються після /ask. Закриті залишаються в історії, доки їх не видалять вручну.
               </Empty>
-            ) : filtered.map((item) => (
-              <ThreadRow
-                key={item.id}
-                thread={item}
-                active={item.id === selectedId}
-                onClick={() => select(item.id)}
+            ) : groups.map((group) => (
+              <ClientGroup
+                key={group.key}
+                group={group}
+                selectedId={selectedId}
+                onSelect={select}
               />
             ))}
           </div>
@@ -379,6 +505,7 @@ export default function Support() {
           }}
           onRefresh={loadConversation}
           onStatus={statusChanged}
+          onDelete={deleted}
         />
       </div>
     </>

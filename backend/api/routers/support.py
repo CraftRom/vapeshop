@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from api.auth import Principal, require_staff
 from api.schemas import (
     SupportMessageIn, SupportMessageOut, SupportMessageResult,
-    SupportThreadOut, SupportThreadPatch,
+    SupportStatsOut, SupportThreadOut, SupportThreadPatch,
 )
 from shop.repo.base import Repository
 from shop.repo.factory import get_repo
@@ -41,6 +41,11 @@ async def unread_count(repo: Repository = Depends(get_repo)):
     return {"count": await repo.support_unread_count()}
 
 
+@router.get("/stats", response_model=SupportStatsOut)
+async def stats(repo: Repository = Depends(get_repo)):
+    return await repo.support_stats()
+
+
 @router.get("/{thread_id}", response_model=SupportThreadOut)
 async def get_thread(thread_id: int, repo: Repository = Depends(get_repo)):
     thread = await repo.get_support_thread(thread_id)
@@ -55,10 +60,35 @@ async def patch_thread(
     data: SupportThreadPatch,
     repo: Repository = Depends(get_repo),
 ):
+    current = await repo.get_support_thread(thread_id)
+    if not current:
+        raise HTTPException(404, "Звернення не знайдено")
+    if data.status == "open" and current.status != "open":
+        active = await repo.get_support_thread_for_user(current.user_id)
+        if active and active.id != thread_id:
+            raise HTTPException(
+                409,
+                f"У клієнта вже є активне звернення #{active.id}. Закрийте його перед повторним відкриттям цього чату.",
+            )
     thread = await repo.set_support_thread_status(thread_id, data.status)
     if not thread:
         raise HTTPException(404, "Звернення не знайдено")
     return thread
+
+
+@router.delete("/{thread_id}", status_code=204)
+async def delete_thread(
+    thread_id: int,
+    repo: Repository = Depends(get_repo),
+):
+    thread = await repo.get_support_thread(thread_id)
+    if not thread:
+        raise HTTPException(404, "Звернення не знайдено")
+    if thread.status != "closed":
+        raise HTTPException(409, "Спершу закрийте звернення, потім його можна видалити")
+    if not await repo.delete_support_thread(thread_id):
+        raise HTTPException(404, "Звернення не знайдено")
+    return Response(status_code=204)
 
 
 @router.get("/{thread_id}/messages", response_model=list[SupportMessageOut])
@@ -88,6 +118,12 @@ async def send_message(
     # Відповідь із закритої картки автоматично повертає її в роботу. Це
     # краще, ніж дати менеджеру написати клієнту й лишити чат у «Закритих».
     if thread.status != "open":
+        active = await repo.get_support_thread_for_user(thread.user_id)
+        if active and active.id != thread_id:
+            raise HTTPException(
+                409,
+                f"У клієнта вже є активне звернення #{active.id}. Відповідайте в ньому або закрийте його.",
+            )
         thread = await repo.set_support_thread_status(thread_id, "open")
 
     author = who.name or who.login

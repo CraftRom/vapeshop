@@ -184,6 +184,14 @@ class SupportThreadOut(BaseModel):
     user: SupportClientOut | None = None
 
 
+class SupportStatsOut(BaseModel):
+    open: int = 0
+    closed: int = 0
+    total: int = 0
+    clients: int = 0
+    unread: int = 0
+
+
 class SupportThreadPatch(BaseModel):
     status: str
 

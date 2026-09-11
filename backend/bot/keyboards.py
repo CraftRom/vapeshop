@@ -98,7 +98,7 @@ def main_menu() -> ReplyKeyboardMarkup:
         return ReplyKeyboardMarkup(
             keyboard=[
                 [KeyboardButton(text="🛍 Відкрити магазин", web_app=WebAppInfo(url=url))],
-                [KeyboardButton(text="ℹ️ Довідка")],
+                [KeyboardButton(text="🆘 Підтримка"), KeyboardButton(text="ℹ️ Довідка")],
             ],
             resize_keyboard=True,
         )
@@ -106,7 +106,8 @@ def main_menu() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text="🛍 Каталог"), KeyboardButton(text="🛒 Кошик")],
-            [KeyboardButton(text="👤 Профіль"), KeyboardButton(text="ℹ️ Довідка")],
+            [KeyboardButton(text="👤 Профіль"), KeyboardButton(text="🆘 Підтримка")],
+            [KeyboardButton(text="ℹ️ Довідка")],
         ],
         resize_keyboard=True,
     )
@@ -115,6 +116,15 @@ def main_menu() -> ReplyKeyboardMarkup:
 # Константа лишається для сумісності, але хендлери викликають main_menu():
 # у serverless модуль імпортується один раз, а PUBLIC_URL може зʼявитись пізніше
 MAIN_MENU = main_menu()
+
+
+def support_mode_menu() -> ReplyKeyboardMarkup:
+    """Єдина клавіша під час /ask — щоб інші дії не змішували контексти."""
+    return ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text="✅ Завершити звернення")]],
+        resize_keyboard=True,
+    )
+
 
 PHONE_REQUEST = ReplyKeyboardMarkup(
     keyboard=[[KeyboardButton(text="📱 Надіслати номер", request_contact=True)]],

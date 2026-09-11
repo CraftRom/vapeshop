@@ -349,7 +349,7 @@ class Repository(ABC):
 
     @abstractmethod
     async def ensure_support_thread(self, user_id: int) -> SupportThread:
-        """Створює або повторно відкриває загальне звернення клієнта."""
+        """Повертає активне звернення або створює нове після закритого."""
 
     @abstractmethod
     async def get_support_thread(self, thread_id: int) -> SupportThread | None: ...
@@ -374,6 +374,12 @@ class Repository(ABC):
 
     @abstractmethod
     async def support_unread_count(self) -> int: ...
+
+    @abstractmethod
+    async def support_stats(self) -> dict[str, int]: ...
+
+    @abstractmethod
+    async def delete_support_thread(self, thread_id: int) -> bool: ...
 
     # ------------------------------------------------------ менеджери
 
