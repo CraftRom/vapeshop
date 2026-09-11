@@ -102,6 +102,9 @@ class User(Base):
     referrals: Mapped[list[User]] = relationship(back_populates="referrer")
     orders: Mapped[list[Order]] = relationship(back_populates="user")
     cart_items: Mapped[list[CartItem]] = relationship(back_populates="user", cascade="all, delete-orphan")
+    support_thread: Mapped[SupportThread | None] = relationship(
+        back_populates="user", cascade="all, delete-orphan", uselist=False
+    )
 
 
 # ------------------------------------------------------------------- каталог
@@ -348,6 +351,52 @@ class OrderMessage(Base):
 
 
 Index("ix_order_messages_order_created", OrderMessage.order_id, OrderMessage.created_at)
+
+
+class SupportThread(Base):
+    """Загальна підтримка через /ask, окремо від чатів замовлень."""
+
+    __tablename__ = "support_threads"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), unique=True, index=True
+    )
+    status: Mapped[str] = mapped_column(String(16), default="open", index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), index=True
+    )
+    last_message_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+
+    user: Mapped[User] = relationship(back_populates="support_thread")
+    messages: Mapped[list[SupportMessage]] = relationship(
+        back_populates="thread", cascade="all, delete-orphan"
+    )
+
+
+class SupportMessage(Base):
+    __tablename__ = "support_messages"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    thread_id: Mapped[int] = mapped_column(
+        ForeignKey("support_threads.id", ondelete="CASCADE"), index=True
+    )
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    direction: Mapped[str] = mapped_column(String(4))
+    author: Mapped[str] = mapped_column(String(128), default="")
+    text: Mapped[str] = mapped_column(Text)
+    tg_message_id: Mapped[int | None] = mapped_column(BigInteger, index=True)
+    file_id: Mapped[str | None] = mapped_column(String(255))
+    file_kind: Mapped[str | None] = mapped_column(String(16))
+    file_name: Mapped[str | None] = mapped_column(String(255))
+    is_read: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+    thread: Mapped[SupportThread] = relationship(back_populates="messages")
+
+
+Index("ix_support_messages_thread_created", SupportMessage.thread_id, SupportMessage.created_at)
 
 
 class Wishlist(Base):

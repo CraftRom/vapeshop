@@ -18,6 +18,7 @@ from shop.repo.base import Repository
 from bot import faq
 from bot import keyboards as kb
 from shop.services import order_chat as chat
+from shop.services import support_chat as support
 from shop.services.shop_settings import get_shop_settings
 
 router = Router(name="chat")
@@ -30,6 +31,71 @@ def _hint(order_id: int) -> str:
         f"Ви пишете щодо замовлення <b>№{order_id}</b>.\n"
         "Щоб перемкнутися на інше — /orders"
     )
+
+
+def _support_intro(has_orders: bool) -> str:
+    order_note = (
+        "\n\n📦 <b>Питання про замовлення?</b>\n"
+        "Натисніть кнопку потрібного замовлення нижче — відкриється саме "
+        "його чат з історією. Так менеджеру не доведеться уточнювати номер."
+        if has_orders else ""
+    )
+    return (
+        "🆘 <b>Менеджер / техпідтримка</b>\n\n"
+        "Опишіть, що сталося або що хочете уточнити. Можна надіслати "
+        "кілька повідомлень поспіль, фото, скриншот чи документ. "
+        "Менеджер отримає звернення й відповість прямо тут, у Telegram."
+        f"{order_note}\n\n"
+        "Коли питання вирішено — натисніть «Завершити звернення» або введіть /done."
+    )
+
+
+@router.message(Command("ask"))
+async def start_support(message: Message, repo: Repository, user: User) -> None:
+    """Відкриває загальну підтримку, яка не потребує замовлення."""
+    await support.start(repo, user.id)
+    orders = await chat.open_orders_for(repo, user.id)
+    markup = chat.contact_options_keyboard(
+        orders, include_support=False, include_done=True
+    ) if orders else support.support_keyboard()
+    await message.answer(_support_intro(bool(orders)), reply_markup=markup)
+
+
+@router.message(Command("done", "close"))
+async def stop_support(message: Message, repo: Repository, user: User) -> None:
+    closed = await support.close(repo, user.id)
+    if not closed:
+        await message.answer(
+            "Зараз немає відкритого звернення до підтримки. Якщо потрібна допомога — /ask."
+        )
+        return
+    await message.answer(
+        "✅ Звернення завершено. Якщо з’явиться нове питання — введіть /ask."
+    )
+
+
+@router.callback_query(F.data == "support:start")
+async def start_support_button(
+    callback: CallbackQuery, repo: Repository, user: User
+) -> None:
+    await support.start(repo, user.id)
+    orders = await chat.open_orders_for(repo, user.id)
+    markup = chat.contact_options_keyboard(
+        orders, include_support=False, include_done=True
+    ) if orders else support.support_keyboard()
+    await callback.message.answer(_support_intro(bool(orders)), reply_markup=markup)
+    await callback.answer()
+
+
+@router.callback_query(F.data == "support:done")
+async def stop_support_button(
+    callback: CallbackQuery, repo: Repository, user: User
+) -> None:
+    await support.close(repo, user.id)
+    await callback.message.answer(
+        "✅ Звернення завершено. Якщо потрібна допомога ще раз — /ask."
+    )
+    await callback.answer()
 
 
 @router.message(Command("orders", "zamovlennya"))
@@ -71,6 +137,20 @@ async def incoming_file(
     if await state.get_state() is not None:
         return
 
+    if await support.is_active(repo, user.id):
+        attachment = support.describe_attachment(message)
+        if not attachment:
+            return
+        caption = (message.caption or "").strip() or f"[{attachment['file_name']}]"
+        await support.save_incoming(
+            repo, user, caption, bot=message.bot, attachment=attachment
+        )
+        await message.answer(
+            "Передали в підтримку. Менеджер відповість у цьому чаті.",
+            reply_markup=support.support_keyboard(),
+        )
+        return
+
     attachment = chat.describe_attachment(message)
     if not attachment:
         return
@@ -79,7 +159,11 @@ async def incoming_file(
     if not order_id:
         open_orders = await chat.open_orders_for(repo, user.id)
         if not open_orders:
-            await message.answer("Щоб надіслати файл менеджеру, потрібне активне замовлення.")
+            await message.answer(
+                "Цей файл не вдалося прив’язати до замовлення. Якщо це загальне "
+                "питання або технічна проблема, відкрийте підтримку кнопкою нижче.",
+                reply_markup=chat.contact_options_keyboard([]),
+            )
             return
         await message.answer(
             # Фото в магазин — це майже завжди квитанція, тож питаємо
@@ -114,6 +198,17 @@ async def incoming(
         await message.answer(
             f"Повідомлення задовге — до {MAX_LENGTH} символів. "
             "Опишіть коротко, менеджер перепитає."
+        )
+        return
+
+    # /ask відкриває окрему загальну стрічку. Поки вона відкрита, звичайні
+    # повідомлення не повинні випадково піти в FAQ або в останнє замовлення.
+    # Інакше клієнт думає, що пише техпідтримці, а текст опиняється не там.
+    if await support.is_active(repo, user.id):
+        await support.save_incoming(repo, user, text, bot=message.bot)
+        await message.answer(
+            "Передали в підтримку. Менеджер відповість у цьому чаті.",
+            reply_markup=support.support_keyboard(),
         )
         return
 
@@ -157,8 +252,10 @@ async def incoming(
     open_orders = await chat.open_orders_for(repo, user.id)
     if not open_orders:
         await message.answer(
-            "Щоб написати менеджеру, потрібне активне замовлення. "
-            "Оформіть його в магазині — і зможете спитати тут."
+            "Не бачу активного замовлення, до якого можна прив’язати це повідомлення. "
+            "Якщо питання загальне або вам потрібна техпідтримка — відкрийте окреме "
+            "звернення. Замовлення для цього не потрібне.",
+            reply_markup=chat.contact_options_keyboard([]),
         )
         return
 
@@ -177,23 +274,27 @@ async def incoming(
 
 @router.callback_query(F.data == "faq:human")
 async def ask_human(callback: CallbackQuery, repo: Repository, user: User) -> None:
-    """Клієнт хоче людину. Показуємо, куди писати, а не мовчимо."""
-    open_orders = await chat.open_orders_for(repo, user.id)
-    if not open_orders:
-        await callback.message.answer(
-            "Напишіть питання сюди — менеджер відповість. Якщо воно про "
-            "конкретне замовлення, спершу оформіть його в магазині."
-        )
-    elif len(open_orders) == 1:
-        await repo.set_chat_order(user.id, open_orders[0].id)
-        await callback.message.answer(
-            f"Пишіть — передамо менеджеру щодо замовлення №{open_orders[0].id}."
+    """Явно показує, куди піде звернення: замовлення чи загальна підтримка."""
+    orders = await chat.open_orders_for(repo, user.id)
+    if orders:
+        text = (
+            "💬 <b>Що хочете уточнити?</b>\n\n"
+            "📦 <b>Про конкретне замовлення</b> — натисніть його кнопку нижче. "
+            "Відкриється чат саме цього замовлення, з номером та історією листування.\n\n"
+            "🆘 <b>Інше питання або технічна проблема</b> — відкрийте загальну "
+            "підтримку. Для неї замовлення не потрібне."
         )
     else:
-        await callback.message.answer(
-            "Оберіть замовлення, про яке питання:",
-            reply_markup=chat.pick_order_keyboard(open_orders),
+        text = (
+            "💬 <b>Написати менеджеру</b>\n\n"
+            "Замовлень, для яких зараз доступний окремий чат, не знайдено. "
+            "Якщо у вас загальне питання, проблема з магазином або потрібна "
+            "допомога до оформлення замовлення — звертайтесь у підтримку.\n\n"
+            "Натисніть кнопку нижче або введіть /ask — замовлення для цього не потрібне."
         )
+    await callback.message.answer(
+        text, reply_markup=chat.contact_options_keyboard(orders)
+    )
     await callback.answer()
 
 
@@ -210,6 +311,11 @@ async def pick_order(callback: CallbackQuery, repo: Repository, user: User) -> N
         await callback.answer("Замовлення не знайдено", show_alert=True)
         return
 
+    # Явний перехід у чат замовлення завершує загальний режим /ask.
+    # Інакше chat_order_id встановився б правильно, але наступне повідомлення
+    # все одно перехопила б активна підтримка й воно пішло не туди.
+    if await support.is_active(repo, user.id):
+        await support.close(repo, user.id)
     await repo.set_chat_order(user.id, order.id)
     await callback.message.edit_text(_hint(order.id))
     await callback.answer()

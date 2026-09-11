@@ -158,6 +158,76 @@ class OrderMessageResult(BaseModel):
     warning: str | None = None
 
 
+# -------------------------------------------------------------- підтримка
+
+class SupportClientOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    tg_id: int
+    username: str | None = None
+    first_name: str | None = None
+    phone: str | None = None
+    bot_reachable: bool = True
+
+
+class SupportThreadOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    user_id: int
+    status: str
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+    last_message_at: datetime | None = None
+    unread_count: int = 0
+    user: SupportClientOut | None = None
+
+
+class SupportThreadPatch(BaseModel):
+    status: str
+
+    @field_validator("status")
+    @classmethod
+    def _status(cls, value: str) -> str:
+        if value not in {"open", "closed"}:
+            raise ValueError("Статус має бути open або closed")
+        return value
+
+
+class SupportMessageIn(BaseModel):
+    text: str = Field(..., min_length=1, max_length=2000)
+
+    @field_validator("text", mode="after")
+    @classmethod
+    def _support_not_blank(cls, value: str) -> str:
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("Повідомлення не може бути порожнім")
+        return cleaned
+
+
+class SupportMessageOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    thread_id: int
+    user_id: int
+    direction: str
+    author: str
+    text: str
+    is_read: bool
+    file_kind: str | None = None
+    file_name: str | None = None
+    created_at: datetime | None = None
+
+
+class SupportMessageResult(BaseModel):
+    message: SupportMessageOut
+    delivered: bool
+    warning: str | None = None
+
+
 # --------------------------------------------------------------------- клієнти
 
 class CustomerOut(ORMModel):

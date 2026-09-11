@@ -10,7 +10,7 @@ const check = (ok, label) => {
   console.log(`  ${ok ? '✓' : '✗'} ${label}`)
 }
 
-console.log('\n--- каталог: desktop/mobile UX 1.26 ---')
+console.log('\n--- каталог: desktop/mobile UX ---')
 check(catalog.includes('className="catalog-product"'), 'товари мають окремий адаптивний рядок/картку')
 check(catalog.includes('ProductThumb product={p}'), 'у списку є фото товару з fallback')
 check(catalog.includes('ProductStatus product={p}'), 'статус винесений у читабельний чіп')
@@ -22,7 +22,7 @@ check(catalog.includes('Дія з вибраними'), 'на ПК є групо
 check(css.includes('@media (max-width: 760px)') && css.includes('.catalog-product'), 'описаний мобільний breakpoint каталогу')
 check(css.includes('grid-template-areas:') && css.includes('"main status"'), 'на вузькому екрані таблиця перебудовується в картки')
 check(css.includes('.catalog-footer') && css.includes('position: sticky;'), 'мобільна пагінація лишається доступною внизу')
-check(version.includes("APP_VERSION = '1.26.0'"), 'версія панелі піднята до 1.26.0')
+check(version.includes("APP_VERSION = '1.27.0'"), 'каталог входить у поточну панель 1.27.0')
 
 console.log(`\nКАТАЛОГ UX: ${bad === 0 ? 'усе витримано' : `ПРОВАЛЕНО: ${bad}`}`)
 process.exit(bad ? 1 : 0)

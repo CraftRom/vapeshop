@@ -156,6 +156,19 @@ export const api = {
     fileUrl: (orderId, messageId) => `${BASE}/orders/${orderId}/files/${messageId}`,
   },
 
+  support: {
+    list: (status = 'open') => request('/support', { params: { status } }),
+    get: (id) => request(`/support/${id}`),
+    messages: (id, markRead = false) =>
+      request(`/support/${id}/messages`, { params: { mark_read: markRead || undefined } }),
+    send: (id, text) =>
+      request(`/support/${id}/messages`, { method: 'POST', body: { text } }),
+    setStatus: (id, status) =>
+      request(`/support/${id}`, { method: 'PATCH', body: { status } }),
+    unread: () => request('/support/unread/count'),
+    fileUrl: (threadId, messageId) => `${BASE}/support/${threadId}/files/${messageId}`,
+  },
+
   customers: {
     list: (params) => request('/customers', { params }),
     patch: (id, data) => request(`/customers/${id}`, { method: 'PATCH', body: data }),

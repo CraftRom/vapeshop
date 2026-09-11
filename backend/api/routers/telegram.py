@@ -238,6 +238,8 @@ async def setup_webhook(token: str = ""):
     await bot.set_my_commands([
         BotCommand(command="shop", description="Відкрити магазин"),
         BotCommand(command="orders", description="Мої замовлення"),
+        BotCommand(command="ask", description="Написати менеджеру / техпідтримці"),
+        BotCommand(command="done", description="Завершити звернення"),
         BotCommand(command="help", description="Довідка"),
     ])
 

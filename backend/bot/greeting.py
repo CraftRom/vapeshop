@@ -28,7 +28,7 @@ PUBLIC_COMMANDS = ("/shop",)
 
 # Команди, які лишаються приватними. Перелік потрібен, щоб у групі мовчати
 # свідомо, а не через те, що команда невідома.
-PRIVATE_ONLY_COMMANDS = ("/start", "/magazin", "/cart", "/profile", "/orders")
+PRIVATE_ONLY_COMMANDS = ("/start", "/magazin", "/cart", "/profile", "/orders", "/ask", "/done")
 
 
 def _matches(text: str, commands: tuple[str, ...]) -> bool:

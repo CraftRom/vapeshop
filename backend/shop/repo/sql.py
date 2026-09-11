@@ -12,7 +12,7 @@ from sqlalchemy.orm import selectinload
 
 from shop import models as m
 from shop.entities import (
-    Operator, OperatorRole, OrderMessage, Wishlist, operator_stats_rows,
+    Operator, OperatorRole, OrderMessage, SupportMessage, SupportThread, Wishlist, operator_stats_rows,
     PAID_STATUSES, Broadcast, BroadcastStatus, CartLine, Category, Order,
     OrderLine, OrderStatus, Product, Promo, Stats, User,
 )
@@ -1030,8 +1030,27 @@ class SqlRepository(Repository):
             )
             .values(file_id=None)
         )
+
+        # Загальна підтримка тепер теж приймає фото й документи. Не можна
+        # було додати новий канал вкладень і залишити його поза тією самою
+        # політикою зберігання: file_id фактично є ключем доступу до файлу.
+        stale_support = (
+            select(m.SupportThread.id)
+            .where(
+                m.SupportThread.status == "closed",
+                m.SupportThread.updated_at < edge,
+            )
+        )
+        support_result = await self.s.execute(
+            update(m.SupportMessage)
+            .where(
+                m.SupportMessage.thread_id.in_(stale_support),
+                m.SupportMessage.file_id.is_not(None),
+            )
+            .values(file_id=None)
+        )
         await self._commit()
-        return int(result.rowcount or 0)
+        return int(result.rowcount or 0) + int(support_result.rowcount or 0)
 
     async def set_bot_reachable(self, tg_id: int, reachable: bool) -> None:
         """Позначає, чи доходять до людини повідомлення бота.
@@ -1101,6 +1120,140 @@ class SqlRepository(Repository):
         await self.s.commit()
         await self.s.refresh(row)
         return _wishlist(row)
+
+    # ------------------------------------------------ загальна підтримка
+
+    async def ensure_support_thread(self, user_id: int) -> SupportThread:
+        row = await self.s.scalar(
+            select(m.SupportThread).where(m.SupportThread.user_id == user_id)
+        )
+        now = datetime.now(timezone.utc)
+        if row is None:
+            row = m.SupportThread(
+                user_id=user_id, status="open", updated_at=now, last_message_at=now
+            )
+            self.s.add(row)
+        else:
+            row.status = "open"
+            row.updated_at = now
+        await self.s.commit()
+        await self.s.refresh(row)
+        return _support_thread(row)
+
+    async def get_support_thread(self, thread_id: int) -> SupportThread | None:
+        row = await self.s.scalar(
+            select(m.SupportThread)
+            .options(selectinload(m.SupportThread.user))
+            .where(m.SupportThread.id == thread_id)
+        )
+        if not row:
+            return None
+        unread = await self.s.scalar(
+            select(func.count(m.SupportMessage.id)).where(
+                m.SupportMessage.thread_id == thread_id,
+                m.SupportMessage.direction == "in",
+                m.SupportMessage.is_read.is_(False),
+            )
+        )
+        return _support_thread(row, unread_count=int(unread or 0), with_user=True)
+
+    async def get_support_thread_for_user(self, user_id: int) -> SupportThread | None:
+        row = await self.s.scalar(
+            select(m.SupportThread)
+            .options(selectinload(m.SupportThread.user))
+            .where(m.SupportThread.user_id == user_id)
+        )
+        return _support_thread(row, with_user=True) if row else None
+
+    async def list_support_threads(self, status: str | None = None) -> list[SupportThread]:
+        stmt = (
+            select(m.SupportThread)
+            .options(selectinload(m.SupportThread.user))
+            .order_by(
+                m.SupportThread.last_message_at.desc().nullslast(),
+                m.SupportThread.updated_at.desc(),
+                m.SupportThread.id.desc(),
+            )
+        )
+        if status in {"open", "closed"}:
+            stmt = stmt.where(m.SupportThread.status == status)
+        rows = list(await self.s.scalars(stmt))
+        if not rows:
+            return []
+        ids = [row.id for row in rows]
+        counts = {
+            int(thread_id): int(count)
+            for thread_id, count in (await self.s.execute(
+                select(m.SupportMessage.thread_id, func.count(m.SupportMessage.id))
+                .where(
+                    m.SupportMessage.thread_id.in_(ids),
+                    m.SupportMessage.direction == "in",
+                    m.SupportMessage.is_read.is_(False),
+                )
+                .group_by(m.SupportMessage.thread_id)
+            )).all()
+        }
+        return [
+            _support_thread(row, unread_count=counts.get(row.id, 0), with_user=True)
+            for row in rows
+        ]
+
+    async def set_support_thread_status(self, thread_id: int, status: str) -> SupportThread | None:
+        if status not in {"open", "closed"}:
+            return None
+        row = await self.s.get(m.SupportThread, thread_id)
+        if not row:
+            return None
+        row.status = status
+        row.updated_at = datetime.now(timezone.utc)
+        await self.s.commit()
+        await self.s.refresh(row)
+        return await self.get_support_thread(thread_id)
+
+    async def add_support_message(self, data: dict) -> SupportMessage:
+        row = m.SupportMessage(**data)
+        self.s.add(row)
+        await self.s.flush()
+        now = row.created_at or datetime.now(timezone.utc)
+        await self.s.execute(
+            update(m.SupportThread)
+            .where(m.SupportThread.id == row.thread_id)
+            .values(last_message_at=now, updated_at=now)
+        )
+        await self.s.commit()
+        await self.s.refresh(row)
+        return _support_message(row)
+
+    async def list_support_messages(self, thread_id: int, limit: int = 300) -> list[SupportMessage]:
+        rows = await self.s.scalars(
+            select(m.SupportMessage)
+            .where(m.SupportMessage.thread_id == thread_id)
+            .order_by(m.SupportMessage.created_at, m.SupportMessage.id)
+            .limit(limit)
+        )
+        return [_support_message(row) for row in rows]
+
+    async def mark_support_read(self, thread_id: int) -> int:
+        result = await self.s.execute(
+            update(m.SupportMessage)
+            .where(
+                m.SupportMessage.thread_id == thread_id,
+                m.SupportMessage.direction == "in",
+                m.SupportMessage.is_read.is_(False),
+            )
+            .values(is_read=True)
+        )
+        await self._commit()
+        return int(result.rowcount or 0)
+
+    async def support_unread_count(self) -> int:
+        count = await self.s.scalar(
+            select(func.count(m.SupportMessage.id)).where(
+                m.SupportMessage.direction == "in",
+                m.SupportMessage.is_read.is_(False),
+            )
+        )
+        return int(count or 0)
 
     # ------------------------------------------------------ менеджери
 
@@ -1180,6 +1333,28 @@ def _day_start(value: str) -> datetime:
 
 def _day_end(value: str) -> datetime:
     return _day_start(value) + timedelta(days=1)
+
+def _support_message(row) -> SupportMessage:
+    return SupportMessage(
+        id=row.id, thread_id=row.thread_id, user_id=row.user_id,
+        direction=row.direction, author=row.author or "", text=row.text,
+        tg_message_id=row.tg_message_id, file_id=row.file_id,
+        file_kind=row.file_kind, file_name=row.file_name,
+        is_read=row.is_read, created_at=row.created_at,
+    )
+
+
+def _support_thread(row, *, unread_count: int = 0, with_user: bool = False) -> SupportThread | None:
+    if row is None:
+        return None
+    return SupportThread(
+        id=row.id, user_id=row.user_id, status=row.status,
+        created_at=row.created_at, updated_at=row.updated_at,
+        last_message_at=row.last_message_at,
+        user=_user(row.user) if with_user and row.user else None,
+        unread_count=int(unread_count or 0),
+    )
+
 
 def _wishlist(row) -> Wishlist | None:
     if row is None:

@@ -41,6 +41,7 @@ const page = (load) => lazy(() => load().then((mod) => {
 
 const Overview = page(() => import('./pages/Overview'))
 const Orders = page(() => import('./pages/Orders'))
+const Support = page(() => import('./pages/Support'))
 const Catalog = page(() => import('./pages/Catalog'))
 const Customers = page(() => import('./pages/Customers'))
 const Promos = page(() => import('./pages/Promos'))
@@ -109,6 +110,7 @@ class PageBoundary extends Component {
 const NAV = [
   { to: '/', label: 'Огляд', end: true },
   { to: '/orders', label: 'Замовлення', badge: 'orders' },
+  { to: '/support', label: 'Підтримка', badge: 'support' },
   { to: '/catalog', label: 'Каталог' },
   { to: '/customers', label: 'Клієнти' },
   { to: '/promos', label: 'Промокоди' },
@@ -124,6 +126,7 @@ function Shell({ children }) {
   const navigate = useNavigate()
   const location = useLocation()
   const [newOrders, setNewOrders] = useState(0)
+  const [supportUnread, setSupportUnread] = useState(0)
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
 
   // На телефоні меню розкривається поверх звичайної шапки. Після переходу
@@ -138,9 +141,15 @@ function Shell({ children }) {
       // Не смикаємо сервер, поки вкладку не видно — на serverless це ще й гроші
       if (document.hidden) return
       try {
-        const data = await api.stats.summary(30)
-        if (!cancelled) setNewOrders(data.orders_new)
-      } catch { /* мовчки — індикатор не критичний */ }
+        const [summary, support] = await Promise.all([
+          api.stats.summary(30),
+          api.support.unread(),
+        ])
+        if (!cancelled) {
+          setNewOrders(summary.orders_new)
+          setSupportUnread(support.count || 0)
+        }
+      } catch { /* мовчки — індикатори не критичні */ }
     }
     poll()
     const timer = setInterval(poll, 30000)
@@ -184,6 +193,9 @@ function Shell({ children }) {
             <NavLink key={item.to} to={item.to} end={item.end}>
               {item.label}
               {item.badge === 'orders' && newOrders > 0 && <span className="badge">{newOrders}</span>}
+              {item.badge === 'support' && supportUnread > 0 && (
+                <span className="badge">{supportUnread}</span>
+              )}
             </NavLink>
           ))}
         </nav>
@@ -239,6 +251,7 @@ export default function App() {
         <Route path="/login" element={<Login />} />
         <Route path="/" element={<Protected><Overview /></Protected>} />
         <Route path="/orders" element={<Protected><Orders /></Protected>} />
+        <Route path="/support" element={<Protected><Support /></Protected>} />
         <Route path="/orders/:id" element={<Protected><OrderPage /></Protected>} />
         <Route path="/catalog" element={<Protected><Catalog /></Protected>} />
         <Route path="/customers" element={<Protected><Customers /></Protected>} />

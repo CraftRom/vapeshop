@@ -311,6 +311,45 @@ class OrderMessage:
         return self.direction == "out"
 
 
+@dataclass
+class SupportThread:
+    """Загальне звернення клієнта, не прив'язане до замовлення.
+
+    Один клієнт має одну довгоживу стрічку. ``status`` визначає, чи
+    повідомлення після /ask зараз мають іти в підтримку. Після закриття
+    історія лишається, а наступний /ask просто відкриває її знову.
+    """
+
+    id: int
+    user_id: int
+    status: str = "open"
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+    last_message_at: datetime | None = None
+    user: User | None = None
+    unread_count: int = 0
+
+
+@dataclass
+class SupportMessage:
+    id: int
+    thread_id: int
+    user_id: int
+    direction: str          # "out" — менеджер клієнту, "in" — клієнт менеджеру
+    author: str
+    text: str
+    tg_message_id: int | None = None
+    file_id: str | None = None
+    file_kind: str | None = None
+    file_name: str | None = None
+    is_read: bool = False
+    created_at: datetime | None = None
+
+    @property
+    def from_operator(self) -> bool:
+        return self.direction == "out"
+
+
 def operator_stats_rows(raw: list[tuple[str, int, Decimal]]) -> list[dict]:
     """Приводить розріз по менеджерах до єдиного вигляду для обох баз.
 

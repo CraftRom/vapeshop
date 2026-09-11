@@ -16,7 +16,7 @@ from aiogram.types import (
     ForceReply, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo,
 )
 
-from shop.entities import Order, OrderStatus
+from shop.entities import STATUS_LABELS, Order, OrderStatus
 from shop.repo.base import Repository
 from shop.services.status_messages import is_permanent_delivery_error
 
@@ -344,6 +344,45 @@ def pick_order_keyboard(orders: list[Order]) -> InlineKeyboardMarkup:
         )]
         for o in orders[:8]
     ])
+
+
+def contact_options_keyboard(
+    orders: list[Order], *, include_support: bool = True, include_done: bool = False
+) -> InlineKeyboardMarkup:
+    """Кнопки для явного вибору: чат замовлення або загальна підтримка.
+
+    Для замовлення кнопка відкриває Mini App одразу на потрібній стрічці.
+    Це і є «посилання на чат конкретного замовлення»: клієнт не має
+    спочатку обирати контекст у боті, а потім здогадуватись, де історія.
+    Якщо PUBLIC_URL ще не налаштований, падаємо назад на вибір контексту
+    в самому боті — функція не стає тупиком.
+    """
+    from shop.services.shop_settings import current
+
+    public_url = (current().public_url or "").rstrip("/")
+    rows = []
+    for order in orders[:8]:
+        label = STATUS_LABELS.get(order.status, order.status)
+        text = f"💬 Замовлення №{order.id} · {label}"
+        if public_url.startswith("https://"):
+            rows.append([InlineKeyboardButton(
+                text=text,
+                web_app=WebAppInfo(url=f"{public_url}/app/?chat={order.id}"),
+            )])
+        else:
+            rows.append([InlineKeyboardButton(text=text, callback_data=f"chat:{order.id}")])
+
+    if include_support:
+        rows.append([InlineKeyboardButton(
+            text="🆘 Загальне питання / техпідтримка",
+            callback_data="support:start",
+        )])
+    if include_done:
+        rows.append([InlineKeyboardButton(
+            text="✅ Завершити звернення",
+            callback_data="support:done",
+        )])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def describe_attachment(message) -> dict | None:

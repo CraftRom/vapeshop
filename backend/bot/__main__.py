@@ -5,6 +5,7 @@ import asyncio
 import logging
 
 from aiogram.utils.backoff import BackoffConfig
+from aiogram.types import BotCommand
 
 from shop.logging_setup import setup as setup_logging
 
@@ -25,6 +26,13 @@ async def main() -> None:
     dp = build_dispatcher()
 
     me = await bot.get_me()
+    await bot.set_my_commands([
+        BotCommand(command="shop", description="Відкрити магазин"),
+        BotCommand(command="orders", description="Мої замовлення"),
+        BotCommand(command="ask", description="Написати менеджеру / техпідтримці"),
+        BotCommand(command="done", description="Завершити звернення"),
+        BotCommand(command="help", description="Довідка"),
+    ])
     log.info("Бот @%s запущено в режимі polling", me.username)
 
     # Знімаємо вебхук: інакше Telegram не віддасть апдейти через polling.

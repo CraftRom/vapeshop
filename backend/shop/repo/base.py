@@ -15,7 +15,7 @@ from datetime import datetime
 from decimal import Decimal
 
 from shop.entities import (
-    Operator, OrderMessage, Wishlist,
+    Operator, OrderMessage, SupportMessage, SupportThread, Wishlist,
     Broadcast, BroadcastStatus, CartLine, Category, Order, OrderLine,
     OrderStatus, Product, Promo, Stats, User,
 )
@@ -344,6 +344,36 @@ class Repository(ABC):
 
     async def unread_counts(self) -> dict[int, int]:
         """Скільки непрочитаних у кожного замовлення: {order_id: кількість}."""
+
+    # ------------------------------------------------ загальна підтримка
+
+    @abstractmethod
+    async def ensure_support_thread(self, user_id: int) -> SupportThread:
+        """Створює або повторно відкриває загальне звернення клієнта."""
+
+    @abstractmethod
+    async def get_support_thread(self, thread_id: int) -> SupportThread | None: ...
+
+    @abstractmethod
+    async def get_support_thread_for_user(self, user_id: int) -> SupportThread | None: ...
+
+    @abstractmethod
+    async def list_support_threads(self, status: str | None = None) -> list[SupportThread]: ...
+
+    @abstractmethod
+    async def set_support_thread_status(self, thread_id: int, status: str) -> SupportThread | None: ...
+
+    @abstractmethod
+    async def add_support_message(self, data: dict) -> SupportMessage: ...
+
+    @abstractmethod
+    async def list_support_messages(self, thread_id: int, limit: int = 300) -> list[SupportMessage]: ...
+
+    @abstractmethod
+    async def mark_support_read(self, thread_id: int) -> int: ...
+
+    @abstractmethod
+    async def support_unread_count(self) -> int: ...
 
     # ------------------------------------------------------ менеджери
 
