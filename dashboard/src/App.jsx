@@ -1,5 +1,5 @@
 import { Component, Suspense, lazy, useEffect, useState } from 'react'
-import { NavLink, Navigate, Route, Routes, useNavigate } from 'react-router-dom'
+import { NavLink, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 
 import { api, clearToken, getSession, getToken, isAdmin, isSysadmin } from './api'
 import { APP_VERSION } from './version'
@@ -122,7 +122,15 @@ const NAV = [
 
 function Shell({ children }) {
   const navigate = useNavigate()
+  const location = useLocation()
   const [newOrders, setNewOrders] = useState(0)
+  const [mobileNavOpen, setMobileNavOpen] = useState(false)
+
+  // На телефоні меню розкривається поверх звичайної шапки. Після переходу
+  // воно саме закривається, щоб нова сторінка одразу була перед очима.
+  useEffect(() => {
+    setMobileNavOpen(false)
+  }, [location.pathname])
 
   useEffect(() => {
     let cancelled = false
@@ -151,12 +159,24 @@ function Shell({ children }) {
 
   return (
     <div className="shell">
-      <aside className="sidebar">
-        <div className="brand">
-          <span className="dot" />
-          Панель магазину
+      <aside className={`sidebar ${mobileNavOpen ? 'nav-open' : ''}`}>
+        <div className="sidebar-head">
+          <div className="brand">
+            <span className="dot" />
+            Панель магазину
+          </div>
+          <button
+            className="nav-toggle"
+            type="button"
+            aria-expanded={mobileNavOpen}
+            aria-controls="main-navigation"
+            onClick={() => setMobileNavOpen((open) => !open)}
+          >
+            <span className="nav-toggle-lines" aria-hidden="true" />
+            <span>{mobileNavOpen ? 'Закрити' : 'Меню'}</span>
+          </button>
         </div>
-        <nav className="nav">
+        <nav className="nav" id="main-navigation" aria-label="Основна навігація">
           {NAV.filter((item) => {
             if (item.sysadminOnly) return isSysadmin()
             return !item.adminOnly || isAdmin()
@@ -167,6 +187,19 @@ function Shell({ children }) {
             </NavLink>
           ))}
         </nav>
+        <div className="mobile-session">
+          <div>
+            <strong>{getSession().name || 'Ви'}</strong>
+            <span className="faint">
+              {isSysadmin()
+                ? 'Системний адміністратор'
+                : isAdmin()
+                  ? 'Адміністратор'
+                  : 'Менеджер'}
+            </span>
+          </div>
+          <button className="btn ghost small" onClick={logout}>Вийти</button>
+        </div>
         <div className="sidebar-foot">
           <div className="faint" style={{ marginBottom: 8, fontSize: 12.5 }}>
             {getSession().name || 'Ви'}

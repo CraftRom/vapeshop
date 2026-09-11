@@ -12,18 +12,18 @@
  */
 
 const CARD_STAGES = [
-  { key: 'new', label: 'Нове' },
-  { key: 'accepted', label: 'Прийн.' },
-  { key: 'paid', label: 'Оплач.' },
-  { key: 'shipped', label: 'Відпр.' },
-  { key: 'done', label: 'Викон.' },
+  { key: 'new', label: 'Нове', short: 'Нове' },
+  { key: 'accepted', label: 'Прийнято', short: 'Прийн.' },
+  { key: 'paid', label: 'Оплачено', short: 'Оплач.' },
+  { key: 'shipped', label: 'Відправлено', short: 'Відпр.' },
+  { key: 'done', label: 'Виконано', short: 'Викон.' },
 ]
 
 const COD_STAGES = [
-  { key: 'new', label: 'Нове' },
-  { key: 'accepted', label: 'Прийн.' },
-  { key: 'shipped', label: 'Відпр.' },
-  { key: 'done', label: 'Викон.' },
+  { key: 'new', label: 'Нове', short: 'Нове' },
+  { key: 'accepted', label: 'Прийнято', short: 'Прийн.' },
+  { key: 'shipped', label: 'Відправлено', short: 'Відпр.' },
+  { key: 'done', label: 'Виконано', short: 'Викон.' },
 ]
 
 /** Кроки доріжки для способу оплати. Дзеркало stages_for з бекенду. */
@@ -130,7 +130,8 @@ export default function StatusRail({ status, paymentMethod, onChange, disabled =
                   : 'Недоступно з поточного статусу'
             }
           >
-            {stage.label}
+            <span className="rail-label-full">{stage.label}</span>
+            <span className="rail-label-short">{stage.short}</span>
           </button>
         )
       })}

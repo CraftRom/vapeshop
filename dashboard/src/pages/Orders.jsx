@@ -275,51 +275,63 @@ export default function Orders() {
         </div>
       </div>
 
-      <div className="toolbar">
-        <select className="input" value={status} onChange={(e) => setStatus(e.target.value)}>
-          {FILTERS.map((f) => (
-            <option key={f.value} value={f.value}>{f.label}</option>
-          ))}
-        </select>
-        <input
-          className="input"
-          placeholder="Ім'я або телефон"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
-        <input
-          className="input"
-          type="date"
-          value={dateFrom}
-          max={dateTo || undefined}
-          onChange={(e) => setDateFrom(e.target.value)}
-          title="Від дати"
-          style={{ maxWidth: 160 }}
-        />
-        <input
-          className="input"
-          type="date"
-          value={dateTo}
-          min={dateFrom || undefined}
-          onChange={(e) => setDateTo(e.target.value)}
-          title="По дату включно"
-          style={{ maxWidth: 160 }}
-        />
-        {(dateFrom || dateTo) && (
-          <button
-            className="btn ghost small"
-            onClick={() => { setDateFrom(''); setDateTo('') }}
-          >
-            Скинути дати
-          </button>
-        )}
-        <div className="spacer" />
-        <button className="btn ghost small" onClick={load}>Оновити</button>
-        {isSysadmin() && (
-          <button className="btn danger small" onClick={purgeAll}>
-            Стерти всі
-          </button>
-        )}
+      <div className="orders-toolbar">
+        <div className="orders-filters">
+          <label className="filter-field filter-status">
+            <span>Статус</span>
+            <select className="input" value={status} onChange={(e) => setStatus(e.target.value)}>
+              {FILTERS.map((f) => (
+                <option key={f.value} value={f.value}>{f.label}</option>
+              ))}
+            </select>
+          </label>
+          <label className="filter-field filter-search">
+            <span>Пошук</span>
+            <input
+              className="input"
+              type="search"
+              placeholder="Ім'я або телефон"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </label>
+          <label className="filter-field filter-date">
+            <span>Від</span>
+            <input
+              className="input"
+              type="date"
+              value={dateFrom}
+              max={dateTo || undefined}
+              onChange={(e) => setDateFrom(e.target.value)}
+            />
+          </label>
+          <label className="filter-field filter-date">
+            <span>До</span>
+            <input
+              className="input"
+              type="date"
+              value={dateTo}
+              min={dateFrom || undefined}
+              onChange={(e) => setDateTo(e.target.value)}
+            />
+          </label>
+        </div>
+        <div className="orders-toolbar-actions">
+          {(dateFrom || dateTo) && (
+            <button
+              className="btn ghost small"
+              onClick={() => { setDateFrom(''); setDateTo('') }}
+            >
+              Скинути дати
+            </button>
+          )}
+          <button className="btn ghost small" onClick={load}>Оновити</button>
+          {isSysadmin() && (
+            <button className="btn danger small" onClick={purgeAll}>
+              Стерти всі
+            </button>
+          )}
+        </div>
       </div>
 
       <ErrorBar error={error} />
@@ -347,99 +359,104 @@ export default function Orders() {
           </Empty>
         )
       ) : (
-        <div className="card" style={{ padding: '18px 6px' }}>
+        <section className="orders-panel" aria-label="Список замовлень">
           {filtered && (
-            <p className="faint" style={{ margin: '0 12px 10px' }}>
-              Знайдено: {orders.length}
-              {' · '}
-              <button
-                className="btn ghost small"
-                onClick={resetFilters}
-                style={{ padding: '2px 8px' }}
-              >
-                скинути відбір
+            <div className="orders-result-bar">
+              <span>Знайдено: <strong>{orders.length}</strong></span>
+              <button className="btn ghost small" onClick={resetFilters}>
+                Скинути відбір
               </button>
-            </p>
+            </div>
           )}
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>№</th>
-                  <th>Клієнт</th>
-                  <th>Склад</th>
-                  <th className="num">Сума</th>
-                  <th style={{ minWidth: 300 }}>Статус</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
-                {orders.map((order) => (
-                  <tr key={order.id}>
-                    <td>
+
+          <div className="orders-list-head" aria-hidden="true">
+            <span>Замовлення</span>
+            <span>Клієнт</span>
+            <span>Склад</span>
+            <span className="num">Сума</span>
+            <span>Статус і дії</span>
+          </div>
+
+          <div className="orders-list">
+            {orders.map((order) => {
+              const itemsText = order.items.map((i) => `${i.name} ×${i.qty}`).join(', ')
+              const itemQty = order.items.reduce((sum, item) => sum + Number(item.qty || 0), 0)
+              return (
+                <article className={`order-row status-${order.status}`} key={order.id}>
+                  <div className="order-primary">
+                    <div className="order-id-line">
                       <Link to={`/orders/${order.id}`} className="id-tag">#{order.id}</Link>
                       {unread[order.id] > 0 && (
                         <span
-                          className="chip"
-                          style={{ marginLeft: 6 }}
+                          className="chip order-unread"
                           title="Непрочитані повідомлення від клієнта"
                         >
                           💬 {unread[order.id]}
                         </span>
                       )}
-                      <div className="faint">{dateTime(order.created_at)}</div>
-                    </td>
-                    <td>
-                      {order.contact_name}
-                      <div className="faint mono">{order.contact_phone}</div>
-                    </td>
-                    <td className="faint" style={{ maxWidth: 220 }}>
-                      {order.items.map((i) => `${i.name} ×${i.qty}`).join(', ')}
-                    </td>
-                    <td className="num">{money(order.total)}</td>
-                    <td>
-                      <StatusRail
-                        status={order.status}
-                        paymentMethod={order.payment_method}
-                        onChange={(next) => changeStatus(order, next)}
-                      />
-                    </td>
-                    <td>
-                      <div className="row">
-                        <Link className="btn ghost small" to={`/orders/${order.id}`}>
-                          Відкрити
-                        </Link>
-                        <button className="btn ghost small" onClick={() => setSelected(order)}>
-                          Швидкий перегляд
+                    </div>
+                    <div className="faint">{dateTime(order.created_at)}</div>
+                    <strong className="order-mobile-total mono">{money(order.total)}</strong>
+                  </div>
+
+                  <div className="order-customer">
+                    <strong>{order.contact_name}</strong>
+                    <a className="faint mono order-phone" href={`tel:${order.contact_phone}`}>
+                      {order.contact_phone}
+                    </a>
+                  </div>
+
+                  <div className="order-items" title={itemsText}>
+                    <div>{itemsText}</div>
+                    <span className="faint">{itemQty} шт. · {order.items.length} поз.</span>
+                  </div>
+
+                  <div className="order-total mono">{money(order.total)}</div>
+
+                  <div className="order-workflow">
+                    <div className="order-status-title">
+                      <span className="faint">Поточний статус</span>
+                      <strong>{STATUS_LABELS[order.status] || order.status}</strong>
+                      <span className="order-payment">
+                        {order.payment_method === 'card' ? 'Картка' : 'Накладений платіж'}
+                      </span>
+                    </div>
+                    <StatusRail
+                      status={order.status}
+                      paymentMethod={order.payment_method}
+                      onChange={(next) => changeStatus(order, next)}
+                    />
+                    <div className="orders-actions">
+                      <Link className="btn small order-open" to={`/orders/${order.id}`}>
+                        Відкрити
+                      </Link>
+                      <button className="btn ghost small" onClick={() => setSelected(order)}>
+                        Швидкий перегляд
+                      </button>
+                      {allowedFrom(order.status, order.payment_method)
+                        .includes('cancelled') && (
+                        <button
+                          className="btn ghost small order-cancel"
+                          onClick={() => cancelOrder(order)}
+                        >
+                          Скасувати
                         </button>
-                        {/* Скасування не входить у доріжку статусів: вона
-                            веде замовлення вперед, а це крок убік. Раніше
-                            заради нього доводилось відкривати картку. */}
-                        {allowedFrom(order.status, order.payment_method)
-                          .includes('cancelled') && (
-                          <button
-                            className="btn ghost small"
-                            onClick={() => cancelOrder(order)}
-                          >
-                            Скасувати
-                          </button>
-                        )}
-                        {isSysadmin() && (
-                          <button
-                            className="btn danger small"
-                            onClick={() => removeOrder(order)}
-                          >
-                            Стерти
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                      )}
+                      {isSysadmin() && (
+                        <button
+                          className="btn danger small"
+                          onClick={() => removeOrder(order)}
+                        >
+                          Стерти
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </article>
+              )
+            })}
           </div>
-        </div>
+        </section>
       )}
 
       {selected && (
