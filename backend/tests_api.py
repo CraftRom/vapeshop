@@ -205,6 +205,12 @@ async def _suite(app, backend: str) -> None:
               f"{stats['revenue_total']}")
         check("клієнтів 1", stats["customers_total"] == 1)
 
+        response = await client.get("/api/stats/badges", headers=headers)
+        badges = response.json()
+        check("легкі бейджі sidebar доступні", response.status_code == 200, response.text[:120])
+        check("бейдж нових замовлень коректний", badges["orders_new"] == 0, str(badges))
+        check("бейдж підтримки коректний", badges["support_unread"] == 0, str(badges))
+
         response = await client.get("/api/stats/top-products", headers=headers)
         check("топ товарів заповнений", len(response.json()) == 1, response.text[:120])
 

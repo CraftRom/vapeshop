@@ -117,6 +117,7 @@ export const api = {
   login: (login, password) => request('/auth/login', { method: 'POST', body: { login, password } }),
 
   stats: {
+    badges: () => request('/stats/badges'),
     byOperator: (days) => request('/stats/by-operator', { params: { days } }),
     summary: (days = 30) => request('/stats/summary', { params: { days } }),
     series: (days = 30) => request('/stats/series', { params: { days } }),

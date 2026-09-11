@@ -1,9 +1,10 @@
-import { Component, Suspense, lazy, useEffect, useState } from 'react'
+import { Component, Suspense, lazy, memo, useCallback, useEffect, useMemo, useState } from 'react'
 import { NavLink, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 
-import { api, clearToken, getSession, getToken, isAdmin, isSysadmin } from './api'
+import { api, clearToken, getSession, getToken } from './api'
 import { APP_VERSION } from './version'
 import { Loading, ToastProvider } from './components/ui'
+import { useVisiblePolling } from './components/useVisiblePolling'
 import Login from './pages/Login'
 
 // Позначка одноразового перезавантаження після оновлення панелі.
@@ -107,6 +108,19 @@ class PageBoundary extends Component {
   }
 }
 
+const PageContent = memo(function PageContent({ children }) {
+  // Бейджі sidebar оновлюються у фоні. Виносимо сторінку в memo-компонент,
+  // щоб зміна двох лічильників або відкриття мобільного меню не змушували
+  // React ще раз проходити велике дерево Orders/Catalog.
+  return (
+    <main className="main">
+      <PageBoundary>
+        <Suspense fallback={<Loading rows={4} />}>{children}</Suspense>
+      </PageBoundary>
+    </main>
+  )
+})
+
 const NAV = [
   { to: '/', label: 'Огляд', end: true },
   { to: '/orders', label: 'Замовлення', badge: 'orders' },
@@ -125,9 +139,14 @@ const NAV = [
 function Shell({ children }) {
   const navigate = useNavigate()
   const location = useLocation()
-  const [newOrders, setNewOrders] = useState(0)
-  const [supportUnread, setSupportUnread] = useState(0)
+  const [badges, setBadges] = useState({ orders: 0, support: 0 })
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
+  // Shell монтується після входу, тому сесію достатньо прочитати один раз.
+  // Раніше JSON з localStorage розбирався знову для кожного пункту меню
+  // і навіть для кожного рядка в окремих сторінках.
+  const session = useMemo(() => getSession(), [])
+  const sysadmin = session.role === 'admin'
+  const admin = sysadmin || session.role === 'shop_admin'
 
   // На телефоні меню розкривається поверх звичайної шапки. Після переходу
   // воно саме закривається, щоб нова сторінка одразу була перед очима.
@@ -135,31 +154,22 @@ function Shell({ children }) {
     setMobileNavOpen(false)
   }, [location.pathname])
 
-  useEffect(() => {
-    let cancelled = false
-    const poll = async () => {
-      // Не смикаємо сервер, поки вкладку не видно — на serverless це ще й гроші
-      if (document.hidden) return
-      try {
-        const [summary, support] = await Promise.all([
-          api.stats.summary(30),
-          api.support.unread(),
-        ])
-        if (!cancelled) {
-          setNewOrders(summary.orders_new)
-          setSupportUnread(support.count || 0)
-        }
-      } catch { /* мовчки — індикатори не критичні */ }
+  const pollBadges = useCallback(async () => {
+    // Для двох цифр у sidebar більше не рахуємо всю 30-денну статистику.
+    // Один дешевий endpoint повертає лише те, що реально потрібно меню.
+    const next = await api.stats.badges()
+    const value = {
+      orders: Number(next.orders_new || 0),
+      support: Number(next.support_unread || 0),
     }
-    poll()
-    const timer = setInterval(poll, 30000)
-    document.addEventListener('visibilitychange', poll)
-    return () => {
-      cancelled = true
-      clearInterval(timer)
-      document.removeEventListener('visibilitychange', poll)
-    }
+    setBadges((prev) => (
+      prev.orders === value.orders && prev.support === value.support ? prev : value
+    ))
   }, [])
+
+  // 60 секунд достатньо для бейджів. При поверненні у вкладку хук сам
+  // оновить їх одразу, а в background узагалі не триматиме таймер.
+  useVisiblePolling(pollBadges, 60000, { immediate: true })
 
   const logout = () => {
     clearToken()
@@ -187,25 +197,25 @@ function Shell({ children }) {
         </div>
         <nav className="nav" id="main-navigation" aria-label="Основна навігація">
           {NAV.filter((item) => {
-            if (item.sysadminOnly) return isSysadmin()
-            return !item.adminOnly || isAdmin()
+            if (item.sysadminOnly) return sysadmin
+            return !item.adminOnly || admin
           }).map((item) => (
             <NavLink key={item.to} to={item.to} end={item.end}>
               {item.label}
-              {item.badge === 'orders' && newOrders > 0 && <span className="badge">{newOrders}</span>}
-              {item.badge === 'support' && supportUnread > 0 && (
-                <span className="badge">{supportUnread}</span>
+              {item.badge === 'orders' && badges.orders > 0 && <span className="badge">{badges.orders}</span>}
+              {item.badge === 'support' && badges.support > 0 && (
+                <span className="badge">{badges.support}</span>
               )}
             </NavLink>
           ))}
         </nav>
         <div className="mobile-session">
           <div>
-            <strong>{getSession().name || 'Ви'}</strong>
+            <strong>{session.name || 'Ви'}</strong>
             <span className="faint">
-              {isSysadmin()
+              {sysadmin
                 ? 'Системний адміністратор'
-                : isAdmin()
+                : admin
                   ? 'Адміністратор'
                   : 'Менеджер'}
             </span>
@@ -214,10 +224,10 @@ function Shell({ children }) {
         </div>
         <div className="sidebar-foot">
           <div className="faint" style={{ marginBottom: 8, fontSize: 12.5 }}>
-            {getSession().name || 'Ви'}
-            {isSysadmin()
+            {session.name || 'Ви'}
+            {sysadmin
               ? ' · системний адміністратор'
-              : isAdmin()
+              : admin
                 ? ' · адміністратор'
                 : ' · менеджер'}
           </div>
@@ -231,11 +241,7 @@ function Shell({ children }) {
           </div>
         </div>
       </aside>
-      <main className="main">
-        <PageBoundary>
-          <Suspense fallback={<Loading rows={4} />}>{children}</Suspense>
-        </PageBoundary>
-      </main>
+      <PageContent>{children}</PageContent>
     </div>
   )
 }

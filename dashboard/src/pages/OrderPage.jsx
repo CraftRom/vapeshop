@@ -4,6 +4,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api, getToken } from '../api'
 import { ErrorBar, Field, Info, Loading, Modal, money, useToast } from '../components/ui'
 import { allowedFrom, stagesFor } from '../components/StatusRail'
+import { useVisiblePolling } from '../components/useVisiblePolling'
 
 // Спосіб доставки, обраний покупцем. Порожнє значення — замовлення з
 // часів, коли вибору не було: тоді все писалося одним рядком адреси.
@@ -273,21 +274,14 @@ export default function OrderPage() {
     }
   }, [order, params, setParams])
 
-  // Відповідь клієнта приходить у бот, а не в панель — тож підтягуємо самі
-  useEffect(() => {
-    // Прихована вкладка нічого не показує, а кожен запит на Vercel —
-    // це виклик функції. Опитуємо лише коли на сторінку дивляться.
-    const poll = () => {
-      if (document.hidden) return
-      api.orders.messages(id).then(setMessages).catch(() => {})
-    }
-    const timer = setInterval(poll, 15000)
-    document.addEventListener('visibilitychange', poll)
-    return () => {
-      clearInterval(timer)
-      document.removeEventListener('visibilitychange', poll)
-    }
+  // Відповідь клієнта приходить у бот, а не в панель. Першу історію вже
+  // забрав load(), тому тут лише фонове оновлення. У прихованій вкладці
+  // таймера немає взагалі, а після повернення стрічка оновлюється одразу.
+  const pollMessages = useCallback(async () => {
+    const fresh = await api.orders.messages(id)
+    setMessages(fresh)
   }, [id])
+  useVisiblePolling(pollMessages, 15000)
 
   const patch = async (payload, okText) => {
     setBusy(true)

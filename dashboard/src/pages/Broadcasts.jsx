@@ -3,6 +3,7 @@ import ImageField from '../components/ImageField'
 
 import { api } from '../api'
 import { Empty, ErrorBar, Field, Loading, Modal, dateTime, useToast } from '../components/ui'
+import { useVisiblePolling } from '../components/useVisiblePolling'
 
 const STATUS_CHIP = {
   draft: { label: 'Чернетка', cls: '' },
@@ -235,12 +236,10 @@ export default function Broadcasts() {
 
   useEffect(() => { load() }, [load])
 
-  // Поки щось надсилається — оновлюємо лічильники
-  useEffect(() => {
-    if (!items?.some((b) => b.status === 'sending')) return
-    const timer = setInterval(load, 4000)
-    return () => clearInterval(timer)
-  }, [items, load])
+  // Поки щось надсилається — оновлюємо лічильники. У background polling
+  // повністю призупинений, щоб прихована вкладка не робила 15 запитів/хв.
+  const sending = Boolean(items?.some((b) => b.status === 'sending'))
+  useVisiblePolling(load, 4000, { enabled: sending })
 
   const unschedule = async (broadcast) => {
     try {

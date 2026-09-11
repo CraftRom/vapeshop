@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useState } from 'react'
+import { memo, useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 
 import { api, isSysadmin } from '../api'
 import StatusRail, { STATUS_LABELS, allowedFrom } from '../components/StatusRail'
 import { Empty, ErrorBar, Field, Info, Loading, Modal, dateTime, money, useToast } from '../components/ui'
 import { useFilters } from '../components/useFilters'
+import { useVisiblePolling } from '../components/useVisiblePolling'
 
 // Той самий перелік, що й на сторінці замовлення.
 const DELIVERY_METHODS = {
@@ -144,6 +145,107 @@ function OrderDetails({ order, onClose, onSaved }) {
   )
 }
 
+function sameUnreadCounts(left, right) {
+  const a = left || {}
+  const b = right || {}
+  const aKeys = Object.keys(a)
+  const bKeys = Object.keys(b)
+  if (aKeys.length !== bKeys.length) return false
+  return aKeys.every((key) => Number(a[key] || 0) === Number(b[key] || 0))
+}
+
+/**
+ * Окремий memo-рядок потрібен не заради мікрооптимізації. Сторінка регулярно
+ * оновлює непрочитані повідомлення; раніше кожен такий poll заново рендерив
+ * усі замовлення, складав довгі рядки товарів і будував рейки статусів.
+ * Тепер перерендерюється лише рядок, у якого справді змінився order/unread.
+ */
+const OrderRow = memo(function OrderRow({
+  order,
+  unreadCount,
+  canDelete,
+  onStatusChange,
+  onQuickView,
+  onCancel,
+  onRemove,
+}) {
+  const itemsText = order.items.map((i) => `${i.name} ×${i.qty}`).join(', ')
+  const itemQty = order.items.reduce((sum, item) => sum + Number(item.qty || 0), 0)
+
+  return (
+    <article className={`order-row status-${order.status}`}>
+      <div className="order-primary">
+        <div className="order-id-line">
+          <Link to={`/orders/${order.id}`} className="id-tag">#{order.id}</Link>
+          {unreadCount > 0 && (
+            <span
+              className="chip order-unread"
+              title="Непрочитані повідомлення від клієнта"
+            >
+              💬 {unreadCount}
+            </span>
+          )}
+        </div>
+        <div className="faint">{dateTime(order.created_at)}</div>
+        <strong className="order-mobile-total mono">{money(order.total)}</strong>
+      </div>
+
+      <div className="order-customer">
+        <strong>{order.contact_name}</strong>
+        <a className="faint mono order-phone" href={`tel:${order.contact_phone}`}>
+          {order.contact_phone}
+        </a>
+      </div>
+
+      <div className="order-items" title={itemsText}>
+        <div>{itemsText}</div>
+        <span className="faint">{itemQty} шт. · {order.items.length} поз.</span>
+      </div>
+
+      <div className="order-total mono">{money(order.total)}</div>
+
+      <div className="order-workflow">
+        <div className="order-status-title">
+          <span className="faint">Поточний статус</span>
+          <strong>{STATUS_LABELS[order.status] || order.status}</strong>
+          <span className="order-payment">
+            {order.payment_method === 'card' ? 'Картка' : 'Накладений платіж'}
+          </span>
+        </div>
+        <StatusRail
+          status={order.status}
+          paymentMethod={order.payment_method}
+          onChange={(next) => onStatusChange(order, next)}
+        />
+        <div className="orders-actions">
+          <Link className="btn small order-open" to={`/orders/${order.id}`}>
+            Відкрити
+          </Link>
+          <button className="btn ghost small" onClick={() => onQuickView(order)}>
+            Швидкий перегляд
+          </button>
+          {allowedFrom(order.status, order.payment_method).includes('cancelled') && (
+            <button
+              className="btn ghost small order-cancel"
+              onClick={() => onCancel(order)}
+            >
+              Скасувати
+            </button>
+          )}
+          {canDelete && (
+            <button
+              className="btn danger small"
+              onClick={() => onRemove(order)}
+            >
+              Стерти
+            </button>
+          )}
+        </div>
+      </div>
+    </article>
+  )
+})
+
 export default function Orders() {
   const navigate = useNavigate()
   const notify = useToast()
@@ -164,56 +266,6 @@ export default function Orders() {
   // Клієнт відповідає в боті, тож панель має сама помічати нові повідомлення
   const [unread, setUnread] = useState({})
 
-  /** Видалення замовлення. Тільки системний адміністратор.
-   *
-   *  Менеджерам цього не дають навмисно: замовлення — первинний документ.
-   *  Помилкове скасовують статусом, так лишається слід. Стирати доводиться
-   *  хіба що тестові записи після налаштування.
-   */
-  const cancelOrder = async (order) => {
-    // Підтвердження тут не формальність: скасування повертає товар на
-    // склад і бонуси клієнту, а зворотного шляху зі «Скасованого» немає
-    // — повторне списання зіпсувало б облік.
-    if (!window.confirm(
-      `Скасувати замовлення №${order.id} на ${money(order.total)}? `
-      + 'Товар повернеться в наявність, бонуси — клієнту. '
-      + 'Повернути замовлення в роботу після цього не можна.',
-    )) return
-    await changeStatus(order, 'cancelled')
-  }
-
-  const removeOrder = async (order) => {
-    if (!window.confirm(
-      `Стерти замовлення №${order.id} на ${money(order.total)}? ` +
-      'Відновити можна буде лише з резервної копії.',
-    )) return
-    try {
-      await api.ordersAdmin.remove(order.id)
-      notify(`Замовлення №${order.id} стерто`)
-      load()
-    } catch (err) {
-      setError(err.message)
-    }
-  }
-
-  const purgeAll = async () => {
-    // Два питання поспіль, і друге — з переписуванням. Дія стирає ще й
-    // підсумки клієнтів, і повернути це можна лише з копії.
-    if (!window.confirm('Стерти ВСІ замовлення разом із підсумками клієнтів?')) return
-    const typed = window.prompt('Це незворотно. Введіть DELETE ALL для підтвердження:')
-    if (typed !== 'DELETE ALL') {
-      if (typed !== null) setError('Підтвердження не збіглося — нічого не стерто')
-      return
-    }
-    try {
-      const result = await api.ordersAdmin.purge()
-      notify(`Стерто замовлень: ${result.removed}`)
-      load()
-    } catch (err) {
-      setError(err.message)
-    }
-  }
-
   const load = useCallback(async () => {
     setError('')
     try {
@@ -233,38 +285,96 @@ export default function Orders() {
     return () => clearTimeout(timer)
   }, [load, search])
 
-  // Клієнт відповідає в боті, а не в панелі — тож лічильник опитуємо самі
-  useEffect(() => {
-    const poll = () => {
-      if (document.hidden) return
-      api.orders.unread().then(setUnread).catch(() => {})
-    }
-    poll()
-    const timer = setInterval(poll, 20000)
-    document.addEventListener('visibilitychange', poll)
-    return () => {
-      clearInterval(timer)
-      document.removeEventListener('visibilitychange', poll)
-    }
+  const loadUnread = useCallback(async () => {
+    const next = await api.orders.unread()
+    // Якщо цифри не змінились, не створюємо новий state і не запускаємо
+    // зайвий рендер усієї сторінки.
+    setUnread((prev) => (sameUnreadCounts(prev, next) ? prev : next))
   }, [])
 
-  const changeStatus = async (order, next) => {
+  // Раніше setInterval будив приховану вкладку кожні 20 секунд. 45 секунд
+  // достатньо для індикатора у списку, а повернення на вкладку оновлює його
+  // негайно через useVisiblePolling.
+  useVisiblePolling(loadUnread, 45000, { immediate: true })
+
+  const changeStatus = useCallback(async (order, next) => {
     // Відправлення потребує накладної, а вікно для неї — на сторінці
     // замовлення. Без цього менеджер тиснув би тут і отримував відмову.
     if (next === 'shipped') {
       navigate(`/orders/${order.id}?ship=1`)
       return
     }
-    const previous = orders
-    setOrders((list) => list.map((o) => (o.id === order.id ? { ...o, status: next } : o)))
+
+    const previousStatus = order.status
+    setOrders((list) => list?.map((o) => (
+      o.id === order.id ? { ...o, status: next } : o
+    )))
     try {
       await api.orders.patch(order.id, { status: next })
       notify(`Замовлення №${order.id}: ${STATUS_LABELS[next]}`)
     } catch (err) {
-      setOrders(previous)
+      // Відкочуємо тільки змінений рядок. Знімок усього масиву робив callback
+      // залежним від orders і ламав memo-оптимізацію рядків.
+      setOrders((list) => list?.map((o) => (
+        o.id === order.id ? { ...o, status: previousStatus } : o
+      )))
       notify(err.message, 'bad')
     }
+  }, [navigate, notify])
+
+  /** Видалення замовлення. Тільки системний адміністратор.
+   *
+   * Менеджерам цього не дають навмисно: замовлення — первинний документ.
+   * Помилкове скасовують статусом, так лишається слід. Стирати доводиться
+   * хіба що тестові записи після налаштування.
+   */
+  const cancelOrder = useCallback(async (order) => {
+    // Підтвердження тут не формальність: скасування повертає товар на
+    // склад і бонуси клієнту, а зворотного шляху зі «Скасованого» немає.
+    if (!window.confirm(
+      `Скасувати замовлення №${order.id} на ${money(order.total)}? `
+      + 'Товар повернеться в наявність, бонуси — клієнту. '
+      + 'Повернути замовлення в роботу після цього не можна.',
+    )) return
+    await changeStatus(order, 'cancelled')
+  }, [changeStatus])
+
+  const removeOrder = useCallback(async (order) => {
+    if (!window.confirm(
+      `Стерти замовлення №${order.id} на ${money(order.total)}? ` +
+      'Відновити можна буде лише з резервної копії.',
+    )) return
+    try {
+      await api.ordersAdmin.remove(order.id)
+      notify(`Замовлення №${order.id} стерто`)
+      load()
+    } catch (err) {
+      setError(err.message)
+    }
+  }, [load, notify])
+
+  const purgeAll = async () => {
+    // Два питання поспіль, і друге — з переписуванням. Дія стирає ще й
+    // підсумки клієнтів, і повернути це можна лише з копії.
+    if (!window.confirm('Стерти ВСІ замовлення разом із підсумками клієнтів?')) return
+    const typed = window.prompt('Це незворотно. Введіть DELETE ALL для підтвердження:')
+    if (typed !== 'DELETE ALL') {
+      if (typed !== null) setError('Підтвердження не збіглося — нічого не стерто')
+      return
+    }
+    try {
+      const result = await api.ordersAdmin.purge()
+      notify(`Стерто замовлень: ${result.removed}`)
+      load()
+    } catch (err) {
+      setError(err.message)
+    }
   }
+
+  // Роль однакова для всіх рядків. Не читаємо й не JSON.parse-имо session
+  // з localStorage всередині map для кожного замовлення.
+  const canDelete = isSysadmin()
+
 
   return (
     <>
@@ -378,83 +488,18 @@ export default function Orders() {
           </div>
 
           <div className="orders-list">
-            {orders.map((order) => {
-              const itemsText = order.items.map((i) => `${i.name} ×${i.qty}`).join(', ')
-              const itemQty = order.items.reduce((sum, item) => sum + Number(item.qty || 0), 0)
-              return (
-                <article className={`order-row status-${order.status}`} key={order.id}>
-                  <div className="order-primary">
-                    <div className="order-id-line">
-                      <Link to={`/orders/${order.id}`} className="id-tag">#{order.id}</Link>
-                      {unread[order.id] > 0 && (
-                        <span
-                          className="chip order-unread"
-                          title="Непрочитані повідомлення від клієнта"
-                        >
-                          💬 {unread[order.id]}
-                        </span>
-                      )}
-                    </div>
-                    <div className="faint">{dateTime(order.created_at)}</div>
-                    <strong className="order-mobile-total mono">{money(order.total)}</strong>
-                  </div>
-
-                  <div className="order-customer">
-                    <strong>{order.contact_name}</strong>
-                    <a className="faint mono order-phone" href={`tel:${order.contact_phone}`}>
-                      {order.contact_phone}
-                    </a>
-                  </div>
-
-                  <div className="order-items" title={itemsText}>
-                    <div>{itemsText}</div>
-                    <span className="faint">{itemQty} шт. · {order.items.length} поз.</span>
-                  </div>
-
-                  <div className="order-total mono">{money(order.total)}</div>
-
-                  <div className="order-workflow">
-                    <div className="order-status-title">
-                      <span className="faint">Поточний статус</span>
-                      <strong>{STATUS_LABELS[order.status] || order.status}</strong>
-                      <span className="order-payment">
-                        {order.payment_method === 'card' ? 'Картка' : 'Накладений платіж'}
-                      </span>
-                    </div>
-                    <StatusRail
-                      status={order.status}
-                      paymentMethod={order.payment_method}
-                      onChange={(next) => changeStatus(order, next)}
-                    />
-                    <div className="orders-actions">
-                      <Link className="btn small order-open" to={`/orders/${order.id}`}>
-                        Відкрити
-                      </Link>
-                      <button className="btn ghost small" onClick={() => setSelected(order)}>
-                        Швидкий перегляд
-                      </button>
-                      {allowedFrom(order.status, order.payment_method)
-                        .includes('cancelled') && (
-                        <button
-                          className="btn ghost small order-cancel"
-                          onClick={() => cancelOrder(order)}
-                        >
-                          Скасувати
-                        </button>
-                      )}
-                      {isSysadmin() && (
-                        <button
-                          className="btn danger small"
-                          onClick={() => removeOrder(order)}
-                        >
-                          Стерти
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                </article>
-              )
-            })}
+            {orders.map((order) => (
+              <OrderRow
+                key={order.id}
+                order={order}
+                unreadCount={Number(unread[order.id] || 0)}
+                canDelete={canDelete}
+                onStatusChange={changeStatus}
+                onQuickView={setSelected}
+                onCancel={cancelOrder}
+                onRemove={removeOrder}
+              />
+            ))}
           </div>
         </section>
       )}

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../api'
 import { useFilters } from '../components/useFilters'
+import { useVisiblePolling } from '../components/useVisiblePolling'
 
 const SERVICE_LABEL = {
   api: 'Сайт і панель',
@@ -235,13 +236,10 @@ export default function Logs() {
 
   useEffect(() => { load() }, [load])
 
-  useEffect(() => {
-    if (!auto) return undefined
-    // Десять секунд: частіше немає сенсу, бо журнал читають очима, а
-    // кожне оновлення — це читання двох мегабайтів з диска.
-    const timer = setInterval(load, 10000)
-    return () => clearInterval(timer)
-  }, [auto, load])
+  // Десять секунд: частіше немає сенсу, бо журнал читають очима, а
+  // кожне оновлення — це читання двох мегабайтів з диска. У прихованій
+  // вкладці автоперегляд тепер не читає журнал узагалі.
+  useVisiblePolling(load, 10000, { enabled: auto })
 
   return (
     <div>

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { api, getToken } from '../api'
 import { Empty, ErrorBar, Loading, dateTime, useToast } from '../components/ui'
+import { useVisiblePolling } from '../components/useVisiblePolling'
 
 const FILE_LABEL = {
   photo: 'Фото', document: 'Документ', video: 'Відео', voice: 'Голосове',
@@ -276,19 +277,11 @@ export default function Support() {
     loadConversation(true)
   }, [selectedId, loadConversation])
 
-  useEffect(() => {
-    const poll = () => {
-      if (document.hidden) return
-      loadThreads(true)
-      if (selectedId) loadConversation(false)
-    }
-    const timer = setInterval(poll, 10000)
-    document.addEventListener('visibilitychange', poll)
-    return () => {
-      clearInterval(timer)
-      document.removeEventListener('visibilitychange', poll)
-    }
+  const pollSupport = useCallback(async () => {
+    await loadThreads(true)
+    if (selectedId) await loadConversation(false)
   }, [loadThreads, loadConversation, selectedId])
+  useVisiblePolling(pollSupport, 10000)
 
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase()

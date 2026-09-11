@@ -4,10 +4,25 @@ from fastapi import APIRouter, Depends, Query
 
 from api.auth import require_staff
 from api.schemas import SeriesPoint, StatsOut, TopProduct
+from shop.entities import OrderStatus
 from shop.repo.base import Repository
 from shop.repo.factory import get_repo
 
 router = APIRouter(dependencies=[Depends(require_staff)])
+
+
+@router.get("/badges")
+async def badges(repo: Repository = Depends(get_repo)):
+    """Легкі лічильники для sidebar панелі.
+
+    Раніше кожна сторінка раз на 30 секунд викликала /summary лише заради
+    orders_new. Це запускало повний розрахунок статистики за 30 днів і ще
+    окремий запит підтримки. Тут рівно два COUNT без часових зрізів.
+    """
+    return {
+        "orders_new": await repo.count_orders(OrderStatus.NEW),
+        "support_unread": await repo.support_unread_count(),
+    }
 
 
 # days=0 — за весь час. Окремий прапорець замість магічного числа зробив би
