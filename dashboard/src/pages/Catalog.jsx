@@ -292,21 +292,119 @@ function CategoryManager({ categories, onClose, onChanged }) {
   )
 }
 
+const SORT_OPTIONS = [
+  ['name-asc', 'За назвою (А → Я)'],
+  ['name-desc', 'За назвою (Я → А)'],
+  ['stock-asc', 'Залишок: спочатку менше'],
+  ['stock-desc', 'Залишок: спочатку більше'],
+  ['price-asc', 'Ціна: спочатку дешевші'],
+  ['price-desc', 'Ціна: спочатку дорожчі'],
+]
+
+function ProductThumb({ product }) {
+  const [failed, setFailed] = useState(false)
+  const initials = product.name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0])
+    .join('')
+    .toUpperCase()
+
+  if (!product.photo_url || failed) {
+    return (
+      <div className="catalog-thumb catalog-thumb-fallback" aria-hidden="true">
+        {initials || '•'}
+      </div>
+    )
+  }
+
+  return (
+    <img
+      className="catalog-thumb"
+      src={product.photo_url}
+      alt=""
+      loading="lazy"
+      onError={() => setFailed(true)}
+    />
+  )
+}
+
+function ProductStatus({ product }) {
+  let tone = 'ok'
+  let label = 'В наявності'
+
+  if (!product.is_active) {
+    tone = 'hidden'
+    label = 'Прихований'
+  } else if (product.stock === 0) {
+    tone = 'bad'
+    label = 'Немає'
+  } else if (product.stock < 5) {
+    tone = 'warn'
+    label = 'Закінчується'
+  }
+
+  return <span className={`catalog-status ${tone}`}>{label}</span>
+}
+
+function productPayload(product, overrides = {}) {
+  return {
+    category_id: Number(product.category_id),
+    name: product.name,
+    description: product.description || null,
+    price: Number(product.price),
+    old_price: product.old_price ? Number(product.old_price) : null,
+    stock: Number(product.stock),
+    photo_url: product.photo_url || null,
+    sort_order: Number(product.sort_order) || 0,
+    is_active: Boolean(product.is_active),
+    ...overrides,
+  }
+}
+
+function sortedCatalog(products, sort) {
+  const list = [...products]
+  const byName = (a, b) => a.name.localeCompare(b.name, 'uk', { sensitivity: 'base' })
+
+  switch (sort) {
+    case 'name-desc': return list.sort((a, b) => -byName(a, b))
+    case 'stock-asc': return list.sort((a, b) => a.stock - b.stock || byName(a, b))
+    case 'stock-desc': return list.sort((a, b) => b.stock - a.stock || byName(a, b))
+    case 'price-asc': return list.sort((a, b) => Number(a.price) - Number(b.price) || byName(a, b))
+    case 'price-desc': return list.sort((a, b) => Number(b.price) - Number(a.price) || byName(a, b))
+    default: return list.sort(byName)
+  }
+}
+
+function paginationNumbers(current, total) {
+  if (total <= 3) return Array.from({ length: total }, (_, index) => index + 1)
+  const start = Math.max(1, Math.min(current - 1, total - 2))
+  return [start, start + 1, start + 2]
+}
+
 export default function Catalog() {
   const notify = useToast()
   const [categories, setCategories] = useState([])
   const [products, setProducts] = useState(null)
-  // Категорія й пошук — в адресі: після правки товару список має лишитись
-  // тим самим, а не скинутись на «усі категорії».
-  const [{ category, search }, setQuery, resetFilters] = useFilters(
-    { category: '', search: '' },
+  // Категорія, пошук і сортування живуть в адресі: менеджер може
+  // повернутися зі сторінки товару або надіслати колезі саме цей відбір.
+  const [{ category, search, sort }, setQuery, resetFilters] = useFilters(
+    { category: '', search: '', sort: 'name-asc' },
   )
   const filter = category
-  const setFilter = (v) => setQuery('category', v)
-  const setSearch = (v) => setQuery('search', v)
+  const setFilter = (value) => setQuery('category', value)
+  const setSearch = (value) => setQuery('search', value)
+  const setSort = (value) => setQuery('sort', value)
+
   const [error, setError] = useState('')
   const [editing, setEditing] = useState(null)
   const [managingCategories, setManagingCategories] = useState(false)
+  const [pageSize, setPageSize] = useState(20)
+  const [page, setPage] = useState(1)
+  const [selected, setSelected] = useState(() => new Set())
+  const [bulkAction, setBulkAction] = useState('')
+  const [bulkBusy, setBulkBusy] = useState(false)
 
   const load = useCallback(async () => {
     setError('')
@@ -327,6 +425,11 @@ export default function Catalog() {
     return () => clearTimeout(timer)
   }, [load, search])
 
+  useEffect(() => {
+    setPage(1)
+    setSelected(new Set())
+  }, [filter, search, sort, pageSize])
+
   const updateStock = async (product, stock) => {
     try {
       const updated = await api.products.setStock(product.id, Math.max(0, stock))
@@ -341,6 +444,11 @@ export default function Catalog() {
     try {
       await api.products.purge(product.id)
       notify('Товар стерто назавжди')
+      setSelected((current) => {
+        const next = new Set(current)
+        next.delete(product.id)
+        return next
+      })
       load()
     } catch (err) {
       notify(err.message, 'bad')
@@ -352,38 +460,151 @@ export default function Catalog() {
     try {
       await api.products.remove(product.id)
       notify('Товар прибрано з каталогу')
+      setSelected((current) => {
+        const next = new Set(current)
+        next.delete(product.id)
+        return next
+      })
       load()
     } catch (err) {
       notify(err.message, 'bad')
     }
   }
 
+  const show = async (product) => {
+    try {
+      const updated = await api.products.update(
+        product.id,
+        productPayload(product, { is_active: true }),
+      )
+      setProducts((list) => list.map((p) => (p.id === updated.id ? updated : p)))
+      notify('Товар повернуто в каталог')
+    } catch (err) {
+      notify(err.message, 'bad')
+    }
+  }
+
+  const ordered = products ? sortedCatalog(products, sort) : []
+  const pageCount = Math.max(1, Math.ceil(ordered.length / pageSize))
+  const safePage = Math.min(page, pageCount)
+  const pageStart = (safePage - 1) * pageSize
+  const visibleProducts = ordered.slice(pageStart, pageStart + pageSize)
+  const visibleIds = visibleProducts.map((p) => p.id)
+  const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selected.has(id))
+
+  useEffect(() => {
+    if (page > pageCount) setPage(pageCount)
+  }, [page, pageCount])
+
+  const toggleSelected = (id) => {
+    setSelected((current) => {
+      const next = new Set(current)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const toggleVisible = () => {
+    setSelected((current) => {
+      const next = new Set(current)
+      const select = !visibleIds.every((id) => next.has(id))
+      visibleIds.forEach((id) => (select ? next.add(id) : next.delete(id)))
+      return next
+    })
+  }
+
+  const runBulk = async () => {
+    if (!bulkAction || selected.size === 0 || bulkBusy) return
+    const chosen = (products || []).filter((p) => selected.has(p.id))
+    if (chosen.length === 0) return
+
+    if (bulkAction === 'hide' && !confirm(
+      `Прибрати з каталогу вибрані товари (${chosen.length} шт)? Історія замовлень збережеться.`,
+    )) return
+
+    setBulkBusy(true)
+    try {
+      if (bulkAction === 'hide') {
+        await Promise.all(chosen.filter((p) => p.is_active).map((p) => api.products.remove(p.id)))
+        notify(`Прибрано товарів: ${chosen.filter((p) => p.is_active).length}`)
+      } else if (bulkAction === 'show') {
+        await Promise.all(chosen.filter((p) => !p.is_active).map((p) => (
+          api.products.update(p.id, productPayload(p, { is_active: true }))
+        )))
+        notify(`Повернуто товарів: ${chosen.filter((p) => !p.is_active).length}`)
+      }
+      setSelected(new Set())
+      setBulkAction('')
+      await load()
+    } catch (err) {
+      notify(err.message, 'bad')
+    } finally {
+      setBulkBusy(false)
+    }
+  }
+
   return (
     <>
-      <div className="page-head">
+      <div className="page-head catalog-page-head">
         <div>
           <h1>Каталог</h1>
           <p>Товари, ціни та залишки — усе, що бачить клієнт у боті</p>
         </div>
-        <div className="row">
-          <button className="btn ghost" onClick={() => setManagingCategories(true)}>Категорії</button>
-          <button className="btn" onClick={() => setEditing({})}>Додати товар</button>
+        <div className="catalog-head-actions">
+          <button
+            className="btn ghost catalog-categories-btn"
+            onClick={() => setManagingCategories(true)}
+            title="Керувати категоріями"
+          >
+            <span className="catalog-categories-wide">Категорії</span>
+            <span className="catalog-categories-short" aria-hidden="true">▦</span>
+          </button>
+          <button className="btn catalog-add-btn" onClick={() => setEditing({})}>
+            <span aria-hidden="true">＋</span>
+            <span className="catalog-add-wide">Додати товар</span>
+            <span className="catalog-add-short">Додати</span>
+          </button>
         </div>
       </div>
 
-      <div className="toolbar">
-        <select className="input" value={filter} onChange={(e) => setFilter(e.target.value)}>
-          <option value="">Усі категорії</option>
-          {categories.map((c) => (
-            <option key={c.id} value={c.id}>{c.name} ({c.products_count})</option>
-          ))}
-        </select>
-        <input
-          className="input"
-          placeholder="Пошук за назвою"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
+      <div className="catalog-toolbar">
+        <label className="catalog-filter catalog-category-filter">
+          <span>Категорія</span>
+          <select className="input" value={filter} onChange={(e) => setFilter(e.target.value)}>
+            <option value="">Усі категорії</option>
+            {categories.map((c) => (
+              <option key={c.id} value={c.id}>{c.name} ({c.products_count})</option>
+            ))}
+          </select>
+        </label>
+
+        <label className="catalog-filter catalog-search-filter">
+          <span>Пошук</span>
+          <div className="catalog-search-box">
+            <span className="catalog-search-icon" aria-hidden="true">⌕</span>
+            <input
+              className="input"
+              placeholder="Пошук за назвою товару..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
+        </label>
+
+        <div className="catalog-toolbar-meta">
+          <span className="catalog-found">
+            Знайдено товарів: <strong>{products?.length ?? '—'}</strong>
+          </span>
+          <label className="catalog-sort">
+            <span className="catalog-sort-title">Сортування</span>
+            <select className="input" value={sort} onChange={(e) => setSort(e.target.value)}>
+              {SORT_OPTIONS.map(([value, label]) => (
+                <option key={value} value={value}>{label}</option>
+              ))}
+            </select>
+          </label>
+        </div>
       </div>
 
       <ErrorBar error={error} />
@@ -406,76 +627,172 @@ export default function Catalog() {
           </Empty>
         )
       ) : (
-        <div className="card" style={{ padding: '18px 6px' }}>
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Товар</th>
-                  <th>Категорія</th>
-                  <th className="num">Ціна</th>
-                  <th className="num">Залишок</th>
-                  <th>Статус</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
-                {products.map((p) => (
-                  <tr key={p.id}>
-                    <td>
-                      {p.name}
-                      {p.description && <div className="faint">{p.description.slice(0, 60)}</div>}
-                    </td>
-                    <td className="muted">{p.category_name}</td>
-                    <td className="num">
-                      {money(p.price)}
-                      {p.old_price && <div className="faint"><s>{money(p.old_price)}</s></div>}
-                    </td>
-                    <td className="num">
-                      <div className="row" style={{ justifyContent: 'flex-end', gap: 4 }}>
-                        <button className="btn ghost small" onClick={() => updateStock(p, p.stock - 1)}>−</button>
-                        <span className="mono" style={{ minWidth: 32, textAlign: 'center' }}>{p.stock}</span>
-                        <button className="btn ghost small" onClick={() => updateStock(p, p.stock + 1)}>+</button>
-                      </div>
-                    </td>
-                    <td>
-                      {!p.is_active ? (
-                        <span className="chip">Прихований</span>
-                      ) : p.stock === 0 ? (
-                        <span className="chip bad">Немає</span>
-                      ) : p.stock < 5 ? (
-                        <span className="chip warn">Закінчується</span>
-                      ) : (
-                        <span className="chip ok">В наявності</span>
-                      )}
-                    </td>
-                    <td>
-                      <div className="row">
-                        <button className="btn ghost small" onClick={() => setEditing(p)}>Змінити</button>
-                        {p.is_active && (
-                          <button
-                            className="btn danger small"
-                            onClick={() => hide(p)}
-                            title="Зникне з бота, лишиться в історії"
-                          >
-                            Прибрати
-                          </button>
-                        )}
-                        <button
-                          className="btn danger small"
-                          onClick={() => purgeProduct(p)}
-                          title="Стерти з бази назавжди. Необоротно"
-                        >
-                          Стерти
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+        <section className="catalog-panel" aria-label="Список товарів">
+          <div className="catalog-list-head">
+            <label className="catalog-check">
+              <input
+                type="checkbox"
+                checked={allVisibleSelected}
+                onChange={toggleVisible}
+                aria-label="Вибрати товари на цій сторінці"
+              />
+            </label>
+            <span>Товар</span>
+            <span>Категорія</span>
+            <span>Ціна</span>
+            <span>Залишок</span>
+            <span>Статус</span>
+            <span>Дії</span>
           </div>
-        </div>
+
+          <div className="catalog-list">
+            {visibleProducts.map((p) => (
+              <article className="catalog-product" key={p.id}>
+                <label className="catalog-check catalog-row-check">
+                  <input
+                    type="checkbox"
+                    checked={selected.has(p.id)}
+                    onChange={() => toggleSelected(p.id)}
+                    aria-label={`Вибрати ${p.name}`}
+                  />
+                </label>
+
+                <div className="catalog-product-main">
+                  <ProductThumb product={p} />
+                  <div className="catalog-product-copy">
+                    <strong title={p.name}>{p.name}</strong>
+                    {p.description && <p>{p.description}</p>}
+                    <span className="catalog-mobile-category">{p.category_name}</span>
+                  </div>
+                </div>
+
+                <div className="catalog-category muted">{p.category_name}</div>
+
+                <div className="catalog-price">
+                  <strong>{money(p.price)}</strong>
+                  {p.old_price && <s>{money(p.old_price)}</s>}
+                </div>
+
+                <div className="catalog-stock" aria-label={`Залишок ${p.stock}`}>
+                  <button
+                    className="catalog-stepper"
+                    onClick={() => updateStock(p, p.stock - 1)}
+                    disabled={p.stock <= 0}
+                    aria-label={`Зменшити залишок ${p.name}`}
+                  >
+                    −
+                  </button>
+                  <span className="mono">{p.stock}</span>
+                  <button
+                    className="catalog-stepper"
+                    onClick={() => updateStock(p, p.stock + 1)}
+                    aria-label={`Збільшити залишок ${p.name}`}
+                  >
+                    +
+                  </button>
+                </div>
+
+                <div className="catalog-status-cell">
+                  <ProductStatus product={p} />
+                </div>
+
+                <div className="catalog-actions">
+                  <button className="btn small catalog-edit" onClick={() => setEditing(p)}>
+                    <span aria-hidden="true">✎</span> Змінити
+                  </button>
+                  {p.is_active ? (
+                    <button
+                      className="btn ghost small catalog-visibility"
+                      onClick={() => hide(p)}
+                      title="Зникне з бота, лишиться в історії"
+                    >
+                      Прибрати
+                    </button>
+                  ) : (
+                    <button
+                      className="btn ghost small catalog-visibility"
+                      onClick={() => show(p)}
+                    >
+                      Показати
+                    </button>
+                  )}
+                  <button
+                    className="btn danger small catalog-delete"
+                    onClick={() => purgeProduct(p)}
+                    title="Стерти з бази назавжди. Необоротно"
+                  >
+                    Стерти
+                  </button>
+                </div>
+              </article>
+            ))}
+          </div>
+
+          <footer className="catalog-footer">
+            <div className="catalog-bulk">
+              <span>Вибрано: <strong>{selected.size}</strong></span>
+              <select
+                className="input"
+                value={bulkAction}
+                onChange={(e) => setBulkAction(e.target.value)}
+                disabled={selected.size === 0}
+              >
+                <option value="">Дія з вибраними</option>
+                <option value="hide">Прибрати з каталогу</option>
+                <option value="show">Показати в каталозі</option>
+              </select>
+              <button
+                className="btn ghost small"
+                disabled={!bulkAction || selected.size === 0 || bulkBusy}
+                onClick={runBulk}
+              >
+                {bulkBusy ? 'Виконую…' : 'Застосувати'}
+              </button>
+            </div>
+
+            <div className="catalog-pagination">
+              <label>
+                <span>Показати:</span>
+                <select
+                  className="input"
+                  value={pageSize}
+                  onChange={(e) => setPageSize(Number(e.target.value))}
+                >
+                  <option value={10}>10</option>
+                  <option value={20}>20</option>
+                  <option value={50}>50</option>
+                </select>
+              </label>
+              <button
+                className="catalog-page-btn"
+                disabled={safePage <= 1}
+                onClick={() => setPage((value) => Math.max(1, value - 1))}
+                aria-label="Попередня сторінка"
+              >
+                ‹
+              </button>
+              {paginationNumbers(safePage, pageCount).map((number) => (
+                <button
+                  key={number}
+                  className={`catalog-page-btn catalog-page-number ${safePage === number ? 'active' : ''}`}
+                  onClick={() => setPage(number)}
+                >
+                  {number}
+                </button>
+              ))}
+              {pageCount > 3 && <span className="catalog-page-more">…</span>}
+              <button
+                className="catalog-page-btn"
+                disabled={safePage >= pageCount}
+                onClick={() => setPage((value) => Math.min(pageCount, value + 1))}
+                aria-label="Наступна сторінка"
+              >
+                ›
+              </button>
+              <span className="catalog-total">з {ordered.length} товарів</span>
+            </div>
+          </footer>
+        </section>
       )}
 
       {editing && (
