@@ -79,28 +79,52 @@ for payment in (CARD, COD):
             f"{payment}: зі спадкового «Підтверджене» є вихід уперед")
 
 print("\n--- кнопки під замовленням ---")
-def buttons(payment):
-    markup = kb.admin_order(1, payment)
+def buttons(payment, status):
+    markup = kb.admin_order(1, payment, status)
+    if markup is None:
+        return []
     return [b.callback_data.rsplit(":", 1)[1]
             for row in markup.inline_keyboard for b in row]
 
-card_btn, cod_btn = buttons(CARD), buttons(COD)
-r.check("paid" in card_btn, "картка: кнопка «Оплачено» є", card_btn)
-r.check("paid" not in cod_btn,
-        "накладений платіж: кнопки «Оплачено» немає — вона лише дала б відмову",
-        cod_btn)
-r.check("confirmed" not in card_btn and "confirmed" not in cod_btn,
-        "кнопки «Підтвердити» немає в жодному наборі", card_btn + cod_btn)
-for needed in ("accepted", "shipped", "done", "cancelled"):
-    r.check(needed in cod_btn, f"накладений платіж: є «{needed}»", cod_btn)
-    r.check(needed in card_btn, f"картка: є «{needed}»", card_btn)
-
-print("\n--- кожна кнопка веде до дозволеного переходу ---")
-# Інакше менеджер тисне й отримує помилку замість дії.
-for payment, names in ((CARD, card_btn), (COD, cod_btn)):
+# Клавіатура тепер контекстна: старий варіант показував усі статуси відразу,
+# через що callback дозволяв зробити shipped -> paid -> shipped (це видно в
+# продакшн-лозі 06.09). Під кожним станом мають лишатися тільки переходи,
+# які дозволяє той самий route_for, що й API панелі.
+for payment in (CARD, COD):
     route = route_for(payment)
-    reachable = {s.value for targets in route.values() for s in targets}
-    unusable = [n for n in names if n not in reachable]
-    r.check(not unusable, f"{payment}: усі кнопки досяжні", unusable)
+    for status, allowed in route.items():
+        shown = set(buttons(payment, status))
+        expected = {target.value for target in allowed}
+        r.check(shown == expected,
+                f"{payment}/{status.value}: кнопки точно відповідають маршруту",
+                {"shown": sorted(shown), "expected": sorted(expected)})
+
+card_new = buttons(CARD, OrderStatus.NEW)
+cod_new = buttons(COD, OrderStatus.NEW)
+r.check(card_new == ["accepted", "cancelled"],
+        "нове/картка: лише прийняти або скасувати", card_new)
+r.check(cod_new == ["accepted", "cancelled"],
+        "нове/накладений: лише прийняти або скасувати", cod_new)
+
+card_accepted = buttons(CARD, OrderStatus.ACCEPTED)
+cod_accepted = buttons(COD, OrderStatus.ACCEPTED)
+r.check("paid" in card_accepted and "shipped" not in card_accepted,
+        "картка: після прийняття спочатку оплата", card_accepted)
+r.check("paid" not in cod_accepted and "shipped" in cod_accepted,
+        "накладений: після прийняття одразу відправлення", cod_accepted)
+
+r.check(buttons(CARD, OrderStatus.DONE) == [],
+        "виконане замовлення більше не має активних кнопок")
+r.check(buttons(CARD, OrderStatus.CANCELLED) == [],
+        "скасоване замовлення більше не має активних кнопок")
+
+print("\n--- бот не обходить правила панелі ---")
+_admin = open("bot/handlers/admin.py", encoding="utf-8").read()
+r.check("transition_error(order.status, status, order.payment_method)" in _admin,
+        "callback перевіряє той самий маршрут, що й API")
+r.check("status == OrderStatus.SHIPPED and not tracking" in _admin,
+        "через кнопку не можна поставити «Відправлено» без ТТН")
+r.check("order.status == status" in _admin,
+        "повторне натискання не шле клієнту дубль повідомлення")
 
 r.done()

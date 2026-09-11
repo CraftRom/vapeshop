@@ -1016,13 +1016,31 @@ async def checkout(
             confirmation += "\n\n" + texts.PAYMENT_INFO.format(
                 total=f"{order.total:.0f}", currency=shop.currency,
             )
-        await bot.send_message(user.tg_id, confirmation)
-    except Exception:
+
+        if user.bot_reachable is False:
+            log.info(
+                "Підтвердження №%s не надсилається: чат клієнта недоступний",
+                order.id,
+                extra={"event": "order.confirmation.skipped_unreachable",
+                       "orderId": order.id, "clientId": user.tg_id},
+            )
+        else:
+            await bot.send_message(user.tg_id, confirmation)
+            await repo.set_bot_reachable(user.tg_id, True)
+    except Exception as exc:
         # Замовлення вже прийнято, і провал сповіщення його не скасовує.
         # Але покупець лишився без реквізитів, тож це попередження, а не
         # мовчазний пропуск.
+        from shop.services.status_messages import is_permanent_delivery_error
+
+        if is_permanent_delivery_error(exc):
+            await repo.set_bot_reachable(user.tg_id, False)
         log.warning("Замовлення №%s: покупець не отримав підтвердження",
-                    order.id, exc_info=True)
+                    order.id,
+                    extra={"event": "order.confirmation.failed",
+                           "orderId": order.id, "clientId": user.tg_id,
+                           "permanent": is_permanent_delivery_error(exc)},
+                    exc_info=True)
     return CheckoutOut(
         order_id=order.id, total=order.total, payment_method=order.payment_method,
         # Реквізити вітрині більше не віддаються: їх надсилає менеджер у

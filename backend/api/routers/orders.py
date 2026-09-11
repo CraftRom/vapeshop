@@ -11,7 +11,7 @@ from shop.repo.base import Repository
 from shop.repo.factory import get_repo
 from shop.services.order_chat import send_tracking_update, announce_accepted, send_to_client, send_tracking
 from shop.services.shop_service import change_order_status, transition_error
-from shop.telegram import notify_user
+from shop.telegram import notify_user_detailed
 
 log = logging.getLogger(__name__)
 
@@ -167,6 +167,18 @@ async def patch_order(
             await announce_accepted(bot, repo, fresh, fresh.operator_name)
         elif data.status == OrderStatus.SHIPPED and bot and fresh:
             await send_tracking(bot, repo, fresh, tracking)
+        elif order.user and order.user.bot_reachable is False:
+            # Після постійної відмови Bot API повторювати той самий запит на
+            # кожен наступний статус немає сенсу. Будь-яке нове приватне
+            # повідомлення користувача боту повертає прапорець у True через
+            # RepositoryMiddleware.
+            log.info(
+                "Сповіщення по замовленню %s пропущено: чат клієнта недоступний",
+                order.id,
+                extra={"event": "order.notify.skipped_unreachable",
+                       "orderId": order.id, "clientId": order.user.tg_id,
+                       "status": data.status.value},
+            )
         elif order.user:
             # Розгорнутий текст замість «статус змінено на …»: клієнт має
             # дізнатися, що сталося, що буде далі й чи потрібна його дія.
@@ -176,16 +188,22 @@ async def patch_order(
 
             shop = await get_shop_settings(repo)
             text = compose(fresh or order, data.status, shop)
-            delivered = await notify_user(
+            delivery = await notify_user_detailed(
                 order.user.tg_id,
                 text or f"Замовлення №{order.id}: статус — "
                         f"«{STATUS_LABELS[data.status]}».",
             )
-            # Памʼятаємо результат: за ним вітрина покаже людині, що
-            # їй нікуди писати, а панель — попередить менеджера ще до
-            # того, як він натисне «Відправлено».
-            await repo.set_bot_reachable(order.user.tg_id, delivered)
-            if not delivered:
+            # Успішна доставка підтверджує зв'язок. Постійна відмова
+            # («chat not found», blocked, deactivated) — навпаки. Але
+            # timeout/502/429 не змінюють довгоживучий стан клієнта:
+            # Telegram міг упасти на хвилину, а панель раніше трактувала
+            # це так, ніби користувач заблокував бота назавжди.
+            if delivery.delivered:
+                await repo.set_bot_reachable(order.user.tg_id, True)
+            elif delivery.permanent:
+                await repo.set_bot_reachable(order.user.tg_id, False)
+
+            if not delivery.delivered:
                 # Раніше відповідь просто відкидалась: менеджер міняв
                 # статус із панелі, бачив «збережено» і вважав, що клієнта
                 # сповіщено. У журналі не лишалось нічого — на відміну від
@@ -197,7 +215,9 @@ async def patch_order(
                     order.id,
                     extra={"event": "order.notify.failed", "orderId": order.id,
                            "clientId": order.user.tg_id,
-                           "status": data.status.value},
+                           "status": data.status.value,
+                           "permanent": delivery.permanent,
+                           "deliveryError": delivery.error or "unknown"},
                 )
 
     return await repo.get_order(order_id)

@@ -7,6 +7,8 @@ from aiogram.types import (
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from shop.links import app_link, chat_link, share_link
+from shop.entities import OrderStatus
+from shop.services.shop_service import route_for
 from shop.services.shop_settings import current
 from shop.models import CartItem, Category, Product
 
@@ -247,28 +249,50 @@ def profile(referral_link: str) -> InlineKeyboardMarkup:
     )
 
 
-def admin_order(order_id: int, payment_method: str | None = None) -> InlineKeyboardMarkup:
+def admin_order(
+    order_id: int,
+    payment_method: str | None = None,
+    status: OrderStatus | str | None = None,
+) -> InlineKeyboardMarkup | None:
     """Кнопки статусів під замовленням.
 
-    Набір залежить від оплати: при накладеному платежі «Оплачено» не
-    показуємо взагалі. Кнопка, натискання якої повертає відмову, гірша за
-    її відсутність — менеджер тисне й отримує помилку замість дії.
+    Показуємо лише переходи, дозволені *з поточного статусу*. Раніше під
+    кожним замовленням постійно висіли «Прийнято / Оплачено / Відправлено /
+    Виконано / Скасувати», а bot/handlers/admin.py взагалі не перевіряв
+    маршрут. У живому журналі це дало неможливий ланцюжок
+    ``shipped -> paid -> shipped`` за 23 секунди.
+
+    ``status=None`` лишає сумісність зі старими викликами й означає NEW.
+    Після фінального статусу клавіатури немає: старі кнопки не повинні
+    дозволяти повертати виконане замовлення назад.
     """
-    # «Підтвердити» більше немає: крок прибрано з маршруту, а замовлення
-    # приймається саме, щойно менеджер відкриє його в панелі. Кнопка
-    # лишалась би єдиним способом повернути стан, якого вже не існує.
-    first = [InlineKeyboardButton(text="Прийнято", callback_data=f"ao:{order_id}:accepted")]
-    if payment_method != "cod":
-        first.append(
-            InlineKeyboardButton(text="Оплачено", callback_data=f"ao:{order_id}:paid"))
-    rows = [first]
+    try:
+        current_status = status if isinstance(status, OrderStatus) else OrderStatus(status or "new")
+    except ValueError:
+        current_status = OrderStatus.NEW
 
-    rows.append([
-        InlineKeyboardButton(text="Відправлено", callback_data=f"ao:{order_id}:shipped"),
-    ])
+    allowed = route_for(payment_method).get(current_status, set())
+    if not allowed:
+        return None
 
-    rows.append([
-        InlineKeyboardButton(text="Виконано", callback_data=f"ao:{order_id}:done"),
-        InlineKeyboardButton(text="Скасувати", callback_data=f"ao:{order_id}:cancelled"),
-    ])
-    return InlineKeyboardMarkup(inline_keyboard=rows)
+    labels = {
+        OrderStatus.ACCEPTED: "Прийнято",
+        OrderStatus.PAID: "Оплачено",
+        OrderStatus.SHIPPED: "Відправлено",
+        OrderStatus.DONE: "Виконано",
+        OrderStatus.CANCELLED: "Скасувати",
+    }
+    order = (
+        OrderStatus.ACCEPTED,
+        OrderStatus.PAID,
+        OrderStatus.SHIPPED,
+        OrderStatus.DONE,
+        OrderStatus.CANCELLED,
+    )
+    buttons = [
+        InlineKeyboardButton(
+            text=labels[target], callback_data=f"ao:{order_id}:{target.value}"
+        )
+        for target in order if target in allowed
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=[buttons])

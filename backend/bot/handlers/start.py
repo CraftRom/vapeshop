@@ -41,12 +41,12 @@ async def cmd_start(
 
     # Реферальне посилання: t.me/bot?start=ABCD1234
     payload = command.args if command else None
-    # Людина написала боту — отже, чат існує й повідомлення дійдуть.
-    # Скидаємо позначку тут, а не лише при вдалій відправці: інакше вона
-    # висіла б до наступної зміни статусу, і вітрина ще довго просила б
-    # зробити те, що вже зроблено.
+    # RepositoryMiddleware уже скидає позначку на будь-якому приватному
+    # апдейті. Перевірка лишається як страховка для прямого виклику хендлера
+    # в тесті або майбутнього режиму без цього middleware.
     if not user.bot_reachable:
         await repo.set_bot_reachable(user.tg_id, True)
+        user.bot_reachable = True
 
     if payload and not user.referrer_id:
         referrer = await repo.get_user_by_referral_code(payload.strip())

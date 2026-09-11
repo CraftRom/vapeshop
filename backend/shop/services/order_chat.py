@@ -18,6 +18,7 @@ from aiogram.types import (
 
 from shop.entities import Order, OrderStatus
 from shop.repo.base import Repository
+from shop.services.status_messages import is_permanent_delivery_error
 
 log = logging.getLogger(__name__)
 
@@ -32,6 +33,20 @@ OPEN_STATUSES = (
 # упирався б у «немає активних замовлень» — саме тоді, коли питання
 # найімовірніші: недостача, брак, повернення.
 CLOSED_GRACE_DAYS = 7
+
+
+async def _remember_delivery(repo: Repository, user, delivered: bool, error=None) -> None:
+    """Оновлює довгоживучу ознаку зв'язку лише коли висновок надійний.
+
+    Успішна відправка точно означає, що чат доступний. Невдача означає
+    недоступність лише для постійних відповідей Bot API на кшталт
+    ``chat not found`` / ``blocked``. 502, timeout, reset і flood control
+    нічого не говорять про самого клієнта й не повинні ставити False.
+    """
+    if delivered:
+        await repo.set_bot_reachable(user.tg_id, True)
+    elif error is not None and is_permanent_delivery_error(error):
+        await repo.set_bot_reachable(user.tg_id, False)
 
 
 def esc(value) -> str:
@@ -77,6 +92,14 @@ async def announce_accepted(
     user = order.user or await repo.get_user(order.user_id)
     if not user:
         return False
+    if user.bot_reachable is False:
+        log.info(
+            "Сповіщення про прийняття №%s пропущено: чат клієнта недоступний",
+            order.id,
+            extra={"event": "order.notify.skipped_unreachable", "orderId": order.id,
+                   "clientId": user.tg_id, "status": OrderStatus.ACCEPTED.value},
+        )
+        return False
 
     who = esc(operator_name)
     if who:
@@ -94,9 +117,18 @@ async def announce_accepted(
     )
     try:
         sent = await bot.send_message(user.tg_id, text, reply_markup=chat_keyboard(order.id))
-    except Exception:
-        log.warning("Не вдалося повідомити про прийняття №%s", order.id, exc_info=True)
+    except Exception as exc:
+        await _remember_delivery(repo, user, False, exc)
+        log.warning(
+            "Не вдалося повідомити про прийняття №%s", order.id,
+            extra={"event": "order.notify.failed", "orderId": order.id,
+                   "clientId": user.tg_id, "status": OrderStatus.ACCEPTED.value,
+                   "permanent": is_permanent_delivery_error(exc)},
+            exc_info=True,
+        )
         return False
+
+    await _remember_delivery(repo, user, True)
 
     await repo.add_order_message({
         "order_id": order.id, "user_id": order.user_id, "direction": "out",
@@ -114,6 +146,14 @@ async def send_to_client(
     if not user:
         log.warning("Замовлення №%s без клієнта — нікому писати", order.id)
         return False
+    if user.bot_reachable is False:
+        log.info(
+            "Повідомлення менеджера по №%s пропущено: чат клієнта недоступний",
+            order.id,
+            extra={"event": "order.chat.delivery.skipped", "orderId": order.id,
+                   "clientId": user.tg_id},
+        )
+        return False
 
     signature = f"\n\n<i>{esc(author)}</i>" if author else ""
     try:
@@ -128,10 +168,19 @@ async def send_to_client(
             f"{_header(order.id)}\n\n{esc(text)}{signature}",
             reply_markup=markup,
         )
-    except Exception:
-        log.warning("Не вдалося доставити повідомлення клієнту (замовлення №%s)",
-                    order.id, exc_info=True)
+    except Exception as exc:
+        await _remember_delivery(repo, user, False, exc)
+        log.warning(
+            "Не вдалося доставити повідомлення клієнту (замовлення №%s)",
+            order.id,
+            extra={"event": "order.chat.delivery.failed", "orderId": order.id,
+                   "clientId": user.tg_id,
+                   "permanent": is_permanent_delivery_error(exc)},
+            exc_info=True,
+        )
         return False
+
+    await _remember_delivery(repo, user, True)
 
     await repo.add_order_message({
         "order_id": order.id, "user_id": order.user_id, "direction": "out",
@@ -146,6 +195,14 @@ async def send_tracking(bot, repo: Repository, order: Order, tracking: str) -> b
     user = order.user or await repo.get_user(order.user_id)
     if not user:
         return False
+    if user.bot_reachable is False:
+        log.info(
+            "ТТН по №%s не надсилається: чат клієнта недоступний",
+            order.id,
+            extra={"event": "order.notify.skipped_unreachable", "orderId": order.id,
+                   "clientId": user.tg_id, "status": OrderStatus.SHIPPED.value},
+        )
+        return False
 
     text = (
         f"📦 <b>Замовлення №{order.id} відправлено</b>\n\n"
@@ -154,9 +211,18 @@ async def send_tracking(bot, repo: Repository, order: Order, tracking: str) -> b
     )
     try:
         sent = await bot.send_message(user.tg_id, text, reply_markup=chat_keyboard(order.id))
-    except Exception:
-        log.warning("Не вдалося надіслати ТТН по замовленню №%s", order.id, exc_info=True)
+    except Exception as exc:
+        await _remember_delivery(repo, user, False, exc)
+        log.warning(
+            "Не вдалося надіслати ТТН по замовленню №%s", order.id,
+            extra={"event": "order.notify.failed", "orderId": order.id,
+                   "clientId": user.tg_id, "status": OrderStatus.SHIPPED.value,
+                   "permanent": is_permanent_delivery_error(exc)},
+            exc_info=True,
+        )
         return False
+
+    await _remember_delivery(repo, user, True)
 
     await repo.add_order_message({
         "order_id": order.id, "user_id": order.user_id, "direction": "out",
@@ -185,6 +251,14 @@ async def send_tracking_update(bot, repo: Repository, order: Order, tracking: st
     user = order.user or await repo.get_user(order.user_id)
     if not user:
         return False
+    if user.bot_reachable is False:
+        log.info(
+            "Оновлення ТТН №%s не надсилається: чат клієнта недоступний",
+            order.id,
+            extra={"event": "order.tracking.delivery.skipped", "orderId": order.id,
+                   "clientId": user.tg_id},
+        )
+        return False
     try:
         sent = await bot.send_message(
             user.tg_id,
@@ -193,9 +267,18 @@ async def send_tracking_update(bot, repo: Repository, order: Order, tracking: st
             "Попередній номер більше не актуальний.",
             reply_markup=chat_keyboard(order.id),
         )
-    except Exception:
-        log.warning("Не вдалося повідомити про заміну ТТН №%s", order.id, exc_info=True)
+    except Exception as exc:
+        await _remember_delivery(repo, user, False, exc)
+        log.warning(
+            "Не вдалося повідомити про заміну ТТН №%s", order.id,
+            extra={"event": "order.tracking.delivery.failed", "orderId": order.id,
+                   "clientId": user.tg_id,
+                   "permanent": is_permanent_delivery_error(exc)},
+            exc_info=True,
+        )
         return False
+
+    await _remember_delivery(repo, user, True)
 
     await repo.add_order_message({
         "order_id": order.id, "user_id": order.user_id, "direction": "out",

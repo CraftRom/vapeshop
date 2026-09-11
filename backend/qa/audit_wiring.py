@@ -545,8 +545,14 @@ check("unlink(missing_ok=True)" in read("backend/qa/qa_common.py"),
 _admin_bot = read("backend/bot/handlers/admin.py")
 check("order.notify.failed" in _admin_bot,
       "недоставлене сповіщення клієнту не ковтається мовчки")
-check("show_alert=True" in _admin_bot.split("order.notify.failed")[1][:700],
+check("_warn_delivery" in _admin_bot and "show_alert=True" in _admin_bot,
       "менеджер бачить, що клієнт не отримав повідомлення")
+check("transition_error(order.status, status, order.payment_method)" in _admin_bot,
+      "кнопки бота не обходять маршрут статусів панелі")
+check("status == OrderStatus.SHIPPED and not tracking" in _admin_bot,
+      "бот не ставить «Відправлено» без номера накладної")
+check("order.notify.skipped_unreachable" in _admin_bot,
+      "після chat not found бот не повторює безглузду доставку на кожен статус")
 # Та сама невдача з панелі раніше не лишала нічого: відповідь Telegram
 # просто відкидалась, і менеджер вважав, що клієнта сповіщено.
 check("order.notify.failed" in read("backend/api/routers/orders.py"),
@@ -556,6 +562,13 @@ check("order.notify.failed" in read("backend/api/routers/orders.py"),
 check("set_bot_reachable" in read("backend/api/routers/orders.py")
       and "set_bot_reachable" in _admin_bot,
       "результат доставки запамʼятовується")
+check("delivery.permanent" in read("backend/api/routers/orders.py"),
+      "тимчасовий 502/timeout не позначає клієнта недоступним")
+_bot_main = read("backend/bot/__main__.py")
+check("drop_pending_updates=False" in _bot_main,
+      "рестарт polling не викидає накопичені повідомлення")
+check("BackoffConfig" in _bot_main and "min_delay=5.0" in _bot_main,
+      "після flood/network error polling не молотить Telegram щосекунди")
 check("bot_reachable" in read("miniapp/src/screens/Profile.jsx"),
       "клієнт бачить попередження у вітрині")
 check("bot_reachable" in read("dashboard/src/pages/OrderPage.jsx"),

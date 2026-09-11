@@ -39,6 +39,15 @@ class RepositoryMiddleware(BaseMiddleware):
                 user, is_new = await get_or_create_user(
                     repo, tg_user.id, tg_user.username, tg_user.first_name
                 )
+                # Будь-який апдейт із приватного чату доводить, що чат з
+                # ботом знову існує. Раніше прапорець скидався лише на
+                # /start: користувач міг розблокувати бота й написати
+                # звичайне «привіт», але система продовжувала вважати його
+                # недоступним і пропускала наступні сповіщення.
+                chat = data.get("event_chat")
+                if chat is not None and chat.type == "private" and not user.bot_reachable:
+                    await repo.set_bot_reachable(user.tg_id, True)
+                    user.bot_reachable = True
                 data["user"] = user
                 data["is_new_user"] = is_new
             return await handler(event, data)

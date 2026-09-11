@@ -255,7 +255,7 @@ async def receive_receipt(message: Message, state: FSMContext, repo: Repository)
                 current().admin_chat_id,
                 message.photo[-1].file_id,
                 caption=f"Квитанція до замовлення №{order.id}",
-                reply_markup=kb.admin_order(order.id, order.payment_method),
+                reply_markup=kb.admin_order(order.id, order.payment_method, order.status),
                 **topic_kwargs(current().admin_topic_id),
             )
     await state.clear()

@@ -209,17 +209,13 @@ r.check(ins["cancelled"]["orders"] not in
 print("\n[зв'язок] чи дійдуть повідомлення клієнту")
 # У Mini App можна зайти з групи, купити й жодного разу не натиснути
 # «Старт». Приватного чату з ботом тоді немає, Telegram відповідає
-# «chat not found», і магазин виглядає мовчазним: ні статусів, ні
-# реквізитів. Раніше про це не знав ніхто — ні клієнт, ні менеджер.
+# «chat not found». Але test runner без справжнього Telegram може дати й
+# timeout/connection error. Це принципово різні випадки: тимчасова мережа
+# більше не повинна помилково ставити bot_reachable=False.
 me = c.get("/api/shop/profile", headers=H).json()
 r.check("bot_reachable" in me, "вітрина знає стан звʼязку з клієнтом")
-# У цьому сценарії справжнього бота немає, тож сповіщення про зміну
-# статусу вище вже не дійшло — і саме тому позначка зараз знята. Це не
-# побічний ефект тесту, а те, заради чого позначка існує.
-r.check(me["bot_reachable"] is False,
-        "невдала доставка лишає слід", me["bot_reachable"])
 r.check(me["bot_link"].startswith("https://t.me/") or me["bot_link"] == "",
-        "у попередженні є куди натиснути", me["bot_link"])
+        "профіль знає посилання на бота", me["bot_link"])
 
 
 import asyncio as _aio                                              # noqa: E402
@@ -231,22 +227,18 @@ async def _mark(state):
         await repo.set_bot_reachable(8001, state)
 
 
+# Імітуємо саме постійну відмову Bot API (chat not found/blocked), не
+# покладаючись на те, яка мережа доступна в QA-середовищі.
+_aio.run(_mark(False))
+me = c.get("/api/shop/profile", headers=H).json()
+r.check(me["bot_reachable"] is False, "постійна недоставка лишає слід")
+r.check(me["bot_link"].startswith("https://t.me/") or me["bot_link"] == "",
+        "у попередженні є куди натиснути", me["bot_link"])
+
 _aio.run(_mark(True))
 me = c.get("/api/shop/profile", headers=H).json()
 r.check(me["bot_reachable"] is True,
         "коли звʼязок відновлено, попередження зникає: інакше воно висіло б "
         "у того, в кого вже все працює")
-
-async def _mark():
-    from shop.repo.factory import open_repo
-    async with open_repo() as repo:
-        await repo.set_bot_reachable(8001, False)
-
-import asyncio as _aio
-_aio.run(_mark())
-me = c.get("/api/shop/profile", headers=H).json()
-r.check(me["bot_reachable"] is False, "невдала доставка лишає слід")
-r.check(me["bot_link"].startswith("https://t.me/") or me["bot_link"] == "",
-        "у попередженні є куди натиснути", me["bot_link"])
 
 sys.exit(1 if r.done() else 0)

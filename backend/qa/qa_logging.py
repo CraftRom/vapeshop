@@ -233,13 +233,15 @@ print("\n--- недоставлене сповіщення видно звіду
 # невдача не лишала нічого: відповідь Telegram просто відкидалась.
 import pathlib                                                       # noqa: E402
 
-from shop.services.status_messages import undelivered_reason        # noqa: E402
+from shop.services.status_messages import (                         # noqa: E402
+    is_permanent_delivery_error, undelivered_reason,
+)
 
 _panel = pathlib.Path("api/routers/orders.py").read_text()
 r.check("order.notify.failed" in _panel,
         "панель записує ту саму подію, що й чат")
-r.check("delivered = await notify_user" in _panel,
-        "відповідь про доставку перевіряється, а не відкидається")
+r.check("notify_user_detailed" in _panel and "delivery.permanent" in _panel,
+        "панель відрізняє постійну недоступність від тимчасового збою")
 
 _chat = pathlib.Path("bot/handlers/admin.py").read_text()
 r.check("order.notify.failed" in _chat, "чат записує її ж")
@@ -256,5 +258,13 @@ r.check("телефон" in undelivered_reason(
         "«заблокував» веде до телефону")
 r.check("ще раз" in undelivered_reason(Exception("Bad Gateway")),
         "тимчасовий збій не виглядає як вирок")
+r.check(is_permanent_delivery_error(Exception("Bad Request: chat not found")),
+        "chat not found позначається як постійна недоступність")
+r.check(is_permanent_delivery_error(Exception("bot was blocked by the user")),
+        "blocked позначається як постійна недоступність")
+for _temporary in ("Bad Gateway", "Request timeout error",
+                   "Connection reset by peer", "Too Many Requests"):
+    r.check(not is_permanent_delivery_error(Exception(_temporary)),
+            f"{_temporary}: тимчасовий збій не вимикає клієнта")
 
 r.done()

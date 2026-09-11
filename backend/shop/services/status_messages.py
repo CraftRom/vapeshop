@@ -15,6 +15,33 @@ from __future__ import annotations
 from shop.entities import Order, OrderStatus
 
 
+# Помилки нижче означають не «Telegram зараз лежить», а те, що цьому
+# користувачеві бот принципово не може написати, доки людина сама не
+# відкриє/розблокує чат. Важливо не змішувати їх із timeout/502/429:
+# тимчасовий збій Telegram не повинен назавжди позначати клієнта як
+# недоступного.
+_PERMANENT_DELIVERY_MARKERS = (
+    "chat not found",
+    "bot was blocked by the user",
+    "user is deactivated",
+    "bot can't initiate conversation with a user",
+    "bot cannot initiate conversation with a user",
+)
+
+
+def is_permanent_delivery_error(error: object) -> bool:
+    """Чи вимагає помилка дії від самого клієнта, а не простого retry.
+
+    У логах 2026-09-06 три спроби поспіль дали ``chat not found`` для
+    одного й того самого замовлення. Після першої такої відповіді повторні
+    запити до Telegram безглузді: чат не з'явиться, доки користувач сам не
+    відкриє бота. Натомість ``Bad Gateway``, timeout, reset і flood control
+    з тих самих логів — тимчасові та не мають псувати ``bot_reachable``.
+    """
+    text = str(error).lower()
+    return any(marker in text for marker in _PERMANENT_DELIVERY_MARKERS)
+
+
 def _money(value, currency: str) -> str:
     return f"{value:.0f} {currency}"
 
@@ -96,6 +123,8 @@ def undelivered_reason(error: object) -> str:
     if "chat not found" in text:
         return ("клієнт жодного разу не відкривав чат із ботом — "
                 "напишіть йому в стрічку замовлення, там повідомлення дійде")
-    if "blocked" in text or "deactivated" in text:
+    if ("blocked" in text or "deactivated" in text
+            or "can't initiate conversation" in text
+            or "cannot initiate conversation" in text):
         return "клієнт заблокував бота або видалив акаунт — лишається телефон"
     return "Telegram не прийняв повідомлення — спробуйте ще раз за хвилину"
