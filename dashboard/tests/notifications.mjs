@@ -17,7 +17,7 @@ const check = (ok, label) => {
   console.log(`  ${ok ? '✓' : '✗'} ${label}`)
 }
 
-console.log('\n--- центр браузерних сповіщень 1.31.7 ---')
+console.log('\n--- центр браузерних сповіщень 1.31.8 ---')
 check(app.includes("import { NotificationCenter }") && app.includes('<NotificationCenter />'), 'центр сповіщень підключений глобально в панелі')
 check(api.includes("request('/notifications/poll'") && api.includes("request('/notifications/read-all'"), 'frontend має poll/read API центру')
 check(center.includes("'product.created'") && center.includes("tone: 'product'"), 'новий товар має окремий тип і звук')
@@ -59,7 +59,7 @@ check(center.includes('notification-volume-slider') && center.includes('[50, 100
 check(center.includes("window.addEventListener('storage', syncLocalSettings)") && center.includes('applySoundVolume(next.soundVolume)'), 'зміна гучності синхронізується між вкладками цього браузера')
 check(!center.includes('▶ Тест') && !center.includes('для тестування'), 'налаштування гучності не оформлене як тестовий режим')
 check(css.includes('.notification-volume') && css.includes('.notification-volume-preset.active'), 'налаштування гучності оформлені для desktop/mobile')
-check(version.includes("APP_VERSION = '1.31.7'"), 'версія панелі 1.31.7')
+check(version.includes("APP_VERSION = '1.31.8'"), 'версія панелі 1.31.8')
 
 console.log(`\nСПОВІЩЕННЯ UX: ${bad === 0 ? 'усе витримано' : `ПРОВАЛЕНО: ${bad}`}`)
 process.exit(bad ? 1 : 0)

@@ -13,7 +13,6 @@ const DELIVERY_METHODS = {
   courier: 'Курʼєр',
 }
 
-const PAYMENT = { card: 'На картку', cod: 'Накладений платіж' }
 
 
 const STAGE_LABELS = {
@@ -324,6 +323,26 @@ export default function OrderPage() {
   const fullName = [order.contact_surname, order.contact_name, order.contact_patronymic]
     .filter(Boolean).join(' ')
 
+  const paymentMethod = order.payment_method === 'cod' ? 'cod' : 'card'
+  const paymentIsConfirmed = paymentMethod === 'card'
+    && ['paid', 'shipped', 'done'].includes(order.status)
+  const paymentIsCancelled = order.status === 'cancelled'
+  const paymentTitle = paymentMethod === 'cod' ? 'Накладений платіж' : 'Переказ на картку'
+  const paymentState = paymentIsCancelled
+    ? 'Замовлення скасовано'
+    : paymentMethod === 'cod'
+      ? 'Оплата при отриманні'
+      : paymentIsConfirmed
+        ? 'Оплату підтверджено'
+        : 'Очікує підтвердження оплати'
+  const paymentHint = paymentIsCancelled
+    ? 'Спосіб оплати збережено для історії замовлення. Додаткових дій з оплатою не потрібно.'
+    : paymentMethod === 'cod'
+      ? 'Клієнт сплачує при отриманні. Етап «Оплачено» для цього замовлення не використовується.'
+      : paymentIsConfirmed
+        ? 'Кошти вже позначені як отримані. Замовлення можна готувати до відправлення за звичайним маршрутом.'
+        : 'Перед відправленням перевірте фактичне надходження коштів і переведіть замовлення в статус «Оплачено».'
+
   return (
     <>
       <div className="page-head">
@@ -332,10 +351,13 @@ export default function OrderPage() {
             ← До списку
           </button>
           <h1 style={{ marginTop: 8 }}>Замовлення №{order.id}</h1>
-          <p>
-            {timestamp(order.created_at)} · {PAYMENT[order.payment_method] || order.payment_method}
-            {order.operator_name && ` · веде ${order.operator_name}`}
-          </p>
+          <div className="order-head-meta">
+            <span>{timestamp(order.created_at)}</span>
+            <span className={`order-head-payment ${paymentMethod}`}>
+              {paymentMethod === 'cod' ? '📦' : '💳'} {paymentTitle}
+            </span>
+            {order.operator_name && <span>веде {order.operator_name}</span>}
+          </div>
         </div>
       </div>
 
@@ -345,7 +367,30 @@ export default function OrderPage() {
         <div>
           <div className="card" style={{ marginBottom: 18 }}>
             <h2 style={{ marginTop: 0 }}>Статус</h2>
-            <div className="row" style={{ flexWrap: 'wrap', gap: 8 }}>
+
+            <section
+              className={`order-payment-summary ${paymentMethod} ${paymentIsConfirmed ? 'confirmed' : ''} ${paymentIsCancelled ? 'cancelled' : ''}`}
+              aria-label={`Спосіб оплати: ${paymentTitle}`}
+            >
+              <div className="order-payment-icon" aria-hidden="true">
+                {paymentMethod === 'cod' ? '📦' : '💳'}
+              </div>
+              <div className="order-payment-main">
+                <div className="order-payment-kicker">Спосіб оплати</div>
+                <div className="order-payment-title">{paymentTitle}</div>
+                <div className="order-payment-state">
+                  <span className="order-payment-state-dot" aria-hidden="true" />
+                  {paymentState}
+                </div>
+                <p className="order-payment-hint">{paymentHint}</p>
+              </div>
+              <div className="order-payment-amount">
+                <span>{paymentIsCancelled ? 'Сума замовлення' : paymentMethod === 'cod' ? 'До сплати при отриманні' : 'Сума замовлення'}</span>
+                <strong className="num">{money(order.total)}</strong>
+              </div>
+            </section>
+
+            <div className="row order-status-actions" style={{ flexWrap: 'wrap', gap: 8 }}>
               {stagesFor(order.payment_method).map((s) => {
                 const current = order.status === s.key
                 const reachable = allowedFrom(order.status, order.payment_method)
