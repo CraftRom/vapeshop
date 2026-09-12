@@ -3510,3 +3510,55 @@ button.support-stat:hover { border-color: rgba(139, 123, 240, 0.38); }
   .notification-toast-dock-copy strong { font-size: 10px; line-height: 1; }
   .notification-toast-dock-copy small { display: none; }
 }
+
+/* ================================================================
+   Сповіщення 1.31.5 — повернення нижнього toast/dock без clipping
+   ----------------------------------------------------------------
+   Toast рендериться portal-ом у document.body, тому більше не залежить
+   від sticky/sidebar stacking-context. Це повертає нижній значок і живий
+   toast на всіх сторінках, але залишає popover у sidebar над контентом.
+   ================================================================ */
+.notification-toast-stage,
+.notification-toast-dock {
+  z-index: 1200;
+}
+
+.notification-toast-stage {
+  right: 18px;
+  bottom: 18px;
+}
+
+.notification-toast-dock {
+  right: 18px;
+  bottom: 18px;
+  opacity: 1;
+  visibility: visible;
+}
+
+/* Dock знову має чіткий візуальний значок. Лічильник залишається окремим
+   badge і не зливається з іконкою навіть при 2-3 цифрах. */
+.notification-toast-dock-icon {
+  position: relative;
+  z-index: 2;
+  opacity: 1;
+}
+
+.notification-toast-dock-copy {
+  z-index: 3;
+}
+
+/* Живий toast повністю непрозорий: він може лежати поверх робочої області,
+   але контент таблиці не просвічує і не виглядає як зламана розмітка. */
+.notification-toast-card,
+.notification-toast-panel,
+.notification-toast-dock {
+  background: #1d1929;
+}
+
+@media (max-width: 760px) {
+  .notification-toast-stage,
+  .notification-toast-dock {
+    right: 10px;
+    bottom: calc(12px + env(safe-area-inset-bottom));
+  }
+}

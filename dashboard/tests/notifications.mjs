@@ -17,7 +17,7 @@ const check = (ok, label) => {
   console.log(`  ${ok ? '✓' : '✗'} ${label}`)
 }
 
-console.log('\n--- центр браузерних сповіщень 1.31.4 ---')
+console.log('\n--- центр браузерних сповіщень 1.31.5 ---')
 check(app.includes("import { NotificationCenter }") && app.includes('<NotificationCenter />'), 'центр сповіщень підключений глобально в панелі')
 check(api.includes("request('/notifications/poll'") && api.includes("request('/notifications/read-all'"), 'frontend має poll/read API центру')
 check(center.includes("'product.created'") && center.includes("tone: 'product'"), 'новий товар має окремий тип і звук')
@@ -51,7 +51,10 @@ check(app.includes('brand-label') && css.includes('.brand-label') && css.include
 check(css.includes('.sidebar {') && css.includes('z-index: 200') && css.includes('isolation: isolate'), 'popover сповіщень має власний верхній stacking-context і не провалюється під таблицю')
 check(css.includes('padding-right: 76px') && css.includes('width: 48px') && css.includes('right: 10px'), 'згорнута кнопка живе у правому safe-rail і не перекриває дії замовлення')
 check(css.includes('background: #171420') && css.includes('background: #1d192a'), 'popover та непрочитані елементи мають непрозорий фон без просвічування контенту')
-check(version.includes("APP_VERSION = '1.31.4'"), 'версія панелі 1.31.4')
+check(center.includes("import { createPortal } from 'react-dom'") && center.includes('document.body'), 'нижній toast/dock винесений portal-ом із sidebar і не кліпиться')
+check(center.includes('Старі непрочитані після перезавантаження') && center.includes('setToastDocked(true)'), 'непрочитані після reload відновлюють нижній dock без повторного звуку')
+check(css.includes('z-index: 1200') && css.includes('background: #1d1929'), 'toast/dock гарантовано видимі поверх сторінки та мають непрозорий фон')
+check(version.includes("APP_VERSION = '1.31.5'"), 'версія панелі 1.31.5')
 
 console.log(`\nСПОВІЩЕННЯ UX: ${bad === 0 ? 'усе витримано' : `ПРОВАЛЕНО: ${bad}`}`)
 process.exit(bad ? 1 : 0)

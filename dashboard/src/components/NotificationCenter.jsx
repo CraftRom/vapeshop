@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
 
 import { api } from '../api'
@@ -487,15 +488,49 @@ export function NotificationCenter() {
   }, [isLeader, settings, showToastBatch])
 
   const fullRefresh = useCallback(async () => {
+    const wasInitialized = initialized.current
     const data = await api.notifications.poll(undefined, 60)
-    const unreadItems = (data.items || []).filter((item) => !item.read)
+    const unreadItems = (data.items || [])
+      .filter((item) => !item.read)
+      .sort((a, b) => Number(b.id || 0) - Number(a.id || 0))
     const nextUnread = Number(data.unread_count || 0)
     setItems(unreadItems)
+
+    // Нижній notification dock — це постійний вхід до непрочитаних подій,
+    // а не лише ефект для повідомлень, що прилетіли після відкриття сторінки.
+    // Тому після reload відновлюємо його з серверної черги, але НЕ програємо
+    // звук і не показуємо старі події як свіжий toast.
+    setToastItems((current) => {
+      const liveById = new Map(unreadItems.map((item) => [item.id, item]))
+      const kept = current
+        .filter((item) => liveById.has(item.id))
+        .map((item) => liveById.get(item.id))
+      const keptIds = new Set(kept.map((item) => item.id))
+      const restored = unreadItems.filter((item) => !keptIds.has(item.id))
+      return [...kept, ...restored]
+        .sort((a, b) => Number(b.id || 0) - Number(a.id || 0))
+        .slice(0, TOAST_QUEUE_LIMIT)
+    })
+
+    if (!unreadItems.length) {
+      clearToastTimer()
+      setToastDocked(false)
+      setToastExpanded(false)
+      setToastPinned(false)
+    } else if (!wasInitialized) {
+      // Старі непрочитані після перезавантаження відразу показуємо компактним
+      // значком унизу. Повний toast з'являється лише для реально нової події.
+      clearToastTimer()
+      setToastExpanded(false)
+      setToastPinned(false)
+      setToastDocked(true)
+    }
+
     setUnread(nextUnread)
     unreadRef.current = nextUnread
     latestId.current = Number(data.latest_id || 0)
     initialized.current = true
-  }, [])
+  }, [clearToastTimer])
 
   const poll = useCallback(async () => {
     if (polling.current) return
@@ -713,7 +748,7 @@ export function NotificationCenter() {
         </div>
       )}
 
-      {!open && (
+      {!open && typeof document !== 'undefined' && createPortal(
         <NotificationToastStack
           items={toastItems}
           docked={toastDocked}
@@ -723,7 +758,8 @@ export function NotificationCenter() {
           onCollapse={collapseToasts}
           onDock={dockToasts}
           onOpen={openToastItem}
-        />
+        />,
+        document.body,
       )}
 
       {open && (
