@@ -13,7 +13,7 @@ const LEADER_TTL = 16000
 const POLL_MS = 10000
 const TOAST_AUTO_DOCK_MS = 15000
 const TOAST_QUEUE_LIMIT = 40
-const SOUND_MASTER_GAIN = 0.98
+const SOUND_BASE_OUTPUT = 0.75
 const SOUND_COMPRESSOR_THRESHOLD = -24
 const SOUND_COMPRESSOR_RATIO = 12
 const SOUND_VOLUME_MIN = 0
@@ -113,30 +113,36 @@ function deniedHelp() {
 }
 
 let audioContext = null
-let audioMaster = null
+let audioToneBus = null
 let audioCompressor = null
+let audioMaster = null
 
 function ensureAudioGraph() {
   const AudioCtx = window.AudioContext || window.webkitAudioContext
   if (!AudioCtx) return false
   if (!audioContext) audioContext = new AudioCtx()
 
-  if (!audioMaster || !audioCompressor) {
-    audioMaster = audioContext.createGain()
+  if (!audioToneBus || !audioMaster || !audioCompressor) {
+    audioToneBus = audioContext.createGain()
     audioCompressor = audioContext.createDynamicsCompressor()
+    audioMaster = audioContext.createGain()
 
-    // Максимально щільний, але контрольований сигнал. Просто множити gain вище 1
-    // майже не додає гучності — браузер/ОС обрізає пік. Компресор + гармоніки
-    // дають значно вищу сприйману гучність без випадкового жорсткого кліпінгу.
-    audioMaster.gain.value = SOUND_MASTER_GAIN
+    // Важливо: регулятор користувача стоїть ПІСЛЯ компресора.
+    // У 1.31.8 master gain був перед compressor, тому compressor майже вирівнював
+    // 50%, 100% і 200% до однакової сприйманої гучності.
+    audioToneBus.gain.value = 1
     audioCompressor.threshold.value = SOUND_COMPRESSOR_THRESHOLD
     audioCompressor.knee.value = 10
     audioCompressor.ratio.value = SOUND_COMPRESSOR_RATIO
     audioCompressor.attack.value = 0.002
     audioCompressor.release.value = 0.16
 
-    audioMaster.connect(audioCompressor)
-    audioCompressor.connect(audioContext.destination)
+    audioToneBus.connect(audioCompressor)
+    audioCompressor.connect(audioMaster)
+    audioMaster.connect(audioContext.destination)
+
+    // 100% тепер на 25% тихіше за базовий профіль 1.31.8.
+    applySoundVolume(loadDeviceVolume())
   }
   return true
 }
@@ -144,10 +150,16 @@ function ensureAudioGraph() {
 function applySoundVolume(volume) {
   if (!audioMaster) return
   const normalized = normalizeSoundVolume(volume)
-  // 100% = базовий гучний профіль. Значення понад 100% — постійне локальне
-  // підсилення саме для цього браузера/ПК. Воно застосовується до всіх типів
-  // звуків і зберігається між перезапусками панелі.
-  audioMaster.gain.value = SOUND_MASTER_GAIN * (normalized / 100)
+  // 100% = 75% від попереднього базового виходу (на 25% тихіше).
+  // Gain стоїть після compressor, тому 0/50/100/150/200% тепер реально
+  // змінюють фінальний рівень усіх внутрішніх звуків панелі.
+  const output = SOUND_BASE_OUTPUT * (normalized / 100)
+  if (audioContext?.state === 'running') {
+    audioMaster.gain.cancelScheduledValues(audioContext.currentTime)
+    audioMaster.gain.setTargetAtTime(output, audioContext.currentTime, 0.012)
+  } else {
+    audioMaster.gain.value = output
+  }
 }
 
 function unlockAudio() {
@@ -158,7 +170,7 @@ function unlockAudio() {
 }
 
 function oscillatorVoice(frequency, start, duration, gain, type = 'square') {
-  if (!audioContext || audioContext.state !== 'running' || !audioMaster) return
+  if (!audioContext || audioContext.state !== 'running' || !audioToneBus) return
   const oscillator = audioContext.createOscillator()
   const envelope = audioContext.createGain()
 
@@ -173,7 +185,7 @@ function oscillatorVoice(frequency, start, duration, gain, type = 'square') {
   envelope.gain.exponentialRampToValueAtTime(0.0001, start + duration)
 
   oscillator.connect(envelope)
-  envelope.connect(audioMaster)
+  envelope.connect(audioToneBus)
   oscillator.start(start)
   oscillator.stop(start + duration + 0.025)
 }
@@ -269,6 +281,10 @@ async function showSystemNotification(item, registration) {
     badge: '/icon-192.png',
     tag: `elfar-notification-${item.id}`,
     renotify: true,
+    // Не даємо браузеру/ОС додавати свій некерований системний звук поверх
+    // звуку панелі. Де `silent` підтримується, весь audible-рівень контролює
+    // локальний регулятор гучності панелі.
+    silent: true,
     data: { href: item.href || '/' },
   }
   if (registration?.showNotification) {
@@ -849,7 +865,7 @@ export function NotificationCenter() {
 
               <div className={`notification-volume ${settings.sound ? '' : 'is-disabled'}`}>
                 <div className="notification-volume-head">
-                  <span>Гучність на цьому ПК</span>
+                  <span>Гучність звуків панелі на цьому ПК</span>
                   <strong>{normalizeSoundVolume(settings.soundVolume)}%</strong>
                 </div>
                 <div className="notification-volume-row">
@@ -887,7 +903,7 @@ export function NotificationCenter() {
                     </button>
                   ))}
                 </div>
-                <small className="faint">Застосовується до всіх звуків сповіщень у цьому браузері на цьому ПК та зберігається локально.</small>
+                <small className="faint">Застосовується до всіх власних звуків панелі в цьому браузері. Системний popup запитується без окремого звуку, щоб не обходити цей регулятор.</small>
               </div>
               <label className="notification-toggle">
                 <input type="checkbox" checked={settings.browser} onChange={(e) => updateSettings({ browser: e.target.checked })} />

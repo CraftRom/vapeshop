@@ -3844,3 +3844,5 @@ button.support-stat:hover { border-color: rgba(139, 123, 240, 0.38); }
     font-size: 11px;
   }
 }
+
+/* Notification audio routing fix 1.31.9: volume is applied post-compressor. */

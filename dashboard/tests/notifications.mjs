@@ -17,14 +17,17 @@ const check = (ok, label) => {
   console.log(`  ${ok ? '✓' : '✗'} ${label}`)
 }
 
-console.log('\n--- центр браузерних сповіщень 1.31.8 ---')
+console.log('\n--- центр браузерних сповіщень 1.31.9 ---')
 check(app.includes("import { NotificationCenter }") && app.includes('<NotificationCenter />'), 'центр сповіщень підключений глобально в панелі')
 check(api.includes("request('/notifications/poll'") && api.includes("request('/notifications/read-all'"), 'frontend має poll/read API центру')
 check(center.includes("'product.created'") && center.includes("tone: 'product'"), 'новий товар має окремий тип і звук')
 check(center.includes("'order.created'") && center.includes("tone: 'order'"), 'нове замовлення має окремий тип і звук')
 check(center.includes("'order.message'") && center.includes("tone: 'orderMessage'"), 'повідомлення замовлення має окремий звук')
 check(center.includes("'support.message'") && center.includes("tone: 'support'"), 'повідомлення підтримки має окремий звук')
-check(center.includes('SOUND_MASTER_GAIN = 0.98') && center.includes('createDynamicsCompressor') && center.includes('frequency * 2'), 'звук використовує high-output master, компресію та гармоніки для високої сприйманої гучності')
+check(center.includes('SOUND_BASE_OUTPUT = 0.75') && center.includes('createDynamicsCompressor') && center.includes('frequency * 2'), 'базовий звук зменшений на 25%, компресія та гармоніки збережені')
+check(center.includes('audioCompressor.connect(audioMaster)') && center.includes('audioMaster.connect(audioContext.destination)') && center.includes('envelope.connect(audioToneBus)'), 'master volume стоїть після compressor і реально керує фінальним рівнем')
+check(center.includes('const output = SOUND_BASE_OUTPUT * (normalized / 100)'), 'відсоток гучності прямо масштабує фінальний master output')
+check(center.includes('silent: true'), 'native browser popup не додає некерований системний звук поверх звуку панелі')
 check(center.includes('Notification.requestPermission()') && center.includes('permission === \'denied\''), 'дозвіл браузера запитується лише явною дією та обробляє блокування')
 check(center.includes('iPhone|iPad|iPod') && center.includes("display-mode: standalone"), 'врахована PWA-вимога Safari на iPhone/iPad')
 check(center.includes('Firefox:') && center.includes('Edge:') && center.includes('Chrome:') && center.includes('Safari:'), 'є підказки для основних браузерів')
@@ -59,7 +62,7 @@ check(center.includes('notification-volume-slider') && center.includes('[50, 100
 check(center.includes("window.addEventListener('storage', syncLocalSettings)") && center.includes('applySoundVolume(next.soundVolume)'), 'зміна гучності синхронізується між вкладками цього браузера')
 check(!center.includes('▶ Тест') && !center.includes('для тестування'), 'налаштування гучності не оформлене як тестовий режим')
 check(css.includes('.notification-volume') && css.includes('.notification-volume-preset.active'), 'налаштування гучності оформлені для desktop/mobile')
-check(version.includes("APP_VERSION = '1.31.8'"), 'версія панелі 1.31.8')
+check(version.includes("APP_VERSION = '1.31.9'"), 'версія панелі 1.31.9')
 
 console.log(`\nСПОВІЩЕННЯ UX: ${bad === 0 ? 'усе витримано' : `ПРОВАЛЕНО: ${bad}`}`)
 process.exit(bad ? 1 : 0)

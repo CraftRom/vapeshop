@@ -14,7 +14,7 @@ const checks = [
   ['header has quick payment badge', page.includes('order-head-payment') && css.includes('.order-head-payment')],
   ['cancelled orders do not look like payment is pending', page.includes("paymentIsCancelled") && page.includes('Замовлення скасовано')],
   ['mobile payment layout exists', css.includes('@media (max-width: 760px)') && css.includes('.order-payment-summary')],
-  ['version bumped', version.includes("1.31.8")],
+  ['version bumped', version.includes("1.31.9")],
 ]
 
 let failed = 0
