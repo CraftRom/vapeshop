@@ -181,9 +181,9 @@ function Shell({ children }) {
     <div className="shell">
       <aside className={`sidebar ${mobileNavOpen ? 'nav-open' : ''}`}>
         <div className="sidebar-head">
-          <div className="brand">
+          <div className="brand" title="Панель магазину">
             <span className="dot" />
-            Панель магазину
+            <span className="brand-label">Панель магазину</span>
           </div>
           <NotificationCenter />
           <button

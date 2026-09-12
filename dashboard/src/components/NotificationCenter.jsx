@@ -11,6 +11,7 @@ const LEADER_TTL = 16000
 const POLL_MS = 10000
 const TOAST_AUTO_DOCK_MS = 15000
 const TOAST_QUEUE_LIMIT = 40
+const SOUND_GAIN_MULTIPLIER = 3
 
 const KIND = {
   'product.created': { icon: '🛍️', label: 'Новий товар', tone: 'product' },
@@ -91,7 +92,8 @@ function beep(frequency, start, duration, gain = 0.045) {
   oscillator.type = 'sine'
   oscillator.frequency.setValueAtTime(frequency, start)
   volume.gain.setValueAtTime(0.0001, start)
-  volume.gain.exponentialRampToValueAtTime(gain, start + 0.015)
+  const amplifiedGain = Math.min(gain * SOUND_GAIN_MULTIPLIER, 1)
+  volume.gain.exponentialRampToValueAtTime(amplifiedGain, start + 0.015)
   volume.gain.exponentialRampToValueAtTime(0.0001, start + duration)
   oscillator.connect(volume)
   volume.connect(audioContext.destination)
@@ -326,6 +328,7 @@ export function NotificationCenter() {
   const toastTimer = useRef(null)
   const initialized = useRef(false)
   const latestId = useRef(null)
+  const unreadRef = useRef(0)
   const worker = useRef(null)
   const polling = useRef(false)
   const centerRef = useRef(null)
@@ -440,8 +443,11 @@ export function NotificationCenter() {
 
   const fullRefresh = useCallback(async () => {
     const data = await api.notifications.poll(undefined, 60)
-    setItems(data.items || [])
-    setUnread(Number(data.unread_count || 0))
+    const unreadItems = (data.items || []).filter((item) => !item.read)
+    const nextUnread = Number(data.unread_count || 0)
+    setItems(unreadItems)
+    setUnread(nextUnread)
+    unreadRef.current = nextUnread
     latestId.current = Number(data.latest_id || 0)
     initialized.current = true
   }, [])
@@ -455,17 +461,32 @@ export function NotificationCenter() {
         return
       }
       const data = await api.notifications.poll(latestId.current || 0, 60)
-      const fresh = data.items || []
+      const nextUnread = Number(data.unread_count || 0)
+
+      // Інша вкладка могла вже прочитати/прибрати подію або джерело
+      // (замовлення/support thread/товар) могло бути видалене. У такому
+      // разі incremental poll не поверне старий id, тому синхронізуємо
+      // повний список, щойно серверний unread зменшився.
+      if (nextUnread < unreadRef.current) {
+        await fullRefresh()
+        return
+      }
+
+      const fresh = (data.items || []).filter((item) => !item.read)
       if (fresh.length) {
         const maxId = Math.max(latestId.current || 0, ...fresh.map((item) => Number(item.id || 0)))
         latestId.current = maxId
         setItems((current) => {
           const byId = new Map([...fresh, ...current].map((item) => [item.id, item]))
-          return [...byId.values()].sort((a, b) => b.id - a.id).slice(0, 60)
+          return [...byId.values()]
+            .filter((item) => !item.read)
+            .sort((a, b) => b.id - a.id)
+            .slice(0, 60)
         })
         await announce(fresh)
       }
-      setUnread(Number(data.unread_count || 0))
+      setUnread(nextUnread)
+      unreadRef.current = nextUnread
     } catch {
       // Глобальний poll не показує toast кожні 10 секунд при мережевій помилці.
       // Сторінкові запити дадуть достатньо явний сигнал, а центр спробує ще раз.
@@ -508,24 +529,42 @@ export function NotificationCenter() {
   }, [open])
 
   const markRead = async (item) => {
-    if (item.read) return
+    if (item.read) return true
     try {
       const result = await api.notifications.read(item.id)
-      setItems((current) => current.map((entry) => (
-        entry.id === item.id ? { ...entry, read: true } : entry
-      )))
-      setUnread(Number(result.unread_count || 0))
-    } catch { /* перехід усе одно дозволяємо */ }
+      // Центр — робоча черга, а не архів. Після відкриття подія одразу
+      // зникає зі списку, але read-мітка лишається на сервері.
+      setItems((current) => current.filter((entry) => entry.id !== item.id))
+      setToastItems((current) => current.filter((entry) => entry.id !== item.id))
+      const nextUnread = Number(result.unread_count || 0)
+      setUnread(nextUnread)
+      unreadRef.current = nextUnread
+      return true
+    } catch (err) {
+      // Якщо джерело вже видалили, cleanup міг прибрати й саму подію між
+      // рендерами. Не лишаємо «мертвий» рядок до наступного перезавантаження.
+      if (err?.status === 404) {
+        setItems((current) => current.filter((entry) => entry.id !== item.id))
+        setToastItems((current) => current.filter((entry) => entry.id !== item.id))
+        fullRefresh().catch(() => {})
+        return false
+      }
+      // За мережевої помилки перехід усе одно дозволяємо: ціль може бути жива.
+      return true
+    }
   }
 
   const openItem = async (item) => {
-    await markRead(item)
+    const exists = await markRead(item)
     setOpen(false)
+    if (!exists) {
+      notify('Це сповіщення вже неактуальне — пов’язаний запис видалено.')
+      return
+    }
     if (item.href) navigate(item.href)
   }
 
   const openToastItem = async (item) => {
-    setToastItems((current) => current.filter((entry) => entry.id !== item.id))
     setToastPinned(false)
     setToastExpanded(false)
     setToastDocked(false)
@@ -536,8 +575,10 @@ export function NotificationCenter() {
   const readAll = async () => {
     try {
       const result = await api.notifications.readAll()
-      setItems((current) => current.map((item) => ({ ...item, read: true })))
-      setUnread(Number(result.unread_count || 0))
+      setItems([])
+      const nextUnread = Number(result.unread_count || 0)
+      setUnread(nextUnread)
+      unreadRef.current = nextUnread
       clearToastTimer()
       setToastItems([])
       setToastDocked(false)
@@ -702,7 +743,7 @@ export function NotificationCenter() {
 
           <div className="notification-list">
             {metaItems.length === 0 ? (
-              <div className="notification-empty">Нових подій ще немає.</div>
+              <div className="notification-empty">Непрочитаних сповіщень немає.</div>
             ) : metaItems.map((item) => (
               <button
                 type="button"

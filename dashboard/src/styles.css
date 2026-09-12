@@ -3271,3 +3271,97 @@ button.support-stat:hover { border-color: rgba(139, 123, 240, 0.38); }
   .sidebar-head { margin-bottom: 0; }
   .brand { padding: 0; }
 }
+
+
+/* ================================================================
+   Сповіщення 1.31.2 — чиста робоча черга + стабільна шапка sidebar
+   ================================================================ */
+
+/* Назва магазину не переноситься через дзвіночок. */
+.sidebar { --sidebar-head-gap: 10px; }
+.sidebar-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 38px;
+  align-items: center;
+  column-gap: var(--sidebar-head-gap);
+  min-height: 42px;
+}
+.brand {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 2px;
+  font-size: 15px;
+  line-height: 1.15;
+}
+.brand .dot { flex: 0 0 8px; }
+.brand-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.notification-center {
+  justify-self: end;
+  align-self: center;
+  margin: 0;
+}
+.notification-bell {
+  width: 38px;
+  height: 38px;
+  border-radius: 11px;
+}
+
+/* Popover — власна вертикальна геометрія. Налаштування більше не
+   наїжджають на список подій на невисокому екрані. */
+.notification-popover {
+  top: 48px;
+  display: flex;
+  flex-direction: column;
+  width: min(430px, calc(100vw - 24px));
+  max-height: min(700px, calc(100dvh - 72px));
+}
+.notification-head { min-width: 0; }
+.notification-settings {
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: min(420px, 55dvh);
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+.notification-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
+  overflow-y: auto;
+}
+.notification-empty {
+  min-height: 92px;
+  display: grid;
+  place-items: center;
+}
+
+@media (min-width: 761px) {
+  /* 232px було впритул: довга назва + status-dot + bell змушували бренд
+     ламатися на два рядки. 12px дають стабільний запас без втрати площі. */
+  :root { --sidebar: 244px; }
+}
+
+@media (max-width: 760px) {
+  .sidebar-head {
+    grid-template-columns: minmax(0, 1fr) 40px auto;
+    column-gap: 8px;
+    min-height: 40px;
+  }
+  .brand { padding: 0; font-size: 14.5px; }
+  .notification-bell { width: 40px; height: 40px; }
+  .notification-popover {
+    top: 60px;
+    left: 8px;
+    right: 8px;
+    width: auto;
+    max-height: calc(100dvh - 68px);
+  }
+  .notification-settings { max-height: 52dvh; }
+}

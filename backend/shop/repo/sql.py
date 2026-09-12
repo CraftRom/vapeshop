@@ -588,6 +588,9 @@ class SqlRepository(Repository):
         await self.s.execute(delete(m.OrderItem).where(m.OrderItem.order_id == order_id))
         await self.s.execute(
             delete(m.OrderMessage).where(m.OrderMessage.order_id == order_id))
+        await self._delete_panel_notifications_for_entity(
+            ("order.created", "order.message"), order_id
+        )
         result = await self.s.execute(delete(m.Order).where(m.Order.id == order_id))
         await self.s.commit()
         return result.rowcount > 0
@@ -596,6 +599,20 @@ class SqlRepository(Repository):
         count = (await self.s.execute(select(func.count()).select_from(m.Order))).scalar_one()
         await self.s.execute(delete(m.OrderItem))
         await self.s.execute(delete(m.OrderMessage))
+        notification_ids = list(await self.s.scalars(
+            select(m.PanelNotification.id).where(
+                m.PanelNotification.kind.in_(("order.created", "order.message"))
+            )
+        ))
+        if notification_ids:
+            await self.s.execute(
+                delete(m.PanelNotificationRead).where(
+                    m.PanelNotificationRead.notification_id.in_(notification_ids)
+                )
+            )
+            await self.s.execute(
+                delete(m.PanelNotification).where(m.PanelNotification.id.in_(notification_ids))
+            )
         await self.s.execute(delete(m.Order))
         # Підсумки клієнтів обнуляємо разом із замовленнями: інакше в
         # картці клієнта лишиться «12 замовлень», яких більше немає.
@@ -896,6 +913,70 @@ class SqlRepository(Repository):
 
     # ------------------------------------------ остаточне видалення
 
+    async def _delete_panel_notifications_for_entity(
+        self, kinds: tuple[str, ...] | list[str], entity_id: int
+    ) -> int:
+        """Прибирає оперативні сповіщення разом із видаленим джерелом.
+
+        PanelNotification — не аудит. Якщо товар/замовлення/support-сесію
+        стерли, посилання на неіснуючу сутність не повинно висіти в дзвіночку.
+        Read-мітки чистимо явно: у Postgres FK має CASCADE, але SQLite у
+        частині локальних запусків працює без foreign_keys=ON.
+        """
+        ids = list(await self.s.scalars(
+            select(m.PanelNotification.id).where(
+                m.PanelNotification.kind.in_(tuple(kinds)),
+                m.PanelNotification.entity_id == int(entity_id),
+            )
+        ))
+        if not ids:
+            return 0
+        await self.s.execute(
+            delete(m.PanelNotificationRead).where(
+                m.PanelNotificationRead.notification_id.in_(ids)
+            )
+        )
+        result = await self.s.execute(
+            delete(m.PanelNotification).where(m.PanelNotification.id.in_(ids))
+        )
+        return int(result.rowcount or 0)
+
+    async def _prune_orphan_panel_notifications(self) -> int:
+        """Одноразово/ледаче чистить події, джерело яких уже було видалене.
+
+        Це також лікує записи, створені старими версіями до появи cleanup
+        у delete/purge-операціях. Викликається лише на повному refresh центру,
+        а не на кожному 10-секундному incremental poll.
+        """
+        removed = 0
+        specs = (
+            (("order.created", "order.message"), m.Order),
+            (("support.message",), m.SupportThread),
+            (("product.created",), m.Product),
+        )
+        for kinds, model in specs:
+            ids = list(await self.s.scalars(
+                select(m.PanelNotification.id).where(
+                    m.PanelNotification.kind.in_(kinds),
+                    m.PanelNotification.entity_id.is_not(None),
+                    ~m.PanelNotification.entity_id.in_(select(model.id)),
+                )
+            ))
+            if not ids:
+                continue
+            await self.s.execute(
+                delete(m.PanelNotificationRead).where(
+                    m.PanelNotificationRead.notification_id.in_(ids)
+                )
+            )
+            result = await self.s.execute(
+                delete(m.PanelNotification).where(m.PanelNotification.id.in_(ids))
+            )
+            removed += int(result.rowcount or 0)
+        if removed:
+            await self.s.commit()
+        return removed
+
     async def purge_product(self, product_id) -> bool:
         row = await self.s.get(m.Product, product_id)
         if not row:
@@ -908,6 +989,7 @@ class SqlRepository(Repository):
             .values(product_id=None)
         )
         await self.s.execute(delete(m.CartItem).where(m.CartItem.product_id == product_id))
+        await self._delete_panel_notifications_for_entity(("product.created",), product_id)
         # products_count у SQL — обчислюване поле (COUNT), окремо його не рухаємо
         await self.s.delete(row)
         await self._commit()
@@ -1372,6 +1454,7 @@ class SqlRepository(Repository):
         row = await self.s.get(m.SupportThread, thread_id)
         if not row:
             return False
+        await self._delete_panel_notifications_for_entity(("support.message",), thread_id)
         await self.s.delete(row)
         await self.s.commit()
         return True
@@ -1411,6 +1494,8 @@ class SqlRepository(Repository):
     async def list_panel_notifications(
         self, viewer_key: str, *, limit: int = 60, after_id: int | None = None
     ) -> list[dict]:
+        if after_id is None:
+            await self._prune_orphan_panel_notifications()
         stmt = select(m.PanelNotification)
         if after_id is not None:
             stmt = stmt.where(m.PanelNotification.id > int(after_id))

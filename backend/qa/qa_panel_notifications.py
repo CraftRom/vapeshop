@@ -37,6 +37,11 @@ check('create_panel_notification' in base and 'mark_all_panel_notifications_read
       'контракт Repository містить повний notification API')
 check('panel_notification_unread_count' in sql and 'after_id' in sql,
       'SQL repo підтримує unread та incremental polling')
+check('_prune_orphan_panel_notifications' in sql and '_delete_panel_notifications_for_entity' in sql,
+      'видалені товари, замовлення і support-сесії не лишають сиріт у центрі')
+check('m.PanelNotification.kind.in_(("order.created", "order.message"))' in sql
+      and '("support.message",)' in sql and '("product.created",)' in sql,
+      'cleanup охоплює всі entity-backed типи сповіщень')
 check('viewer_key' in router and '@router.get("/poll"' in router,
       'API poll ізольовує read-state кожного працівника')
 check('notifications.router' in main and 'prefix="/api/notifications"' in main,

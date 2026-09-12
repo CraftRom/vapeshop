@@ -26,7 +26,7 @@ check(page.includes('Ця сесія завершена') && page.includes('clos
 check(page.includes('support-mobile-back'), 'на телефоні є повернення зі чату до списку')
 check(css.includes('.support-client-group') && css.includes('.support-session'), 'desktop inbox має групи клієнтів і окремі сесії')
 check(css.includes('@media (max-width: 760px)') && css.includes('.support-chat-actions'), 'керування адаптоване для мобільного')
-check(version.includes("APP_VERSION = '1.31.0'"), 'версія панелі 1.31.0')
+check(version.includes("APP_VERSION = '1.31.2'"), 'версія панелі 1.31.2')
 
 console.log(`\nПІДТРИМКА UX: ${bad === 0 ? 'усе витримано' : `ПРОВАЛЕНО: ${bad}`}`)
 process.exit(bad ? 1 : 0)
