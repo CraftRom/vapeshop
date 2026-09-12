@@ -6,6 +6,7 @@ import { api } from '../api'
 import { dateTime, useToast } from './ui'
 
 const SETTINGS_KEY = 'elfar:notification-settings'
+const DEVICE_VOLUME_KEY = 'elfar:notification-device-volume'
 const NUDGE_KEY = 'elfar:notification-nudge-dismissed'
 const LEADER_KEY = 'elfar:notification-leader'
 const LEADER_TTL = 16000
@@ -15,6 +16,9 @@ const TOAST_QUEUE_LIMIT = 40
 const SOUND_MASTER_GAIN = 0.98
 const SOUND_COMPRESSOR_THRESHOLD = -24
 const SOUND_COMPRESSOR_RATIO = 12
+const SOUND_VOLUME_MIN = 0
+const SOUND_VOLUME_MAX = 200
+const SOUND_VOLUME_DEFAULT = 100
 
 const KIND = {
   'product.created': { icon: '🛍️', label: 'Новий товар', tone: 'product' },
@@ -26,6 +30,7 @@ const KIND = {
 
 const DEFAULT_SETTINGS = {
   sound: true,
+  soundVolume: SOUND_VOLUME_DEFAULT,
   browser: true,
   product: true,
   order: true,
@@ -34,16 +39,46 @@ const DEFAULT_SETTINGS = {
   system: true,
 }
 
+function normalizeSoundVolume(value) {
+  const numeric = Number(value)
+  if (!Number.isFinite(numeric)) return SOUND_VOLUME_DEFAULT
+  return Math.min(SOUND_VOLUME_MAX, Math.max(SOUND_VOLUME_MIN, Math.round(numeric)))
+}
+
+function loadDeviceVolume(fallback = SOUND_VOLUME_DEFAULT) {
+  try {
+    const saved = localStorage.getItem(DEVICE_VOLUME_KEY)
+    return normalizeSoundVolume(saved === null ? fallback : saved)
+  } catch {
+    return normalizeSoundVolume(fallback)
+  }
+}
+
+function saveDeviceVolume(value) {
+  try {
+    localStorage.setItem(DEVICE_VOLUME_KEY, String(normalizeSoundVolume(value)))
+  } catch { /* local device preference is best-effort */ }
+}
+
 function loadSettings() {
   try {
-    return { ...DEFAULT_SETTINGS, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}') }
+    const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}')
+    return {
+      ...DEFAULT_SETTINGS,
+      ...saved,
+      // Гучність — локальна властивість цього браузера/ПК, а не акаунта.
+      // Окремий ключ не дає майбутній синхронізації профілю перетирати її.
+      soundVolume: loadDeviceVolume(saved.soundVolume ?? SOUND_VOLUME_DEFAULT),
+    }
   } catch {
-    return { ...DEFAULT_SETTINGS }
+    return { ...DEFAULT_SETTINGS, soundVolume: loadDeviceVolume() }
   }
 }
 
 function saveSettings(value) {
-  localStorage.setItem(SETTINGS_KEY, JSON.stringify(value))
+  const { soundVolume, ...sharedSettings } = value
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify(sharedSettings))
+  saveDeviceVolume(soundVolume)
 }
 
 function browserInfo() {
@@ -106,6 +141,15 @@ function ensureAudioGraph() {
   return true
 }
 
+function applySoundVolume(volume) {
+  if (!audioMaster) return
+  const normalized = normalizeSoundVolume(volume)
+  // 100% = базовий гучний профіль. Значення понад 100% — постійне локальне
+  // підсилення саме для цього браузера/ПК. Воно застосовується до всіх типів
+  // звуків і зберігається між перезапусками панелі.
+  audioMaster.gain.value = SOUND_MASTER_GAIN * (normalized / 100)
+}
+
 function unlockAudio() {
   try {
     if (!ensureAudioGraph()) return
@@ -144,9 +188,10 @@ function beep(frequency, start, duration, gain = 0.62, type = 'square') {
   oscillatorVoice(frequency * 0.5, start, duration, gain * 0.16, 'triangle')
 }
 
-function playTone(tone) {
+function playTone(tone, volume = SOUND_VOLUME_DEFAULT) {
   unlockAudio()
   if (!audioContext || audioContext.state !== 'running') return
+  applySoundVolume(volume)
   const t = audioContext.currentTime + 0.025
 
   if (tone === 'product') {
@@ -404,6 +449,20 @@ export function NotificationCenter() {
     })
   }
 
+  // Налаштування гучності глобальне для цього браузерного профілю на ПК:
+  // зміна в одній вкладці одразу підхоплюється іншими вкладками elfar.pp.ua.
+  useEffect(() => {
+    const syncLocalSettings = (event) => {
+      if (event.key !== DEVICE_VOLUME_KEY && event.key !== SETTINGS_KEY) return
+      const next = loadSettings()
+      setSettings(next)
+      unlockAudio()
+      applySoundVolume(next.soundVolume)
+    }
+    window.addEventListener('storage', syncLocalSettings)
+    return () => window.removeEventListener('storage', syncLocalSettings)
+  }, [])
+
   useEffect(() => {
     toastExpandedRef.current = toastExpanded
   }, [toastExpanded])
@@ -477,7 +536,7 @@ export function NotificationCenter() {
     const visible = showToastBatch(fresh)
     for (const item of [...visible].sort((a, b) => a.id - b.id)) {
       const tone = (KIND[item.kind] || KIND.system).tone
-      if (settings.sound) playTone(tone)
+      if (settings.sound) playTone(tone, settings.soundVolume)
       if (settings.browser && 'Notification' in window && Notification.permission === 'granted') {
         // Системний popup корисний насамперед, коли панель не перед очима.
         if (document.hidden || !document.hasFocus()) {
@@ -703,11 +762,6 @@ export function NotificationCenter() {
     }
   }
 
-  const testSound = () => {
-    unlockAudio()
-    playTone('support')
-  }
-
   const metaItems = useMemo(() => items.map((item) => ({
     ...item,
     meta: KIND[item.kind] || KIND.system,
@@ -791,8 +845,50 @@ export function NotificationCenter() {
               <label className="notification-toggle">
                 <input type="checkbox" checked={settings.sound} onChange={(e) => updateSettings({ sound: e.target.checked })} />
                 <span>Звуки</span>
-                <button type="button" className="btn ghost small" onClick={testSound}>Тест</button>
               </label>
+
+              <div className={`notification-volume ${settings.sound ? '' : 'is-disabled'}`}>
+                <div className="notification-volume-head">
+                  <span>Гучність на цьому ПК</span>
+                  <strong>{normalizeSoundVolume(settings.soundVolume)}%</strong>
+                </div>
+                <div className="notification-volume-row">
+                  <input
+                    className="notification-volume-slider"
+                    type="range"
+                    min={SOUND_VOLUME_MIN}
+                    max={SOUND_VOLUME_MAX}
+                    step="5"
+                    value={normalizeSoundVolume(settings.soundVolume)}
+                    disabled={!settings.sound}
+                    aria-label="Глобальна гучність звуків сповіщень на цьому ПК"
+                    onChange={(event) => {
+                      const soundVolume = normalizeSoundVolume(event.target.value)
+                      updateSettings({ soundVolume })
+                      unlockAudio()
+                      applySoundVolume(soundVolume)
+                    }}
+                  />
+                </div>
+                <div className="notification-volume-presets" aria-label="Швидкий вибір глобальної гучності">
+                  {[50, 100, 150, 200].map((level) => (
+                    <button
+                      key={level}
+                      type="button"
+                      className={`notification-volume-preset ${normalizeSoundVolume(settings.soundVolume) === level ? 'active' : ''}`}
+                      disabled={!settings.sound}
+                      onClick={() => {
+                        updateSettings({ soundVolume: level })
+                        unlockAudio()
+                        applySoundVolume(level)
+                      }}
+                    >
+                      {level}%
+                    </button>
+                  ))}
+                </div>
+                <small className="faint">Застосовується до всіх звуків сповіщень у цьому браузері на цьому ПК та зберігається локально.</small>
+              </div>
               <label className="notification-toggle">
                 <input type="checkbox" checked={settings.browser} onChange={(e) => updateSettings({ browser: e.target.checked })} />
                 <span>Системні popup-повідомлення</span>

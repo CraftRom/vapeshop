@@ -17,7 +17,7 @@ const check = (ok, label) => {
   console.log(`  ${ok ? '✓' : '✗'} ${label}`)
 }
 
-console.log('\n--- центр браузерних сповіщень 1.31.5 ---')
+console.log('\n--- центр браузерних сповіщень 1.31.7 ---')
 check(app.includes("import { NotificationCenter }") && app.includes('<NotificationCenter />'), 'центр сповіщень підключений глобально в панелі')
 check(api.includes("request('/notifications/poll'") && api.includes("request('/notifications/read-all'"), 'frontend має poll/read API центру')
 check(center.includes("'product.created'") && center.includes("tone: 'product'"), 'новий товар має окремий тип і звук')
@@ -54,7 +54,12 @@ check(css.includes('background: #171420') && css.includes('background: #1d192a')
 check(center.includes("import { createPortal } from 'react-dom'") && center.includes('document.body'), 'нижній toast/dock винесений portal-ом із sidebar і не кліпиться')
 check(center.includes('Старі непрочитані після перезавантаження') && center.includes('setToastDocked(true)'), 'непрочитані після reload відновлюють нижній dock без повторного звуку')
 check(css.includes('z-index: 1200') && css.includes('background: #1d1929'), 'toast/dock гарантовано видимі поверх сторінки та мають непрозорий фон')
-check(version.includes("APP_VERSION = '1.31.5'"), 'версія панелі 1.31.5')
+check(center.includes("DEVICE_VOLUME_KEY = 'elfar:notification-device-volume'") && center.includes('SOUND_VOLUME_MAX = 200'), 'гучність має окреме локальне сховище цього ПК і регулюється до 200%')
+check(center.includes('notification-volume-slider') && center.includes('[50, 100, 150, 200]'), 'у центрі є slider та швидкі пресети глобальної гучності')
+check(center.includes("window.addEventListener('storage', syncLocalSettings)") && center.includes('applySoundVolume(next.soundVolume)'), 'зміна гучності синхронізується між вкладками цього браузера')
+check(!center.includes('▶ Тест') && !center.includes('для тестування'), 'налаштування гучності не оформлене як тестовий режим')
+check(css.includes('.notification-volume') && css.includes('.notification-volume-preset.active'), 'налаштування гучності оформлені для desktop/mobile')
+check(version.includes("APP_VERSION = '1.31.7'"), 'версія панелі 1.31.7')
 
 console.log(`\nСПОВІЩЕННЯ UX: ${bad === 0 ? 'усе витримано' : `ПРОВАЛЕНО: ${bad}`}`)
 process.exit(bad ? 1 : 0)

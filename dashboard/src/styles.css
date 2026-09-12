@@ -3562,3 +3562,91 @@ button.support-stat:hover { border-color: rgba(139, 123, 240, 0.38); }
     bottom: calc(12px + env(safe-area-inset-bottom));
   }
 }
+
+/* ================================================================
+   Сповіщення 1.31.7 — локальна глобальна гучність цього ПК
+   ================================================================ */
+.notification-volume {
+  display: grid;
+  gap: 8px;
+  padding: 10px 11px;
+  border: 1px solid var(--line-soft);
+  border-radius: 11px;
+  background: #1b1726;
+  transition: opacity .15s, border-color .15s;
+}
+
+.notification-volume.is-disabled { opacity: .55; }
+
+.notification-volume-head,
+.notification-volume-row,
+.notification-volume-presets {
+  display: flex;
+  align-items: center;
+}
+
+.notification-volume-head {
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.notification-volume-head strong {
+  min-width: 48px;
+  padding: 4px 7px;
+  border: 1px solid rgba(139,123,240,.32);
+  border-radius: 8px;
+  background: rgba(139,123,240,.10);
+  color: var(--text);
+  text-align: center;
+  font: 700 11px/1 var(--body);
+}
+
+.notification-volume-row { gap: 10px; }
+
+.notification-volume-slider {
+  flex: 1;
+  min-width: 0;
+  height: 22px;
+  accent-color: var(--violet);
+  cursor: pointer;
+}
+
+.notification-volume-slider:disabled { cursor: not-allowed; }
+
+.notification-volume-presets {
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.notification-volume-preset {
+  min-width: 48px;
+  min-height: 28px;
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-2);
+  color: var(--muted);
+  font: 700 10px/1 var(--body);
+  cursor: pointer;
+}
+
+.notification-volume-preset:hover:not(:disabled) {
+  border-color: var(--violet-dim);
+  color: var(--text);
+}
+
+.notification-volume-preset.active {
+  border-color: rgba(139,123,240,.65);
+  background: rgba(139,123,240,.16);
+  color: #dcd7ff;
+}
+
+.notification-volume-preset:disabled { cursor: not-allowed; opacity: .55; }
+
+@media (max-width: 760px) {
+  .notification-volume { padding: 10px; }
+  .notification-volume-row { align-items: stretch; }
+  .notification-volume-preset { flex: 1; min-width: 58px; min-height: 34px; }
+}
