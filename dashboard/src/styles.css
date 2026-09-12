@@ -3365,3 +3365,148 @@ button.support-stat:hover { border-color: rgba(139, 123, 240, 0.38); }
   }
   .notification-settings { max-height: 52dvh; }
 }
+
+/* ================================================================
+   Сповіщення 1.31.4 — без перекриття таблиці та провалювання popover
+   ----------------------------------------------------------------
+   1) sticky sidebar сам є stacking-context. Без явного z-index main,
+      який іде пізніше в DOM, міг малювати рядки замовлень поверх popover.
+   2) згорнутий toast більше не лежить на status/actions: на desktop для
+      нього є вузький safe-rail праворуч, а сама кнопка стала компактною.
+   ================================================================ */
+
+/* Уся шапка/Popover sidebar гарантовано вище робочої області. */
+.sidebar {
+  z-index: 200;
+  isolation: isolate;
+}
+
+.notification-center {
+  z-index: 220;
+}
+
+.notification-popover {
+  z-index: 230;
+  background: #171420;
+  border-color: #332d46;
+  box-shadow: 0 28px 90px rgba(0, 0, 0, .64), 0 0 0 1px rgba(255,255,255,.015);
+}
+
+/* Жодного просвічування рядків Orders крізь список сповіщень. */
+.notification-head,
+.notification-list,
+.notification-item {
+  background: #171420;
+}
+
+.notification-settings {
+  background: #1d192a;
+}
+
+.notification-item.unread {
+  background: #1d192a;
+}
+
+.notification-item:hover {
+  background: #242033;
+}
+
+/* На ПК залишаємо праворуч вузьку смугу під компактний dock.
+   Це всього +46px до старого padding і не стискає таблицю помітно,
+   зате кнопка більше не лягає на rail статусів/дій. */
+@media (min-width: 761px) {
+  .main {
+    padding-right: 76px;
+  }
+
+  .notification-toast-dock {
+    right: 10px;
+    bottom: 18px;
+    width: 48px;
+    min-width: 48px;
+    height: 56px;
+    grid-template-columns: 1fr;
+    place-items: center;
+    gap: 0;
+    padding: 6px;
+    border-radius: 14px;
+  }
+
+  .notification-toast-dock-icon {
+    width: 34px;
+    height: 34px;
+  }
+
+  .notification-toast-dock-copy {
+    position: absolute;
+    top: -7px;
+    right: -3px;
+    min-width: 20px;
+    height: 20px;
+    display: grid;
+    place-items: center;
+    padding: 0 5px;
+    border: 2px solid var(--ink);
+    border-radius: 999px;
+    background: var(--rose);
+    color: #fff;
+    box-shadow: 0 3px 10px rgba(0,0,0,.28);
+  }
+
+  .notification-toast-dock-copy strong {
+    font-size: 10px;
+    line-height: 1;
+  }
+
+  .notification-toast-dock-copy small {
+    display: none;
+  }
+}
+
+/* На телефоні теж не тримаємо широку плашку поверх кнопок картки.
+   Маленький dock займає лише кут і враховує safe-area. */
+@media (max-width: 760px) {
+  .sidebar {
+    z-index: 200;
+  }
+
+  .main {
+    padding-bottom: calc(88px + env(safe-area-inset-bottom));
+  }
+
+  .notification-popover {
+    z-index: 230;
+    background: #171420;
+  }
+
+  .notification-toast-dock {
+    right: 8px;
+    bottom: calc(10px + env(safe-area-inset-bottom));
+    width: 50px;
+    min-width: 50px;
+    height: 50px;
+    grid-template-columns: 1fr;
+    place-items: center;
+    gap: 0;
+    padding: 6px;
+    border-radius: 14px;
+  }
+
+  .notification-toast-dock-copy {
+    position: absolute;
+    top: -6px;
+    right: -2px;
+    min-width: 20px;
+    height: 20px;
+    display: grid;
+    place-items: center;
+    padding: 0 5px;
+    border: 2px solid var(--ink);
+    border-radius: 999px;
+    background: var(--rose);
+    color: #fff;
+  }
+
+  .notification-toast-dock-copy strong { font-size: 10px; line-height: 1; }
+  .notification-toast-dock-copy small { display: none; }
+}

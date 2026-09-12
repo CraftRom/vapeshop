@@ -17,7 +17,7 @@ const check = (ok, label) => {
   console.log(`  ${ok ? '✓' : '✗'} ${label}`)
 }
 
-console.log('\n--- центр браузерних сповіщень 1.31.3 ---')
+console.log('\n--- центр браузерних сповіщень 1.31.4 ---')
 check(app.includes("import { NotificationCenter }") && app.includes('<NotificationCenter />'), 'центр сповіщень підключений глобально в панелі')
 check(api.includes("request('/notifications/poll'") && api.includes("request('/notifications/read-all'"), 'frontend має poll/read API центру')
 check(center.includes("'product.created'") && center.includes("tone: 'product'"), 'новий товар має окремий тип і звук')
@@ -47,7 +47,11 @@ check(support.includes("params.get('thread')") || support.includes("get('thread'
 check(center.includes('filter((item) => !item.read)') && center.includes('current.filter((entry) => entry.id !== item.id)'), 'прочитані події одразу зникають із робочої черги')
 check(center.includes('nextUnread < unreadRef.current') && center.includes('await fullRefresh()'), 'інша вкладка та видалення джерела синхронізують список')
 check(app.includes('brand-label') && css.includes('.brand-label') && css.includes('white-space: nowrap'), 'назва магазину і дзвіночок мають стабільну однорядкову розмітку')
-check(version.includes("APP_VERSION = '1.31.3'"), 'версія панелі 1.31.3')
+
+check(css.includes('.sidebar {') && css.includes('z-index: 200') && css.includes('isolation: isolate'), 'popover сповіщень має власний верхній stacking-context і не провалюється під таблицю')
+check(css.includes('padding-right: 76px') && css.includes('width: 48px') && css.includes('right: 10px'), 'згорнута кнопка живе у правому safe-rail і не перекриває дії замовлення')
+check(css.includes('background: #171420') && css.includes('background: #1d192a'), 'popover та непрочитані елементи мають непрозорий фон без просвічування контенту')
+check(version.includes("APP_VERSION = '1.31.4'"), 'версія панелі 1.31.4')
 
 console.log(`\nСПОВІЩЕННЯ UX: ${bad === 0 ? 'усе витримано' : `ПРОВАЛЕНО: ${bad}`}`)
 process.exit(bad ? 1 : 0)
