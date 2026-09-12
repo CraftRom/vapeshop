@@ -17,7 +17,7 @@ const check = (ok, label) => {
   console.log(`  ${ok ? '✓' : '✗'} ${label}`)
 }
 
-console.log('\n--- центр браузерних сповіщень 1.30 ---')
+console.log('\n--- центр браузерних сповіщень 1.31 ---')
 check(app.includes("import { NotificationCenter }") && app.includes('<NotificationCenter />'), 'центр сповіщень підключений глобально в панелі')
 check(api.includes("request('/notifications/poll'") && api.includes("request('/notifications/read-all'"), 'frontend має poll/read API центру')
 check(center.includes("'product.created'") && center.includes("tone: 'product'"), 'новий товар має окремий тип і звук')
@@ -36,8 +36,14 @@ check(manifest.includes('"display": "standalone"'), 'manifest підтримує
 check(nginx.includes('location = /notification-sw.js') && nginx.includes('no-store'), 'service worker не застрягає в кеші після deploy')
 check(sw.includes("pathname.startsWith('/app')") && sw.includes('clients.openWindow'), 'клік popup не перехоплює клієнтський Mini App')
 check(css.includes('.notification-popover') && css.includes('.notification-nudge') && css.includes('@media (max-width: 760px)'), 'центр і permission prompt адаптовані під ПК та телефон')
+check(center.includes('TOAST_AUTO_DOCK_MS = 15000'), 'toast через 15 секунд згортається в overlay-кнопку')
+check(center.includes('slice(0, 3)') && center.includes('notification-toast-overflow'), 'до трьох toast видно шарами, решта згортається в один стек')
+check(center.includes('onMouseEnter={onHoverExpand}') && center.includes('notification-toast-scroll'), 'наведення розгортає прокручуваний список')
+check(center.includes('notification-toast-dock') && center.includes('onClick={onPinExpand}'), 'overlay-кнопка повертає список сповіщень')
+check(css.includes('.notification-toast-stage') && css.includes('.notification-toast-dock') && css.includes('notification-toast-attention'), 'toast-стек та attention-анімація оформлені в CSS')
+check(css.includes('grid-template-columns: minmax(0, 1fr) 40px auto'), 'мобільна шапка має окремі колонки для бренду, дзвіночка і меню')
 check(support.includes("params.get('thread')") || support.includes("get('thread')"), 'сповіщення підтримки може відкрити конкретну сесію')
-check(version.includes("APP_VERSION = '1.30.0'"), 'версія панелі 1.30.0')
+check(version.includes("APP_VERSION = '1.31.0'"), 'версія панелі 1.31.0')
 
 console.log(`\nСПОВІЩЕННЯ UX: ${bad === 0 ? 'усе витримано' : `ПРОВАЛЕНО: ${bad}`}`)
 process.exit(bad ? 1 : 0)

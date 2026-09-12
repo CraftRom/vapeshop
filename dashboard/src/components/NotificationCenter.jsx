@@ -9,6 +9,8 @@ const NUDGE_KEY = 'elfar:notification-nudge-dismissed'
 const LEADER_KEY = 'elfar:notification-leader'
 const LEADER_TTL = 16000
 const POLL_MS = 10000
+const TOAST_AUTO_DOCK_MS = 15000
+const TOAST_QUEUE_LIMIT = 40
 
 const KIND = {
   'product.created': { icon: '🛍️', label: 'Новий товар', tone: 'product' },
@@ -197,6 +199,110 @@ function enabledFor(item, settings) {
   return settings[tone] !== false
 }
 
+function ToastCard({ item, compact = false, stackIndex = 0, onOpen }) {
+  const meta = KIND[item.kind] || KIND.system
+  const style = compact
+    ? {
+        '--toast-stack-offset': `${stackIndex * 10}px`,
+        '--toast-stack-scale': String(1 - stackIndex * 0.026),
+        zIndex: 20 - stackIndex,
+        pointerEvents: stackIndex === 0 ? 'auto' : 'none',
+      }
+    : undefined
+
+  return (
+    <button
+      type="button"
+      className={`notification-toast-card tone-${meta.tone} ${compact ? 'is-stacked' : ''}`}
+      style={style}
+      onClick={() => onOpen(item)}
+    >
+      <span className="notification-toast-icon" aria-hidden="true">{meta.icon}</span>
+      <span className="notification-toast-copy">
+        <span className="notification-toast-title">
+          <strong>{item.title}</strong>
+          {!item.read && <i className="notification-dot" />}
+        </span>
+        {item.body && <span className="notification-toast-body">{item.body}</span>}
+        <small>{[item.actor, item.created_at ? dateTime(item.created_at) : ''].filter(Boolean).join(' · ')}</small>
+      </span>
+      <span className="notification-toast-arrow" aria-hidden="true">›</span>
+    </button>
+  )
+}
+
+function NotificationToastStack({ items, docked, expanded, onHoverExpand, onPinExpand, onCollapse, onDock, onOpen }) {
+  if (!items.length) return null
+
+  const compactItems = items.slice(0, 3)
+  const extra = Math.max(0, items.length - compactItems.length)
+  const latest = items[0]
+  const latestMeta = KIND[latest.kind] || KIND.system
+
+  if (docked && !expanded) {
+    return (
+      <button
+        type="button"
+        className={`notification-toast-dock tone-${latestMeta.tone}`}
+        onClick={onPinExpand}
+        aria-label={`Відкрити нові сповіщення: ${items.length}`}
+      >
+        <span className="notification-toast-dock-pulse" aria-hidden="true" />
+        <span className="notification-toast-dock-icon" aria-hidden="true">{latestMeta.icon}</span>
+        <span className="notification-toast-dock-copy">
+          <strong>{items.length}</strong>
+          <small>{items.length === 1 ? 'нове' : 'нових'}</small>
+        </span>
+      </button>
+    )
+  }
+
+  return (
+    <section
+      className={`notification-toast-stage ${expanded ? 'is-expanded' : 'is-compact'}`}
+      aria-label="Нові сповіщення"
+      onMouseEnter={onHoverExpand}
+      onMouseLeave={onCollapse}
+      onFocusCapture={onPinExpand}
+      onBlurCapture={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget)) onCollapse()
+      }}
+    >
+      {expanded ? (
+        <div className="notification-toast-panel">
+          <div className="notification-toast-panel-head">
+            <span>
+              <strong>Нові сповіщення</strong>
+              <small>{items.length} у цьому стеку</small>
+            </span>
+            <button type="button" className="notification-toast-minimize" onClick={onDock} aria-label="Згорнути сповіщення">−</button>
+          </div>
+          <div className="notification-toast-scroll">
+            {items.map((item) => <ToastCard key={item.id} item={item} onOpen={onOpen} />)}
+          </div>
+        </div>
+      ) : (
+        <div className="notification-toast-compact-stack">
+          {[...compactItems].reverse().map((item, reverseIndex) => {
+            const stackIndex = compactItems.length - 1 - reverseIndex
+            return <ToastCard key={item.id} item={item} compact stackIndex={stackIndex} onOpen={onOpen} />
+          })}
+          {extra > 0 && (
+            <button type="button" className="notification-toast-overflow" onClick={onPinExpand}>
+              +{extra} ще
+            </button>
+          )}
+          {items.length > 1 && (
+            <button type="button" className="notification-toast-expand" onClick={onPinExpand}>
+              {items.length} сповіщень
+            </button>
+          )}
+        </div>
+      )}
+    </section>
+  )
+}
+
 export function NotificationCenter() {
   const navigate = useNavigate()
   const notify = useToast()
@@ -212,6 +318,12 @@ export function NotificationCenter() {
   const [showNudge, setShowNudge] = useState(() => (
     'Notification' in window && Notification.permission === 'default' && localStorage.getItem(NUDGE_KEY) !== '1'
   ))
+  const [toastItems, setToastItems] = useState([])
+  const [toastDocked, setToastDocked] = useState(false)
+  const [toastExpanded, setToastExpanded] = useState(false)
+  const [toastPinned, setToastPinned] = useState(false)
+  const toastExpandedRef = useRef(false)
+  const toastTimer = useRef(null)
   const initialized = useRef(false)
   const latestId = useRef(null)
   const worker = useRef(null)
@@ -243,10 +355,78 @@ export function NotificationCenter() {
     })
   }
 
+  useEffect(() => {
+    toastExpandedRef.current = toastExpanded
+  }, [toastExpanded])
+
+  const clearToastTimer = useCallback(() => {
+    if (toastTimer.current) {
+      clearTimeout(toastTimer.current)
+      toastTimer.current = null
+    }
+  }, [])
+
+  const armToastDock = useCallback(() => {
+    clearToastTimer()
+    toastTimer.current = setTimeout(() => {
+      setToastExpanded(false)
+      setToastPinned(false)
+      setToastDocked(true)
+      toastTimer.current = null
+    }, TOAST_AUTO_DOCK_MS)
+  }, [clearToastTimer])
+
+  const showToastBatch = useCallback((fresh) => {
+    const visible = fresh.filter((item) => enabledFor(item, settings))
+    if (!visible.length) return visible
+
+    setToastItems((current) => {
+      const byId = new Map([...visible, ...current].map((item) => [item.id, item]))
+      return [...byId.values()]
+        .sort((a, b) => Number(b.id || 0) - Number(a.id || 0))
+        .slice(0, TOAST_QUEUE_LIMIT)
+    })
+    setToastDocked(false)
+    if (!toastExpandedRef.current) {
+      setToastExpanded(false)
+      setToastPinned(false)
+      armToastDock()
+    }
+    return visible
+  }, [armToastDock, settings])
+
+  const hoverExpandToasts = useCallback(() => {
+    clearToastTimer()
+    setToastDocked(false)
+    setToastExpanded(true)
+  }, [clearToastTimer])
+
+  const pinExpandToasts = useCallback(() => {
+    clearToastTimer()
+    setToastDocked(false)
+    setToastExpanded(true)
+    setToastPinned(true)
+  }, [clearToastTimer])
+
+  const collapseToasts = useCallback(() => {
+    if (toastPinned) return
+    setToastExpanded(false)
+    armToastDock()
+  }, [armToastDock, toastPinned])
+
+  const dockToasts = useCallback(() => {
+    clearToastTimer()
+    setToastExpanded(false)
+    setToastPinned(false)
+    setToastDocked(true)
+  }, [clearToastTimer])
+
+  useEffect(() => () => clearToastTimer(), [clearToastTimer])
+
   const announce = useCallback(async (fresh) => {
     if (!fresh.length || !isLeader()) return
-    for (const item of [...fresh].sort((a, b) => a.id - b.id)) {
-      if (!enabledFor(item, settings)) continue
+    const visible = showToastBatch(fresh)
+    for (const item of [...visible].sort((a, b) => a.id - b.id)) {
       const tone = (KIND[item.kind] || KIND.system).tone
       if (settings.sound) playTone(tone)
       if (settings.browser && 'Notification' in window && Notification.permission === 'granted') {
@@ -256,7 +436,7 @@ export function NotificationCenter() {
         }
       }
     }
-  }, [isLeader, settings])
+  }, [isLeader, settings, showToastBatch])
 
   const fullRefresh = useCallback(async () => {
     const data = await api.notifications.poll(undefined, 60)
@@ -344,11 +524,25 @@ export function NotificationCenter() {
     if (item.href) navigate(item.href)
   }
 
+  const openToastItem = async (item) => {
+    setToastItems((current) => current.filter((entry) => entry.id !== item.id))
+    setToastPinned(false)
+    setToastExpanded(false)
+    setToastDocked(false)
+    armToastDock()
+    await openItem(item)
+  }
+
   const readAll = async () => {
     try {
       const result = await api.notifications.readAll()
       setItems((current) => current.map((item) => ({ ...item, read: true })))
       setUnread(Number(result.unread_count || 0))
+      clearToastTimer()
+      setToastItems([])
+      setToastDocked(false)
+      setToastExpanded(false)
+      setToastPinned(false)
     } catch (err) {
       notify(err.message, 'bad')
     }
@@ -412,7 +606,7 @@ export function NotificationCenter() {
       </button>
 
       {showNudge && !open && (
-        <div className="notification-nudge">
+        <div className={`notification-nudge ${toastItems.length ? 'has-live-toasts' : ''}`}>
           <button
             type="button"
             className="notification-nudge-main"
@@ -431,6 +625,19 @@ export function NotificationCenter() {
             onClick={() => { localStorage.setItem(NUDGE_KEY, '1'); setShowNudge(false) }}
           >×</button>
         </div>
+      )}
+
+      {!open && (
+        <NotificationToastStack
+          items={toastItems}
+          docked={toastDocked}
+          expanded={toastExpanded}
+          onHoverExpand={hoverExpandToasts}
+          onPinExpand={pinExpandToasts}
+          onCollapse={collapseToasts}
+          onDock={dockToasts}
+          onOpen={openToastItem}
+        />
       )}
 
       {open && (
