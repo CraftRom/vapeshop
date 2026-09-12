@@ -10,7 +10,7 @@ from api.auth import authenticate, create_token
 from api.routers import (
     backups as backups_router, broadcasts, catalog, customers,
     logs as logs_router, media as media_router,
-    orders, promos, support,
+    orders, promos, support, notifications,
     settings as settings_router, operators, shop as shop_router, stats, telegram,
 )
 from api.schemas import LoginIn, TokenOut
@@ -86,7 +86,7 @@ app = FastAPI(
     title=f"{settings.shop_name} — Dashboard API",
     # Версія API. Піднімається разом із помітними змінами контракту:
     # три ролі замість двох і новий розділ журналу — саме такий випадок.
-    version="1.3.0",
+    version="1.5.0",
     lifespan=lifespan,
     docs_url="/docs" if _docs_on else None,
     redoc_url=None,
@@ -254,6 +254,7 @@ app.include_router(media_router.router)
 app.include_router(catalog.router, prefix="/api/catalog", tags=["catalog"])
 app.include_router(orders.router, prefix="/api/orders", tags=["orders"])
 app.include_router(support.router, prefix="/api/support", tags=["support"])
+app.include_router(notifications.router, prefix="/api/notifications", tags=["notifications"])
 app.include_router(customers.router, prefix="/api/customers", tags=["customers"])
 app.include_router(promos.router, prefix="/api/promos", tags=["promos"])
 app.include_router(broadcasts.router, prefix="/api/broadcasts", tags=["broadcasts"])

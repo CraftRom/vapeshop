@@ -180,6 +180,10 @@ class SupportThreadOut(BaseModel):
     created_at: datetime | None = None
     updated_at: datetime | None = None
     last_message_at: datetime | None = None
+    closed_at: datetime | None = None
+    closed_by: str | None = None
+    closed_by_name: str | None = None
+    close_reason: str | None = None
     unread_count: int = 0
     user: SupportClientOut | None = None
 
@@ -198,8 +202,8 @@ class SupportThreadPatch(BaseModel):
     @field_validator("status")
     @classmethod
     def _status(cls, value: str) -> str:
-        if value not in {"open", "closed"}:
-            raise ValueError("Статус має бути open або closed")
+        if value != "closed":
+            raise ValueError("Закриті звернення не перевідкриваються. Дозволений лише статус closed")
         return value
 
 
@@ -234,6 +238,27 @@ class SupportMessageResult(BaseModel):
     message: SupportMessageOut
     delivered: bool
     warning: str | None = None
+
+
+# --------------------------------------------------------- сповіщення панелі
+
+class PanelNotificationOut(BaseModel):
+    id: int
+    kind: str
+    title: str
+    body: str = ""
+    href: str | None = None
+    entity_id: int | None = None
+    actor: str | None = None
+    created_at: datetime | None = None
+    read: bool = False
+
+
+class PanelNotificationPollOut(BaseModel):
+    items: list[PanelNotificationOut] = Field(default_factory=list)
+    unread_count: int = 0
+    latest_id: int = 0
+
 
 
 # --------------------------------------------------------------------- клієнти

@@ -5,6 +5,7 @@ import { api, clearToken, getSession, getToken } from './api'
 import { APP_VERSION } from './version'
 import { Loading, ToastProvider } from './components/ui'
 import { useVisiblePolling } from './components/useVisiblePolling'
+import { NotificationCenter } from './components/NotificationCenter'
 import Login from './pages/Login'
 
 // Позначка одноразового перезавантаження після оновлення панелі.
@@ -184,6 +185,7 @@ function Shell({ children }) {
             <span className="dot" />
             Панель магазину
           </div>
+          <NotificationCenter />
           <button
             className="nav-toggle"
             type="button"

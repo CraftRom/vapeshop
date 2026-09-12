@@ -41,19 +41,41 @@ async def is_active(repo: Repository, user_id: int) -> bool:
     return bool(thread and thread.status == "open")
 
 
-async def start(repo: Repository, user_id: int):
-    # Загальна підтримка — окремий контекст. Інакше після /done старий
-    # chat_order_id залишався активним і наступне звичайне повідомлення могло
-    # непомітно піти в чат минулого замовлення.
+async def start(repo: Repository, user_id: int) -> tuple[object, bool]:
+    """Входить у режим /ask.
+
+    Якщо сесія вже відкрита, продовжує саме її — повторна команда /ask не
+    дробить одну розмову на кілька чатів. Якщо попередню сесію закрито,
+    ensure_support_thread створює новий thread і ніколи не оживляє старий.
+    """
     await repo.set_chat_order(user_id, None)
-    return await repo.ensure_support_thread(user_id)
+    current = await repo.get_support_thread_for_user(user_id)
+    if current:
+        return current, False
+    return await repo.ensure_support_thread(user_id), True
 
 
-async def close(repo: Repository, user_id: int):
+async def close(
+    repo: Repository,
+    user_id: int,
+    *,
+    closed_by: str = "client",
+    closed_by_name: str = "Клієнт",
+    close_reason: str = "done",
+):
+    """Закриває лише поточну активну сесію клієнта.
+
+    Повторний /done є безпечним no-op. Нова сесія тут не створюється.
+    """
     thread = await repo.get_support_thread_for_user(user_id)
-    if not thread or thread.status != "open":
-        return None
-    return await repo.set_support_thread_status(thread.id, "closed")
+    if not thread:
+        return None, False
+    return await repo.close_support_thread(
+        thread.id,
+        closed_by=closed_by,
+        closed_by_name=closed_by_name,
+        close_reason=close_reason,
+    )
 
 
 def describe_attachment(message) -> dict | None:
@@ -91,9 +113,16 @@ async def save_incoming(
     bot=None,
     attachment: dict | None = None,
 ):
-    """Записує повідомлення клієнта й повертає актуальну стрічку."""
-    thread = await repo.ensure_support_thread(user.id)
-    saved = await repo.add_support_message({
+    """Записує повідомлення лише в уже відкриту /ask-сесію.
+
+    Важливо: цей метод принципово НЕ створює thread. Якщо менеджер закрив
+    сесію між перевіркою хендлера та фактичним записом, повідомлення не
+    повинно мовчки створити новий чат. Нову сесію створює тільки явний /ask.
+    """
+    thread = await repo.get_support_thread_for_user(user.id)
+    if not thread:
+        return None
+    saved = await repo.add_support_message_if_open({
         "thread_id": thread.id,
         "user_id": user.id,
         "direction": "in",
@@ -103,6 +132,21 @@ async def save_incoming(
         "is_read": False,
         **(attachment or {}),
     })
+
+    if saved is None:
+        return None
+
+    from shop.services.panel_notifications import safe_publish
+    author = user.first_name or user.username or f"id{user.tg_id}"
+    await safe_publish(
+        repo,
+        "support.message",
+        f"Нове повідомлення в підтримку · #{thread.id}",
+        text,
+        href=f"/support?thread={thread.id}",
+        entity_id=thread.id,
+        actor=author,
+    )
 
     if bot is not None:
         await _notify_staff(bot, repo, thread.id, user, text)
@@ -148,11 +192,14 @@ async def send_to_client(
 
     signature = f"\n\n<i>{esc(author)}</i>" if author else ""
     try:
+        # Reply-клавіатуру тут не чіпаємо. Вона вже встановлена на вході
+        # в /ask. Це прибирає гонку: якщо менеджер закрив чат одночасно з
+        # відповіддю, пізніше доставлена відповідь не поверне кнопку
+        # «Завершити звернення» поверх уже відновленого головного меню.
         sent = await bot.send_message(
             user.tg_id,
             "💬 <b>Відповідь менеджера</b>\n\n"
             f"{esc(text)}{signature}",
-            reply_markup=support_keyboard(),
         )
     except Exception as exc:
         if is_permanent_delivery_error(exc):
@@ -172,3 +219,47 @@ async def send_to_client(
 
     await repo.set_bot_reachable(user.tg_id, True)
     return True, sent
+
+
+async def notify_closed_by_staff(bot, repo: Repository, thread, author: str, reply_markup=None) -> bool:
+    """Сповіщає клієнта, що менеджер завершив саме цю сесію.
+
+    Статус у БД уже закритий до виклику цієї функції. Невдала доставка не
+    може відкотити закриття: це лише повідомлення користувачу.
+    """
+    user = thread.user or await repo.get_user(thread.user_id)
+    if not user or user.bot_reachable is False:
+        return False
+    who = f" менеджером {esc(author)}" if author else " менеджером"
+    try:
+        await bot.send_message(
+            user.tg_id,
+            f"✅ <b>Звернення #{thread.id} завершено{who}</b>\n\n"
+            "Історія цього звернення збережена. Якщо виникне нове питання — "
+            "створіть нове звернення кнопкою «🆘 Підтримка» або командою /ask.",
+            reply_markup=reply_markup,
+        )
+
+        # Закриття менеджером і новий /ask можуть прилетіти майже одночасно.
+        # Якщо за час доставки клієнт уже створив НОВУ сесію, попереднє
+        # повідомлення могло повернути головне меню поверх режиму /ask.
+        # Перевіряємо стан після Telegram-відправки й виправляємо клавіатуру.
+        active = await repo.get_support_thread_for_user(user.id)
+        if active and active.id != thread.id:
+            await bot.send_message(
+                user.tg_id,
+                f"🆘 Звернення #{active.id} активне. Продовжуйте писати сюди.",
+                reply_markup=support_keyboard(),
+            )
+    except Exception as exc:
+        if is_permanent_delivery_error(exc):
+            await repo.set_bot_reachable(user.tg_id, False)
+        log.warning(
+            "Не вдалося повідомити клієнта про закриття підтримки %s",
+            thread.id,
+            extra={"event": "support.close_notify.failed", "threadId": thread.id},
+            exc_info=True,
+        )
+        return False
+    await repo.set_bot_reachable(user.tg_id, True)
+    return True

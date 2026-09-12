@@ -157,6 +157,15 @@ export const api = {
     fileUrl: (orderId, messageId) => `${BASE}/orders/${orderId}/files/${messageId}`,
   },
 
+  notifications: {
+    list: (limit = 60) => request('/notifications', { params: { limit } }),
+    poll: (afterId, limit = 60) => request('/notifications/poll', {
+      params: { after_id: afterId === null || afterId === undefined ? undefined : afterId, limit },
+    }),
+    read: (id) => request(`/notifications/${id}/read`, { method: 'POST' }),
+    readAll: () => request('/notifications/read-all', { method: 'POST' }),
+  },
+
   support: {
     list: (status = 'open') => request('/support', { params: { status } }),
     stats: () => request('/support/stats'),

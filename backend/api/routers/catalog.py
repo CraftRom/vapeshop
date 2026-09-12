@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from urllib.parse import quote_plus
+
 from fastapi import APIRouter, Depends, HTTPException
 
-from api.auth import require_staff
+from api.auth import Principal, require_staff
 from api.schemas import CategoryIn, CategoryOut, ProductIn, ProductOut, StockIn
 from shop.repo.base import Repository
 from shop.repo.factory import get_repo
@@ -79,10 +81,26 @@ async def list_products(
 
 
 @router.post("/products", response_model=ProductOut, status_code=201)
-async def create_product(data: ProductIn, repo: Repository = Depends(get_repo)):
+async def create_product(
+    data: ProductIn,
+    who: Principal = Depends(require_staff),
+    repo: Repository = Depends(get_repo),
+):
     if not await repo.get_category(data.category_id):
         raise HTTPException(400, "Такої категорії немає")
-    return await repo.create_product(data.model_dump())
+    product = await repo.create_product(data.model_dump())
+
+    from shop.services.panel_notifications import safe_publish
+    await safe_publish(
+        repo,
+        "product.created",
+        "Новий товар у каталозі",
+        f"{product.name} · {product.stock} шт. · {product.price} ₴",
+        href=f"/catalog?search={quote_plus(product.name)}",
+        entity_id=product.id,
+        actor=who.name or who.login,
+    )
+    return product
 
 
 @router.get("/products/{product_id}", response_model=ProductOut)

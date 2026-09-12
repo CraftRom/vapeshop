@@ -45,28 +45,56 @@ def _support_intro() -> str:
     )
 
 
+async def _answer_after_support_close(target, repo: Repository, user: User, text: str) -> None:
+    """Повертає головне меню, не ламаючи вже створену наступну сесію.
+
+    Aiogram може обробляти два апдейти одного клієнта майже одночасно:
+    /done закрив старий thread, а наступний /ask уже встиг створити новий.
+    Пізніша відповідь /done з main_menu не повинна заховати кнопку
+    завершення нової сесії, тому після відправки ще раз звіряємо БД.
+    """
+    await target.answer(text, reply_markup=kb.main_menu())
+    active = await repo.get_support_thread_for_user(user.id)
+    if active:
+        await target.answer(
+            f"🆘 Звернення #{active.id} активне. Продовжуйте писати сюди.",
+            reply_markup=support.support_keyboard(),
+        )
+
+
 @router.message(F.text == "🆘 Підтримка")
 @router.message(Command("ask"))
 async def start_support(message: Message, repo: Repository, user: User) -> None:
     """Відкриває загальну підтримку, яка працює лише в приватному чаті."""
-    await support.start(repo, user.id)
-    await message.answer(_support_intro(), reply_markup=support.support_keyboard())
+    thread, created = await support.start(repo, user.id)
+    if created:
+        await message.answer(_support_intro(), reply_markup=support.support_keyboard())
+    else:
+        await message.answer(
+            f"🆘 Звернення #{thread.id} вже відкрите. Продовжуйте писати сюди — "
+            "нову сесію створювати не потрібно. Завершити її можна кнопкою нижче або /done.",
+            reply_markup=support.support_keyboard(),
+        )
 
 
 @router.message(F.text == "✅ Завершити звернення")
 @router.message(Command("done", "close"))
 async def stop_support(message: Message, repo: Repository, user: User) -> None:
-    closed = await support.close(repo, user.id)
-    if not closed:
-        await message.answer(
+    closed, changed = await support.close(
+        repo, user.id, closed_by="client",
+        closed_by_name=user.first_name or (f"@{user.username}" if user.username else f"Telegram {user.tg_id}"),
+        close_reason="done"
+    )
+    if not closed or not changed:
+        await _answer_after_support_close(
+            message, repo, user,
             "Зараз немає відкритого звернення до підтримки. Якщо потрібна допомога — /ask.",
-            reply_markup=kb.main_menu(),
         )
         return
-    await message.answer(
+    await _answer_after_support_close(
+        message, repo, user,
         "✅ Звернення завершено. Історія збережена. Якщо з’явиться нове питання — "
         "натисніть «🆘 Підтримка» або введіть /ask.",
-        reply_markup=kb.main_menu(),
     )
 
 
@@ -74,8 +102,12 @@ async def stop_support(message: Message, repo: Repository, user: User) -> None:
 async def start_support_button(
     callback: CallbackQuery, repo: Repository, user: User
 ) -> None:
-    await support.start(repo, user.id)
-    await callback.message.answer(_support_intro(), reply_markup=support.support_keyboard())
+    thread, created = await support.start(repo, user.id)
+    await callback.message.answer(
+        _support_intro() if created else
+        f"🆘 Звернення #{thread.id} вже відкрите. Продовжуйте писати в ньому.",
+        reply_markup=support.support_keyboard(),
+    )
     await callback.answer()
 
 
@@ -83,10 +115,16 @@ async def start_support_button(
 async def stop_support_button(
     callback: CallbackQuery, repo: Repository, user: User
 ) -> None:
-    await support.close(repo, user.id)
-    await callback.message.answer(
-        "✅ Звернення завершено. Історія збережена. Якщо потрібна допомога ще раз — /ask.",
-        reply_markup=kb.main_menu(),
+    closed, changed = await support.close(
+        repo, user.id, closed_by="client",
+        closed_by_name=user.first_name or (f"@{user.username}" if user.username else f"Telegram {user.tg_id}"),
+        close_reason="done"
+    )
+    await _answer_after_support_close(
+        callback.message, repo, user,
+        "✅ Звернення завершено. Історія збережена. Якщо потрібна допомога ще раз — /ask."
+        if closed and changed else
+        "Відкритого звернення вже немає. Для нового питання використайте /ask.",
     )
     await callback.answer()
 
@@ -135,13 +173,17 @@ async def incoming_file(
         if not attachment:
             return
         caption = (message.caption or "").strip() or f"[{attachment['file_name']}]"
-        await support.save_incoming(
+        saved = await support.save_incoming(
             repo, user, caption, bot=message.bot, attachment=attachment
         )
-        await message.answer(
-            "Передали в підтримку. Менеджер відповість у цьому чаті.",
-            reply_markup=support.support_keyboard(),
-        )
+        if saved is None:
+            await message.answer(
+                "Це звернення вже завершено. Файл не створив нову сесію автоматично. "
+                "Якщо потрібна допомога — відкрийте нове звернення через /ask.",
+                reply_markup=kb.main_menu(),
+            )
+            return
+        await message.answer("Передали в підтримку. Менеджер відповість у цьому чаті.")
         return
 
     attachment = chat.describe_attachment(message)
@@ -198,11 +240,15 @@ async def incoming(
     # повідомлення не повинні випадково піти в FAQ або в останнє замовлення.
     # Інакше клієнт думає, що пише техпідтримці, а текст опиняється не там.
     if await support.is_active(repo, user.id):
-        await support.save_incoming(repo, user, text, bot=message.bot)
-        await message.answer(
-            "Передали в підтримку. Менеджер відповість у цьому чаті.",
-            reply_markup=support.support_keyboard(),
-        )
+        saved = await support.save_incoming(repo, user, text, bot=message.bot)
+        if saved is None:
+            await message.answer(
+                "Це звернення щойно було завершено. Повідомлення не відкривало старий чат "
+                "і не створювало новий автоматично. Для нового питання введіть /ask.",
+                reply_markup=kb.main_menu(),
+            )
+            return
+        await message.answer("Передали в підтримку. Менеджер відповість у цьому чаті.")
         return
 
     # Відповідь на цитату — це свідоме звернення до менеджера, туди й веде.
@@ -307,8 +353,23 @@ async def pick_order(callback: CallbackQuery, repo: Repository, user: User) -> N
     # Явний перехід у чат замовлення завершує загальний режим /ask.
     # Інакше chat_order_id встановився б правильно, але наступне повідомлення
     # все одно перехопила б активна підтримка й воно пішло не туди.
-    if await support.is_active(repo, user.id):
-        await support.close(repo, user.id)
+    was_support = await support.is_active(repo, user.id)
+    if was_support:
+        await support.close(
+            repo, user.id,
+            closed_by="client",
+            closed_by_name=user.first_name or (f"@{user.username}" if user.username else f"Telegram {user.tg_id}"),
+            close_reason="order_switch",
+        )
     await repo.set_chat_order(user.id, order.id)
     await callback.message.edit_text(_hint(order.id))
+    if was_support:
+        # Inline-кнопка могла бути натиснута зі старого повідомлення вже під
+        # час /ask. Саме закриття сесії не змінює reply-клавіатуру Telegram,
+        # тому явно повертаємо звичайне меню, інакше під полем вводу лишилась
+        # би кнопка «Завершити звернення» вже після виходу з підтримки.
+        await callback.message.answer(
+            f"✅ Підтримку завершено. Тепер ви пишете щодо замовлення №{order.id}.",
+            reply_markup=kb.main_menu(),
+        )
     await callback.answer()

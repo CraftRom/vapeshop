@@ -68,6 +68,7 @@ run_node phone tests/phone.mjs
 run_node filters tests/filters.mjs dashboard
 run_node catalog-ux tests/catalog-ux.mjs dashboard
 run_node support-ux tests/support-ux.mjs dashboard
+run_node notifications tests/notifications.mjs dashboard
 
 echo
 echo "Контракти й дані"
@@ -85,6 +86,7 @@ run database qa/qa_db.py
 run faq qa/qa_faq.py
 run faq-flow qa/qa_faq_flow.py
 run support qa/qa_support.py
+run panel-notify qa/qa_panel_notifications.py
 run faq-public qa/qa_faq_public.py
 run env qa/qa_env.py
 run docs qa/qa_docs.py

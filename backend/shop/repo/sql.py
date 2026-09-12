@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 from sqlalchemy import case, delete, func, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -1124,11 +1125,11 @@ class SqlRepository(Repository):
     # ------------------------------------------------ загальна підтримка
 
     async def ensure_support_thread(self, user_id: int) -> SupportThread:
-        """Повертає активне звернення або створює нову окрему сесію.
+        """Повертає поточну відкриту сесію або створює нову.
 
-        Закриті звернення ніколи не перевідкриваємо автоматично: вони є
-        історією. Наступний /ask після /done створює новий thread, а панель
-        групує всі такі thread-и під одним клієнтом.
+        Цей метод викликається тільки явним входом у /ask. Закриті сесії
+        не перевідкриваються. Частковий UNIQUE-індекс захищає від двох
+        паралельних /ask для одного клієнта.
         """
         row = await self.s.scalar(
             select(m.SupportThread)
@@ -1138,14 +1139,39 @@ class SqlRepository(Repository):
             )
             .order_by(m.SupportThread.updated_at.desc(), m.SupportThread.id.desc())
         )
+        if row is not None:
+            return _support_thread(row)
+
         now = datetime.now(timezone.utc)
-        if row is None:
-            row = m.SupportThread(
-                user_id=user_id, status="open", updated_at=now, last_message_at=now
-            )
-            self.s.add(row)
+        row = m.SupportThread(
+            user_id=user_id,
+            status="open",
+            updated_at=now,
+            last_message_at=now,
+            closed_at=None,
+            closed_by=None,
+            closed_by_name=None,
+            close_reason=None,
+        )
+        self.s.add(row)
+        try:
             await self.s.commit()
-            await self.s.refresh(row)
+        except IntegrityError:
+            # Два /ask могли прийти майже одночасно. База лишає рівно одну
+            # відкриту сесію; другий запит після rollback просто бере її.
+            await self.s.rollback()
+            existing = await self.s.scalar(
+                select(m.SupportThread)
+                .where(
+                    m.SupportThread.user_id == user_id,
+                    m.SupportThread.status == "open",
+                )
+                .order_by(m.SupportThread.updated_at.desc(), m.SupportThread.id.desc())
+            )
+            if existing is None:
+                raise
+            return _support_thread(existing)
+        await self.s.refresh(row)
         return _support_thread(row)
 
     async def get_support_thread(self, thread_id: int) -> SupportThread | None:
@@ -1166,8 +1192,7 @@ class SqlRepository(Repository):
         return _support_thread(row, unread_count=int(unread or 0), with_user=True)
 
     async def get_support_thread_for_user(self, user_id: int) -> SupportThread | None:
-        # Для маршрутизації повідомлення потрібен саме активний /ask.
-        # Закритий чат не можна випадково оживити звичайним повідомленням.
+        """Повертає тільки активну сесію; закрита ніколи не оживає сама."""
         row = await self.s.scalar(
             select(m.SupportThread)
             .options(selectinload(m.SupportThread.user))
@@ -1212,19 +1237,48 @@ class SqlRepository(Repository):
             for row in rows
         ]
 
-    async def set_support_thread_status(self, thread_id: int, status: str) -> SupportThread | None:
-        if status not in {"open", "closed"}:
-            return None
-        row = await self.s.get(m.SupportThread, thread_id)
-        if not row:
-            return None
-        row.status = status
-        row.updated_at = datetime.now(timezone.utc)
+    async def close_support_thread(
+        self,
+        thread_id: int,
+        *,
+        closed_by: str,
+        closed_by_name: str = "",
+        close_reason: str = "",
+    ) -> tuple[SupportThread | None, bool]:
+        """Закриває конкретну сесію рівно один раз.
+
+        Рядок блокується до commit. Якщо повідомлення вже почало запис у
+        відкриту сесію, воно завершиться перед закриттям; якщо закриття
+        виграло гонку — нове повідомлення в цю сесію вже не потрапить.
+        """
+        row = await self.s.scalar(
+            select(m.SupportThread)
+            .where(m.SupportThread.id == thread_id)
+            .with_for_update()
+        )
+        if row is None:
+            await self.s.commit()
+            return None, False
+        if row.status == "closed":
+            await self.s.commit()
+            return await self.get_support_thread(thread_id), False
+
+        now = datetime.now(timezone.utc)
+        row.status = "closed"
+        row.closed_at = now
+        row.closed_by = (closed_by or "system")[:16]
+        row.closed_by_name = (closed_by_name or "")[:128] or None
+        row.close_reason = (close_reason or "")[:32] or None
+        row.updated_at = now
         await self.s.commit()
-        await self.s.refresh(row)
-        return await self.get_support_thread(thread_id)
+        return await self.get_support_thread(thread_id), True
 
     async def add_support_message(self, data: dict) -> SupportMessage:
+        """Низькорівнева вставка без перевірки статусу.
+
+        Лишається для міграцій/тестів. Робочі клієнтські та операторські
+        повідомлення повинні йти через add_support_message_if_open().
+        """
         row = m.SupportMessage(**data)
         self.s.add(row)
         await self.s.flush()
@@ -1234,6 +1288,31 @@ class SqlRepository(Repository):
             .where(m.SupportThread.id == row.thread_id)
             .values(last_message_at=now, updated_at=now)
         )
+        await self.s.commit()
+        await self.s.refresh(row)
+        return _support_message(row)
+
+    async def add_support_message_if_open(self, data: dict) -> SupportMessage | None:
+        """Атомарно перевіряє сесію й додає повідомлення тільки у open."""
+        thread_id = int(data["thread_id"])
+        thread = await self.s.scalar(
+            select(m.SupportThread)
+            .where(
+                m.SupportThread.id == thread_id,
+                m.SupportThread.status == "open",
+            )
+            .with_for_update()
+        )
+        if thread is None:
+            await self.s.commit()
+            return None
+
+        row = m.SupportMessage(**data)
+        self.s.add(row)
+        await self.s.flush()
+        now = row.created_at or datetime.now(timezone.utc)
+        thread.last_message_at = now
+        thread.updated_at = now
         await self.s.commit()
         await self.s.refresh(row)
         return _support_message(row)
@@ -1296,6 +1375,111 @@ class SqlRepository(Repository):
         await self.s.delete(row)
         await self.s.commit()
         return True
+
+    # ----------------------------------------------- центр сповіщень панелі
+
+    @staticmethod
+    def _panel_notification_dict(row, *, read: bool = False) -> dict:
+        return {
+            "id": row.id,
+            "kind": row.kind,
+            "title": row.title,
+            "body": row.body or "",
+            "href": row.href,
+            "entity_id": row.entity_id,
+            "actor": row.actor,
+            "created_at": row.created_at,
+            "read": bool(read),
+        }
+
+    async def create_panel_notification(self, data: dict) -> dict:
+        row = m.PanelNotification(**data)
+        self.s.add(row)
+        await self.s.commit()
+        await self.s.refresh(row)
+
+        # Центр сповіщень — оперативний журнал, не архів аудиту. Старші
+        # за 90 днів події прибираємо разом із read-мітками через CASCADE,
+        # щоб таблиця не росла безмежно роками.
+        edge = datetime.now(timezone.utc) - timedelta(days=90)
+        await self.s.execute(
+            delete(m.PanelNotification).where(m.PanelNotification.created_at < edge)
+        )
+        await self.s.commit()
+        return self._panel_notification_dict(row)
+
+    async def list_panel_notifications(
+        self, viewer_key: str, *, limit: int = 60, after_id: int | None = None
+    ) -> list[dict]:
+        stmt = select(m.PanelNotification)
+        if after_id is not None:
+            stmt = stmt.where(m.PanelNotification.id > int(after_id))
+        rows = list(await self.s.scalars(
+            stmt.order_by(m.PanelNotification.id.desc()).limit(max(1, min(int(limit), 200)))
+        ))
+        if not rows:
+            return []
+        ids = [row.id for row in rows]
+        read_ids = set(await self.s.scalars(
+            select(m.PanelNotificationRead.notification_id).where(
+                m.PanelNotificationRead.viewer_key == viewer_key,
+                m.PanelNotificationRead.notification_id.in_(ids),
+            )
+        ))
+        return [
+            self._panel_notification_dict(row, read=row.id in read_ids)
+            for row in rows
+        ]
+
+    async def panel_notification_unread_count(self, viewer_key: str) -> int:
+        total = int(await self.s.scalar(select(func.count(m.PanelNotification.id))) or 0)
+        read = int(await self.s.scalar(
+            select(func.count(m.PanelNotificationRead.id)).where(
+                m.PanelNotificationRead.viewer_key == viewer_key
+            )
+        ) or 0)
+        return max(0, total - read)
+
+    async def mark_panel_notification_read(self, notification_id: int, viewer_key: str) -> bool:
+        exists_row = await self.s.scalar(
+            select(m.PanelNotification.id).where(m.PanelNotification.id == notification_id)
+        )
+        if exists_row is None:
+            return False
+        already = await self.s.scalar(
+            select(m.PanelNotificationRead.id).where(
+                m.PanelNotificationRead.notification_id == notification_id,
+                m.PanelNotificationRead.viewer_key == viewer_key,
+            )
+        )
+        if already is None:
+            self.s.add(m.PanelNotificationRead(
+                notification_id=notification_id, viewer_key=viewer_key
+            ))
+            try:
+                await self.s.commit()
+            except IntegrityError:
+                await self.s.rollback()
+        return True
+
+    async def mark_all_panel_notifications_read(self, viewer_key: str) -> int:
+        all_ids = set(await self.s.scalars(select(m.PanelNotification.id)))
+        if not all_ids:
+            return 0
+        read_ids = set(await self.s.scalars(
+            select(m.PanelNotificationRead.notification_id).where(
+                m.PanelNotificationRead.viewer_key == viewer_key
+            )
+        ))
+        pending = sorted(all_ids - read_ids)
+        if not pending:
+            return 0
+        self.s.add_all([
+            m.PanelNotificationRead(notification_id=nid, viewer_key=viewer_key)
+            for nid in pending
+        ])
+        await self.s.commit()
+        return len(pending)
 
     # ------------------------------------------------------ менеджери
 
@@ -1393,6 +1577,8 @@ def _support_thread(row, *, unread_count: int = 0, with_user: bool = False) -> S
         id=row.id, user_id=row.user_id, status=row.status,
         created_at=row.created_at, updated_at=row.updated_at,
         last_message_at=row.last_message_at,
+        closed_at=row.closed_at, closed_by=row.closed_by,
+        closed_by_name=row.closed_by_name, close_reason=row.close_reason,
         user=_user(row.user) if with_user and row.user else None,
         unread_count=int(unread_count or 0),
     )

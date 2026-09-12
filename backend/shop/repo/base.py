@@ -361,10 +361,25 @@ class Repository(ABC):
     async def list_support_threads(self, status: str | None = None) -> list[SupportThread]: ...
 
     @abstractmethod
-    async def set_support_thread_status(self, thread_id: int, status: str) -> SupportThread | None: ...
+    async def close_support_thread(
+        self, thread_id: int, *, closed_by: str, closed_by_name: str = "", close_reason: str = ""
+    ) -> tuple[SupportThread | None, bool]:
+        """Закриває конкретну сесію один раз. Повертає (thread, changed).
+
+        Закриту сесію ніколи не відкриває повторно. `changed=False` означає,
+        що вона вже була закрита до цього виклику.
+        """
 
     @abstractmethod
     async def add_support_message(self, data: dict) -> SupportMessage: ...
+
+    @abstractmethod
+    async def add_support_message_if_open(self, data: dict) -> SupportMessage | None:
+        """Додає повідомлення лише якщо саме ця сесія ще відкрита.
+
+        Перевірка статусу й вставка мають бути однією транзакцією, щоб
+        паралельне закриття не створювало повідомлення у вже завершеній сесії.
+        """
 
     @abstractmethod
     async def list_support_messages(self, thread_id: int, limit: int = 300) -> list[SupportMessage]: ...
@@ -380,6 +395,27 @@ class Repository(ABC):
 
     @abstractmethod
     async def delete_support_thread(self, thread_id: int) -> bool: ...
+
+    # ----------------------------------------------- центр сповіщень панелі
+
+    @abstractmethod
+    async def create_panel_notification(self, data: dict) -> dict:
+        """Створює одну глобальну подію для всіх працівників панелі."""
+
+    @abstractmethod
+    async def list_panel_notifications(
+        self, viewer_key: str, *, limit: int = 60, after_id: int | None = None
+    ) -> list[dict]:
+        """Події з персональною ознакою read для конкретного працівника."""
+
+    @abstractmethod
+    async def panel_notification_unread_count(self, viewer_key: str) -> int: ...
+
+    @abstractmethod
+    async def mark_panel_notification_read(self, notification_id: int, viewer_key: str) -> bool: ...
+
+    @abstractmethod
+    async def mark_all_panel_notifications_read(self, viewer_key: str) -> int: ...
 
     # ------------------------------------------------------ менеджери
 

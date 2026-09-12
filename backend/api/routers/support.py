@@ -58,21 +58,39 @@ async def get_thread(thread_id: int, repo: Repository = Depends(get_repo)):
 async def patch_thread(
     thread_id: int,
     data: SupportThreadPatch,
+    who: Principal = Depends(require_staff),
     repo: Repository = Depends(get_repo),
 ):
     current = await repo.get_support_thread(thread_id)
     if not current:
         raise HTTPException(404, "Звернення не знайдено")
-    if data.status == "open" and current.status != "open":
-        active = await repo.get_support_thread_for_user(current.user_id)
-        if active and active.id != thread_id:
-            raise HTTPException(
-                409,
-                f"У клієнта вже є активне звернення #{active.id}. Закрийте його перед повторним відкриттям цього чату.",
-            )
-    thread = await repo.set_support_thread_status(thread_id, data.status)
+    # Закрита сесія є історією й ніколи не перевідкривається. Нове
+    # звернення створює тільки клієнт явною командою /ask.
+    if data.status != "closed":
+        raise HTTPException(409, "Закриту сесію не можна перевідкрити. Клієнт має створити нове звернення через /ask.")
+
+    author = who.name or who.login
+    thread, changed = await repo.close_support_thread(
+        thread_id,
+        closed_by="staff",
+        closed_by_name=author,
+        close_reason="manager",
+    )
     if not thread:
         raise HTTPException(404, "Звернення не знайдено")
+
+    # Повторне натискання «Закрити» є idempotent: статус не змінюємо вдруге
+    # і не шлемо клієнту дубль повідомлення.
+    if changed:
+        bot = _bot()
+        if bot:
+            try:
+                from bot import keyboards as bot_keyboards
+                await support_chat.notify_closed_by_staff(
+                    bot, repo, thread, author, reply_markup=bot_keyboards.main_menu()
+                )
+            except Exception:
+                log.warning("Не вдалося сповістити клієнта про закриття звернення %s", thread_id, exc_info=True)
     return thread
 
 
@@ -115,36 +133,35 @@ async def send_message(
     if not thread:
         raise HTTPException(404, "Звернення не знайдено")
 
-    # Відповідь із закритої картки автоматично повертає її в роботу. Це
-    # краще, ніж дати менеджеру написати клієнту й лишити чат у «Закритих».
     if thread.status != "open":
-        active = await repo.get_support_thread_for_user(thread.user_id)
-        if active and active.id != thread_id:
-            raise HTTPException(
-                409,
-                f"У клієнта вже є активне звернення #{active.id}. Відповідайте в ньому або закрийте його.",
-            )
-        thread = await repo.set_support_thread_status(thread_id, "open")
-
-    author = who.name or who.login
-    delivered = False
-    sent = None
-    bot = _bot()
-    if bot and thread:
-        delivered, sent = await support_chat.send_to_client(
-            bot, repo, thread, data.text, author
+        raise HTTPException(
+            409,
+            "Це звернення вже закрито. Історія незмінна; нове звернення клієнт створює через /ask.",
         )
 
-    saved = await repo.add_support_message({
+    author = who.name or who.login
+    # Спочатку атомарно фіксуємо відповідь у ще відкритій сесії. Якщо
+    # клієнт або інший менеджер закрив її паралельно, запис не пройде й
+    # Telegram-повідомлення не буде відправлено в завершений чат.
+    saved = await repo.add_support_message_if_open({
         "thread_id": thread_id,
         "user_id": thread.user_id,
         "direction": "out",
         "author": author,
         "text": data.text,
-        "tg_message_id": getattr(sent, "message_id", None),
-        # Вихідне повідомлення не є «непрочитаним для менеджера».
+        "tg_message_id": None,
         "is_read": True,
     })
+    if saved is None:
+        raise HTTPException(409, "Звернення вже закрито. Оновіть сторінку.")
+
+    delivered = False
+    sent = None
+    bot = _bot()
+    if bot:
+        delivered, sent = await support_chat.send_to_client(
+            bot, repo, thread, data.text, author
+        )
 
     return SupportMessageResult(
         message=saved,

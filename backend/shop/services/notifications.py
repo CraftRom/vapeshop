@@ -80,6 +80,18 @@ async def notify_new_order(bot, repo: Repository, order: Order, user: User) -> b
     в панелі. Але вона потрапляє в лог як попередження, бо означає, що
     менеджер про замовлення не дізнався.
     """
+    from shop.services.panel_notifications import safe_publish
+    who_name = user.first_name or user.username or f"id{user.tg_id}"
+    await safe_publish(
+        repo,
+        "order.created",
+        f"Нове замовлення №{order.id}",
+        f"{order.contact_name or who_name} · {order.total:.0f} грн",
+        href=f"/orders/{order.id}",
+        entity_id=order.id,
+        actor=who_name,
+    )
+
     shop = await get_shop_settings(repo)
     if not shop.admin_chat_id:
         log.warning("Чат для замовлень не заданий — №%s нікуди надіслати", order.id)

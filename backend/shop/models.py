@@ -6,7 +6,7 @@ from decimal import Decimal
 
 from sqlalchemy import (
     JSON, BigInteger, Index, Boolean, DateTime, Enum, ForeignKey, Integer, Numeric,
-    String, Text, UniqueConstraint, func,
+    String, Text, UniqueConstraint, func, text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -354,9 +354,22 @@ Index("ix_order_messages_order_created", OrderMessage.order_id, OrderMessage.cre
 
 
 class SupportThread(Base):
-    """Загальна підтримка через /ask, окремо від чатів замовлень."""
+    """Окрема сесія загальної підтримки через /ask.
+
+    Закриті сесії незмінні: новий /ask створює новий рядок. Частковий
+    унікальний індекс фізично не дозволяє дві відкриті сесії одному клієнту.
+    """
 
     __tablename__ = "support_threads"
+    __table_args__ = (
+        Index(
+            "uq_support_threads_one_open_per_user",
+            "user_id",
+            unique=True,
+            postgresql_where=text("status = 'open'"),
+            sqlite_where=text("status = 'open'"),
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = mapped_column(
@@ -368,6 +381,10 @@ class SupportThread(Base):
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), index=True
     )
     last_message_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    closed_by: Mapped[str | None] = mapped_column(String(16))
+    closed_by_name: Mapped[str | None] = mapped_column(String(128))
+    close_reason: Mapped[str | None] = mapped_column(String(32))
 
     user: Mapped[User] = relationship(back_populates="support_threads")
     messages: Mapped[list[SupportMessage]] = relationship(
@@ -397,6 +414,50 @@ class SupportMessage(Base):
 
 
 Index("ix_support_messages_thread_created", SupportMessage.thread_id, SupportMessage.created_at)
+
+
+class PanelNotification(Base):
+    """Подія для центру сповіщень панелі.
+
+    Подія одна на всіх менеджерів, а стан прочитання зберігається окремо
+    в PanelNotificationRead. Так один менеджер не гасить дзвіночок іншому.
+    """
+
+    __tablename__ = "panel_notifications"
+    __table_args__ = (
+        Index("ix_panel_notifications_created", "created_at"),
+        Index("ix_panel_notifications_kind_created", "kind", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    kind: Mapped[str] = mapped_column(String(40), index=True)
+    title: Mapped[str] = mapped_column(String(180))
+    body: Mapped[str] = mapped_column(Text, default="")
+    href: Mapped[str | None] = mapped_column(String(512))
+    entity_id: Mapped[int | None] = mapped_column(Integer)
+    actor: Mapped[str | None] = mapped_column(String(128))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    reads: Mapped[list[PanelNotificationRead]] = relationship(
+        back_populates="notification", cascade="all, delete-orphan"
+    )
+
+
+class PanelNotificationRead(Base):
+    __tablename__ = "panel_notification_reads"
+    __table_args__ = (
+        UniqueConstraint("notification_id", "viewer_key", name="uq_panel_notification_read"),
+        Index("ix_panel_notification_reads_viewer", "viewer_key", "notification_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    notification_id: Mapped[int] = mapped_column(
+        ForeignKey("panel_notifications.id", ondelete="CASCADE"), index=True
+    )
+    viewer_key: Mapped[str] = mapped_column(String(64))
+    read_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    notification: Mapped[PanelNotification] = relationship(back_populates="reads")
 
 
 class Wishlist(Base):

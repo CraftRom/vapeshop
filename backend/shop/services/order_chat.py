@@ -415,12 +415,24 @@ async def save_incoming(
     Без сповіщення менеджер дізнався б про повідомлення лише випадково,
     відкривши панель. Клієнт при цьому чекає на відповідь.
     """
+    author = user.first_name or user.username or f"id{user.tg_id}"
     await repo.add_order_message({
         "order_id": order.id, "user_id": user.id, "direction": "in",
-        "author": user.first_name or user.username or f"id{user.tg_id}",
+        "author": author,
         "text": text, "tg_message_id": None, "is_read": False,
         **(attachment or {}),
     })
+
+    from shop.services.panel_notifications import safe_publish
+    await safe_publish(
+        repo,
+        "order.message",
+        f"Повідомлення по замовленню №{order.id}",
+        text,
+        href=f"/orders/{order.id}",
+        entity_id=order.id,
+        actor=author,
+    )
 
     if bot is None:
         return

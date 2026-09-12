@@ -1,9 +1,12 @@
-"""ЗАГАЛЬНА ПІДТРИМКА: /ask → панель → відповідь у Telegram.
+"""ЖИТТЄВИЙ ЦИКЛ ПІДТРИМКИ: кожний /ask — окрема завершувана сесія.
 
-Набір не залежить від БД і мережі: середовище CI може не мати aiosqlite та
-aiogram. Перевіряємо сервісний контракт через маленький in-memory repo, а
-SQL-шар окремо покриває compile/import і штатні repository-тести середовища
-деплою.
+Ключові інваріанти:
+- одночасно у клієнта максимум одна open-сесія;
+- повторний /ask під час open продовжує її, а не плодить дублікати;
+- closed ніколи не переходить назад в open;
+- повідомлення не створює сесію неявно після її закриття;
+- наступний /ask після close створює новий thread і лишає стару історію;
+- закриття клієнтом і менеджером мають явного автора/причину.
 """
 from __future__ import annotations
 
@@ -25,8 +28,7 @@ os.environ.update(
     PUBLIC_URL="https://www.elfar.pp.ua",
 )
 
-# Мінімальна сумісність aiogram.types: сервісам потрібні лише структури
-# клавіатури, а не Telegram-клієнт.
+# Мінімальні типи aiogram, достатні для сервісів/клавіатур у цьому QA.
 @dataclass
 class WebAppInfo:
     url: str
@@ -58,21 +60,21 @@ class ForceReply:
     selective: bool = False
     input_field_placeholder: str | None = None
 
-if 'aiogram.types' not in sys.modules:
-    aiogram = types.ModuleType('aiogram')
-    aiogram_types = types.ModuleType('aiogram.types')
+if "aiogram.types" not in sys.modules:
+    aiogram = types.ModuleType("aiogram")
+    aiogram_types = types.ModuleType("aiogram.types")
     for cls in (WebAppInfo, InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup, ForceReply):
         setattr(aiogram_types, cls.__name__, cls)
     aiogram.types = aiogram_types
-    sys.modules['aiogram'] = aiogram
-    sys.modules['aiogram.types'] = aiogram_types
+    sys.modules["aiogram"] = aiogram
+    sys.modules["aiogram.types"] = aiogram_types
 
+from fastapi import HTTPException  # noqa: E402
+from pydantic import ValidationError  # noqa: E402
 from api.auth import Principal  # noqa: E402
-from api.schemas import SupportThreadOut  # noqa: E402
+from api.schemas import SupportThreadOut, SupportThreadPatch  # noqa: E402
 from qa_common import Report  # noqa: E402
-from shop.entities import (  # noqa: E402
-    OperatorRole, Order, SupportMessage, SupportThread, User,
-)
+from shop.entities import OperatorRole, Order, SupportMessage, SupportThread, User  # noqa: E402
 from shop.services import order_chat, support_chat  # noqa: E402
 
 r = Report("ПІДТРИМКА")
@@ -80,10 +82,12 @@ r = Report("ПІДТРИМКА")
 
 class Repo:
     def __init__(self):
-        self.user = User(id=1, tg_id=99001, referral_code='qa12345',
-                         username='qa_client', first_name='Клієнт', chat_order_id=777)
-        self.threads = []
-        self.messages = []
+        self.user = User(
+            id=1, tg_id=99001, referral_code="qa12345",
+            username="qa_client", first_name="Клієнт", chat_order_id=777,
+        )
+        self.threads: list[SupportThread] = []
+        self.messages: list[SupportMessage] = []
         self.seq = 0
         self.thread_seq = 9
 
@@ -95,18 +99,23 @@ class Repo:
         return self.user if user_id == self.user.id else None
 
     async def ensure_support_thread(self, user_id):
-        now = datetime.now(timezone.utc)
-        current = next((t for t in reversed(self.threads) if t.user_id == user_id and t.status == 'open'), None)
+        current = await self.get_support_thread_for_user(user_id)
         if current:
             return current
+        now = datetime.now(timezone.utc)
         self.thread_seq += 1
-        thread = SupportThread(id=self.thread_seq, user_id=user_id, status='open',
-                               created_at=now, updated_at=now, last_message_at=now, user=self.user)
+        thread = SupportThread(
+            id=self.thread_seq, user_id=user_id, status="open",
+            created_at=now, updated_at=now, last_message_at=now, user=self.user,
+        )
         self.threads.append(thread)
         return thread
 
     async def get_support_thread_for_user(self, user_id):
-        return next((t for t in reversed(self.threads) if t.user_id == user_id and t.status == 'open'), None)
+        return next(
+            (t for t in reversed(self.threads) if t.user_id == user_id and t.status == "open"),
+            None,
+        )
 
     async def get_support_thread(self, thread_id):
         thread = next((t for t in self.threads if t.id == thread_id), None)
@@ -114,7 +123,8 @@ class Repo:
             return None
         thread.user = self.user
         thread.unread_count = sum(
-            1 for m in self.messages if m.thread_id == thread_id and m.direction == 'in' and not m.is_read
+            1 for m in self.messages
+            if m.thread_id == thread_id and m.direction == "in" and not m.is_read
         )
         return thread
 
@@ -122,45 +132,59 @@ class Repo:
         items = [t for t in self.threads if status is None or t.status == status]
         return [await self.get_support_thread(t.id) for t in reversed(items)]
 
-    async def set_support_thread_status(self, thread_id, status):
+    async def close_support_thread(self, thread_id, *, closed_by, closed_by_name="", close_reason=""):
         thread = await self.get_support_thread(thread_id)
         if not thread:
-            return None
-        thread.status = status
-        thread.updated_at = datetime.now(timezone.utc)
-        return thread
+            return None, False
+        if thread.status == "closed":
+            return thread, False
+        now = datetime.now(timezone.utc)
+        thread.status = "closed"
+        thread.closed_at = now
+        thread.closed_by = closed_by
+        thread.closed_by_name = closed_by_name or None
+        thread.close_reason = close_reason or None
+        thread.updated_at = now
+        return thread, True
 
     async def add_support_message(self, data):
         self.seq += 1
         now = datetime.now(timezone.utc)
         msg = SupportMessage(id=self.seq, created_at=now, **data)
         self.messages.append(msg)
-        thread = await self.get_support_thread(data['thread_id'])
-        thread.last_message_at = now
-        thread.updated_at = now
+        thread = await self.get_support_thread(data["thread_id"])
+        if thread:
+            thread.last_message_at = now
+            thread.updated_at = now
         return msg
+
+    async def add_support_message_if_open(self, data):
+        thread = await self.get_support_thread(data["thread_id"])
+        if not thread or thread.status != "open":
+            return None
+        return await self.add_support_message(data)
 
     async def list_support_messages(self, thread_id, limit=300):
         return [m for m in self.messages if m.thread_id == thread_id][:limit]
 
     async def mark_support_read(self, thread_id):
         changed = 0
-        for m in self.messages:
-            if m.thread_id == thread_id and m.direction == 'in' and not m.is_read:
-                m.is_read = True
+        for msg in self.messages:
+            if msg.thread_id == thread_id and msg.direction == "in" and not msg.is_read:
+                msg.is_read = True
                 changed += 1
         return changed
 
     async def support_unread_count(self):
-        return sum(1 for m in self.messages if m.direction == 'in' and not m.is_read)
+        return sum(1 for m in self.messages if m.direction == "in" and not m.is_read)
 
     async def support_stats(self):
         return {
-            'open': sum(t.status == 'open' for t in self.threads),
-            'closed': sum(t.status == 'closed' for t in self.threads),
-            'total': len(self.threads),
-            'clients': 1 if self.threads else 0,
-            'unread': await self.support_unread_count(),
+            "open": sum(t.status == "open" for t in self.threads),
+            "closed": sum(t.status == "closed" for t in self.threads),
+            "total": len(self.threads),
+            "clients": 1 if self.threads else 0,
+            "unread": await self.support_unread_count(),
         }
 
     async def delete_support_thread(self, thread_id):
@@ -189,106 +213,133 @@ async def scenario():
     repo = Repo()
     bot = FakeBot()
 
-    thread = await support_chat.start(repo, repo.user.id)
-    r.check(repo.user.chat_order_id is None, "/ask очищає старий контекст замовлення", repo.user.chat_order_id)
-    r.check(thread.status == 'open', "/ask відкриває звернення")
+    first, created = await support_chat.start(repo, repo.user.id)
+    r.check(created and first.status == "open", "перший /ask створює open-сесію")
+    r.check(repo.user.chat_order_id is None, "/ask очищає контекст замовлення")
 
-    # Не передаємо bot: групове службове сповіщення не є частиною доставки
-    # клієнт↔панель і потребувало б повного settings-repo.
-    await support_chat.save_incoming(repo, repo.user, 'Не відкривається кошик')
-    r.check(await repo.support_unread_count() == 1, 'нове звернення рахується непрочитаним')
+    same, created_again = await support_chat.start(repo, repo.user.id)
+    r.check(not created_again and same.id == first.id and len(repo.threads) == 1,
+            "повторний /ask продовжує поточну сесію без дубля")
 
-    mode_menu = support_chat.support_keyboard()
-    r.check(len(mode_menu.keyboard) == 1 and len(mode_menu.keyboard[0]) == 1
-            and mode_menu.keyboard[0][0].text == '✅ Завершити звернення',
-            'у /ask лишається тільки кнопка завершення')
+    saved = await support_chat.save_incoming(repo, repo.user, "Не відкривається кошик")
+    r.check(saved is not None and saved.thread_id == first.id,
+            "повідомлення записується саме в активну сесію")
+    r.check(await repo.support_unread_count() == 1, "вхідне рахується непрочитаним")
 
-    listed = await repo.list_support_threads('open')
-    r.check(listed and listed[0].user.tg_id == 99001,
-            'панель отримує звернення разом із клієнтом', listed)
-    r.check(listed[0].unread_count == 1, 'у списку є лічильник непрочитаних')
+    closed, changed = await support_chat.close(
+        repo, repo.user.id,
+        closed_by="client", closed_by_name="Клієнт", close_reason="done",
+    )
+    r.check(changed and closed.id == first.id and closed.status == "closed",
+            "/done закриває конкретну активну сесію")
+    r.check(closed.closed_by == "client" and closed.close_reason == "done" and closed.closed_at,
+            "закриття зберігає сторону, причину й час")
 
-    schema = SupportThreadOut.model_validate(listed[0])
-    r.check(schema.user is not None and schema.user.tg_id == 99001,
-            'API-схема серіалізує вкладеного клієнта', schema)
+    late = await support_chat.save_incoming(repo, repo.user, "запізніле повідомлення")
+    r.check(late is None and len(repo.threads) == 1,
+            "повідомлення після close не створює нову сесію неявно")
 
-    changed = await repo.mark_support_read(thread.id)
-    r.check(changed == 1 and await repo.support_unread_count() == 0,
-            'відкриття діалогу позначає вхідні прочитаними')
+    none_thread, changed_again = await support_chat.close(repo, repo.user.id)
+    r.check(none_thread is None and not changed_again,
+            "повторний /done без open-сесії є безпечним no-op")
 
-    closed = await support_chat.close(repo, repo.user.id)
-    r.check(closed and closed.status == 'closed', '/done закриває звернення')
-    reopened = await support_chat.start(repo, repo.user.id)
-    r.check(reopened.id != thread.id and reopened.status == 'open',
-            'наступний /ask створює новий чат, не чіпаючи закриту історію')
-    old = await repo.get_support_thread(thread.id)
-    r.check(old and old.status == 'closed', 'закритий чат зберігається окремо')
-    stats = await repo.support_stats()
-    r.check(stats['open'] == 1 and stats['closed'] == 1 and stats['total'] == 2,
-            'статистика рахує відкриті й закриті чати окремо', stats)
+    second, second_created = await support_chat.start(repo, repo.user.id)
+    r.check(second_created and second.id != first.id and second.status == "open",
+            "наступний /ask створює нову окрему сесію")
+    old = await repo.get_support_thread(first.id)
+    r.check(old.status == "closed", "старий чат лишається закритою історією")
+    r.check(sum(t.status == "open" for t in repo.threads) == 1,
+            "у клієнта є рівно одна open-сесія")
 
-    order = Order(id=42, user_id=repo.user.id, total=Decimal('800'))
+    schema = SupportThreadOut.model_validate(old)
+    r.check(schema.closed_by == "client" and schema.close_reason == "done",
+            "API віддає метадані завершення сесії")
+
+    order = Order(id=42, user_id=repo.user.id, total=Decimal("800"))
     markup = order_chat.contact_options_keyboard([order])
     order_button = markup.inline_keyboard[0][0]
-    r.check(order_button.web_app is not None and '?chat=42' in order_button.web_app.url,
-            'кнопка замовлення відкриває чат конкретного замовлення',
-            getattr(order_button.web_app, 'url', None))
-    r.check(markup.inline_keyboard[-1][0].callback_data == 'support:start',
-            'поруч є окрема кнопка загальної підтримки')
+    r.check(order_button.web_app is not None and "?chat=42" in order_button.web_app.url,
+            "кнопка замовлення веде в чат конкретного замовлення")
+    r.check(markup.inline_keyboard[-1][0].callback_data == "support:start",
+            "окремо доступний старт загальної підтримки")
 
-    full = await repo.get_support_thread(reopened.id)
-    delivered, sent = await support_chat.send_to_client(
-        bot, repo, full, 'Перевірте, будь ласка, ще раз.', 'QA менеджер'
-    )
-    r.check(delivered and sent is not None, 'відповідь менеджера доставлена')
-    r.check(any(cid == 99001 and 'Відповідь менеджера' in text
-                for cid, text, _ in bot.sent),
-            'відповідь пішла саме конкретному клієнту')
-
-    # API endpoint перевіряємо як звичайну async-функцію. Це ще й гарантує,
-    # що результат зберігається після успішної Telegram-доставки.
     import api.routers.support as support_api
     support_api._bot = lambda: bot
+    principal = Principal("qa", "QA менеджер", OperatorRole.MANAGER, 123)
+
     result = await support_api.send_message(
-        reopened.id,
-        type('Body', (), {'text': 'API відповідь'})(),
-        Principal('qa', 'QA менеджер', OperatorRole.MANAGER, 123),
+        second.id,
+        type("Body", (), {"text": "API відповідь"})(),
+        principal,
         repo,
     )
-    r.check(result.delivered is True, 'API-відповідь передається в Telegram')
-    r.check(result.message.direction == 'out', 'API зберігає вихідне повідомлення')
-    r.check(any(m.text == 'API відповідь' for m in await repo.list_support_messages(reopened.id)),
-            'історія містить відповідь із панелі')
+    r.check(result.delivered is True and result.message.direction == "out",
+            "менеджер може відповідати лише в open-сесію")
 
-    deleted = await support_api.delete_thread(thread.id, repo)
-    r.check(deleted is not None and await repo.get_support_thread(thread.id) is None,
-            'закритий чат видаляється лише явною дією менеджера')
+    # Закриваємо менеджером без повторного відкриття.
+    support_api._bot = lambda: None  # у QA не імпортуємо повний bot.keyboards
+    patched = await support_api.patch_thread(
+        second.id,
+        type("Patch", (), {"status": "closed"})(),
+        principal,
+        repo,
+    )
+    r.check(patched.status == "closed" and patched.closed_by == "staff" and patched.close_reason == "manager",
+            "закриття менеджером фіксується як staff-дія")
+
+    try:
+        await support_api.send_message(
+            second.id,
+            type("Body", (), {"text": "не можна"})(),
+            principal,
+            repo,
+        )
+        blocked = False
+    except HTTPException as exc:
+        blocked = exc.status_code == 409
+    r.check(blocked and (await repo.get_support_thread(second.id)).status == "closed",
+            "відповідь у closed-сесію блокується й не перевідкриває її")
+
+    try:
+        SupportThreadPatch(status="open")
+        schema_blocks_reopen = False
+    except ValidationError:
+        schema_blocks_reopen = True
+    r.check(schema_blocks_reopen, "API-схема не приймає reopen closed→open")
+
+    third, third_created = await support_chat.start(repo, repo.user.id)
+    r.check(third_created and third.id not in {first.id, second.id},
+            "після manager-close новий /ask створює третю, а не оживляє другу сесію")
+
+    stats = await repo.support_stats()
+    r.check(stats["open"] == 1 and stats["closed"] == 2 and stats["total"] == 3,
+            "статистика рахує сесії окремо", stats)
+
+    deleted = await support_api.delete_thread(first.id, repo)
+    r.check(deleted is not None and await repo.get_support_thread(first.id) is None,
+            "ручне видалення доступне тільки для вже закритої історії")
 
 
 def static_contracts():
     root = pathlib.Path(__file__).resolve().parents[1]
-    handler = (root / 'bot/handlers/chat.py').read_text()
-    commands = (root / 'bot/__main__.py').read_text()
-    greeting = (root / 'bot/greeting.py').read_text()
-    api_main = (root / 'api/main.py').read_text()
-    migration = (root / 'alembic/versions/0c5a6d91e7f2_support_sessions.py').read_text()
+    handler = (root / "bot/handlers/chat.py").read_text()
+    service = (root / "shop/services/support_chat.py").read_text()
+    repo = (root / "shop/repo/sql.py").read_text()
+    api = (root / "api/routers/support.py").read_text()
+    migration = (root / "alembic/versions/4b8f0c2d91aa_support_lifecycle.py").read_text()
+    dashboard = (root.parent / "dashboard/src/pages/Support.jsx").read_text()
 
-    r.check('@router.message(Command("ask"))' in handler, '/ask зареєстрована в боті')
-    r.check('F.data == "faq:human"' in handler and 'contact_options_keyboard(orders)' in handler,
-            'кнопка «Питання менеджеру» показує замовлення та підтримку')
-    r.check('if await support.is_active(repo, user.id)' in handler,
-            'активний /ask перехоплює наступні повідомлення')
-    r.check('BotCommand(command="ask"' in commands and 'BotCommand(command="done"' in commands,
-            'команди /ask і /done є в меню Telegram')
-    r.check('/ask' in greeting and 'PRIVATE_ONLY_COMMANDS' in greeting,
-            '/ask явно позначена як команда лише для приватного чату')
-    keyboards = (root / 'bot/keyboards.py').read_text()
-    r.check('🆘 Підтримка' in keyboards and '✅ Завершити звернення' in keyboards,
-            'reply-меню має вхід у /ask і єдину кнопку завершення в режимі підтримки')
-    r.check('include_router(support.router, prefix="/api/support"' in api_main,
-            'API підтримки підключений до FastAPI')
-    r.check('unique=False' in migration and 'ix_support_threads_user_status_updated' in migration,
-            'міграція дозволяє кілька збережених чатів на одного клієнта')
+    r.check('@router.message(Command("ask"))' in handler, "/ask зареєстрована")
+    r.check('add_support_message_if_open' in service and 'ensure_support_thread(user.id)' not in service,
+            "звичайне повідомлення не може створити новий thread")
+    r.check('.with_for_update()' in repo and 'IntegrityError' in repo,
+            "SQL-шар захищає гонки close/message та паралельні /ask")
+    r.check('uq_support_threads_one_open_per_user' in migration and "status = 'open'" in migration,
+            "БД гарантує максимум одну open-сесію на клієнта")
+    r.check('Закриту сесію не можна перевідкрити' in api and 'add_support_message_if_open' in api,
+            "API не має неявного reopen")
+    r.check('Відкрити знову' not in dashboard and 'Ця сесія завершена' in dashboard,
+            "панель не пропонує перевідкриття закритої історії")
 
 
 static_contracts()

@@ -27,6 +27,24 @@ function stamp(value) {
   return Number.isFinite(n) ? n : 0
 }
 
+function closeDescription(thread, compact = false) {
+  if (!thread || thread.status !== 'closed') return ''
+  const when = thread.closed_at ? dateTime(thread.closed_at) : ''
+  let who = 'Системою'
+  if (thread.closed_by === 'client') who = 'Клієнтом'
+  if (thread.closed_by === 'staff') who = thread.closed_by_name ? `Менеджером: ${thread.closed_by_name}` : 'Менеджером'
+
+  let reason = ''
+  if (thread.close_reason === 'done') reason = 'завершено клієнтом'
+  if (thread.close_reason === 'manager') reason = 'завершено менеджером'
+  if (thread.close_reason === 'order_switch') reason = 'клієнт перейшов до чату замовлення'
+  if (thread.close_reason === 'deduplicate') reason = 'закрито під час виправлення дубльованих сесій'
+  if (thread.close_reason === 'legacy') reason = 'історичне завершене звернення'
+
+  if (compact) return [who, when].filter(Boolean).join(' · ')
+  return [who, reason, when].filter(Boolean).join(' · ')
+}
+
 function Attachment({ threadId, message }) {
   const [url, setUrl] = useState(null)
   const [failed, setFailed] = useState(false)
@@ -87,6 +105,7 @@ function SessionRow({ thread, active, onClick }) {
       </span>
       <span className="support-session-side">
         <span className="faint">{thread.last_message_at ? dateTime(thread.last_message_at) : dateTime(thread.created_at)}</span>
+        {thread.status === 'closed' && <span className="faint support-session-close">{closeDescription(thread, true)}</span>}
         {thread.unread_count > 0 && <span className="badge">{thread.unread_count}</span>}
       </span>
     </button>
@@ -147,14 +166,21 @@ function Conversation({ thread, messages, onBack, onRefresh, onStatus, onDelete 
     }
   }
 
-  const toggleStatus = async () => {
-    if (!thread) return
+  const closeSession = async () => {
+    if (!thread || thread.status !== 'open') return
+    const yes = window.confirm(
+      `Закрити звернення #${thread.id}?\n\nСесію буде завершено для клієнта й менеджера. Історія залишиться незмінною. Для наступного питання клієнт створить нове звернення через /ask.`
+    )
+    if (!yes) return
     setBusy(true)
     try {
-      const next = thread.status === 'open' ? 'closed' : 'open'
-      await api.support.setStatus(thread.id, next)
-      notify(next === 'closed' ? 'Звернення закрито, історія збережена' : 'Звернення повернуто в роботу')
-      await onStatus(next)
+      const updated = await api.support.setStatus(thread.id, 'closed')
+      if (updated?.closed_by === 'staff') {
+        notify('Звернення закрито; історія збережена.')
+      } else {
+        notify(`Звернення вже було закрито. ${closeDescription(updated) || ''}`.trim())
+      }
+      await onStatus('closed')
     } catch (err) {
       notify(err.message, 'bad')
     } finally {
@@ -210,16 +236,14 @@ function Conversation({ thread, messages, onBack, onRefresh, onStatus, onDelete 
             {thread.created_at && <span>від {dateTime(thread.created_at)}</span>}
             {user.bot_reachable === false && <span className="support-unreachable">бот недоступний</span>}
           </div>
+          {thread.status === 'closed' && (
+            <div className="support-closed-meta">{closeDescription(thread)}</div>
+          )}
         </div>
         <div className="support-chat-actions">
-          <button
-            className={`btn small ${thread.status === 'open' ? 'ghost' : ''}`}
-            onClick={toggleStatus}
-            disabled={busy}
-          >
-            {thread.status === 'open' ? 'Закрити' : 'Відкрити знову'}
-          </button>
-          {thread.status === 'closed' && (
+          {thread.status === 'open' ? (
+            <button className="btn ghost small" onClick={closeSession} disabled={busy}>Закрити звернення</button>
+          ) : (
             <button className="btn danger small" onClick={remove} disabled={busy}>Видалити</button>
           )}
         </div>
@@ -245,42 +269,52 @@ function Conversation({ thread, messages, onBack, onRefresh, onStatus, onDelete 
       </div>
 
       <div className="support-compose">
-        {thread.status === 'closed' && (
-          <div className="support-compose-note">
-            Відповідь поверне цей чат у роботу. Якщо в клієнта вже є нове відкрите звернення, система не дасть створити два активні чати одночасно.
+        {thread.status === 'closed' ? (
+          <div className="support-compose-note support-compose-closed">
+            <strong>Ця сесія завершена.</strong> Відповідати або перевідкривати її не можна.
+            Нове питання клієнт починає окремою сесією через «🆘 Підтримка» або /ask.
           </div>
+        ) : (
+          <>
+            <div className="support-compose-row">
+              <textarea
+                className="input"
+                rows={2}
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+                placeholder="Напишіть відповідь клієнту…"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault()
+                    send()
+                  }
+                }}
+              />
+              <button className="btn" onClick={send} disabled={busy || !text.trim()}>
+                {busy ? 'Надсилаємо…' : 'Надіслати'}
+              </button>
+            </div>
+            <div className="faint support-compose-hint">Enter — надіслати · Shift+Enter — новий рядок</div>
+          </>
         )}
-        <div className="support-compose-row">
-          <textarea
-            className="input"
-            rows={2}
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            placeholder="Напишіть відповідь клієнту…"
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault()
-                send()
-              }
-            }}
-          />
-          <button className="btn" onClick={send} disabled={busy || !text.trim()}>
-            {busy ? 'Надсилаємо…' : 'Надіслати'}
-          </button>
-        </div>
-        <div className="faint support-compose-hint">Enter — надіслати · Shift+Enter — новий рядок</div>
       </div>
     </section>
   )
 }
 
 export default function Support() {
-  const [status, setStatus] = useState('open')
+  const initialThreadId = useMemo(() => {
+    const value = Number(new URLSearchParams(window.location.search).get('thread') || 0)
+    return Number.isInteger(value) && value > 0 ? value : null
+  }, [])
+  // Перехід із системного сповіщення має відкрити конкретну сесію навіть
+  // якщо менеджер уже встиг її закрити, тому deep-link починає з «Усі».
+  const [status, setStatus] = useState(initialThreadId ? 'all' : 'open')
   const [query, setQuery] = useState('')
   const [sort, setSort] = useState('recent')
   const [threads, setThreads] = useState([])
   const [stats, setStats] = useState(EMPTY_STATS)
-  const [selectedId, setSelectedId] = useState(null)
+  const [selectedId, setSelectedId] = useState(initialThreadId)
   const [thread, setThread] = useState(null)
   const [messages, setMessages] = useState([])
   const [loading, setLoading] = useState(true)

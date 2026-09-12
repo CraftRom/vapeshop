@@ -326,6 +326,10 @@ class SupportThread:
     created_at: datetime | None = None
     updated_at: datetime | None = None
     last_message_at: datetime | None = None
+    closed_at: datetime | None = None
+    closed_by: str | None = None
+    closed_by_name: str | None = None
+    close_reason: str | None = None
     user: User | None = None
     unread_count: int = 0
 
