@@ -17,14 +17,14 @@ const check = (ok, label) => {
   console.log(`  ${ok ? '✓' : '✗'} ${label}`)
 }
 
-console.log('\n--- центр браузерних сповіщень 1.31.2 ---')
+console.log('\n--- центр браузерних сповіщень 1.31.3 ---')
 check(app.includes("import { NotificationCenter }") && app.includes('<NotificationCenter />'), 'центр сповіщень підключений глобально в панелі')
 check(api.includes("request('/notifications/poll'") && api.includes("request('/notifications/read-all'"), 'frontend має poll/read API центру')
 check(center.includes("'product.created'") && center.includes("tone: 'product'"), 'новий товар має окремий тип і звук')
 check(center.includes("'order.created'") && center.includes("tone: 'order'"), 'нове замовлення має окремий тип і звук')
 check(center.includes("'order.message'") && center.includes("tone: 'orderMessage'"), 'повідомлення замовлення має окремий звук')
 check(center.includes("'support.message'") && center.includes("tone: 'support'"), 'повідомлення підтримки має окремий звук')
-check(center.includes('SOUND_GAIN_MULTIPLIER = 3') && center.includes('gain * SOUND_GAIN_MULTIPLIER'), 'гучність усіх внутрішніх сигналів підсилена до 300% від базового рівня')
+check(center.includes('SOUND_MASTER_GAIN = 0.98') && center.includes('createDynamicsCompressor') && center.includes('frequency * 2'), 'звук використовує high-output master, компресію та гармоніки для високої сприйманої гучності')
 check(center.includes('Notification.requestPermission()') && center.includes('permission === \'denied\''), 'дозвіл браузера запитується лише явною дією та обробляє блокування')
 check(center.includes('iPhone|iPad|iPod') && center.includes("display-mode: standalone"), 'врахована PWA-вимога Safari на iPhone/iPad')
 check(center.includes('Firefox:') && center.includes('Edge:') && center.includes('Chrome:') && center.includes('Safari:'), 'є підказки для основних браузерів')
@@ -47,7 +47,7 @@ check(support.includes("params.get('thread')") || support.includes("get('thread'
 check(center.includes('filter((item) => !item.read)') && center.includes('current.filter((entry) => entry.id !== item.id)'), 'прочитані події одразу зникають із робочої черги')
 check(center.includes('nextUnread < unreadRef.current') && center.includes('await fullRefresh()'), 'інша вкладка та видалення джерела синхронізують список')
 check(app.includes('brand-label') && css.includes('.brand-label') && css.includes('white-space: nowrap'), 'назва магазину і дзвіночок мають стабільну однорядкову розмітку')
-check(version.includes("APP_VERSION = '1.31.2'"), 'версія панелі 1.31.2')
+check(version.includes("APP_VERSION = '1.31.3'"), 'версія панелі 1.31.3')
 
 console.log(`\nСПОВІЩЕННЯ UX: ${bad === 0 ? 'усе витримано' : `ПРОВАЛЕНО: ${bad}`}`)
 process.exit(bad ? 1 : 0)

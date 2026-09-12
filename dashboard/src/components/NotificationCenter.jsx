@@ -11,7 +11,9 @@ const LEADER_TTL = 16000
 const POLL_MS = 10000
 const TOAST_AUTO_DOCK_MS = 15000
 const TOAST_QUEUE_LIMIT = 40
-const SOUND_GAIN_MULTIPLIER = 3
+const SOUND_MASTER_GAIN = 0.98
+const SOUND_COMPRESSOR_THRESHOLD = -24
+const SOUND_COMPRESSOR_RATIO = 12
 
 const KIND = {
   'product.created': { icon: '🛍️', label: 'Новий товар', tone: 'product' },
@@ -75,51 +77,94 @@ function deniedHelp() {
 }
 
 let audioContext = null
+let audioMaster = null
+let audioCompressor = null
+
+function ensureAudioGraph() {
+  const AudioCtx = window.AudioContext || window.webkitAudioContext
+  if (!AudioCtx) return false
+  if (!audioContext) audioContext = new AudioCtx()
+
+  if (!audioMaster || !audioCompressor) {
+    audioMaster = audioContext.createGain()
+    audioCompressor = audioContext.createDynamicsCompressor()
+
+    // Максимально щільний, але контрольований сигнал. Просто множити gain вище 1
+    // майже не додає гучності — браузер/ОС обрізає пік. Компресор + гармоніки
+    // дають значно вищу сприйману гучність без випадкового жорсткого кліпінгу.
+    audioMaster.gain.value = SOUND_MASTER_GAIN
+    audioCompressor.threshold.value = SOUND_COMPRESSOR_THRESHOLD
+    audioCompressor.knee.value = 10
+    audioCompressor.ratio.value = SOUND_COMPRESSOR_RATIO
+    audioCompressor.attack.value = 0.002
+    audioCompressor.release.value = 0.16
+
+    audioMaster.connect(audioCompressor)
+    audioCompressor.connect(audioContext.destination)
+  }
+  return true
+}
 
 function unlockAudio() {
   try {
-    const AudioCtx = window.AudioContext || window.webkitAudioContext
-    if (!AudioCtx) return
-    if (!audioContext) audioContext = new AudioCtx()
+    if (!ensureAudioGraph()) return
     if (audioContext.state === 'suspended') audioContext.resume().catch(() => {})
   } catch { /* звук необов'язковий */ }
 }
 
-function beep(frequency, start, duration, gain = 0.045) {
-  if (!audioContext || audioContext.state !== 'running') return
+function oscillatorVoice(frequency, start, duration, gain, type = 'square') {
+  if (!audioContext || audioContext.state !== 'running' || !audioMaster) return
   const oscillator = audioContext.createOscillator()
-  const volume = audioContext.createGain()
-  oscillator.type = 'sine'
+  const envelope = audioContext.createGain()
+
+  oscillator.type = type
   oscillator.frequency.setValueAtTime(frequency, start)
-  volume.gain.setValueAtTime(0.0001, start)
-  const amplifiedGain = Math.min(gain * SOUND_GAIN_MULTIPLIER, 1)
-  volume.gain.exponentialRampToValueAtTime(amplifiedGain, start + 0.015)
-  volume.gain.exponentialRampToValueAtTime(0.0001, start + duration)
-  oscillator.connect(volume)
-  volume.connect(audioContext.destination)
+
+  // Швидка атака + короткий sustain роблять сигнал помітним навіть на малих
+  // динаміках телефона/ноутбука. Наприкінці — м'який спад без клацання.
+  envelope.gain.setValueAtTime(0.0001, start)
+  envelope.gain.exponentialRampToValueAtTime(Math.max(0.001, gain), start + 0.008)
+  envelope.gain.setValueAtTime(Math.max(0.001, gain * 0.9), start + Math.max(0.012, duration - 0.055))
+  envelope.gain.exponentialRampToValueAtTime(0.0001, start + duration)
+
+  oscillator.connect(envelope)
+  envelope.connect(audioMaster)
   oscillator.start(start)
-  oscillator.stop(start + duration + 0.02)
+  oscillator.stop(start + duration + 0.025)
+}
+
+function beep(frequency, start, duration, gain = 0.62, type = 'square') {
+  if (!audioContext || audioContext.state !== 'running') return
+
+  // Основний голос + дві гармоніки. Це значно гучніше на слух за один тихий
+  // sine-осцилятор, особливо на вбудованих динаміках і смартфонах.
+  oscillatorVoice(frequency, start, duration, gain, type)
+  oscillatorVoice(frequency * 2, start, duration, gain * 0.20, 'sine')
+  oscillatorVoice(frequency * 0.5, start, duration, gain * 0.16, 'triangle')
 }
 
 function playTone(tone) {
   unlockAudio()
   if (!audioContext || audioContext.state !== 'running') return
-  const t = audioContext.currentTime + 0.02
+  const t = audioContext.currentTime + 0.025
+
   if (tone === 'product') {
-    beep(659, t, 0.13)
-    beep(880, t + 0.12, 0.18)
+    beep(720, t, 0.18, 0.62)
+    beep(980, t + 0.14, 0.26, 0.72)
   } else if (tone === 'order') {
-    beep(784, t, 0.12, 0.055)
-    beep(1047, t + 0.11, 0.22, 0.055)
+    beep(820, t, 0.18, 0.72)
+    beep(1100, t + 0.14, 0.30, 0.82)
   } else if (tone === 'orderMessage') {
-    beep(523, t, 0.12)
-    beep(659, t + 0.13, 0.16)
+    beep(620, t, 0.16, 0.62, 'triangle')
+    beep(840, t + 0.13, 0.24, 0.74)
   } else if (tone === 'support') {
-    beep(392, t, 0.10, 0.052)
-    beep(523, t + 0.10, 0.10, 0.052)
-    beep(659, t + 0.20, 0.20, 0.052)
+    // Підтримка має бути найпомітнішою: три щільні імпульси + фінальний акцент.
+    beep(540, t, 0.15, 0.76)
+    beep(760, t + 0.12, 0.16, 0.82)
+    beep(1020, t + 0.24, 0.24, 0.88)
+    beep(1020, t + 0.52, 0.20, 0.78)
   } else {
-    beep(440, t, 0.16)
+    beep(700, t, 0.24, 0.68)
   }
 }
 
