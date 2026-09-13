@@ -12,6 +12,8 @@ rate = (ROOT.parent / "deploy/nginx/ratelimit.conf").read_text()
 bot_main = (ROOT / "bot/__main__.py").read_text()
 links = (ROOT / "shop/links.py").read_text()
 render = (ROOT.parent / "deploy/render-nginx.sh").read_text()
+mini_main = (ROOT.parent / "miniapp/src/main.jsx").read_text()
+mini_tg = (ROOT.parent / "miniapp/src/telegram.js").read_text()
 
 checks = {
     "public client-log endpoint": '@router.post("/client-log"' in shop,
@@ -27,6 +29,8 @@ checks = {
     "polling refreshes telegram menu url": 'set_chat_menu_button' in bot_main and 'canonical_public_url' in bot_main,
     "public links avoid stale named app url": 'return chat_link(start_param)' in links,
     "deploy renderer canonicalizes stale www": 'www.elfar.pp.ua' in render and 'DOMAIN="elfar.pp.ua"' in render,
+    "miniapp self-heals stale www before React": 'legacyHostRedirectUrl' in mini_main and 'window.location.replace' in mini_main,
+    "miniapp accepts launch data from query": 'fromSearch()' in mini_tg and 'window.location.search' in mini_tg,
 }
 for name, ok in checks.items():
     print(('OK' if ok else 'FAIL'), name)

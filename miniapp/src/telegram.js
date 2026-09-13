@@ -13,6 +13,26 @@ const CACHE_KEY = 'tgInitData'
 // initData, старший за добу.
 const CACHE_TTL_MS = 12 * 60 * 60 * 1000
 
+const LEGACY_HOSTS = new Map([
+  ['www.elfar.pp.ua', 'elfar.pp.ua'],
+])
+
+/** Повертає канонічну адресу для історичного host, не гублячи query/hash.
+ *
+ * Telegram додає авторизаційні параметри саме до URL Mini App. Якщо просто
+ * відправити користувача на /app/ новим рядком, можна втратити launch data.
+ * Тому міняємо лише hostname у поточній адресі: шлях, query і fragment
+ * лишаються байт-у-байт.
+ */
+export function legacyHostRedirectUrl() {
+  const target = LEGACY_HOSTS.get(window.location.hostname.toLowerCase())
+  if (!target) return ''
+  const url = new URL(window.location.href)
+  url.hostname = target
+  url.protocol = 'https:'
+  return url.toString()
+}
+
 function cacheWrite(value) {
   const payload = JSON.stringify({ value, at: Date.now() })
   for (const store of [window.localStorage, window.sessionStorage]) {
@@ -46,17 +66,19 @@ function cacheRead() {
  * причому роздільники всередині tgWebAppData не закодовані. Тому значення
  * тягнеться до першого наступного параметра tgWebApp*, а не до першого «&».
  */
-function fromHash() {
-  const hash = window.location.hash.slice(1)
+function fromParamString(raw) {
+  const source = String(raw || '').replace(/^[?#]/, '')
   const marker = 'tgWebAppData='
-  const at = hash.indexOf(marker)
+  const at = source.indexOf(marker)
   if (at === -1) return ''
 
-  const tail = hash.slice(at + marker.length)
+  const tail = source.slice(at + marker.length)
   const stop = tail.search(/&tgWebApp[A-Z]/)
   let value = stop === -1 ? tail : tail.slice(0, stop)
 
-  // Частина клієнтів кодує значення цілком, частина — ні
+  // Частина клієнтів кодує значення цілком, частина — ні.
+  // decodeURIComponent безпечний лише як fallback: якщо рядок уже
+  // розкодований, повторне декодування може пошкодити user JSON.
   if (!value.includes('hash=')) {
     try {
       value = decodeURIComponent(value)
@@ -65,6 +87,14 @@ function fromHash() {
     }
   }
   return value
+}
+
+function fromHash() {
+  return fromParamString(window.location.hash)
+}
+
+function fromSearch() {
+  return fromParamString(window.location.search)
 }
 
 /** Підписаний рядок, яким бекенд упізнає покупця.
@@ -87,6 +117,15 @@ export function getInitData() {
     return hashed
   }
 
+  // Деякі оболонки/проксі Telegram переносять launch-параметри з fragment
+  // у query string. Це не типовий шлях, але відкидати валідний підпис лише
+  // через місце в URL немає сенсу.
+  const searched = fromSearch()
+  if (searched) {
+    cacheWrite(searched)
+    return searched
+  }
+
   return cacheRead()
 }
 
@@ -97,14 +136,16 @@ export function getInitData() {
  * головна ознака того, у якому контексті відкрито застосунок.
  */
 export function launchParamNames() {
-  const hash = window.location.hash.slice(1)
-  if (!hash) return []
-  return [...new Set(
-    hash
+  const names = []
+  for (const raw of [window.location.search, window.location.hash]) {
+    const value = String(raw || '').replace(/^[?#]/, '')
+    if (!value) continue
+    names.push(...value
       .split('&')
       .map((pair) => pair.split('=')[0])
-      .filter((name) => name.startsWith('tgWebApp')),
-  )]
+      .filter((name) => name.startsWith('tgWebApp')))
+  }
+  return [...new Set(names)]
 }
 
 /** Звідки саме взялися дані — потрібно для екрана діагностики. */
@@ -127,14 +168,15 @@ export function startTarget() {
 
 export function initDataSource() {
   if (tg?.initData) return 'SDK'
-  if (fromHash()) return 'адреса сторінки'
+  if (fromHash()) return 'fragment URL'
+  if (fromSearch()) return 'query URL'
   if (cacheRead()) return 'кеш пристрою'
   return 'немає'
 }
 
 export function isTelegramContext() {
   const current = window.Telegram?.WebApp
-  return Boolean(current?.initData || fromHash() || current?.platform)
+  return Boolean(current?.initData || fromHash() || fromSearch() || current?.platform)
 }
 
 /** Telegram WebView інколи створює SDK раніше, ніж заповнює initData.

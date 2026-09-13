@@ -17,6 +17,8 @@ const STOREFRONT_EVENT_LABELS = {
   'storefront.open.retry': 'Повторна спроба відкриття',
   'storefront.open.failed': 'Не вдалося відкрити вітрину',
   'storefront.telegram.initdata_missing': 'Telegram не передав initData',
+  'storefront.telegram.initdata_recovered': 'Telegram initData відновлено',
+  'storefront.host.legacy_redirect': 'Застарілий www → канонічний домен',
   'storefront.api.network_error': 'Мережева помилка API',
   'storefront.api.http_error': 'API повернув помилку',
   'storefront.runtime.error': 'JavaScript помилка вітрини',

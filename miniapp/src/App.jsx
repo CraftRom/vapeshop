@@ -82,7 +82,13 @@ export default function App() {
     // Частина Telegram WebView спершу створює window.Telegram.WebApp і лише
     // через кілька сотень мілісекунд заповнює initData. Раніше ми перевіряли
     // його синхронно й показували хибну помилку. Тепер коротко чекаємо.
-    const init = getInitData() || await waitForInitData(1500)
+    const init = getInitData() || await waitForInitData(2500)
+    if (init && initDataSource() === 'кеш пристрою') {
+      clientLog('storefront.telegram.initdata_recovered', {
+        message: 'Telegram initData відновлено з кешу канонічного origin',
+        once: 'initdata-recovered',
+      })
+    }
     if (!init) {
       clientLog('storefront.telegram.initdata_missing', {
         level: 'warning',
@@ -315,10 +321,15 @@ export default function App() {
             магазин» у чаті з ботом.
           </p>
         )}
-        <div className="actions" style={{ maxWidth: 280, margin: '20px auto 0' }}>
+        <div className="actions" style={{ maxWidth: 320, margin: '20px auto 0' }}>
           <button className="primary" onClick={load}>
             Спробувати ще раз
           </button>
+          {window.Telegram?.WebApp && !getInitData() && (
+            <button onClick={() => window.Telegram.WebApp.close?.()}>
+              Закрити й повернутися в Telegram
+            </button>
+          )}
         </div>
         {/* Технічні деталі — щоб не доводилось лізти в логи по кожен збій */}
         <details style={{ marginTop: 22, textAlign: 'left' }}>

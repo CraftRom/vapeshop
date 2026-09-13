@@ -4,7 +4,7 @@ const center = fs.readFileSync(new URL('../src/components/NotificationCenter.jsx
 const version = fs.readFileSync(new URL('../src/version.js', import.meta.url), 'utf8')
 
 const checks = [
-  ['version', version.includes("APP_VERSION = '1.32.0'")],
+  ['version', version.includes("APP_VERSION = '1.32.1'")],
   ['base output -25%', center.includes('const SOUND_BASE_OUTPUT = 0.75')],
   ['tone bus exists', center.includes('let audioToneBus = null')],
   ['compressor feeds master', center.includes('audioCompressor.connect(audioMaster)')],
