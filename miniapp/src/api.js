@@ -1,18 +1,37 @@
 import { getInitData } from './telegram'
+import { clientLog } from './logger'
 
 const BASE = '/api/shop'
 
 async function request(path, { method = 'GET', body } = {}) {
-  const res = await fetch(BASE + path, {
-    method,
-    headers: {
-      'Content-Type': 'application/json',
-      // Підписаний Telegram рядок — ним бекенд упізнає покупця
-      // Читаємо щоразу: SDK може ініціалізуватись пізніше за модуль
-      'X-Telegram-Init-Data': getInitData(),
-    },
-    body: body ? JSON.stringify(body) : undefined,
-  })
+  const started = performance.now()
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 12000)
+  const logPath = String(path).split('?')[0]
+  let res
+  try {
+    res = await fetch(BASE + path, {
+      method,
+      signal: controller.signal,
+      headers: {
+        'Content-Type': 'application/json',
+        // Підписаний Telegram рядок — ним бекенд упізнає покупця.
+        'X-Telegram-Init-Data': getInitData(),
+      },
+      body: body ? JSON.stringify(body) : undefined,
+    })
+  } catch (err) {
+    clientLog('storefront.api.network_error', {
+      level: 'error',
+      message: err?.name === 'AbortError' ? 'API timeout' : (err?.message || 'network error'),
+      errorName: err?.name || '',
+      method, endpoint: logPath,
+      durationMs: Math.round(performance.now() - started),
+    })
+    throw err
+  } finally {
+    clearTimeout(timeout)
+  }
 
   if (!res.ok) {
     let detail = `Помилка ${res.status}`
@@ -21,13 +40,18 @@ async function request(path, { method = 'GET', body } = {}) {
       if (typeof data?.detail === 'string') {
         detail = data.detail
       } else if (Array.isArray(data?.detail)) {
-        // Помилки валідації приходять масивом обʼєктів. Без розбору текст
-        // перетворився б на «[object Object]» просто в очах покупця.
         detail = data.detail.map((i) => i.msg).filter(Boolean).join('; ') || detail
       }
     } catch {
       /* тіло не JSON — лишаємо код статусу */
     }
+    clientLog('storefront.api.http_error', {
+      level: res.status >= 500 ? 'error' : 'warning',
+      message: detail,
+      status: res.status,
+      method, endpoint: logPath,
+      durationMs: Math.round(performance.now() - started),
+    })
     const error = new Error(detail)
     error.status = res.status
     throw error
@@ -68,11 +92,29 @@ export const api = {
   // Вкладення тягнемо як двійкові дані, а не посилання в src: до запиту
   // треба додати підпис Telegram, а тег <img> заголовків не надсилає.
   chatFile: async (orderId, messageId) => {
-    const res = await fetch(
-      `${BASE}/orders/${orderId}/chat/${messageId}/file`,
-      { headers: { 'X-Telegram-Init-Data': getInitData() } },
-    )
+    const started = performance.now()
+    const endpoint = `/orders/${orderId}/chat/${messageId}/file`
+    let res
+    try {
+      res = await fetch(
+        `${BASE}${endpoint}`,
+        { headers: { 'X-Telegram-Init-Data': getInitData() } },
+      )
+    } catch (err) {
+      clientLog('storefront.api.network_error', {
+        level: 'error', message: err?.message || 'network error',
+        errorName: err?.name || '', method: 'GET', endpoint,
+        durationMs: Math.round(performance.now() - started),
+      })
+      throw err
+    }
     if (!res.ok) {
+      clientLog('storefront.api.http_error', {
+        level: res.status >= 500 ? 'error' : 'warning',
+        message: `Вкладення чату: HTTP ${res.status}`,
+        status: res.status, method: 'GET', endpoint,
+        durationMs: Math.round(performance.now() - started),
+      })
       const error = new Error(
         res.status === 410
           ? 'Вкладення видалене за строком зберігання'
@@ -87,11 +129,23 @@ export const api = {
   chatPhoto: async (orderId, file) => {
     const body = new FormData()
     body.append('file', file)
-    const res = await fetch(`${BASE}/orders/${orderId}/chat/photo`, {
-      method: 'POST',
-      headers: { 'X-Telegram-Init-Data': getInitData() },
-      body,
-    })
+    const started = performance.now()
+    const endpoint = `/orders/${orderId}/chat/photo`
+    let res
+    try {
+      res = await fetch(`${BASE}${endpoint}`, {
+        method: 'POST',
+        headers: { 'X-Telegram-Init-Data': getInitData() },
+        body,
+      })
+    } catch (err) {
+      clientLog('storefront.api.network_error', {
+        level: 'error', message: err?.message || 'network error',
+        errorName: err?.name || '', method: 'POST', endpoint,
+        durationMs: Math.round(performance.now() - started),
+      })
+      throw err
+    }
     if (!res.ok) {
       let detail = `Помилка ${res.status}`
       try {
@@ -99,6 +153,11 @@ export const api = {
       } catch {
         /* тіло не JSON — лишаємо код статусу */
       }
+      clientLog('storefront.api.http_error', {
+        level: res.status >= 500 ? 'error' : 'warning',
+        message: detail, status: res.status, method: 'POST', endpoint,
+        durationMs: Math.round(performance.now() - started),
+      })
       const error = new Error(detail)
       error.status = res.status
       throw error

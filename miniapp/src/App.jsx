@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { api } from './api'
+import { clientLog } from './logger'
 import { AgeGate, Catalog } from './screens/Catalog'
 import { Cart, Checkout } from './screens/Checkout'
 import { ChatList, ChatRoom } from './screens/Chat'
@@ -9,8 +10,8 @@ import { Legal, Footer } from './screens/Legal'
 import { SavePicker, WishlistPage, Wishlists, isSaved } from './screens/Wishlists'
 import { Profile } from './screens/Profile'
 import {
-  applyTheme, backButton, getInitData, hideMainButton, initDataSource, isTelegram,
-  launchParamNames, notify, onThemeChange, ready, startTarget,
+  applyTheme, backButton, getInitData, hideMainButton, initDataSource, isTelegramContext,
+  launchParamNames, notify, onThemeChange, ready, startTarget, waitForInitData,
 } from './telegram'
 
 export default function App() {
@@ -76,46 +77,52 @@ export default function App() {
     }
   }, [])
 
-  const load = useCallback(() => {
+  const load = useCallback(async () => {
     setFatal('')
-    // Без підпису Telegram звертатись до API немає сенсу: відповідь
-    // буде 401, а в журналі безпеки — тривога «звернення повз
-    // застосунок». Так виглядає не зловмисник, а сторінка, відкрита в
-    // браузері або перезавантажена вкладка, що загубила параметри
-    // запуску. Зупиняємось тут і кажемо це людині прямо.
-    if (!getInitData()) {
+    // Частина Telegram WebView спершу створює window.Telegram.WebApp і лише
+    // через кілька сотень мілісекунд заповнює initData. Раніше ми перевіряли
+    // його синхронно й показували хибну помилку. Тепер коротко чекаємо.
+    const init = getInitData() || await waitForInitData(1500)
+    if (!init) {
+      clientLog('storefront.telegram.initdata_missing', {
+        level: 'warning',
+        message: 'Telegram initData відсутній після очікування',
+        once: 'initdata-missing',
+      })
       setFatal(
-        'Не видно підпису Telegram. Так буває, коли сторінку відкрито поза '
-        + 'застосунком або перезавантажено вкладку. Відкрийте магазин кнопкою '
-        + 'у чаті з ботом.',
+        'Магазин відкрито без авторизації Telegram. Закрийте це вікно й '
+        + 'відкрийте магазин кнопкою в особистому чаті з ботом. Якщо помилка '
+        + 'повторюється саме в Telegram — повідомте підтримку: діагностику вже записано.',
       )
       return
     }
-    // Одна повторна спроба перед тим, як показати екран помилки.
-    //
-    // Mini App відкривається в мить, коли телефон переходить із мобільної
-    // мережі на Wi-Fi або виходить із режиму сну, і перший запит часто
-    // просто не встигає. Показати за нього екран «не вдалося відкрити
-    // магазин» — означає відправити людину перезапускати те, що зараз
-    // працює. Повторюємо лише мережеві збої: 401 і 403 від повторення не
-    // зміняться, а зайвий запит із поганим підписом іде в журнал безпеки.
+
     const ask = (retry) => api
       .config()
-      .then(setConfig)
+      .then((value) => {
+        setConfig(value)
+        clientLog('storefront.open.ok', {
+          message: 'Вітрина успішно отримала конфігурацію',
+          once: 'open-ok',
+        })
+      })
       .catch((err) => {
         if (retry && !err.status) {
+          clientLog('storefront.open.retry', {
+            level: 'warning', message: err?.message || 'Мережева помилка, повторна спроба',
+          })
           setTimeout(() => ask(false), 900)
           return
         }
-        // Текст із бекенду не підміняємо: він називає конкретну причину
-        // (порожній initData, розбіжність підпису, прострочена сесія),
-        // а без неї всі 401 виглядають однаково й не діагностуються.
+        clientLog('storefront.open.failed', {
+          level: 'error', message: err?.message || 'Невідома помилка',
+          status: err?.status || null,
+        })
         setFatal(err.message || 'Невідома помилка')
       })
 
     ask(true)
   }, [])
-
   useEffect(load, [load])
 
   const refresh = useCallback(async () => {
@@ -302,7 +309,7 @@ export default function App() {
         <h2>Не вдалося відкрити магазин</h2>
         <p>{fatal}</p>
 
-        {!isTelegram && (
+        {!isTelegramContext() && (
           <p style={{ marginTop: 10 }}>
             Застосунок відкрито поза Telegram. Скористайтесь кнопкою «Відкрити
             магазин» у чаті з ботом.
@@ -577,7 +584,7 @@ initData: ${getInitData() ? `${getInitData().length} символів` : 'пор
         </button>
       </div>
 
-      {!isTelegram && (
+      {!isTelegramContext() && (
         <div className="banner warn" style={{ margin: 14 }}>
           Застосунок відкрито поза Telegram — запити не пройдуть автентифікацію.
         </div>

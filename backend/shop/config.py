@@ -5,6 +5,31 @@ from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+
+def canonical_public_url(value: str) -> str:
+    """Канонічна адреса цього магазину.
+
+    `www.elfar.pp.ua` історично потрапив у BotFather/налаштування, але DNS
+    магазину працює на apex-домені. Через це Telegram WebView показував
+    «host www.elfar.pp.ua refused connection». Нормалізуємо старе значення
+    на вході, щоб усі нові кнопки й menu button вели на робочий хост.
+    """
+    raw = (value or "").strip().rstrip("/")
+    if not raw:
+        return raw
+    from urllib.parse import urlsplit, urlunsplit
+    try:
+        parts = urlsplit(raw)
+    except ValueError:
+        return raw
+    host = (parts.hostname or "").lower()
+    if host != "www.elfar.pp.ua":
+        return raw
+    netloc = "elfar.pp.ua"
+    if parts.port:
+        netloc += f":{parts.port}"
+    return urlunsplit((parts.scheme, netloc, parts.path.rstrip("/"), "", ""))
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
@@ -226,7 +251,7 @@ class Settings(BaseSettings):
     @classmethod
     def _clean_url(cls, value: str) -> str:
         # Слеш на кінці подвоївся б при склеюванні шляхів: «//app/»
-        return value.rstrip("/") if value else value
+        return canonical_public_url(value) if value else value
 
     @field_validator("bot_username", "miniapp_short_name", mode="after")
     @classmethod

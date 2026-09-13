@@ -12,8 +12,8 @@ from __future__ import annotations
 import logging
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, Response
-from pydantic import BaseModel, Field, field_validator
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, Response, Request
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from api.schemas import CategoryOut, ProductOut
 from shop.links import app_link
@@ -31,6 +31,112 @@ from shop.services.shop_settings import get_shop_settings
 log = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+class ClientLogIn(BaseModel):
+    """Безпечний технічний запис із WebView.
+
+    Поля навмисно жорстко обмежені: endpoint доступний навіть без initData,
+    бо саме відсутність initData ми й повинні вміти діагностувати.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+    event: str = Field(..., min_length=1, max_length=80, pattern=r"^[a-z0-9_.-]+$")
+    level: str = Field("info", pattern=r"^(info|warning|error)$")
+    message: str = Field("", max_length=500)
+    session_id: str = Field("", max_length=80)
+    app_version: str = Field("", max_length=32)
+    path: str = Field("", max_length=160)
+    sdk: bool = False
+    init_data: bool = False
+    init_data_length: int = Field(0, ge=0, le=16384)
+    init_data_source: str = Field("", max_length=32)
+    telegram_version: str = Field("", max_length=24)
+    platform: str = Field("", max_length=32)
+    launch_params: list[str] = Field(default_factory=list, max_length=16)
+    origin: str = Field("", max_length=160)
+    referrer_origin: str = Field("", max_length=160)
+    online: bool = True
+    visibility: str = Field("", max_length=24)
+    status: int | None = Field(None, ge=0, le=599)
+    duration_ms: int | None = Field(None, ge=0, le=120000)
+    error_name: str = Field("", max_length=80)
+    details: dict[str, str | int | float | bool | None] = Field(default_factory=dict)
+
+    @field_validator("launch_params")
+    @classmethod
+    def _clean_launch_params(cls, value):
+        return [str(item)[:64] for item in value[:16]]
+
+    @field_validator("details")
+    @classmethod
+    def _clean_details(cls, value):
+        # Не дозволяємо перетворити журнал на довільне сховище.
+        safe = {}
+        # Порівнюємо нормалізовані імена. Раніше ``message_text`` після
+        # replace("_", "") ставав ``messagetext``, але список заборонених
+        # містив стару форму — поле фактично проходило. Також не дозволяємо
+        # details підміняти серверні IP/UA/event/status.
+        forbidden = {
+            "initdata", "token", "authorization", "cookie", "password",
+            "text", "messagetext", "ip", "useragent", "event", "status",
+            "requestid", "clientsession",
+        }
+        for key, item in list((value or {}).items())[:20]:
+            name = str(key)[:64]
+            normalized = "".join(ch for ch in name.lower() if ch.isalnum())
+            if normalized in forbidden:
+                continue
+            if isinstance(item, (str, int, float, bool)) or item is None:
+                safe[name] = item[:250] if isinstance(item, str) else item
+        return safe
+
+
+@router.post("/client-log", status_code=204)
+async def client_log(data: ClientLogIn, request: Request):
+    """Приймає діагностику вітрини навіть коли Telegram auth не піднявся.
+
+    Raw initData не приймається схемою взагалі. IP і User-Agent додає сервер,
+    тож клієнт не може підробити найважливіший контекст розслідування.
+    """
+    from api.request_log import client_country, client_ip, current_request_id
+    from shop.client_logging import get_logger
+
+    # Клієнтські details ідуть першими: довірені поля сервера нижче мають
+    # остаточний пріоритет і не можуть бути підмінені публічним endpoint.
+    extra = {
+        **data.details,
+        "event": data.event,
+        "clientSession": data.session_id,
+        "appVersion": data.app_version,
+        "path": data.path,
+        "sdk": data.sdk,
+        "initData": data.init_data,
+        "initDataLength": data.init_data_length,
+        "initDataSource": data.init_data_source,
+        "telegramVersion": data.telegram_version,
+        "platform": data.platform,
+        "launchParams": data.launch_params,
+        "origin": data.origin,
+        "referrerOrigin": data.referrer_origin,
+        "online": data.online,
+        "visibility": data.visibility,
+        "ip": client_ip(request),
+        "country": client_country(request),
+        "requestId": current_request_id.get(),
+        "userAgent": request.headers.get("user-agent", "")[:300],
+    }
+    if data.status is not None:
+        extra["status"] = data.status
+    if data.duration_ms is not None:
+        extra["durationMs"] = data.duration_ms
+    if data.error_name:
+        extra["errorName"] = data.error_name
+
+    logger = get_logger()
+    method = {"info": logger.info, "warning": logger.warning, "error": logger.error}[data.level]
+    method(data.message or data.event, extra=extra)
+    return Response(status_code=204)
 
 
 # ------------------------------------------------------------------ схеми

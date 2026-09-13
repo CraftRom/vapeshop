@@ -8,13 +8,16 @@
 import { useEffect, useState } from 'react'
 
 import { getInitData } from './telegram'
+import { clientLog } from './logger'
 
 export function Photo({ product, className = 'product-photo' }) {
   const [blobUrl, setBlobUrl] = useState(null)
   const [failed, setFailed] = useState(false)
 
   useEffect(() => {
-    if (product.photo_url) return undefined
+    // has_photo приходить із ProductOut. Без цієї перевірки кожен товар без
+    // картинки робив зайвий GET /photo → 404, що засмічувало мережу й журнал.
+    if (product.photo_url || !product.has_photo) return undefined
     let revoked = null
     let cancelled = false
 
@@ -27,19 +30,45 @@ export function Photo({ product, className = 'product-photo' }) {
         revoked = URL.createObjectURL(blob)
         setBlobUrl(revoked)
       })
-      .catch(() => !cancelled && setFailed(true))
+      .catch((err) => {
+        if (cancelled) return
+        setFailed(true)
+        clientLog('storefront.photo.failed', {
+          level: 'warning',
+          message: 'Не вдалося завантажити фото товару',
+          productId: product.id,
+          status: /^\d+$/.test(err?.message || '') ? Number(err.message) : null,
+          errorName: err?.name || '',
+          once: `photo-${product.id}`,
+        })
+      })
 
     return () => {
       cancelled = true
       if (revoked) URL.revokeObjectURL(revoked)
     }
-  }, [product.id, product.photo_url])
+  }, [product.id, product.photo_url, product.has_photo])
 
+  if (!product.has_photo && !product.photo_url) return null
   const src = product.photo_url || blobUrl
   // Товар без фото — не поломка: у списку тоді просто немає картинки, і
   // місце під неї не резервується.
-  if (failed && !product.photo_url) return null
+  if (failed) return null
   if (!src) return <div className={`${className} skeleton`} />
 
-  return <img className={className} src={src} alt={product.name} loading="lazy" />
+  return (
+    <img
+      className={className}
+      src={src}
+      alt={product.name}
+      loading="lazy"
+      onError={() => {
+        setFailed(true)
+        clientLog('storefront.photo.render_failed', {
+          level: 'warning', message: 'Браузер не зміг показати фото товару',
+          productId: product.id, once: `photo-render-${product.id}`,
+        })
+      }}
+    />
+  )
 }

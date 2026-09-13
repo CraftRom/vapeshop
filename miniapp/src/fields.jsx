@@ -1,34 +1,42 @@
 /** Поле, яке малює своє значення саме.
  *
- * Чому так, а не звичайним полем.
+ * Telegram WebView на частині Android-пристроїв губить гліфи всередині
+ * самого input/textarea. Значення тому малює окремий echo-шар, а нативне
+ * поле лишається джерелом вводу, каретки й accessibility.
  *
- * Діагностика на живому телефоні дала два факти поруч. Перший: у полі
- * все правильно — білий текст на темній підкладці, непрозорість
- * одиниця, шрифт 16px, прокрутки немає, каретка стоїть після
- * тринадцятого символа з тринадцяти, жодного стороннього припису й
- * жодної чужої таблиці стилів. Другий: той самий рядок, тим самим
- * кольором, у звичайному блоці поруч — читається.
- *
- * Тобто цей WebView не малює гліфи саме в полі введення. Не в темі, не
- * в кольорі, не в React — у самому полі. Сім спроб виправити стилі
- * нічого не дали, бо виправляти в них не було чого.
- *
- * Тому значення малює блок, а поле лишається невидимим під ним: воно
- * приймає введення, тримає каретку й віддає значення, але свій текст не
- * показує. Малює те, що на цьому пристрої точно малюється.
- *
- * Ціна рішення, щоб її не шукали як поломку:
- *  — виділення тексту видно як підсвітку, але без інверсії кольору;
- *  — довгий рядок доводиться прокручувати разом із полем, тому нижче
- *    прокрутка блока прив'язана до прокрутки поля;
- *  — поки клавіатура набирає слово «композицією», у блоці видно вже
- *    введені літери, а незавершене слово підказує сама клавіатура.
+ * Важливо: саме поле НЕКЕРОВАНЕ. React не присвоює йому value на кожному
+ * рендері, бо таке присвоєння під час IME-композиції Android скидає
+ * незавершене слово. Свої зміни ми віддаємо назовні, але назад у DOM не
+ * записуємо; лише справжня зовнішня зміна (вибір міста, reset форми) має
+ * право програмно змінити el.value.
  */
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
-export function Field({ value = '', multiline = false, className = 'input', ...rest }) {
+export function Field({
+  value = '', multiline = false, className = 'input', onChange, ...rest
+}) {
   const host = useRef(null)
   const echo = useRef(null)
+  const mine = useRef(String(value ?? ''))
+  const [painted, setPainted] = useState(String(value ?? ''))
+
+  // Синхронізуємо тільки зміни, які прийшли НЕ від цього самого поля.
+  // Якщо батько просто повернув щойно набраний текст як prop, DOM уже має
+  // правильне значення — повторний запис лише ламає мобільну композицію.
+  useEffect(() => {
+    const el = host.current
+    if (!el) return
+    if (value === mine.current) return
+    mine.current = value
+    el.value = value
+    setPainted(String(value ?? ''))
+  }, [value])
+
+  const report = (event) => {
+    mine.current = event.target.value
+    setPainted(event.target.value)
+    onChange?.(event)
+  }
 
   // Поле може бути ширшим за екран — тоді воно прокручується всередині
   // себе. Блок мусить їхати разом із ним, інакше видно початок рядка,
@@ -50,12 +58,18 @@ export function Field({ value = '', multiline = false, className = 'input', ...r
       input.removeEventListener('input', sync)
       input.removeEventListener('keyup', sync)
     }
-  }, [value])
+  }, [])
 
   const Tag = multiline ? 'textarea' : 'input'
   return (
     <div className="field-paint">
-      <Tag ref={host} className={`${className} ghost`} value={value} {...rest} />
+      <Tag
+        ref={host}
+        className={`${className} ghost`}
+        defaultValue={value}
+        onChange={report}
+        {...rest}
+      />
       {/* aria-hidden: для читача екрана значення вже є в самому полі,
           і друга копія читалася б двічі. */}
       <div
@@ -63,7 +77,7 @@ export function Field({ value = '', multiline = false, className = 'input', ...r
         aria-hidden="true"
         className={multiline ? 'echo echo-multiline' : 'echo'}
       >
-        {value}
+        {painted}
       </div>
     </div>
   )

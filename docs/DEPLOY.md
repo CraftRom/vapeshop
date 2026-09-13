@@ -271,7 +271,7 @@ Encrypt видав його успішно — просто під іншим і
 Далі:
 
 ```bash
-./certbot-init.sh elfar.pp.ua www.elfar.pp.ua
+./certbot-init.sh elfar.pp.ua
 ```
 
 Скрипт розриває глухий кут, у який інакше впирається кожне перше
@@ -327,11 +327,11 @@ Encrypt видав його успішно — просто під іншим і
 # 2. Тестовий сервер: перевірити ланцюжок, не витрачаючи спроб.
 #    Сертифікат браузер не прийме — він доводить лише, що DNS, порт 80
 #    і webroot працюють.
-./certbot-init.sh elfar.pp.ua www.elfar.pp.ua --staging
+./certbot-init.sh elfar.pp.ua --staging
 
 # 3. Інший центр сертифікації з тим самим протоколом. Власні ліміти,
 #    сертифікати на 180 днів, браузери довіряють.
-./certbot-init.sh elfar.pp.ua www.elfar.pp.ua --buypass
+./certbot-init.sh elfar.pp.ua --buypass
 ```
 
 Час, коли ліміт спаде, certbot називає прямо в повідомленні про помилку.

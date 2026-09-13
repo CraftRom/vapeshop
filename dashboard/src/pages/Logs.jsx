@@ -4,9 +4,27 @@ import { useFilters } from '../components/useFilters'
 import { useVisiblePolling } from '../components/useVisiblePolling'
 
 const SERVICE_LABEL = {
-  api: 'Сайт і панель',
+  security: 'Безпека',
+  storefront: 'Вітрина',
+  api: 'API і панель',
   bot: 'Бот',
   scheduler: 'Планувальник',
+}
+
+const STOREFRONT_EVENT_LABELS = {
+  'storefront.launch': 'Запуск вітрини',
+  'storefront.open.ok': 'Вітрина відкрилась',
+  'storefront.open.retry': 'Повторна спроба відкриття',
+  'storefront.open.failed': 'Не вдалося відкрити вітрину',
+  'storefront.telegram.initdata_missing': 'Telegram не передав initData',
+  'storefront.api.network_error': 'Мережева помилка API',
+  'storefront.api.http_error': 'API повернув помилку',
+  'storefront.runtime.error': 'JavaScript помилка вітрини',
+  'storefront.runtime.unhandled_rejection': 'Необроблена Promise-помилка',
+  'storefront.network.offline': 'Пристрій втратив мережу',
+  'storefront.network.online': 'Мережа відновилась',
+  'storefront.photo.failed': 'Не завантажилось фото товару',
+  'storefront.photo.render_failed': 'Браузер не показав фото товару',
 }
 
 const LEVEL_CHIP = {
@@ -53,6 +71,13 @@ const FIELD_LABELS = {
   reason: 'Причина', detail: 'Що це означає', severity: 'Критичність',
   userAgent: 'Застосунок', referer: 'Звідки', event: 'Код події',
   actorRole: 'Роль того, хто діяв', query: 'Параметри',
+  clientSession: 'Сесія вітрини', appVersion: 'Версія вітрини',
+  sdk: 'Telegram SDK', initData: 'Є initData', initDataLength: 'Довжина initData',
+  initDataSource: 'Джерело initData', telegramVersion: 'Версія Telegram SDK',
+  platform: 'Платформа Telegram', launchParams: 'Параметри запуску',
+  origin: 'Origin вітрини', referrerOrigin: 'Origin переходу',
+  online: 'Мережа доступна', visibility: 'Стан вкладки',
+  errorName: 'Тип помилки',
 }
 
 const SEVERITY_CHIP = { alarm: 'error', notice: 'warn', info: '' }
@@ -232,7 +257,7 @@ export default function Logs() {
     return map
   }, [catalog, events])
 
-  const label = (code) => titles[code]?.title || code
+  const label = (code) => titles[code]?.title || STOREFRONT_EVENT_LABELS[code] || code
 
   useEffect(() => { load() }, [load])
 

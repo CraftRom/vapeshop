@@ -33,7 +33,7 @@ current_request_id: ContextVar[str] = ContextVar("request_id", default="")
 # /api/logs тут не випадково: сторінка журналу опитує його кожні десять
 # секунд, і без цього перегляд журналу заповнював би журнал сам собою —
 # рівно тими записами, крізь які потім довелося б продиратись.
-QUIET_PATHS = ("/api/health", "/api/debug/", "/api/logs")
+QUIET_PATHS = ("/api/health", "/api/debug/", "/api/logs", "/api/shop/client-log")
 
 
 def client_ip(request: Request) -> str:

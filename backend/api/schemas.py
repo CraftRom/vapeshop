@@ -490,7 +490,8 @@ class ShopSettingsIn(BaseModel):
     def _check_url(cls, value):
         if not value:
             return value
-        value = value.strip().rstrip("/")
+        from shop.config import canonical_public_url
+        value = canonical_public_url(value)
         if not value.startswith("https://"):
             raise ValueError("Адреса має починатися з https:// — Telegram не приймає http")
         return value

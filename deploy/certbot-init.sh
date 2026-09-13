@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Отримання першого сертифіката.
 #
-#   ./certbot-init.sh elfar.pp.ua www.elfar.pp.ua
+#   ./certbot-init.sh elfar.pp.ua
 #   ./certbot-init.sh elfar.pp.ua --staging     перевірка без витрати лімітів
 #   ./certbot-init.sh elfar.pp.ua --buypass     інший центр сертифікації
 #
@@ -21,7 +21,7 @@ cd "$(dirname "$0")"
 echo "certbot-init ${SCRIPT_VERSION}"
 COMPOSE="docker compose -f docker-compose.prod.yml"
 
-[[ $# -ge 1 ]] || { echo "Вкажіть домени: ./certbot-init.sh elfar.pp.ua www.elfar.pp.ua" >&2; exit 1; }
+[[ $# -ge 1 ]] || { echo "Вкажіть домени: ./certbot-init.sh elfar.pp.ua" >&2; exit 1; }
 
 EMAIL="${CERTBOT_EMAIL:-}"
 if [[ -z "$EMAIL" ]]; then
@@ -54,15 +54,33 @@ for arg in "$@"; do
             exit 1
             ;;
         *)
+            # www.elfar.pp.ua не має бути окремою основною адресою: у
+            # Telegram уже залишалось таке старе посилання й WebView отримував
+            # connection refused. Якщо його випадково скопіювали сюди,
+            # нормалізуємо до робочого apex замість випуску сертифіката на
+            # неіснуючий хост.
+            [[ "$arg" == "www.elfar.pp.ua" ]] && arg="elfar.pp.ua"
             DOMAINS+=("$arg")
             ;;
     esac
 done
 
 [[ ${#DOMAINS[@]} -ge 1 ]] || {
-    echo "Вкажіть домени: ./certbot-init.sh elfar.pp.ua www.elfar.pp.ua" >&2
+    echo "Вкажіть домени: ./certbot-init.sh elfar.pp.ua" >&2
     exit 1
 }
+
+# При нормалізації www -> apex два однакові аргументи не повинні двічі
+# потрапити в certbot.
+UNIQUE_DOMAINS=()
+for d in "${DOMAINS[@]}"; do
+    seen=0
+    for existing in "${UNIQUE_DOMAINS[@]}"; do
+        [[ "$existing" == "$d" ]] && seen=1 && break
+    done
+    [[ $seen -eq 0 ]] && UNIQUE_DOMAINS+=("$d")
+done
+DOMAINS=("${UNIQUE_DOMAINS[@]}")
 
 DOMAIN_ARGS=()
 for d in "${DOMAINS[@]}"; do
@@ -78,7 +96,7 @@ for d in "${DOMAINS[@]}"; do
         elif [[ "$d" == *"://"* || "$d" == *"["* ]]; then
             echo "Схоже на посилання з розміткою. Потрібне саме імʼя домену:" >&2
         fi
-        echo "    ./certbot-init.sh elfar.pp.ua www.elfar.pp.ua" >&2
+        echo "    ./certbot-init.sh elfar.pp.ua" >&2
         exit 1
     fi
     DOMAIN_ARGS+=(-d "$d")

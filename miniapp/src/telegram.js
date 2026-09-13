@@ -132,7 +132,24 @@ export function initDataSource() {
   return 'немає'
 }
 
-export const isTelegram = Boolean(tg?.initData || fromHash() || tg?.platform)
+export function isTelegramContext() {
+  const current = window.Telegram?.WebApp
+  return Boolean(current?.initData || fromHash() || current?.platform)
+}
+
+/** Telegram WebView інколи створює SDK раніше, ніж заповнює initData.
+ * Даємо клієнту короткий шанс завершити ініціалізацію замість миттєвої
+ * помилки на білому екрані.
+ */
+export async function waitForInitData(timeoutMs = 1500) {
+  const started = Date.now()
+  while (Date.now() - started < timeoutMs) {
+    const value = getInitData()
+    if (value) return value
+    await new Promise((resolve) => setTimeout(resolve, 100))
+  }
+  return getInitData()
+}
 
 export function ready() {
   if (!tg) return

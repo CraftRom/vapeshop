@@ -65,6 +65,7 @@ run_node checkout tests/checkout-validation.mjs
 run_node input-visibility tests/input-visibility.mjs
 run_node field-paint tests/field-paint.mjs
 run_node phone tests/phone.mjs
+run_node client-logging tests/client-logging.mjs
 run_node filters tests/filters.mjs dashboard
 run_node catalog-ux tests/catalog-ux.mjs dashboard
 run_node support-ux tests/support-ux.mjs dashboard
@@ -94,6 +95,7 @@ run legal qa/qa_legal.py
 run scheduler qa/qa_scheduler.py
 run public qa/qa_public_chat.py
 run logging qa/qa_logging.py
+run storefront-log qa/qa_storefront_logging.py
 run logs-api qa/qa_logs_api.py
 run backups-api qa/qa_backups_api.py
 run status-flow qa/qa_status_flow.py

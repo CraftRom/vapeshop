@@ -21,6 +21,15 @@ DOMAIN=${PUBLIC_URL#https://}
 DOMAIN=${DOMAIN#http://}
 DOMAIN=${DOMAIN%%/*}
 
+# Старе значення www.elfar.pp.ua лишалося в .env/резервних копіях після
+# переходу на apex-домен. Якщо підставити його буквально, шаблон отримає
+# server_name www.elfar.pp.ua, а сертифікат шукатиметься в іншому каталозі.
+# Канонічний host для цього магазину один — elfar.pp.ua.
+if [[ "$DOMAIN" == "www.elfar.pp.ua" ]]; then
+    echo "    PUBLIC_URL містить застарілий www — використовую elfar.pp.ua" >&2
+    DOMAIN="elfar.pp.ua"
+fi
+
 if [[ -z "$DOMAIN" ]]; then
     echo "У .env не заповнено PUBLIC_URL — nginx не знатиме, який домен обслуговувати." >&2
     exit 1

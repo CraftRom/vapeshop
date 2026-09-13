@@ -19,8 +19,9 @@ from bot.factory import bot_id, build_bot, build_dispatcher, webhook_path
 from aiogram.types import BotCommand, MenuButtonWebApp, WebAppInfo
 
 from shop import security_log as security
-from shop.config import settings
-from shop.services.shop_settings import current
+from shop.config import canonical_public_url, settings
+from shop.repo.factory import open_repo
+from shop.services.shop_settings import get_shop_settings
 
 router = APIRouter()
 log = logging.getLogger("webhook")
@@ -204,7 +205,9 @@ async def setup_webhook(token: str = ""):
     # Адреса береться з налаштувань панелі, а не з оточення: інакше
     # адміністратор змінює домен у панелі, запускає цей виклик — і вебхук
     # мовчки реєструється на старий, а кнопка магазину веде не туди
-    public_url = (current().public_url or settings.public_url or "").rstrip("/")
+    async with open_repo() as repo:
+        shop = await get_shop_settings(repo)
+    public_url = canonical_public_url(shop.public_url or settings.public_url or "")
     if not public_url or not settings.webhook_secret:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Задайте адресу сайту і WEBHOOK_SECRET")
 

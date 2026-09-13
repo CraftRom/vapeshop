@@ -13,7 +13,7 @@ import time
 from dataclasses import asdict, dataclass, fields
 from decimal import Decimal
 
-from shop.config import settings
+from shop.config import canonical_public_url, settings
 
 # Скільки секунд довіряти закешованому значенню. У serverless процес живе
 # менше, тож кеш майже не грає; на власному сервері він гарантує, що зміна
@@ -260,7 +260,10 @@ class ShopSettings:
                 elif annotation is Decimal:
                     setattr(base, f.name, Decimal(str(value)))
                 else:
-                    setattr(base, f.name, str(value))
+                    cleaned = str(value)
+                    if f.name == "public_url":
+                        cleaned = canonical_public_url(cleaned)
+                    setattr(base, f.name, cleaned)
             except (ValueError, ArithmeticError):
                 continue
         return base

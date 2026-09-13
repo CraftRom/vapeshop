@@ -5,13 +5,16 @@ import asyncio
 import logging
 
 from aiogram.utils.backoff import BackoffConfig
-from aiogram.types import BotCommand
+from aiogram.types import BotCommand, MenuButtonWebApp, WebAppInfo
 
 from shop.logging_setup import setup as setup_logging
 
 from bot.factory import build_bot, build_dispatcher
 from bot.version import BOT_VERSION
 from shop.db import init_db
+from shop.config import canonical_public_url, settings
+from shop.repo.factory import open_repo
+from shop.services.shop_settings import get_shop_settings
 
 setup_logging("bot")
 log = logging.getLogger("bot")
@@ -33,6 +36,39 @@ async def main() -> None:
         BotCommand(command="done", description="Завершити звернення"),
         BotCommand(command="help", description="Довідка"),
     ])
+
+    # Menu button зберігається на стороні Telegram і переживає деплої. Саме
+    # тому старе значення https://www.elfar.pp.ua/app/ могло продовжувати
+    # відкриватися після виправлення PUBLIC_URL. На кожному старті polling
+    # синхронізуємо кнопку з актуальними налаштуваннями БД і канонічним host.
+    try:
+        async with open_repo() as repo:
+            shop = await get_shop_settings(repo)
+        public_url = canonical_public_url(shop.public_url or settings.public_url or "")
+        if public_url.startswith("https://"):
+            shop_url = public_url.rstrip("/") + "/app/"
+            await bot.set_chat_menu_button(
+                menu_button=MenuButtonWebApp(
+                    text="Магазин", web_app=WebAppInfo(url=shop_url),
+                )
+            )
+            log.info(
+                "Кнопку меню Telegram синхронізовано: %s", shop_url,
+                extra={"event": "bot.menu_button.updated", "shopUrl": shop_url},
+            )
+        else:
+            log.warning(
+                "Кнопку меню Telegram не оновлено: PUBLIC_URL не https",
+                extra={"event": "bot.menu_button.skipped"},
+            )
+    except Exception:
+        # Несправність Bot API під час синхронізації кнопки не має зупиняти
+        # весь polling: /shop та inline-кнопки однаково лишаються доступними.
+        log.exception(
+            "Не вдалося синхронізувати кнопку меню Telegram",
+            extra={"event": "bot.menu_button.failed"},
+        )
+
     log.info("Бот @%s запущено в режимі polling", me.username)
 
     # Знімаємо вебхук: інакше Telegram не віддасть апдейти через polling.

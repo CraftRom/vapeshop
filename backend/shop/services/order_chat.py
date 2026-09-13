@@ -16,6 +16,7 @@ from aiogram.types import (
     ForceReply, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo,
 )
 
+from shop.config import canonical_public_url
 from shop.entities import STATUS_LABELS, Order, OrderStatus
 from shop.repo.base import Repository
 from shop.services.status_messages import is_permanent_delivery_error
@@ -65,7 +66,7 @@ def chat_keyboard(order_id: int) -> InlineKeyboardMarkup | None:
     """
     from shop.services.shop_settings import current
 
-    public_url = (current().public_url or "").rstrip("/")
+    public_url = canonical_public_url(current().public_url)
     if not public_url.startswith("https://"):
         return None
     return InlineKeyboardMarkup(inline_keyboard=[[
@@ -359,7 +360,7 @@ def contact_options_keyboard(
     """
     from shop.services.shop_settings import current
 
-    public_url = (current().public_url or "").rstrip("/")
+    public_url = canonical_public_url(current().public_url)
     rows = []
     for order in orders[:8]:
         label = STATUS_LABELS.get(order.status, order.status)

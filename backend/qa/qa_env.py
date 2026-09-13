@@ -56,7 +56,7 @@ from shop.config import Settings as _S
 PASTED = [
     ("bot_token", '"777001:ABC"', "777001:ABC"),
     ("bot_token", " 777001:ABC ", "777001:ABC"),
-    ("public_url", "https://www.elfar.pp.ua/", "https://www.elfar.pp.ua"),
+    ("public_url", "https://www.elfar.pp.ua/", "https://elfar.pp.ua"),
     ("bot_username", "@elfar1_bot", "elfar1_bot"),
     ("miniapp_short_name", "/elfar/", "elfar"),
 ]

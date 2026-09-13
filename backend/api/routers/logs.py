@@ -28,7 +28,7 @@ router = APIRouter(prefix="/api/logs", tags=["logs"])
 # на видноті, а не наприкінці. Це окремий потік, а не рівень у спільному
 # файлі — подій там на порядки менше, і серед тисяч записів про каталог
 # вони губилися б безслідно.
-SERVICES = ("security", "api", "bot", "scheduler")
+SERVICES = ("security", "storefront", "api", "bot", "scheduler")
 
 LEVELS = ("debug", "info", "warning", "error", "critical")
 

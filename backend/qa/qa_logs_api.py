@@ -168,7 +168,7 @@ async def scenario():
         resp = await client.get("/api/logs/services", headers=head(SYSADMIN))
         body = resp.json()
         r.check({s["service"] for s in body["services"]}
-                == {"security", "api", "bot", "scheduler"},
+                == {"security", "storefront", "api", "bot", "scheduler"},
                 "перелік сервісів", [s["service"] for s in body["services"]])
         r.check(body["logDir"] == LOG_DIR, "показано каталог журналу")
 
