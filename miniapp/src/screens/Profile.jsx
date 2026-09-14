@@ -93,7 +93,7 @@ export function Profile({ config, profile }) {
         )}
         <div className="stat">
           <b className="num">{profile.orders_count}</b>
-          <span>Замовлень</span>
+          <span>Усього замовлень</span>
         </div>
         <div className="stat">
           <b className="num">
@@ -135,7 +135,7 @@ export function Profile({ config, profile }) {
       )}
 
       <div className="head" style={{ paddingBottom: 6 }}>
-        <h1 style={{ fontSize: 17 }}>Замовлення</h1>
+        <h1 style={{ fontSize: 17 }}>Історія замовлень</h1>
       </div>
 
       {/* Головне попередження профілю.
@@ -170,8 +170,8 @@ export function Profile({ config, profile }) {
         </div>
       ) : orders.length === 0 ? (
         <div className="empty">
-          <h2>Замовлень ще немає</h2>
-          <p>Перше замовлення зʼявиться тут одразу після оформлення.</p>
+          <h2>Історія замовлень поки порожня</h2>
+          <p>Після першого оформлення покупки записи зʼявляться тут автоматично.</p>
         </div>
       ) : (
         orders.map((o) => (

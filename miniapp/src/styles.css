@@ -1523,7 +1523,7 @@ textarea.input { min-height: 74px; resize: vertical; }
   border-radius: var(--radius-sm);
 }
 
-/* ====================================================== REFRESH 2.9.0
+/* ====================================================== REFRESH 2.9.1
  * Сучасніша оболонка Mini App: виразніший контраст, менше «плоских»
  * поверхонь, більші touch-targets і зрозуміліша ієрархія дій. Telegram
  * кольори лишаються основою, тому користувацька світла/темна тема не
@@ -2229,4 +2229,318 @@ body {
   .product-action,
   .bar { background: color-mix(in srgb, var(--surface-raised) 96%, transparent); }
   .chat-compose { background: color-mix(in srgb, var(--tg-bg) 92%, transparent); }
+}
+
+/* ========================================= 2.9.1 polish: contrast, spacing */
+html, body, #root { min-height: 100dvh; }
+
+body {
+  background:
+    radial-gradient(circle at 92% -8%, rgba(79, 216, 165, 0.11), transparent 22rem),
+    radial-gradient(circle at 12% 118%, rgba(104, 98, 230, 0.10), transparent 24rem),
+    var(--tg-bg);
+}
+
+.app {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+}
+
+.store-head {
+  padding-bottom: 12px;
+}
+
+.store-head strong {
+  margin-top: 4px;
+  font-size: 20px;
+  letter-spacing: -0.03em;
+}
+
+.store-age {
+  min-width: 50px;
+  height: 36px;
+  color: color-mix(in srgb, var(--tg-text) 72%, var(--tg-hint));
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0)),
+    var(--surface-raised);
+}
+
+.tabs {
+  position: sticky;
+  top: calc(env(safe-area-inset-top, 0px) + 2px);
+  z-index: 14;
+  gap: 6px;
+  margin-bottom: 14px;
+  padding: 6px;
+  border-color: var(--stroke-strong);
+  border-radius: 18px;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0)),
+    color-mix(in srgb, var(--surface) 96%, transparent);
+}
+
+.tab {
+  min-height: 44px;
+  color: color-mix(in srgb, var(--tg-text) 55%, var(--tg-hint));
+  font-size: 13.5px;
+  font-weight: 780;
+  transition: background-color .18s ease, color .18s ease, transform .18s ease;
+}
+
+.tab[aria-selected='true'] {
+  color: var(--tg-text);
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0)),
+    var(--surface-raised);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
+}
+
+.head {
+  padding-top: 20px;
+  padding-bottom: 12px;
+}
+
+.head h1,
+.catalog-hero h1,
+.prepare-card h1,
+.empty h2 {
+  letter-spacing: -0.04em;
+}
+
+.head p,
+.catalog-hero p,
+.empty p,
+.prepare-card p,
+.stat span,
+.footer .hint,
+.order-items,
+.hint {
+  color: color-mix(in srgb, var(--tg-text) 50%, var(--tg-hint));
+}
+
+.catalog-hero {
+  margin-bottom: 16px;
+  padding: 20px;
+  border-color: var(--stroke-strong);
+  background:
+    radial-gradient(circle at 100% 0%, rgba(79, 216, 165, 0.20), transparent 42%),
+    radial-gradient(circle at 72% 100%, rgba(104, 98, 230, 0.12), transparent 36%),
+    var(--surface-raised);
+}
+
+.catalog-search { margin-bottom: 12px; }
+.catalog-search .input {
+  min-height: 52px;
+  color: var(--tg-text);
+}
+
+.chip {
+  color: color-mix(in srgb, var(--tg-text) 62%, var(--tg-hint));
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0)),
+    var(--surface);
+}
+
+.rail-sort .chip[aria-pressed='true'] {
+  background: var(--surface-raised);
+  color: var(--tg-text);
+}
+
+.list {
+  gap: 12px;
+  padding-bottom: 16px;
+}
+
+.item,
+.card,
+.summary,
+.order,
+.stat,
+.link-box,
+.chat-pick,
+.wl,
+.footer,
+.empty {
+  border-color: var(--stroke-strong);
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.025), rgba(255,255,255,0)),
+    var(--surface-raised);
+}
+
+.item {
+  padding: 14px;
+  border-radius: 20px;
+}
+
+.item-title { font-size: 16px; line-height: 1.32; }
+.item-price,
+.price { font-weight: 800; }
+.item-note,
+.product-description,
+.legal-p { line-height: 1.62; }
+.item-side { width: 126px; }
+.item-photo {
+  border-color: var(--stroke-strong);
+  border-radius: 16px;
+}
+.item-side .add,
+.product-action .add,
+.primary,
+.bar button,
+.link-box button,
+.send {
+  box-shadow: 0 10px 24px rgba(79, 216, 165, 0.18);
+}
+.stepper {
+  border-color: rgba(79, 216, 165, 0.36);
+  box-shadow: inset 0 0 0 1px rgba(79, 216, 165, 0.06);
+}
+.heart {
+  color: color-mix(in srgb, var(--tg-text) 70%, var(--tg-hint));
+}
+
+.empty {
+  max-width: 520px;
+  margin: 10px 14px 0;
+  padding: 28px 20px 24px;
+  border-radius: 22px;
+  text-align: center;
+  box-shadow: var(--shadow-card);
+}
+
+.empty::before {
+  content: '✦';
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  margin: 0 auto 14px;
+  border: 1px solid rgba(79, 216, 165, 0.24);
+  border-radius: 50%;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 22px;
+}
+
+.empty h2 {
+  margin-bottom: 8px;
+  font-size: 22px;
+  font-weight: 850;
+}
+
+.empty p {
+  max-width: 360px;
+  margin: 0 auto;
+  line-height: 1.58;
+}
+
+.stats {
+  gap: 12px;
+  padding-bottom: 16px;
+}
+
+.stat {
+  min-height: 92px;
+  padding: 16px;
+  border-radius: 20px;
+}
+
+.stat b {
+  font-size: 24px;
+  letter-spacing: -0.03em;
+}
+
+.link-box {
+  margin: 0 14px 14px;
+  padding: 14px;
+  border-radius: 20px;
+}
+
+.link-box code {
+  display: block;
+  overflow-wrap: anywhere;
+  line-height: 1.45;
+}
+
+.order,
+.chat-pick,
+.wl {
+  border-radius: 20px;
+}
+
+.order-head,
+.wl-head {
+  gap: 10px;
+}
+
+.order-items li + li {
+  margin-top: 4px;
+}
+
+.product-page .screen {
+  padding-top: 20px;
+  padding-bottom: 18px;
+}
+
+.product-page > .product-photo {
+  border-color: var(--stroke-strong);
+}
+
+.product-action,
+.bar,
+.chat-compose {
+  border-top-color: var(--stroke-strong);
+}
+
+.bar {
+  height: 78px;
+  padding-inline: 16px;
+}
+
+.bar-info strong { font-size: 20px; }
+.bar-info span { line-height: 1.35; }
+
+.footer {
+  margin: 18px 14px calc(14px + env(safe-area-inset-bottom, 0px));
+  padding: 16px 16px 18px;
+  border-radius: 20px;
+  text-align: center;
+  box-shadow: var(--shadow-card);
+}
+
+.app > .footer { margin-top: auto; }
+
+.footer-link {
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.footer .hint {
+  margin-top: 8px;
+  font-size: 13px;
+}
+
+.prepare-card {
+  border-color: var(--stroke-strong);
+}
+
+.prepare-card p { max-width: 320px; margin-inline: auto; }
+
+.prepare-steps span {
+  font-size: 11px;
+  color: color-mix(in srgb, var(--tg-text) 45%, var(--tg-hint));
+}
+
+@media (max-width: 390px) {
+  .empty {
+    padding: 24px 18px 22px;
+  }
+
+  .empty h2,
+  .prepare-card h1 { font-size: 21px; }
+
+  .stat b { font-size: 22px; }
 }

@@ -48,7 +48,7 @@ export function Legal({ config, initial, onBack }) {
       <div className="head">
         {onBack && <button className="chip" onClick={onBack} style={{ marginBottom: 8 }}>← Назад</button>}
         <h1>Умови та документи</h1>
-        <p>Правила покупки, обробка даних і повернення</p>
+        <p>Правила покупки, оферта, обробка даних і повернення</p>
       </div>
 
       {gaps.length > 0 && (
@@ -77,7 +77,7 @@ export function Footer({ onLegal }) {
     <div className="footer">
       {onLegal && (
         <button className="footer-link" onClick={onLegal}>
-          Умови, оферта та повернення
+          Умови, оферта й повернення
         </button>
       )}
       <div className="hint num">

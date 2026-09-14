@@ -233,7 +233,7 @@ export function Catalog({ config, cart, onCartChange, seed, onOpenProduct, wishl
         <div>
           <span className="catalog-kicker">Швидкий вибір</span>
           <h1 id="catalog-title">Каталог</h1>
-          <p>Знайдіть товар, перевірте наявність і додайте до кошика за кілька дотиків.</p>
+          <p>Знайдіть товар, перевірте наявність і додайте його в кошик без зайвих кроків.</p>
         </div>
         <div className="catalog-badge" aria-label="Покупки у Telegram">Mini App</div>
       </section>
@@ -246,7 +246,7 @@ export function Catalog({ config, cart, onCartChange, seed, onOpenProduct, wishl
         <Field
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Пошук за назвою"
+          placeholder="Шукати товар за назвою"
           inputMode="search"
         />
         {search && (

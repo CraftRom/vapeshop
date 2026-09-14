@@ -7,7 +7,7 @@ const nginx = fs.readFileSync('nginx.conf', 'utf8')
 let failed = 0
 function check(ok, name) { console.log(`${ok ? 'OK' : 'FAIL'} ${name}`); if (!ok) failed++ }
 
-check(version.includes("2.9.0"), 'Mini App 2.9.0')
+check(version.includes("2.9.1"), 'Mini App 2.9.1')
 check(main.includes('await waitForInitData(4000)'), 'на legacy www Telegram отримує до 4 с на initData')
 check(main.includes('legacyHostRedirectUrl(initData)'), 'отриманий підпис передається в canonical redirect')
 check(tg.includes("const BRIDGE_PARAM = 'elfarInitData'"), 'bridge має окремий fragment-параметр')

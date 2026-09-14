@@ -64,8 +64,8 @@ export function Cart({ config, cart, onCartChange, onCheckout }) {
   if (lines.length === 0) {
     return (
       <div className="empty">
-        <h2>Кошик порожній</h2>
-        <p>Оберіть щось у каталозі — і сума з'явиться тут.</p>
+        <h2>Кошик поки порожній</h2>
+          <p>Додайте товари з каталогу — тут одразу з’являться позиції, сума й кнопка оформлення.</p>
       </div>
     )
   }
