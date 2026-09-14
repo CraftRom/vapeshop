@@ -42,6 +42,7 @@ import {
 export function Cart({ config, cart, onCartChange, onCheckout }) {
   const [error, setError] = useState('')
   const lines = cart?.lines || []
+  const totalQty = lines.reduce((sum, line) => sum + line.qty, 0)
 
   const change = async (productId, delta) => {
     haptic('light')
@@ -65,13 +66,18 @@ export function Cart({ config, cart, onCartChange, onCheckout }) {
     return (
       <div className="empty">
         <h2>Кошик поки порожній</h2>
-          <p>Додайте товари з каталогу — тут одразу з’являться позиції, сума й кнопка оформлення.</p>
+        <p>Додайте товари з каталогу — тут одразу з’являться позиції, сума й кнопка оформлення.</p>
       </div>
     )
   }
 
   return (
     <>
+      <div className="head cart-head">
+        <h1>Кошик</h1>
+        <p>Перевірте товари, змініть кількість і переходьте до оформлення, коли все готово.</p>
+      </div>
+
       {error && <div className="banner warn">{error}</div>}
       {cart.problems?.length > 0 && (
         <div className="banner warn">
@@ -82,9 +88,9 @@ export function Cart({ config, cart, onCartChange, onCheckout }) {
         </div>
       )}
 
-      <div className="list" style={{ paddingTop: 12 }}>
+      <div className="list cart-list" style={{ paddingTop: 6 }}>
         {lines.map((l) => (
-          <div className="card" key={l.product_id}>
+          <div className="card cart-card" key={l.product_id}>
             <div className="card-body">
               <p className="card-title">{l.name}</p>
               <p className="card-note num">
@@ -94,7 +100,7 @@ export function Cart({ config, cart, onCartChange, onCheckout }) {
                 {Number(l.line_total).toFixed(0)} <small>{config.currency}</small>
               </div>
             </div>
-            <div className="stepper">
+            <div className="stepper cart-stepper">
               <button onClick={() => change(l.product_id, -1)} aria-label="Прибрати одну">
                 −
               </button>
@@ -111,20 +117,24 @@ export function Cart({ config, cart, onCartChange, onCheckout }) {
         ))}
       </div>
 
-      <div className="summary">
+      <div className="summary summary-premium">
+        <div className="row-between">
+          <span>Позицій у кошику</span>
+          <strong className="num">{totalQty}</strong>
+        </div>
         <div className="row-between total num">
           <span>До сплати</span>
           <span>
             {Number(cart.subtotal).toFixed(0)} {config.currency}
           </span>
         </div>
+        <p className="summary-note">
+          Кнопка оформлення доступна внизу екрана. Перед переходом ми допишемо всі зміни кошика.
+        </p>
       </div>
 
       <div className="field">
-        <button className="secondary" onClick={clear} style={{
-          width: '100%', padding: 12, border: 0, borderRadius: 10,
-          background: 'transparent', color: 'var(--tg-hint)',
-        }}>
+        <button className="secondary clear-cart-btn" onClick={clear}>
           Очистити кошик
         </button>
       </div>

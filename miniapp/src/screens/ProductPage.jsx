@@ -1,6 +1,5 @@
 import { useState } from 'react'
 
-import { api } from '../api'
 import { Photo } from '../photo'
 import { haptic } from '../telegram'
 
@@ -38,62 +37,68 @@ export function ProductPage({ config, product, cart, onCartChange, onBack, saved
 
   return (
     <div className="product-page">
-      {/* Рядком, щоб сердечко стало праворуч від кнопки повернення */}
-      <div className="head row" style={{ alignItems: 'center', gap: 10 }}>
+      <div className="head row product-page-head" style={{ alignItems: 'center', gap: 10 }}>
         <button className="chip" onClick={onBack}>
           ← Каталог
         </button>
       </div>
 
-      <Photo product={product} />
-
-      <div className="screen">
-        <h1 style={{ margin: '0 0 6px', fontSize: 20, letterSpacing: '-0.02em' }}>
-          {product.name}
-        </h1>
-
-        <div className="row" style={{ gap: 10, alignItems: 'baseline' }}>
-          <span className="price num" style={{ fontSize: 24, marginTop: 0 }}>
-            {price.toFixed(0)} <small>{config.currency}</small>
-          </span>
-          {/* Стара ціна лише коли вона справді вища: інакше «знижка» з
-              нульовою вигодою підриває довіру до всіх решти */}
-          {discount > 0 && (
-            <>
-              <span className="old-price num">
-                {oldPrice.toFixed(0)} {config.currency}
-              </span>
-              <span className="discount-badge">−{discount}%</span>
-            </>
-          )}
-        </div>
-
-        <p className={`stock ${stock.tone}`} style={{ marginTop: 8 }}>
-          {stock.text}
-        </p>
-
-        {product.category_name && (
-          <p className="hint" style={{ marginTop: 4 }}>{product.category_name}</p>
-        )}
-
-        {product.description ? (
-          <p className="product-description">{product.description}</p>
-        ) : (
-          <p className="hint" style={{ marginTop: 16 }}>
-            Опис не додано. Питання про товар можна поставити менеджеру після
-            оформлення замовлення.
-          </p>
-        )}
-
-        {error && <div className="banner warn" style={{ margin: '12px 0' }}>{error}</div>}
+      <div className="product-photo-frame">
+        <div className="product-photo-glow" aria-hidden="true" />
+        <Photo product={product} />
       </div>
 
-      {/* Панель дії тримається внизу: рішення «купити» має бути під пальцем
-          незалежно від того, наскільки довгий опис */}
+      <div className="screen product-layout">
+        <div className="product-summary-card">
+          <div className="product-meta">
+            {product.category_name && (
+              <span className="product-pill">{product.category_name}</span>
+            )}
+            <span className={`product-pill stock-pill ${stock.tone}`}>
+              {stock.text}
+            </span>
+          </div>
+
+          <h1 className="product-title">{product.name}</h1>
+
+          <div className="product-price-row">
+            <span className="price num product-price-main">
+              {price.toFixed(0)} <small>{config.currency}</small>
+            </span>
+            {discount > 0 && (
+              <div className="product-discount-group">
+                <span className="old-price num">
+                  {oldPrice.toFixed(0)} {config.currency}
+                </span>
+                <span className="discount-badge">−{discount}%</span>
+              </div>
+            )}
+          </div>
+
+          <p className="product-lead hint">
+            Швидке оформлення в Mini App, актуальна наявність і зручне додавання в кошик.
+          </p>
+        </div>
+
+        <section className="product-copy-card">
+          <h2>Опис</h2>
+          {product.description ? (
+            <p className="product-description">{product.description}</p>
+          ) : (
+            <p className="hint">
+              Опис поки не додано. Якщо потрібні деталі щодо смаку, характеристик або
+              доставки — поставте питання менеджеру після оформлення замовлення.
+            </p>
+          )}
+        </section>
+
+        {error && <div className="banner warn" style={{ margin: '0 0 4px' }}>{error}</div>}
+      </div>
+
       <div className="product-action">
         {qty > 0 ? (
           <>
-            <div className="stepper" style={{ flex: 1, justifyContent: 'center' }}>
+            <div className="stepper product-stepper">
               <button onClick={() => change(-1)} disabled={busy} aria-label="Менше">
                 −
               </button>
@@ -121,8 +126,6 @@ export function ProductPage({ config, product, cart, onCartChange, onBack, saved
           </button>
         )}
 
-        {/* Сердечко праворуч від головної дії: основна кнопка лишається
-            найширшою й найпомітнішою, а «відкласти» поруч, під тим же пальцем */}
         {onSave && (
           <button
             className={`heart ${saved ? 'on' : ''}`}
