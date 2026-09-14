@@ -465,7 +465,15 @@ initData: ${getInitData() ? `${getInitData().length} символів` : 'пор
 
   return (
     <div className="app">
-      <div className="tabs" role="tablist">
+      <header className="store-head">
+        <div>
+          <span className="store-kicker">ELFAR</span>
+          <strong>Магазин у Telegram</strong>
+        </div>
+        <span className="store-age">18+</span>
+      </header>
+
+      <div className="tabs" role="tablist" aria-label="Розділи магазину">
         <button
           className="tab"
           role="tab"

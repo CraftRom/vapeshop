@@ -9,7 +9,7 @@ const version = fs.readFileSync('src/version.js', 'utf8')
 let failed = 0
 function check(ok, name) { console.log(`${ok ? 'OK' : 'FAIL'} ${name}`); if (!ok) failed++ }
 
-check(version.includes("2.8.3"), 'вітрина 2.8.3')
+check(version.includes("2.9.0"), 'вітрина 2.9.0')
 check(logger.includes("/api/shop/client-log"), 'є endpoint клієнтського журналу')
 check(logger.includes('MAX_PER_SESSION'), 'є межа записів на сесію')
 check(!logger.includes('init_data: init,'), 'raw initData не відправляється')

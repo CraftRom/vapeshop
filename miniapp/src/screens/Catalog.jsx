@@ -32,33 +32,6 @@ export function AgeGate({ config, onConfirmed }) {
       <p>
         Нікотин викликає залежність. Продукція не є засобом для відмови від куріння.
       </p>
-      {/* Порядок і фільтр окремим рядком під категоріями. Змішувати їх
-          із категоріями не можна: категорія відповідає «що дивимось»,
-          а це — «як показати», і в одному ряду вони читались би як
-          рівноцінні. */}
-      <div className="rail rail-sort">
-        <button className="chip" aria-pressed={sort === 'default'}
-                onClick={() => setSort('default')}>
-          За порядком
-        </button>
-        <button className="chip" aria-pressed={sort === 'cheap'}
-                onClick={() => setSort('cheap')}>
-          Спершу дешеві
-        </button>
-        <button className="chip" aria-pressed={sort === 'pricey'}
-                onClick={() => setSort('pricey')}>
-          Спершу дорогі
-        </button>
-        <button className="chip" aria-pressed={sort === 'fresh'}
-                onClick={() => setSort('fresh')}>
-          Новинки
-        </button>
-        <button className="chip" aria-pressed={inStock}
-                onClick={() => setInStock((on) => !on)}>
-          Лише в наявності
-        </button>
-      </div>
-
       {error && <div className="banner warn">{error}</div>}
       <div className="actions">
         <button className="primary" onClick={confirm} disabled={busy}>
@@ -256,7 +229,16 @@ export function Catalog({ config, cart, onCartChange, seed, onOpenProduct, wishl
 
   return (
     <>
-      <div className="field search" style={{ paddingTop: 12 }}>
+      <section className="catalog-hero" aria-labelledby="catalog-title">
+        <div>
+          <span className="catalog-kicker">Швидкий вибір</span>
+          <h1 id="catalog-title">Каталог</h1>
+          <p>Знайдіть товар, перевірте наявність і додайте до кошика за кілька дотиків.</p>
+        </div>
+        <div className="catalog-badge" aria-label="Покупки у Telegram">Mini App</div>
+      </section>
+
+      <div className="field search catalog-search">
         {/* Той самий компонент, що й у формі замовлення: цей WebView не
             малює текст у полі сам, і пошук страждав від того ж, від чого
             й оформлення. Дві різні реалізації поля розійшлися б при
@@ -275,7 +257,7 @@ export function Catalog({ config, cart, onCartChange, seed, onOpenProduct, wishl
       </div>
 
       {categories.length > 0 && (
-        <div className="rail">
+        <div className="rail category-rail" aria-label="Категорії">
           <button
             className="chip"
             aria-pressed={active === null}
@@ -295,6 +277,29 @@ export function Catalog({ config, cart, onCartChange, seed, onOpenProduct, wishl
           ))}
         </div>
       )}
+
+      <div className="rail rail-sort" aria-label="Сортування і фільтри">
+        <button className="chip" aria-pressed={sort === 'default'}
+                onClick={() => setSort('default')}>
+          За порядком
+        </button>
+        <button className="chip" aria-pressed={sort === 'cheap'}
+                onClick={() => setSort('cheap')}>
+          Дешевші
+        </button>
+        <button className="chip" aria-pressed={sort === 'pricey'}
+                onClick={() => setSort('pricey')}>
+          Дорожчі
+        </button>
+        <button className="chip" aria-pressed={sort === 'fresh'}
+                onClick={() => setSort('fresh')}>
+          Новинки
+        </button>
+        <button className="chip" aria-pressed={inStock}
+                onClick={() => setInStock((on) => !on)}>
+          В наявності
+        </button>
+      </div>
 
       {error && <div className="banner warn">{error}</div>}
 
