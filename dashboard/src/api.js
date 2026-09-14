@@ -5,9 +5,15 @@ const TOKEN_KEY = 'shop_dashboard_token'
 
 const SESSION_KEY = 'shop_dashboard_session'
 
-export const getToken = () => localStorage.getItem(TOKEN_KEY)
-export const setToken = (t) => localStorage.setItem(TOKEN_KEY, t)
+export const getToken = () => sessionStorage.getItem(TOKEN_KEY)
+export const setToken = (t) => {
+  sessionStorage.setItem(TOKEN_KEY, t)
+  // При оновленні старої версії прибираємо довгоживучий токен з localStorage.
+  localStorage.removeItem(TOKEN_KEY)
+}
 export const clearToken = () => {
+  sessionStorage.removeItem(TOKEN_KEY)
+  sessionStorage.removeItem(SESSION_KEY)
   localStorage.removeItem(TOKEN_KEY)
   localStorage.removeItem(SESSION_KEY)
 }
@@ -18,12 +24,14 @@ export const clearToken = () => {
  * Справжнє обмеження — на бекенді: підміна цього запису в браузері нічого
  * не дає, сервер усе одно поверне 403.
  */
-export const setSession = (data) =>
-  localStorage.setItem(SESSION_KEY, JSON.stringify({ role: data.role, name: data.name }))
+export const setSession = (data) => {
+  sessionStorage.setItem(SESSION_KEY, JSON.stringify({ role: data.role, name: data.name }))
+  localStorage.removeItem(SESSION_KEY)
+}
 
 export const getSession = () => {
   try {
-    return JSON.parse(localStorage.getItem(SESSION_KEY)) || { role: 'admin', name: '' }
+    return JSON.parse(sessionStorage.getItem(SESSION_KEY)) || { role: 'admin', name: '' }
   } catch {
     return { role: 'admin', name: '' }
   }

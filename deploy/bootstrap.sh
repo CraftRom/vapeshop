@@ -54,7 +54,6 @@ else
     adduser --disabled-password --gecos "" "$SERVICE_USER" >/dev/null
     echo "    Створено"
 fi
-usermod -aG docker "$SERVICE_USER"
 chown -R "$SERVICE_USER:$SERVICE_USER" "$REPO_DIR"
 
 
@@ -149,6 +148,12 @@ else
     dashpass=$(openssl rand -base64 12 | tr -d '/+=' | cut -c1-16)
     cron=$(openssl rand -hex 16)
     hook=$(openssl rand -hex 16)
+    redispass=$(openssl rand -hex 24)
+    datakey=$(python3 - <<'PYKEY'
+import base64, os
+print(base64.urlsafe_b64encode(os.urandom(32)).decode())
+PYKEY
+)
 
     sed -i \
         -e "s|^JWT_SECRET=.*|JWT_SECRET=${jwt}|" \
@@ -157,6 +162,9 @@ else
         -e "s|^DASHBOARD_PASSWORD=.*|DASHBOARD_PASSWORD=${dashpass}|" \
         -e "s|^CRON_SECRET=.*|CRON_SECRET=${cron}|" \
         -e "s|^WEBHOOK_SECRET=.*|WEBHOOK_SECRET=${hook}|" \
+        -e "s|^REDIS_PASSWORD=.*|REDIS_PASSWORD=${redispass}|" \
+        -e "s|^REDIS_URL=.*|REDIS_URL=redis://:${redispass}@redis:6379/0|" \
+        -e "s|^DATA_ENCRYPTION_KEY=.*|DATA_ENCRYPTION_KEY=${datakey}|" \
         "$REPO_DIR/.env"
     chmod 600 "$REPO_DIR/.env"
     chown "$SERVICE_USER:$SERVICE_USER" "$REPO_DIR/.env"

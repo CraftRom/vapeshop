@@ -14,6 +14,7 @@ from dataclasses import asdict, dataclass, fields
 from decimal import Decimal
 
 from shop.config import canonical_public_url, settings
+from shop.secret_crypto import encrypt_secret, decrypt_secret
 
 # Скільки секунд довіряти закешованому значенню. У serverless процес живе
 # менше, тож кеш майже не грає; на власному сервері він гарантує, що зміна
@@ -229,8 +230,10 @@ class ShopSettings:
         return out
 
     def to_storage(self) -> dict[str, str]:
-        """Усе зберігаємо рядками — так лягає і в SQL-таблицю, і в Firestore."""
-        return {key: str(value) for key, value in asdict(self).items()}
+        """Усе зберігаємо рядками; інтеграційні секрети — зашифровано."""
+        out = {key: str(value) for key, value in asdict(self).items()}
+        out["novaposhta_api_key"] = encrypt_secret(out.get("novaposhta_api_key", ""))
+        return out
 
     @classmethod
     def from_storage(cls, raw: dict[str, str]) -> ShopSettings:
@@ -263,6 +266,8 @@ class ShopSettings:
                     cleaned = str(value)
                     if f.name == "public_url":
                         cleaned = canonical_public_url(cleaned)
+                    elif f.name == "novaposhta_api_key":
+                        cleaned = decrypt_secret(cleaned)
                     setattr(base, f.name, cleaned)
             except (ValueError, ArithmeticError):
                 continue

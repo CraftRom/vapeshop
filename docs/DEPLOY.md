@@ -90,7 +90,8 @@ docker run --rm hello-world      # має вивести привітання
 
 ```bash
 adduser --disabled-password --gecos "" shop
-usermod -aG docker shop
+# Не додавайте shop до групи docker: це еквівалент root-доступу.
+# Docker-команди для деплою виконує root/systemd.
 ```
 
 > Членство в групі `docker` фактично дорівнює root: хто може запускати

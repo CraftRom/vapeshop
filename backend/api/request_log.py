@@ -35,6 +35,17 @@ current_request_id: ContextVar[str] = ContextVar("request_id", default="")
 # рівно тими записами, крізь які потім довелося б продиратись.
 QUIET_PATHS = ("/api/health", "/api/debug/", "/api/logs", "/api/shop/client-log")
 
+_SECRET_QUERY_NAMES = {"token", "secret", "password", "bot_token", "api_key", "init_data", "initdata", "key"}
+
+def safe_query(request: Request) -> str:
+    """Query string без секретів; службові токени не повинні жити в логах."""
+    items = []
+    for key, value in request.query_params.multi_items():
+        items.append((key, "[REDACTED]" if key.lower() in _SECRET_QUERY_NAMES else value))
+    from urllib.parse import urlencode
+    return urlencode(items, doseq=True)
+
+
 
 def client_ip(request: Request) -> str:
     """IP клієнта з урахуванням проксі.
@@ -42,17 +53,16 @@ def client_ip(request: Request) -> str:
     За nginx усі запити приходять з адреси контейнера, тому справжня
     адреса — у заголовках від проксі.
 
-    CF-Connecting-IP перевіряємо першим: його ставить Cloudflare і, на
-    відміну від X-Forwarded-For, підмінити його ззовні не можна — усе, що
-    надіслав клієнт, Cloudflare перезаписує. X-Forwarded-For лишається
-    запасним варіантом на випадок, коли трафік іде повз CDN.
+    Довіряємо тільки X-Real-IP, який production-nginx ПЕРЕЗАПИСУЄ своїм
+    `$remote_addr`. Клієнтський CF-Connecting-IP тут навмисно ігноруємо:
+    якщо origin колись відкриють напряму, такий заголовок легко підробити.
+    За Cloudflare це буде адреса edge-вузла, доки на nginx не налаштований
+    real_ip_module з офіційними CIDR Cloudflare — менш зручно для аналітики,
+    зате безпечно для rate-limit/аудиту.
     """
-    direct = request.headers.get("cf-connecting-ip", "").strip()
+    direct = request.headers.get("x-real-ip", "").strip()
     if direct:
         return direct
-    forwarded = request.headers.get("x-forwarded-for", "")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
     return request.client.host if request.client else ""
 
 
@@ -136,7 +146,7 @@ class RequestLogMiddleware(BaseHTTPMiddleware):
                     "requestId": request_id,
                     "method": request.method,
                     "path": request.url.path,
-                    "query": str(request.url.query),
+                    "query": safe_query(request),
                     "host": request.headers.get("host", ""),
                     "ip": client_ip(request),
                     "country": client_country(request),

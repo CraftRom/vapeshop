@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 
-from api.auth import authenticate, create_token
+from api.auth import authenticate, create_token, Principal, require_sysadmin
 from api.routers import (
     backups as backups_router, broadcasts, catalog, customers,
     logs as logs_router, media as media_router,
@@ -86,7 +86,7 @@ app = FastAPI(
     title=f"{settings.shop_name} — Dashboard API",
     # Версія API. Піднімається разом із помітними змінами контракту:
     # три ролі замість двох і новий розділ журналу — саме такий випадок.
-    version="1.6.0",
+    version="1.7.0",
     lifespan=lifespan,
     docs_url="/docs" if _docs_on else None,
     redoc_url=None,
@@ -178,29 +178,12 @@ async def login(request: Request, data: LoginIn, repo=Depends(get_repo)):
 
 @app.get("/api/health", tags=["service"])
 async def health():
-    """Діагностика розгортання.
-
-    Навмисно без авторизації: якщо конфігурація зламана, увійти неможливо,
-    і саме тоді потрібно розуміти причину. Значень змінних не розкриваємо —
-    лише назви тих, яких бракує.
-    """
-    problems = settings.missing_required()
-    # Сире значення змінної поруч із тим, що з нього вийшло після очистки.
-    return {
-        "status": "ok" if not problems else "misconfigured",
-        "build": _BUILD,
-        "botVersion": _BOT_VERSION,
-        "storage": _storage(),
-        "shop": settings.shop_name,
-        "webhook_configured": bool(
-            settings.webhook_secret and (current().public_url or settings.public_url)
-        ),
-        "missing_env": problems,
-    }
+    """Публічна liveness-перевірка без версій, конфігурації та внутрішніх деталей."""
+    return {"status": "ok"}
 
 
 @app.get("/api/debug/database", tags=["service"])
-async def debug_database():
+async def debug_database(_who: Principal = Depends(require_sysadmin)):
     """Чи жива база просто зараз.
 
     Без авторизації, як і /api/health: коли база лягла, у панель не увійти,
@@ -233,7 +216,7 @@ async def debug_database():
 
 
 @app.get("/api/debug/routing", tags=["service"])
-async def debug_routing(request: Request):
+async def debug_routing(request: Request, _who: Principal = Depends(require_sysadmin)):
     """Показує, який шлях реально дійшов до застосунку.
 
     Потрібно, коли платформа переписує URL: якщо сюди приходить не той шлях,

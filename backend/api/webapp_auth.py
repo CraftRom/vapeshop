@@ -43,10 +43,17 @@ def parse_init_data(init_data: str, bot_token: str, max_age: int = MAX_AGE_SECON
     """Перевіряє підпис і повертає розібрані поля. Кидає InitDataError."""
     if not init_data:
         raise InitDataError("Порожній initData")
+    if len(init_data) > 16_384:
+        raise InitDataError("initData завеликий")
     if not bot_token:
         raise InitDataError("Не заданий BOT_TOKEN")
 
-    pairs = dict(parse_qsl(init_data, keep_blank_values=True))
+    raw_pairs = parse_qsl(init_data, keep_blank_values=True)
+    names = [k for k, _ in raw_pairs]
+    for critical in ("hash", "auth_date", "user", "query_id"):
+        if names.count(critical) > 1:
+            raise InitDataError(f"Дубльований параметр {critical}")
+    pairs = dict(raw_pairs)
     received = pairs.pop("hash", None)
     if not received:
         raise InitDataError("У initData немає підпису")
@@ -65,6 +72,8 @@ def parse_init_data(init_data: str, bot_token: str, max_age: int = MAX_AGE_SECON
             age = time.time() - int(auth_date)
         except ValueError:
             raise InitDataError("Зіпсований auth_date")
+        if age < -300:
+            raise InitDataError("auth_date з майбутнього")
         if age > max_age:
             raise InitDataError("Сесію прострочено, перезапустіть застосунок")
 

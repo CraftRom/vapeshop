@@ -14,6 +14,7 @@ import logging
 from aiogram import Bot
 from aiogram.types import Update
 from fastapi import APIRouter, Header, HTTPException, Request, status
+from fastapi.security.utils import get_authorization_scheme_param
 
 from bot.factory import bot_id, build_bot, build_dispatcher, webhook_path
 from aiogram.types import BotCommand, MenuButtonWebApp, WebAppInfo
@@ -165,8 +166,16 @@ async def telegram_webhook(
     return {"ok": True}
 
 
+def _require_cron_authorization(authorization: str) -> None:
+    scheme, token = get_authorization_scheme_param(authorization)
+    if (scheme or "").lower() != "bearer" or not settings.cron_secret or not hmac.compare_digest(
+        token.encode("utf-8"), settings.cron_secret.encode("utf-8")
+    ):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
+
+
 @router.get("/telegram-detach")
-async def detach_old_bot(token: str = "", bot_token: str = ""):
+async def detach_old_bot(bot_token: str = "", authorization: str = Header(default="")):
     """Знімає вебхук зі старого бота.
 
     Потрібно після заміни BOT_TOKEN: у попереднього бота вебхук лишається
@@ -176,8 +185,7 @@ async def detach_old_bot(token: str = "", bot_token: str = ""):
 
     Токен старого бота передається параметром і ніде не зберігається.
     """
-    if not settings.cron_secret or token != settings.cron_secret:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
+    _require_cron_authorization(authorization)
     if ":" not in bot_token:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Вкажіть bot_token старого бота")
 
@@ -193,15 +201,14 @@ async def detach_old_bot(token: str = "", bot_token: str = ""):
 
 
 @router.get("/telegram-setup")
-async def setup_webhook(token: str = ""):
+async def setup_webhook(authorization: str = Header(default="")):
     """Одноразова реєстрація вебхука в Telegram.
 
-    Викликати після деплою: /api/telegram-setup?token=<CRON_SECRET>
+    Викликати після деплою з заголовком Authorization: Bearer <CRON_SECRET>.
     """
     # 404, а не 401: службовий маршрут не має підтверджувати своє існування
     # тому, хто не знає токена
-    if not settings.cron_secret or token != settings.cron_secret:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
+    _require_cron_authorization(authorization)
     # Адреса береться з налаштувань панелі, а не з оточення: інакше
     # адміністратор змінює домен у панелі, запускає цей виклик — і вебхук
     # мовчки реєструється на старий, а кнопка магазину веде не туди

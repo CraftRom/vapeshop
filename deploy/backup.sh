@@ -26,6 +26,7 @@ COMPOSE="docker compose -f docker-compose.prod.yml"
 STAMP=$(date +%F_%H%M)
 TARGET="backups/elfar-manual-${STAMP}.dump"
 mkdir -p backups
+umask 077
 
 # Формат custom (-Fc), а не SQL: стискається вдвічі й дозволяє відновлювати
 # окремі таблиці через pg_restore. Той самий формат, що в планувальника, —
@@ -34,6 +35,7 @@ mkdir -p backups
 # Пишемо через stdout на хост, а не в примонтований том: файл одразу
 # належить тому, хто запустив скрипт, без возні з UID контейнера.
 $COMPOSE exec -T db pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc > "$TARGET"
+chmod 600 "$TARGET"
 
 SIZE_BYTES=$(stat -c%s "$TARGET")
 echo "$(date '+%F %T')  Бекап створено: $(basename "$TARGET") ($(du -h "$TARGET" | cut -f1))"

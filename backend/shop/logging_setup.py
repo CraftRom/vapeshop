@@ -19,6 +19,7 @@ import json
 import logging
 import logging.handlers
 import os
+import re
 import sys
 from datetime import datetime, timezone
 
@@ -44,6 +45,31 @@ _STANDARD = {
 # Межа була зашита числом просто в коді. Через це ніхто не знав, скільки
 # саме місця відведено журналам, і зменшити її на ходу було нічим.
 SERVICES_COUNT = 4
+
+_REDACT_PATTERNS = [
+    re.compile(r"(?i)(bot\d{6,}:[A-Za-z0-9_-]{20,}|\d{6,}:[A-Za-z0-9_-]{20,})"),
+    re.compile(r"(?i)((?:token|secret|password|api[_-]?key|init[_-]?data|bot[_-]?token)=)[^&\s]+"),
+    re.compile(r"(?i)(authorization:\s*bearer\s+)[A-Za-z0-9._~-]+"),
+]
+
+def _secret_values() -> list[str]:
+    names = ("BOT_TOKEN", "JWT_SECRET", "DATA_ENCRYPTION_KEY", "POSTGRES_PASSWORD",
+             "REDIS_PASSWORD", "WEBHOOK_SECRET", "CRON_SECRET", "NOVAPOSHTA_API_KEY",
+             "DASHBOARD_PASSWORD")
+    return [os.environ.get(name, "") for name in names if len(os.environ.get(name, "")) >= 6]
+
+def redact(value):
+    if isinstance(value, dict):
+        return {k: redact(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [redact(v) for v in value]
+    text = str(value)
+    for secret in _secret_values():
+        text = text.replace(secret, "[REDACTED]")
+    for pattern in _REDACT_PATTERNS:
+        text = pattern.sub(lambda m: (m.group(1) if m.lastindex else "") + "[REDACTED]", text)
+    return text
+
 
 
 def log_max_bytes() -> int:
@@ -86,7 +112,7 @@ class JsonFormatter(logging.Formatter):
             "service": self.service,
             "level": record.levelname.lower(),
             "logger": record.name,
-            "message": record.getMessage(),
+            "message": redact(record.getMessage()),
         }
 
         # Усе, що передали через extra=..., лягає в корінь запису поруч
@@ -94,10 +120,10 @@ class JsonFormatter(logging.Formatter):
         # службових і прикладних даних.
         for key, value in record.__dict__.items():
             if key not in _STANDARD and not key.startswith("_"):
-                payload[key] = value
+                payload[key] = redact(value)
 
         if record.exc_info:
-            payload["error"] = self.formatException(record.exc_info)
+            payload["error"] = redact(self.formatException(record.exc_info))
 
         # default=str, бо в extra регулярно потрапляють datetime і Decimal,
         # і падіння логера через несеріалізовне поле — найгірший спосіб
@@ -110,6 +136,9 @@ class TextFormatter(logging.Formatter):
 
     def __init__(self) -> None:
         super().__init__("%(asctime)s %(levelname)-8s %(name)s: %(message)s")
+
+    def format(self, record: logging.LogRecord) -> str:
+        return redact(super().format(record))
 
 
 # Усі рівні стандартної бібліотеки плюс звичні синоніми.

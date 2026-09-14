@@ -60,7 +60,8 @@ curl -fsSL https://get.docker.com | sh
 
 # Окремий користувач замість root
 adduser --disabled-password --gecos "" shop
-usermod -aG docker shop
+# Не додавайте shop до групи docker: це еквівалент root-доступу.
+# Docker-команди для деплою виконує root/systemd.
 
 # Фаєрвол: тільки SSH і веб
 apt install -y ufw fail2ban
@@ -321,7 +322,7 @@ CRON_SECRET=<openssl rand -hex 32>
 ```bash
 $C stop bot                                   # polling і вебхук несумісні
 $C up -d --force-recreate api
-curl "https://ваш-домен.com/api/telegram-setup?token=<CRON_SECRET>"
+curl -H "Authorization: Bearer <CRON_SECRET>" "https://ваш-домен.com/api/telegram-setup"
 ```
 
 Апдейти прийматиме сервіс `api`. Повернутись назад: зупинити вебхук

@@ -7,11 +7,13 @@
 const tg = window.Telegram?.WebApp
 
 const CACHE_KEY = 'tgInitData'
-// Android вивантажує процес і відновлює WebView, перезавантажуючи вже
-// обрізану адресу. sessionStorage при цьому теж чиститься, тому підпис
-// кешуємо надовше. Строк тримаємо коротким: бекенд усе одно відхилить
-// initData, старший за добу.
-const CACHE_TTL_MS = 12 * 60 * 60 * 1000
+const BRIDGE_PARAM = 'elfarInitData'
+let lastInitDataSource = ''
+// Android інколи вивантажує WebView і повертає вже обрізану адресу. Для
+// короткого self-heal тримаємо підпис і в localStorage, але лише 15 хвилин:
+// довгий persistent cache перетворювався б на фактичну повторно придатну
+// сесію Telegram і міг би пережити перемикання акаунта на тому самому ПК.
+const CACHE_TTL_MS = 15 * 60 * 1000
 
 const LEGACY_HOSTS = new Map([
   ['www.elfar.pp.ua', 'elfar.pp.ua'],
@@ -24,17 +26,36 @@ const LEGACY_HOSTS = new Map([
  * Тому міняємо лише hostname у поточній адресі: шлях, query і fragment
  * лишаються байт-у-байт.
  */
-export function legacyHostRedirectUrl() {
+export function legacyHostRedirectUrl(initData = '') {
   const target = LEGACY_HOSTS.get(window.location.hostname.toLowerCase())
   if (!target) return ''
   const url = new URL(window.location.href)
   url.hostname = target
   url.protocol = 'https:'
+
+  // Підпис, який уже встиг з'явитися в SDK на legacy-host, не можна
+  // залишати лише в пам'яті сторінки: location.replace створить новий
+  // document на іншому origin і Telegram не зобов'язаний передати його
+  // вдруге. Передаємо його одноразово у fragment — fragment не йде в HTTP
+  // запит і після читання на canonical-host одразу прибирається з URL.
+  if (initData) {
+    const encoded = encodeURIComponent(initData)
+    const hash = String(url.hash || '').replace(/^#/, '')
+    const withoutOldBridge = hash
+      .replace(new RegExp(`(^|&)${BRIDGE_PARAM}=[^&]*`, 'g'), '$1')
+      .replace(/^&|&$/g, '')
+      .replace(/&&+/g, '&')
+    url.hash = `${withoutOldBridge}${withoutOldBridge ? '&' : ''}${BRIDGE_PARAM}=${encoded}`
+  }
   return url.toString()
 }
 
 function cacheWrite(value) {
-  const payload = JSON.stringify({ value, at: Date.now() })
+  const payload = JSON.stringify({
+    value,
+    at: Date.now(),
+    userId: signedUserId(value),
+  })
   for (const store of [window.localStorage, window.sessionStorage]) {
     try {
       store.setItem(CACHE_KEY, payload)
@@ -45,15 +66,18 @@ function cacheWrite(value) {
 }
 
 function cacheRead() {
-  for (const store of [window.localStorage, window.sessionStorage]) {
+  const currentUserId = String(tg?.initDataUnsafe?.user?.id || '')
+  for (const store of [window.sessionStorage, window.localStorage]) {
     try {
       const raw = store.getItem(CACHE_KEY)
       if (!raw) continue
-      const { value, at } = JSON.parse(raw)
-      if (value && Date.now() - at < CACHE_TTL_MS) return value
+      const { value, at, userId = '' } = JSON.parse(raw)
+      const fresh = value && Number.isFinite(at) && Date.now() - at < CACHE_TTL_MS
+      const sameUser = !currentUserId || !userId || currentUserId === String(userId)
+      if (fresh && sameUser) return value
       store.removeItem(CACHE_KEY)
     } catch {
-      /* зіпсований запис — ігноруємо */
+      try { store.removeItem(CACHE_KEY) } catch { /* ignore */ }
     }
   }
   return ''
@@ -89,6 +113,39 @@ function fromParamString(raw) {
   return value
 }
 
+function fromBridge() {
+  const source = String(window.location.hash || '').replace(/^#/, '')
+  const match = new RegExp(`(?:^|&)${BRIDGE_PARAM}=([^&]*)`).exec(source)
+  if (!match?.[1]) return ''
+  try {
+    return decodeURIComponent(match[1])
+  } catch {
+    return ''
+  }
+}
+
+function stripBridgeFromUrl() {
+  const source = String(window.location.hash || '').replace(/^#/, '')
+  if (!source.includes(`${BRIDGE_PARAM}=`)) return
+  const cleaned = source
+    .replace(new RegExp(`(^|&)${BRIDGE_PARAM}=[^&]*`, 'g'), '$1')
+    .replace(/^&|&$/g, '')
+    .replace(/&&+/g, '&')
+  const next = `${window.location.pathname}${window.location.search}${cleaned ? `#${cleaned}` : ''}`
+  try { window.history.replaceState(null, '', next) } catch { /* WebView може заборонити */ }
+}
+
+function signedUserId(value) {
+  try {
+    const raw = new URLSearchParams(value).get('user')
+    if (!raw) return ''
+    const parsed = JSON.parse(raw)
+    return String(parsed?.id || '')
+  } catch {
+    return ''
+  }
+}
+
 function fromHash() {
   return fromParamString(window.location.hash)
 }
@@ -107,14 +164,24 @@ function fromSearch() {
 export function getInitData() {
   const fromSdk = tg?.initData
   if (fromSdk) {
+    lastInitDataSource = 'SDK'
     cacheWrite(fromSdk)
     return fromSdk
   }
 
   const hashed = fromHash()
   if (hashed) {
+    lastInitDataSource = 'fragment URL'
     cacheWrite(hashed)
     return hashed
+  }
+
+  const bridged = fromBridge()
+  if (bridged) {
+    lastInitDataSource = 'legacy bridge'
+    cacheWrite(bridged)
+    stripBridgeFromUrl()
+    return bridged
   }
 
   // Деякі оболонки/проксі Telegram переносять launch-параметри з fragment
@@ -122,11 +189,14 @@ export function getInitData() {
   // через місце в URL немає сенсу.
   const searched = fromSearch()
   if (searched) {
+    lastInitDataSource = 'query URL'
     cacheWrite(searched)
     return searched
   }
 
-  return cacheRead()
+  const cached = cacheRead()
+  if (cached) lastInitDataSource = 'кеш пристрою'
+  return cached
 }
 
 /** Які параметри запуску Telegram поклав у адресу.
@@ -169,14 +239,16 @@ export function startTarget() {
 export function initDataSource() {
   if (tg?.initData) return 'SDK'
   if (fromHash()) return 'fragment URL'
+  if (fromBridge()) return 'legacy bridge'
   if (fromSearch()) return 'query URL'
+  if (lastInitDataSource) return lastInitDataSource
   if (cacheRead()) return 'кеш пристрою'
   return 'немає'
 }
 
 export function isTelegramContext() {
   const current = window.Telegram?.WebApp
-  return Boolean(current?.initData || fromHash() || fromSearch() || current?.platform)
+  return Boolean(current?.initData || fromHash() || fromBridge() || fromSearch() || current?.platform)
 }
 
 /** Telegram WebView інколи створює SDK раніше, ніж заповнює initData.

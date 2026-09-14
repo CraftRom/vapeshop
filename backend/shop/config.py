@@ -149,6 +149,10 @@ class Settings(BaseSettings):
     webhook_secret: str = ""        # секрет у шляху вебхука, згенеруйте випадковий
     cron_secret: str = ""           # Bearer-токен для службових точок (setup вебхука)
     redis_url: str = ""             # якщо задано — FSM переживає рестарт бота
+    redis_password: str = ""        # пароль Redis у production
+    # Окремий ключ для шифрування секретів у БД. Не використовуємо JWT_SECRET:
+    # ротація сесій не повинна робити нерозшифровними інтеграційні ключі.
+    data_encryption_key: str = ""
 
     # --- Дашборд ---
     jwt_secret: str = "change-me"

@@ -15,10 +15,10 @@ import hmac
 import secrets
 
 ALGORITHM = "pbkdf2_sha256"
-ITERATIONS = 240_000
+ITERATIONS = 600_000
 SALT_BYTES = 16
 
-MIN_LENGTH = 8
+MIN_LENGTH = 12
 
 
 class WeakPassword(ValueError):
