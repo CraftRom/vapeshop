@@ -32,7 +32,7 @@ async def send(text, chat_type="supergroup", chat_id=-100999):
     reached=[]
     async def h(e,d): reached.append(1); return "OK"
     m=msg(text)
-    r=await mw(h, m, {"event_chat": SimpleNamespace(type=chat_type, id=chat_id)})
+    await mw(h, m, {"event_chat": SimpleNamespace(type=chat_type, id=chat_id)})
     return m.replies, bool(reached)
 
 async def main():

@@ -129,6 +129,13 @@ install -m 644 "$REPO_DIR/deploy/fail2ban/elfar-recon.conf" \
 # fail2ban, який працює, нічого не читає й нікого не банить — мовчки.
 sed "s|^logpath  = .*|logpath  = ${REPO_DIR}/deploy/data/logs/api.log|" \
     "$REPO_DIR/deploy/fail2ban/jail-elfar.conf" > /etc/fail2ban/jail.d/elfar.conf
+# Бан виконує nginx, а не фаєрвол: за Cloudflare і Docker правило на адресу
+# сканера у фаєрволі не спрацьовує. Дія пише список у каталог стека — той
+# самий принцип, що й із logpath: шлях підставляємо справжній.
+sed "s|^stackdir = .*|stackdir = ${REPO_DIR}|" \
+    "$REPO_DIR/deploy/fail2ban/action-elfar-nginx-deny.conf" \
+    > /etc/fail2ban/action.d/elfar-nginx-deny.conf
+mkdir -p "$REPO_DIR/deploy/nginx/deny.d"
 systemctl enable fail2ban >/dev/null 2>&1 || true
 systemctl restart fail2ban >/dev/null 2>&1 || true
 echo "    30 неіснуючих шляхів за 10 хв → бан на добу"

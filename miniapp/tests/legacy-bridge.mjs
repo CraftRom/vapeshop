@@ -5,9 +5,10 @@ const main = fs.readFileSync('src/main.jsx', 'utf8')
 const version = fs.readFileSync('src/version.js', 'utf8')
 const nginx = fs.readFileSync('nginx.conf', 'utf8')
 let failed = 0
-function check(ok, name) { console.log(`${ok ? 'OK' : 'FAIL'} ${name}`); if (!ok) failed++ }
+function check(ok, name) { console.log(`  ${ok ? '✓' : '✗'} ${name}`); if (!ok) failed++ }
 
-check(version.includes("2.10.0"), 'Mini App 2.10.0')
+// Як і в client-logging: точний номер тут падав на кожному випуску.
+check(/APP_VERSION = '\d+\.\d+\.\d+'/.test(version), 'версія вітрини задана')
 check(main.includes('await waitForInitData(4000)'), 'на legacy www Telegram отримує до 4 с на initData')
 check(main.includes('legacyHostRedirectUrl(initData)'), 'отриманий підпис передається в canonical redirect')
 check(tg.includes("const BRIDGE_PARAM = 'elfarInitData'"), 'bridge має окремий fragment-параметр')
@@ -19,4 +20,5 @@ check(tg.includes('currentUserId') && tg.includes('sameUser'), 'кеш не ви
 check(main.includes('authBridged: Boolean(initData)'), 'результат recovery видно у storefront log')
 check((nginx.match(/no-store, no-cache, must-revalidate/g) || []).length >= 2, 'HTML /app і /app/ не кешуються Telegram WebView')
 
+console.log(`\nМІСТОК LEGACY-HOST: ${failed ? `ПРОВАЛЕНО: ${failed}` : 'усе витримано'}`)
 if (failed) process.exit(1)

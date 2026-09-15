@@ -60,7 +60,15 @@ print("\n--- інші обіцянки ---")
 from shop.services.shop_settings import CACHE_TTL_SECONDS
 check(CACHE_TTL_SECONDS <= 60, "зміни доїжджають за півхвилини", CACHE_TTL_SECONDS)
 from shop.services.passwords import MIN_LENGTH
-check(MIN_LENGTH == 8, "пароль від 8 символів", MIN_LENGTH)
+# Порівнюємо підказки панелі з кодом, а не з числом у тесті. Раніше тут
+# стояло «== 8»: мінімум підняли до 12, тест упав, а підказки в панелі так
+# і обіцяли 8 — людина вводила пароль за підказкою й отримувала відмову.
+check(MIN_LENGTH >= 12, "пароль від 12 символів", MIN_LENGTH)
+for _page in ("dashboard/src/pages/Operators.jsx", "dashboard/src/pages/Instructions.jsx"):
+    _text = (root / _page).read_text()
+    _promised = set(re.findall(r"(?:[Мм]інімум|від) (\d+) символ", _text))
+    check(_promised == {str(MIN_LENGTH)},
+          f"{_page.split('/')[-1]}: підказка про пароль збігається з кодом", _promised)
 from shop.services.wishlist import MAX_LISTS
 check(MAX_LISTS >= 1, "списки бажаного існують")
 from bot import faq

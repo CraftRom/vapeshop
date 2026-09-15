@@ -11,6 +11,23 @@ const manifest = readFileSync('public/manifest.webmanifest', 'utf8')
 const support = readFileSync('src/pages/Support.jsx', 'utf8')
 const version = readFileSync('src/version.js', 'utf8')
 
+/** Версія панелі не нижча за ту, де функцію випущено.
+ *
+ * Тут стояло точне «APP_VERSION = '1.32.1'», і набір падав на кожному
+ * наступному випуску панелі, хоча з функцією все гаразд. Перевірка, що
+ * падає від звичайного підняття версії, привчає не дивитись на провали.
+ */
+const atLeast = (source, minimum) => {
+  const found = source.match(/APP_VERSION\s*=\s*'(\d+)\.(\d+)\.(\d+)'/)
+  if (!found) return false
+  const have = found.slice(1).map(Number)
+  const need = minimum.split('.').map(Number)
+  for (let i = 0; i < 3; i += 1) {
+    if (have[i] !== need[i]) return have[i] > need[i]
+  }
+  return true
+}
+
 let bad = 0
 const check = (ok, label) => {
   if (!ok) bad++
@@ -62,7 +79,7 @@ check(center.includes('notification-volume-slider') && center.includes('[50, 100
 check(center.includes("window.addEventListener('storage', syncLocalSettings)") && center.includes('applySoundVolume(next.soundVolume)'), 'зміна гучності синхронізується між вкладками цього браузера')
 check(!center.includes('▶ Тест') && !center.includes('для тестування'), 'налаштування гучності не оформлене як тестовий режим')
 check(css.includes('.notification-volume') && css.includes('.notification-volume-preset.active'), 'налаштування гучності оформлені для desktop/mobile')
-check(version.includes("APP_VERSION = '1.32.1'"), 'версія панелі 1.32.1')
+check(atLeast(version, '1.32.1'), 'версія панелі не нижча за 1.32.1')
 
 console.log(`\nСПОВІЩЕННЯ UX: ${bad === 0 ? 'усе витримано' : `ПРОВАЛЕНО: ${bad}`}`)
 process.exit(bad ? 1 : 0)

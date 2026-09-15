@@ -27,7 +27,7 @@ async def profile(message: Message, repo: Repository, user: User) -> None:
     # Вимкнені модулі не згадуються взагалі: рядок «Бонусний рахунок: 0»
     # породжує питання до підтримки там, де бонусів у магазині немає
     parts = [
-        f"<b>Ваш профіль</b>\n",
+        "<b>Ваш профіль</b>\n",
         f"Замовлень: {fresh.orders_count}",
         f"Витрачено: {fresh.total_spent:.0f} {shop.currency}",
     ]

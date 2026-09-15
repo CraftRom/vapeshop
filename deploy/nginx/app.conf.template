@@ -47,6 +47,9 @@ server {
     listen 80;
     server_name __DOMAIN__;
 
+    # Бани fail2ban (nginx/deny.d). Порожній каталог нічого не додає.
+    include /etc/nginx/deny.d/*.conf;
+
     # Цей шлях має лишатись на HTTP — через нього certbot підтверджує домен
     location /.well-known/acme-challenge/ {
         root /var/www/certbot;
@@ -137,6 +140,7 @@ server {
     location ~ ^/api/telegram/ {
         proxy_pass $api_backend;
         proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-Proto $scheme;
     }
 }
@@ -146,6 +150,9 @@ server {
     listen 443 ssl;
     http2 on;
     server_name __DOMAIN__;
+
+    # Бани fail2ban — ті самі, що й на порту 80.
+    include /etc/nginx/deny.d/*.conf;
 
     ssl_certificate     /etc/letsencrypt/live/__DOMAIN__/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/__DOMAIN__/privkey.pem;

@@ -22,7 +22,7 @@ export function Legal({ config, initial, onBack }) {
     const doc = DOCUMENTS.find((d) => d.key === open)
     return (
       <div className="screen legal">
-        <button className="chip" onClick={() => setOpen(null)}>← Документи</button>
+        <button className="back" onClick={() => setOpen(null)}>Документи</button>
         <h1 className="legal-title">{doc.title}</h1>
         <p className="hint">Редакція від {LEGAL_UPDATED}</p>
 
@@ -35,7 +35,7 @@ export function Legal({ config, initial, onBack }) {
 
         <Paragraphs text={documentText(open, seller)} />
 
-        <p className="hint" style={{ marginTop: 20 }}>
+        <p className="hint legal-contact">
           Питання щодо умов — менеджеру в чаті замовлення
           {seller.SELLER_EMAIL ? ` або на ${seller.SELLER_EMAIL}` : ''}.
         </p>
@@ -46,18 +46,18 @@ export function Legal({ config, initial, onBack }) {
   return (
     <>
       <div className="head">
-        {onBack && <button className="chip" onClick={onBack} style={{ marginBottom: 8 }}>← Назад</button>}
+        {onBack && <button className="back" onClick={onBack}>Назад</button>}
         <h1>Умови та документи</h1>
         <p>Правила покупки, оферта, обробка даних і повернення</p>
       </div>
 
       {gaps.length > 0 && (
-        <div className="banner warn" style={{ margin: '0 14px 12px' }}>
+        <div className="banner warn">
           Реквізити продавця не заповнені — документи показані як заготовка.
         </div>
       )}
 
-      <div className="screen">
+      <div className="screen legal-list">
         {DOCUMENTS.map((d) => (
           <button key={d.key} className="legal-row" onClick={() => setOpen(d.key)}>
             <span className="grow">{d.title}</span>

@@ -37,19 +37,18 @@ export function ProductPage({ config, product, cart, onCartChange, onBack, saved
 
   return (
     <div className="product-page">
-      <div className="head row product-page-head" style={{ alignItems: 'center', gap: 10 }}>
-        <button className="chip" onClick={onBack}>
-          ← Каталог
+      <div className="page-back">
+        <button className="back" onClick={onBack}>
+          Каталог
         </button>
       </div>
 
       <div className="product-photo-frame">
-        <div className="product-photo-glow" aria-hidden="true" />
         <Photo product={product} />
       </div>
 
-      <div className="screen product-layout">
-        <div className="product-summary-card">
+      <div className="product-layout">
+        <div>
           <div className="product-meta">
             {product.category_name && (
               <span className="product-pill">{product.category_name}</span>
@@ -74,10 +73,6 @@ export function ProductPage({ config, product, cart, onCartChange, onBack, saved
               </div>
             )}
           </div>
-
-          <p className="product-lead hint">
-            Швидке оформлення в Mini App, актуальна наявність і зручне додавання в кошик.
-          </p>
         </div>
 
         <section className="product-copy-card">
@@ -92,13 +87,16 @@ export function ProductPage({ config, product, cart, onCartChange, onBack, saved
           )}
         </section>
 
-        {error && <div className="banner warn" style={{ margin: '0 0 4px' }}>{error}</div>}
+        {error && <div className="banner warn">{error}</div>}
       </div>
 
+      {/* Дія притиснута донизу: рішення «додати» приймають після опису,
+          і кнопка має бути під великим пальцем. Головна кнопка тут
+          залита — на сторінці товару вона одна й конкурувати їй ні з чим. */}
       <div className="product-action">
         {qty > 0 ? (
           <>
-            <div className="stepper product-stepper">
+            <div className="stepper">
               <button onClick={() => change(-1)} disabled={busy} aria-label="Менше">
                 −
               </button>
@@ -111,14 +109,13 @@ export function ProductPage({ config, product, cart, onCartChange, onBack, saved
                 +
               </button>
             </div>
-            <button className="add" onClick={onBack} style={{ flex: 1 }}>
+            <button className="primary" onClick={onBack}>
               Готово
             </button>
           </>
         ) : (
           <button
-            className="add"
-            style={{ flex: 1, padding: '14px 16px' }}
+            className="primary"
             disabled={out || busy}
             onClick={() => change(1)}
           >

@@ -20,20 +20,26 @@ const ok = (cond, label, detail) => {
 
 const src = readFileSync('src/screens/Catalog.jsx', 'utf8')
 
-// Та сама логіка, що в екрані: якщо вона розійдеться, перевірка
-// перестане щось означати, тому нижче ще й звірка з кодом.
+const hasFreshStatus = (product) => {
+  if (!product || typeof product !== 'object') return false
+  if (product.is_new === true || product.new === true) return true
+  const raw = product.status ?? product.badge ?? product.label ?? product.tag ?? ''
+  const label = String(raw).trim().toLowerCase()
+  return ['new', 'fresh', 'новинка', 'новинки'].includes(label)
+}
+
 const arrange = (products, sort, inStock) => {
   let rows = inStock ? products.filter((p) => p.stock > 0) : [...products]
   if (sort === 'cheap') rows.sort((a, b) => Number(a.price) - Number(b.price))
   if (sort === 'pricey') rows.sort((a, b) => Number(b.price) - Number(a.price))
-  if (sort === 'fresh') rows.sort((a, b) => b.id - a.id)
+  if (sort === 'fresh') rows = rows.filter(hasFreshStatus)
   return rows
 }
 
 const goods = [
-  { id: 1, price: '300', stock: 5 },
+  { id: 1, price: '300', stock: 5, is_new: true },
   { id: 2, price: '150', stock: 0 },
-  { id: 3, price: '900', stock: 2 },
+  { id: 3, price: '900', stock: 2, badge: 'новинка' },
 ]
 
 console.log('\n--- порядок ---')
@@ -43,8 +49,8 @@ ok(arrange(goods, 'cheap', false).map((p) => p.id).join() === '2,1,3',
    'спершу дешеві')
 ok(arrange(goods, 'pricey', false).map((p) => p.id).join() === '3,1,2',
    'спершу дорогі')
-ok(arrange(goods, 'fresh', false).map((p) => p.id).join() === '3,2,1',
-   'новинки — від найновішого номера')
+ok(arrange(goods, 'fresh', false).map((p) => p.id).join() === '1,3',
+   'новинки показують лише товари з реальним статусом')
 
 console.log('\n--- наявність ---')
 ok(arrange(goods, 'default', true).map((p) => p.id).join() === '1,3',
@@ -53,10 +59,16 @@ ok(arrange(goods, 'default', false).length === 3,
    'вимкнений фільтр не ховає нічого: за замовчуванням видно весь асортимент')
 ok(arrange(goods, 'cheap', true).map((p) => p.id).join() === '1,3',
    'порядок і фільтр працюють разом')
+ok(arrange(goods, 'fresh', true).map((p) => p.id).join() === '1,3',
+   'фільтр новинок теж поважає наявність')
+
+console.log('\n--- фільтр новинок ---')
+ok(src.includes('hasFreshProducts') && src.includes('(products || []).some(hasFreshStatus)'),
+   'чіп «Новинки» показується лише коли справді є нові товари')
+ok(src.includes("{hasFreshProducts && ("),
+   'кнопка «Новинки» умовна, а не постійна')
 
 console.log('\n--- вихід із порожнього екрана ---')
-// Порожній екран без виходу — глухий кут: людина не завжди памʼятає, що
-// сама увімкнула фільтр.
 ok(src.includes('Скинути пошук і фільтри'), 'є кнопка скидання')
 ok(/const reset = \(\) => \{[\s\S]*?setSearch\(''\)[\s\S]*?setSort\('default'\)[\s\S]*?setInStock\(false\)/
   .test(src), 'скидає все одразу, а не лише пошук')

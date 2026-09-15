@@ -27,7 +27,7 @@ check(orders.includes('sameUnreadCounts') && orders.includes('45000'), 'незм
 check(css.includes('content-visibility: auto') && css.includes('contain-intrinsic-size'), 'довгі списки не рендерять поза viewport')
 check(html.includes('href="/favicon.ico"') && existsSync('public/favicon.ico'), 'справжній favicon входить у збірку')
 check(nginx.includes('location = /favicon.ico') && nginx.includes('try_files $uri =404'), 'favicon не потрапляє у SPA fallback')
-check(version.includes("APP_VERSION = '1.32.1'"), 'версія панелі 1.32.1')
+check(/APP_VERSION = '\d+\.\d+\.\d+'/.test(version), 'версія панелі задана')
 
 console.log(`\nPERFORMANCE: ${bad === 0 ? 'усе витримано' : `ПРОВАЛЕНО: ${bad}`}`)
 process.exit(bad ? 1 : 0)

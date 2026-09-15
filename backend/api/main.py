@@ -17,13 +17,10 @@ from api.schemas import LoginIn, TokenOut
 from shop.config import settings
 from shop import security_log as security
 from shop.services import login_guard
-from shop.services.shop_settings import current
 from shop.repo.factory import get_repo
 from shop.db import check_db
 
-from bot.version import BOT_VERSION as _BOT_VERSION
 from shop.build import BUILD as _BUILD
-from shop.paths import describe as _storage
 
 from shop.logging_setup import setup as setup_logging
 
@@ -186,9 +183,10 @@ async def health():
 async def debug_database(_who: Principal = Depends(require_sysadmin)):
     """Чи жива база просто зараз.
 
-    Без авторизації, як і /api/health: коли база лягла, у панель не увійти,
-    а саме тоді ця сторінка й потрібна. Адреси й паролі не віддає — лише
-    факт зʼєднання, версію сервера й час найдешевшого запиту.
+    Лише для системного адміністратора: версія сервера бази — підказка для
+    атаки, тому публічним лишився тільки /api/health без жодних деталей.
+    Адреси й паролі не віддає — лише факт зʼєднання, версію сервера й час
+    найдешевшого запиту.
     """
     import time
 

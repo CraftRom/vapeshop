@@ -6,7 +6,7 @@ from aiogram.types import (
 )
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from shop.links import app_link, chat_link, share_link
+from shop.links import chat_link, share_link
 from shop.config import canonical_public_url
 from shop.entities import OrderStatus
 from shop.services.shop_service import route_for

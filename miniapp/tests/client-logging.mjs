@@ -7,9 +7,12 @@ const tg = fs.readFileSync('src/telegram.js', 'utf8')
 const photo = fs.readFileSync('src/photo.jsx', 'utf8')
 const version = fs.readFileSync('src/version.js', 'utf8')
 let failed = 0
-function check(ok, name) { console.log(`${ok ? 'OK' : 'FAIL'} ${name}`); if (!ok) failed++ }
+function check(ok, name) { console.log(`  ${ok ? '✓' : '✗'} ${name}`); if (!ok) failed++ }
 
-check(version.includes("2.10.0"), 'вітрина 2.10.0')
+// Тут стояла перевірка точного номера 2.11.0: на 2.12.0 вона впала, а
+// зведення цього не побачило (друкувалось FAIL, а воно шукає ✗). Номер
+// версії журналу вітрини не стосується — перевіряємо лише, що він є.
+check(/APP_VERSION = '\d+\.\d+\.\d+'/.test(version), 'версія вітрини задана')
 check(logger.includes("/api/shop/client-log"), 'є endpoint клієнтського журналу')
 check(logger.includes('MAX_PER_SESSION'), 'є межа записів на сесію')
 check(!logger.includes('init_data: init,'), 'raw initData не відправляється')
@@ -33,4 +36,5 @@ check(app.includes('storefront.telegram.initdata_recovered'), 'відновле�
 check(fs.readFileSync('src/main.jsx', 'utf8').includes('waitForInitData(4000)'), 'legacy www чекає initData перед redirect')
 check(fs.readFileSync('src/main.jsx', 'utf8').includes('authBridged: Boolean(initData)'), 'legacy redirect логують із результатом bridge')
 
+console.log(`\nЖУРНАЛ ВІТРИНИ: ${failed ? `ПРОВАЛЕНО: ${failed}` : 'усе витримано'}`)
 if (failed) process.exit(1)

@@ -20,6 +20,15 @@ SALT_BYTES = 16
 
 MIN_LENGTH = 12
 
+# Популярні паролі не коротші за MIN_LENGTH. Раніше тут стояли восьмисимвольні
+# («12345678», «admin123»): після підняття мінімуму до 12 жоден із них уже не
+# міг дійти до перевірки, і захист від словника мовчки перестав існувати.
+COMMON = frozenset({
+    "password1234", "password12345", "qwerty123456", "qwertyuiop12",
+    "1q2w3e4r5t6y", "1qaz2wsx3edc", "adminadmin12", "administrator",
+    "operator1234", "manager12345", "iloveyou1234", "abcdefghijkl",
+})
+
 
 class WeakPassword(ValueError):
     pass
@@ -31,8 +40,12 @@ def validate(password: str) -> None:
         raise WeakPassword(f"Пароль має бути щонайменше {MIN_LENGTH} символів")
     if password.isdigit():
         raise WeakPassword("Пароль лише з цифр підбирається за секунди")
-    if password.lower() in ("password", "12345678", "qwertyui", "operator", "admin123"):
+    if password.lower() in COMMON:
         raise WeakPassword("Такий пароль є в будь-якому словнику для підбору")
+    # «aaaaaaaaaaaa» чи «abababababab» формально довгі, але перебираються
+    # миттєво — довжина без різноманіття нічого не додає.
+    if len(set(password)) <= 2:
+        raise WeakPassword("Пароль з одного-двох повторених символів підбирається миттєво")
 
 
 def hash_password(password: str) -> str:

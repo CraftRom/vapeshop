@@ -73,9 +73,13 @@ export function Cart({ config, cart, onCartChange, onCheckout }) {
 
   return (
     <>
-      <div className="head cart-head">
+      <div className="head">
         <h1>Кошик</h1>
-        <p>Перевірте товари, змініть кількість і переходьте до оформлення, коли все готово.</p>
+        <p className="num">
+          {totalQty} {totalQty % 10 === 1 && totalQty % 100 !== 11 ? 'товар'
+            : [2, 3, 4].includes(totalQty % 10) && ![12, 13, 14].includes(totalQty % 100)
+              ? 'товари' : 'товарів'}
+        </p>
       </div>
 
       {error && <div className="banner warn">{error}</div>}
@@ -88,9 +92,9 @@ export function Cart({ config, cart, onCartChange, onCheckout }) {
         </div>
       )}
 
-      <div className="list cart-list" style={{ paddingTop: 6 }}>
+      <div className="list cart-list">
         {lines.map((l) => (
-          <div className="card cart-card" key={l.product_id}>
+          <div className="card" key={l.product_id}>
             <div className="card-body">
               <p className="card-title">{l.name}</p>
               <p className="card-note num">
@@ -118,23 +122,22 @@ export function Cart({ config, cart, onCartChange, onCheckout }) {
       </div>
 
       <div className="summary summary-premium">
-        <div className="row-between">
-          <span>Позицій у кошику</span>
-          <strong className="num">{totalQty}</strong>
-        </div>
         <div className="row-between total num">
-          <span>До сплати</span>
+          <span>Разом</span>
           <span>
             {Number(cart.subtotal).toFixed(0)} {config.currency}
           </span>
         </div>
+        {/* Знижки, промокод і бонуси рахуються на оформленні — тут лише
+            сума товарів, і це треба сказати, щоб число не здавалось
+            остаточним. */}
         <p className="summary-note">
-          Кнопка оформлення доступна внизу екрана. Перед переходом ми допишемо всі зміни кошика.
+          Знижки, промокод і бонуси врахуємо на наступному кроці. Доставка оплачується окремо.
         </p>
       </div>
 
-      <div className="field">
-        <button className="secondary clear-cart-btn" onClick={clear}>
+      <div className="cart-tools">
+        <button className="ghost-btn" onClick={clear}>
           Очистити кошик
         </button>
       </div>
@@ -493,6 +496,12 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
 
       {error && <div className="banner warn">{error}</div>}
 
+      {/* Форма поділена на розділи за тим, як про замовлення думає
+          покупець: хто отримує, куди везти, як платити. Суцільна стрічка з
+          дванадцяти полів читалась як анкета, і пропущене поле губилось. */}
+      <section className="form-section" aria-labelledby="sec-recipient">
+        <h2 className="form-section-title" id="sec-recipient">Отримувач</h2>
+
       {/* Перевізники вимагають повне ПІБ, тож питаємо трьома полями:
           одним рядком люди вписують його в довільному порядку */}
       <div className="field">
@@ -526,7 +535,7 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
             у вікні застосунку. Поле лишається поруч: у старих клієнтах
             методу немає, а хтось замовляє не на свій номер. */}
         {canRequestContact() && (
-          <button className="add" style={{ marginBottom: 8 }} onClick={pullPhone}>
+          <button className="secondary phone-pull" onClick={pullPhone}>
             Взяти номер із Telegram
           </button>
         )}
@@ -556,13 +565,14 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
           <div className="field-error">{phoneError(form.contact_phone)}</div>
         )}
       </div>
+      </section>
+
+      <section className="form-section" aria-labelledby="sec-delivery">
+        <h2 className="form-section-title" id="sec-delivery">Доставка</h2>
 
       {courier && (
         <>
-          <div className="field">
-            <label>Спосіб доставки</label>
-          </div>
-          <div className="choice">
+          <div className="choice" role="group" aria-label="Спосіб доставки">
             <button
               aria-pressed={toWarehouse}
               onClick={() => pickMethod('warehouse')}
@@ -669,11 +679,12 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
           </p>
         )}
       </div>
+      </section>
 
-      <div className="field">
-        <label>Спосіб оплати</label>
-      </div>
-      <div className="choice">
+      <section className="form-section" aria-labelledby="sec-payment">
+        <h2 className="form-section-title" id="sec-payment">Оплата</h2>
+
+      <div className="choice" role="group" aria-label="Спосіб оплати">
         <button
           aria-pressed={form.payment_method === 'card'}
           onClick={() => setForm((f) => ({ ...f, payment_method: 'card' }))}
@@ -690,7 +701,7 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
 
       <div className="field">
         <label htmlFor="promo">Промокод</label>
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div className="inline-field">
           <Field
             id="promo"
             value={form.promo_code}
@@ -700,12 +711,12 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
             }}
             placeholder="Якщо є"
           />
-          <button className="add" onClick={applyPromo} disabled={checking || !form.promo_code.trim()}>
+          <button className="secondary" onClick={applyPromo} disabled={checking || !form.promo_code.trim()}>
             {checking ? '…' : 'Застосувати'}
           </button>
         </div>
         {promo && (
-          <p className="hint" style={{ marginTop: 6, color: promo.ok ? 'var(--accent)' : 'var(--warn)' }}>
+          <p className={`field-note ${promo.ok ? 'ok' : 'bad'}`}>
             {promo.ok
               ? `Знижка ${Number(promo.discount).toFixed(0)} ${config.currency}`
               : promo.error}
@@ -726,17 +737,22 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
           </span>
         </label>
       )}
+      </section>
 
+      <section className="form-section">
       <div className="field">
-        <label htmlFor="comment">Коментар</label>
+        <label htmlFor="comment">
+          Коментар <span className="faint">— не обовʼязково</span>
+        </label>
         <Field
           multiline
           id="comment"
           value={form.comment}
           onChange={set('comment')}
-          placeholder="Необовʼязково"
+          placeholder="Побажання до замовлення"
         />
       </div>
+      </section>
 
       <div className="summary">
         <div className="row-between num">
@@ -808,7 +824,7 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
 
       {/* Згода з офертою — умова укладення договору за ст. 633 ЦК України,
           тож посилання має бути саме тут, перед підтвердженням */}
-      <p className="hint" style={{ padding: '0 14px 10px' }}>
+      <p className="hint legal-consent">
         Підтверджуючи замовлення, ви приймаєте{' '}
         <button className="inline-link" onClick={() => onLegal?.('offer')}>
           умови публічної оферти
@@ -822,16 +838,11 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
         </button>.
       </p>
 
-      <div className="field">
+      <div className="checkout-submit">
         <button
           className="primary"
           onClick={submit}
           disabled={busy}
-          style={{
-            width: '100%', padding: 14, border: 0, borderRadius: 10,
-            background: 'var(--accent)', color: 'var(--tg-bg)',
-            fontSize: 16, fontWeight: 700,
-          }}
         >
           {busy ? 'Оформлюємо…' : 'Підтвердити замовлення'}
         </button>

@@ -357,7 +357,6 @@ export const api = {
 
   settings: {
     environment: () => request('/settings/environment'),
-    environment: () => request('/settings/environment'),
     get: () => request('/settings'),
     update: (data) => request('/settings', { method: 'PUT', body: data }),
   },

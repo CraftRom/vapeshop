@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 import { api } from '../api'
 import { Field } from '../fields'
@@ -55,9 +55,17 @@ function plural(count) {
 }
 
 function stockLabel(stock) {
-  if (stock <= 0) return <span className="stock out">Немає</span>
+  if (stock <= 0) return <span className="stock out">Закінчився</span>
   if (stock < 5) return <span className="stock low">Залишилось {stock}</span>
   return <span className="stock">В наявності</span>
+}
+
+function hasFreshStatus(product) {
+  if (!product || typeof product !== 'object') return false
+  if (product.is_new === true || product.new === true) return true
+  const raw = product.status ?? product.badge ?? product.label ?? product.tag ?? ''
+  const label = String(raw).trim().toLowerCase()
+  return ['new', 'fresh', 'новинка', 'новинки'].includes(label)
 }
 
 /** Картка товару. Одна на каталог і на сторінку списку бажаного.
@@ -82,18 +90,19 @@ export function ProductCard({
     : 0
 
   return (
-    <div className="item">
-      {/* Ліва колонка — усе, що читають: назва, ціна, склад, наявність.
-          Дотик по ній відкриває товар. Праворуч — фото й дія, щоб великий
-          палець не мандрував через увесь екран між «подивитись» і
-          «купити». */}
+    <div className={`item ${out ? 'is-out' : ''}`}>
+      {/* Ліва колонка — усе, що читають: назва, ціна, склад. Дотик по ній
+          відкриває товар. Праворуч — фото й дія, щоб великий палець не
+          мандрував через увесь екран між «подивитись» і «купити». */}
       <div className="item-main">
         <button className="item-open" onClick={() => onOpen(product)}>
           <p className="item-title">{product.name}</p>
-          {/* Ціна одразу під назвою й акцентним кольором: у списку її
-              шукають першою, а не після опису. */}
+          {/* Ціна одразу під назвою: у списку її шукають першою, а не
+              після опису. */}
           <p className="item-price num">
-            {Number(product.price).toFixed(0)} {currency}
+            <span className="item-price-now">
+              {Number(product.price).toFixed(0)} {currency}
+            </span>
             {discount > 0 && (
               <>
                 <span className="old-price num">{oldPrice.toFixed(0)}</span>
@@ -104,25 +113,27 @@ export function ProductCard({
           {product.description && (
             <p className="item-note clamp">{product.description}</p>
           )}
-          <p className="item-meta">{stockLabel(product.stock)}</p>
         </button>
 
-        {onSave && (
-          <div className="item-actions">
-          <button
-            className={`heart small ${saved ? 'on' : ''}`}
-            onClick={() => onSave(product)}
-            aria-label={saveLabel || (saved ? 'У списку бажаного' : 'Відкласти')}
-            title={saveLabel || (saved ? 'У списку бажаного' : 'Відкласти')}
-          >
-            {/* Сама іконка, без підпису: у рядку списку її розуміють і
-                так, а підпис забирав місце в описі товару. Стан читається
-                і кольором, і заливкою серця, і aria-label для читача
-                екрана лишився повним. */}
-            {saveLabel || (saved ? '♥' : '♡')}
-          </button>
-          </div>
-        )}
+        {/* Наявність і «відкласти» ділять один рядок унизу картки.
+            Раніше сердечко стояло окремим рядком під описом і робило
+            кожну картку на 50 px вищою без жодної нової інформації. */}
+        <div className="item-foot">
+          <span className="item-meta">{stockLabel(product.stock)}</span>
+          {onSave && (
+            <button
+              className={`heart small ${saved ? 'on' : ''} ${saveLabel ? 'labeled' : ''}`}
+              onClick={() => onSave(product)}
+              aria-label={saveLabel || (saved ? 'У списку бажаного' : 'Відкласти')}
+              title={saveLabel || (saved ? 'У списку бажаного' : 'Відкласти')}
+            >
+              {/* Сама іконка, без підпису: у рядку списку її розуміють і
+                  так. Стан читається і кольором, і заливкою серця, а
+                  aria-label для читача екрана лишився повним. */}
+              {saveLabel || (saved ? '♥' : '♡')}
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="item-side">
@@ -143,7 +154,7 @@ export function ProductCard({
           </div>
         ) : (
           <button className="add" disabled={out} onClick={() => onChange(product, 1)}>
-            {out ? 'Немає' : '+ Додати'}
+            {out ? 'Немає' : 'У кошик'}
           </button>
         )}
       </div>
@@ -151,9 +162,13 @@ export function ProductCard({
   )
 }
 
-export function Catalog({ config, cart, onCartChange, seed, onOpenProduct, wishlists, onSave }) {
-  const [categories, setCategories] = useState(seed?.categories || [])
-  const [products, setProducts] = useState(seed?.products || null)
+/* Колись каталог отримував «насіння» з /bootstrap і малював перший екран
+ * без окремого запиту. Bootstrap вітрина не викликає вже давно: насіння
+ * завжди було null, а гілки під нього — мертвим кодом, який вводив в
+ * оману при читанні. Прибрано разом із ніколи не викликаним setSeed. */
+export function Catalog({ config, cart, onCartChange, onOpenProduct, wishlists, onSave }) {
+  const [categories, setCategories] = useState([])
+  const [products, setProducts] = useState(null)
   const [active, setActive] = useState(null)
   const [search, setSearch] = useState('')
   // Порядок і фільтр — на боці вітрини. Сервер віддає категорію цілком,
@@ -164,19 +179,10 @@ export function Catalog({ config, cart, onCartChange, seed, onOpenProduct, wishl
   const [error, setError] = useState('')
 
   useEffect(() => {
-    // Категорії вже прийшли з bootstrap — повторний запит зайвий
-    if (seed?.categories?.length) return
     api.categories().then(setCategories).catch((e) => setError(e.message))
-  }, [seed])
-
-  const firstRun = useRef(Boolean(seed?.products?.length))
+  }, [])
 
   useEffect(() => {
-    // Перший показ бере товари з bootstrap; далі — звичайне довантаження
-    if (firstRun.current) {
-      firstRun.current = false
-      return
-    }
     let cancelled = false
     setProducts(null)
     const timer = setTimeout(() => {
@@ -211,9 +217,11 @@ export function Catalog({ config, cart, onCartChange, seed, onOpenProduct, wishl
     // «Новинки» — за спаданням номера товару. Дати створення в каталозі
     // немає, а номер зростає з кожним доданим товаром, тож порядок той
     // самий. Якщо колись знадобиться справжня дата — це місце для неї.
-    if (sort === 'fresh') rows.sort((a, b) => b.id - a.id)
+    if (sort === 'fresh') rows = rows.filter(hasFreshStatus)
     return rows
   }, [products, sort, inStock])
+
+  const hasFreshProducts = useMemo(() => (products || []).some(hasFreshStatus), [products])
 
   const filtered = sort !== 'default' || inStock || Boolean(search.trim())
 
@@ -229,15 +237,9 @@ export function Catalog({ config, cart, onCartChange, seed, onOpenProduct, wishl
 
   return (
     <>
-      <section className="catalog-hero" aria-labelledby="catalog-title">
-        <div>
-          <span className="catalog-kicker">Швидкий вибір</span>
-          <h1 id="catalog-title">Каталог</h1>
-          <p>Знайдіть товар, перевірте наявність і додайте його в кошик без зайвих кроків.</p>
-        </div>
-        <div className="catalog-badge" aria-label="Покупки у Telegram">Mini App</div>
-      </section>
-
+      {/* Заставки «Каталог / Швидкий вибір» тут більше немає: вкладка
+          вже називає розділ, а блок відсував перший товар за край екрана.
+          Каталог починається з пошуку — з того, чим користуються. */}
       <div className="field search catalog-search">
         {/* Той самий компонент, що й у формі замовлення: цей WebView не
             малює текст у полі сам, і пошук страждав від того ж, від чого
@@ -257,7 +259,7 @@ export function Catalog({ config, cart, onCartChange, seed, onOpenProduct, wishl
       </div>
 
       {categories.length > 0 && (
-        <div className="rail category-rail" aria-label="Категорії">
+        <div className="rail" role="group" aria-label="Категорії">
           <button
             className="chip"
             aria-pressed={active === null}
@@ -278,7 +280,7 @@ export function Catalog({ config, cart, onCartChange, seed, onOpenProduct, wishl
         </div>
       )}
 
-      <div className="rail rail-sort" aria-label="Сортування і фільтри">
+      <div className="rail rail-sort" role="group" aria-label="Сортування і фільтри">
         <button className="chip" aria-pressed={sort === 'default'}
                 onClick={() => setSort('default')}>
           За порядком
@@ -291,10 +293,12 @@ export function Catalog({ config, cart, onCartChange, seed, onOpenProduct, wishl
                 onClick={() => setSort('pricey')}>
           Дорожчі
         </button>
-        <button className="chip" aria-pressed={sort === 'fresh'}
-                onClick={() => setSort('fresh')}>
-          Новинки
-        </button>
+        {hasFreshProducts && (
+          <button className="chip" aria-pressed={sort === 'fresh'}
+                  onClick={() => setSort('fresh')}>
+            Новинки
+          </button>
+        )}
         <button className="chip" aria-pressed={inStock}
                 onClick={() => setInStock((on) => !on)}>
           В наявності
@@ -322,7 +326,7 @@ export function Catalog({ config, cart, onCartChange, seed, onOpenProduct, wishl
           {/* Порожній екран без виходу — глухий кут: людина не завжди
               памʼятає, що сама увімкнула фільтр. */}
           {filtered && (
-            <div className="actions" style={{ maxWidth: 260, margin: '18px auto 0' }}>
+            <div className="actions">
               <button className="secondary" onClick={reset}>Скинути пошук і фільтри</button>
             </div>
           )}

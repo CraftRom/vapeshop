@@ -75,7 +75,17 @@ ufw --force enable
 ```bash
 fail2ban-client status elfar-recon              # хто зараз у бані
 fail2ban-client set elfar-recon unbanip АДРЕСА  # зняти помилковий бан
+cat deploy/nginx/deny.d/fail2ban.conf           # що саме відхиляє nginx
 ```
+
+Бан виконує nginx, а не фаєрвол. Перед сервером стоїть Cloudflare, тож
+пакети до хоста приходять з його адрес, а порти 80/443 публікує Docker —
+правило фаєрвола на адресу сканера не спрацювало б ні в тому, ні в іншому
+випадку. Nginx знає справжню адресу покупця завдяки
+`deploy/nginx/cloudflare-realip.conf` і відповідає забороненій адресі 403.
+
+Список адрес Cloudflare оновлюється командою
+`sudo bash deploy/update-cloudflare-ips.sh`.
 
 Обмеження швидкості в nginx це не замінює й не дублює. Воно міряє темп:
 сканування, яке ми бачили, йшло два запити на секунду при межі тридцять —

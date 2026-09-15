@@ -51,8 +51,11 @@ export function ChatList({ config, orders, onOpen }) {
               {Number(o.total).toFixed(0)} {config.currency}
             </span>
           </div>
-          <div className="hint">
-            {clock(o.created_at)} · {STATUS[o.status] || o.status}
+          <div className="order-meta">
+            <span className={`status-pill status-${o.status}`}>
+              {STATUS[o.status] || o.status}
+            </span>
+            <span className="hint num">{clock(o.created_at)}</span>
           </div>
         </button>
       ))}
@@ -193,11 +196,11 @@ export function ChatRoom({ config, order, onBack }) {
           <img src={viewing} alt="Вкладення" />
         </div>
       )}
-      <div className="head">
-        <button className="chip" onClick={onBack} style={{ marginBottom: 8 }}>
-          ← Замовлення
+      <div className="head chat-head">
+        <button className="back" onClick={onBack}>
+          Замовлення
         </button>
-        <h1 style={{ fontSize: 18 }}>Замовлення №{order.id}</h1>
+        <h1>Замовлення №{order.id}</h1>
         <p>{STATUS[order.status] || order.status}</p>
       </div>
 
@@ -205,9 +208,9 @@ export function ChatRoom({ config, order, onBack }) {
 
       <div className="chat-log">
         {messages === null ? (
-          <div className="skeleton" style={{ height: 48 }} />
+          <div className="skeleton skeleton-line" />
         ) : messages.length === 0 ? (
-          <p className="hint" style={{ padding: '0 14px' }}>
+          <p className="hint chat-empty">
             Напишіть питання — менеджер відповість сюди й у чат із ботом.
           </p>
         ) : (

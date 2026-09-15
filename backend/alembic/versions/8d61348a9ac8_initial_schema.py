@@ -12,7 +12,6 @@ import sqlalchemy as sa
 # їх у сигнатурі типу, але імпорти сам не додає.
 from sqlalchemy import Text
 from sqlalchemy.dialects import postgresql
-from sqlalchemy.dialects import postgresql
 
 revision: str = '8d61348a9ac8'
 down_revision: Union[str, None] = None

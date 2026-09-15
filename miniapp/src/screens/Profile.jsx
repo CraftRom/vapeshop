@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 
 import { api } from '../api'
-import { APP_VERSION } from '../version'
 import { confirm, haptic, notify, openLink } from '../telegram'
 
 const STATUS = {
@@ -111,8 +110,8 @@ export function Profile({ config, profile }) {
 
       {config.referral_enabled && (
         <>
-      <div className="head" style={{ paddingBottom: 6 }}>
-        <h1 style={{ fontSize: 17 }}>Запрошуйте друзів</h1>
+      <div className="section-head">
+        <h2>Запрошуйте друзів</h2>
         <p>
           Отримуйте {Number(config.referral_percent).toFixed(0)}% бонусами з кожного
           виконаного замовлення запрошеного. Бонусами можна закрити до{' '}
@@ -123,8 +122,12 @@ export function Profile({ config, profile }) {
       {profile.referral_link ? (
         <div className="link-box">
           <code>{profile.referral_link}</code>
-          <button onClick={copy}>{copied ? 'Готово' : 'Копіювати'}</button>
-          <button onClick={share}>Поділитись</button>
+          <div className="link-box-actions">
+            <button className="secondary" onClick={copy}>
+              {copied ? 'Скопійовано' : 'Копіювати'}
+            </button>
+            <button className="primary" onClick={share}>Поділитись</button>
+          </div>
         </div>
       ) : (
         <div className="banner warn">
@@ -134,8 +137,8 @@ export function Profile({ config, profile }) {
         </>
       )}
 
-      <div className="head" style={{ paddingBottom: 6 }}>
-        <h1 style={{ fontSize: 17 }}>Історія замовлень</h1>
+      <div className="section-head">
+        <h2>Історія замовлень</h2>
       </div>
 
       {/* Головне попередження профілю.
@@ -147,13 +150,13 @@ export function Profile({ config, profile }) {
       {profile && profile.bot_reachable === false && (
         <div className="banner warn">
           <b>Ви не отримуєте повідомлень від бота</b>
-          <p style={{ margin: '6px 0 0' }}>
+          <p>
             Статуси замовлень і реквізити для оплати приходять у чат із ботом,
             а він у вас не відкритий. Натисніть кнопку нижче й «Старт» —
             після цього все почне приходити.
           </p>
           {profile.bot_link && (
-            <div className="actions" style={{ marginTop: 10 }}>
+            <div className="actions">
               <button className="primary" onClick={() => openLink(profile.bot_link)}>
                 Відкрити чат із ботом
               </button>
@@ -177,14 +180,20 @@ export function Profile({ config, profile }) {
         orders.map((o) => (
           <div className="order" key={o.id}>
             <div className="order-head">
-              <span>№{o.id}</span>
+              <span className="num">№{o.id}</span>
               <span className="num">
                 {Number(o.total).toFixed(0)} {config.currency}
               </span>
             </div>
-            <div className="hint">
-              {new Date(o.created_at).toLocaleDateString('uk-UA')} ·{' '}
-              {STATUS[o.status] || o.status}
+            {/* Статус окремою плашкою, а не хвостом після дати: саме його
+                шукають очима, коли відкривають історію. */}
+            <div className="order-meta">
+              <span className={`status-pill status-${o.status}`}>
+                {STATUS[o.status] || o.status}
+              </span>
+              <span className="hint num">
+                {new Date(o.created_at).toLocaleDateString('uk-UA')}
+              </span>
             </div>
             <ul className="order-items">
               {o.items.map((i, idx) => (

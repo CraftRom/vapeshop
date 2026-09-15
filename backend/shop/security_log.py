@@ -181,7 +181,11 @@ def describe(code: str) -> Event:
 # Mini App — і в жодному не було IP. Тобто подія, заради якої журнал
 # безпеки взагалі існує, не давала відповіді на перше ж питання: звідки
 # це прийшло і чи це та сама адреса, що й хвилину тому.
-request_context: ContextVar[dict] = ContextVar("security_context", default={})
+#
+# Типове значення — None, а не {}: словник за замовчуванням один на весь
+# процес. Досить одного `request_context.get()["ip"] = …` поза запитом, і
+# ця адреса доклеїлась би до подій усіх наступних запитів.
+request_context: ContextVar[dict | None] = ContextVar("security_context", default=None)
 
 
 def record(code: str, /, **fields) -> None:
@@ -205,7 +209,7 @@ def record(code: str, /, **fields) -> None:
                 # Контекст запиту йде першим, а поля виклику — після:
                 # обробник знає про подію більше, ніж middleware, і його
                 # значення мають перекривати загальні.
-                **request_context.get(),
+                **(request_context.get() or {}),
                 **fields,
             },
         )

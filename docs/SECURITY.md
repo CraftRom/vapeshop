@@ -21,6 +21,17 @@
 - Redis має пароль; backend контейнери працюють без capabilities, `no-new-privileges`, read-only root FS.
 - Бот не має доступу до media/backups, scheduler не має доступу до media.
 - бекапи створюються з `0600`.
+- Справжня адреса покупця з-за Cloudflare: nginx довіряє `CF-Connecting-IP` лише від офіційних адрес Cloudflare (`deploy/nginx/cloudflare-realip.conf`). Ліміти, журнал безпеки й бани працюють з адресою покупця, а не вузла CDN; підробити адресу запитом на origin в обхід CDN неможливо.
+- Бани fail2ban виконує nginx (`deploy/nginx/deny.d/`), а не фаєрвол хоста: за Cloudflare і портами, опублікованими Docker, правило фаєрвола на адресу сканера не спрацьовує.
+- uvicorn не довіряє `X-Forwarded-For`; застосунок читає лише `X-Real-IP`, який nginx перезаписує сам.
+- Паролі менеджерів — від 12 символів, без однотипних повторів і популярних паролів відповідної довжини.
+
+## Після оновлення на сервері
+
+1. `sudo bash deploy/bootstrap.sh` — ставить нову дію бану fail2ban (`elfar-nginx-deny`) замість `nftables-multiport`.
+2. `docker compose -f deploy/docker-compose.prod.yml up -d --force-recreate nginx api` — nginx підхоплює `cloudflare-realip.conf` і `deny.d`, api — команду без `--forwarded-allow-ips`.
+3. `bash deploy/security-check.sh` — обидва нові пункти мають бути `OK`.
+4. Раз на кілька місяців: `sudo bash deploy/update-cloudflare-ips.sh` (список Cloudflare змінюється рідко; скрипт не зіпсує робочий файл і відкотиться, якщо nginx не прийме новий).
 
 ## Межі
 

@@ -29,7 +29,7 @@ const target = mod.legacyHostRedirectUrl(mod.getInitData())
 const url = new URL(target)
 
 let failed = 0
-const check = (ok, name) => { console.log(`${ok ? 'OK' : 'FAIL'} ${name}`); if (!ok) failed++ }
+const check = (ok, name) => { console.log(`  ${ok ? '✓' : '✗'} ${name}`); if (!ok) failed++ }
 check(url.hostname === 'elfar.pp.ua', 'www -> canonical host')
 check(url.hash.includes('elfarInitData='), 'signed payload передано через fragment bridge')
 check(!url.search.includes('elfarInitData='), 'signed payload не потрапляє в HTTP query')
@@ -45,4 +45,5 @@ check(recovered === signed, 'bridge відновлює initData байт-у-ба
 check(mod.initDataSource() === 'legacy bridge', 'джерело діагностики лишається legacy bridge після scrub')
 check(String(globalThis.__replaced || '').includes('elfarInitData=') === false, 'bridge прибирається з address bar')
 
+console.log(`\nМІСТОК У РОБОТІ: ${failed ? `ПРОВАЛЕНО: ${failed}` : 'усе витримано'}`)
 if (failed) process.exit(1)

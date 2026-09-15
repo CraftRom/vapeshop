@@ -16,7 +16,7 @@ from decimal import Decimal
 
 from shop.entities import (
     Operator, OrderMessage, SupportMessage, SupportThread, Wishlist,
-    Broadcast, BroadcastStatus, CartLine, Category, Order, OrderLine,
+    Broadcast, CartLine, Category, Order, OrderLine,
     OrderStatus, Product, Promo, Stats, User,
 )
 

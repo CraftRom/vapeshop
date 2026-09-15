@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { api, getToken } from '../api'
+import { api } from '../api'
 
 function sizeLabel(bytes) {
   if (!bytes) return '0'

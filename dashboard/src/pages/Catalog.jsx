@@ -569,7 +569,7 @@ export default function Catalog() {
       </div>
 
       <div className="catalog-toolbar">
-        <label className="catalog-filter catalog-category-filter">
+        <label className="catalog-filter">
           <span>Категорія</span>
           <select className="input" value={filter} onChange={(e) => setFilter(e.target.value)}>
             <option value="">Усі категорії</option>
@@ -579,7 +579,7 @@ export default function Catalog() {
           </select>
         </label>
 
-        <label className="catalog-filter catalog-search-filter">
+        <label className="catalog-filter">
           <span>Пошук</span>
           <div className="catalog-search-box">
             <span className="catalog-search-icon" aria-hidden="true">⌕</span>
@@ -717,7 +717,7 @@ export default function Catalog() {
                     </button>
                   )}
                   <button
-                    className="btn danger small catalog-delete"
+                    className="btn danger small"
                     onClick={() => purgeProduct(p)}
                     title="Стерти з бази назавжди. Необоротно"
                   >
@@ -774,7 +774,7 @@ export default function Catalog() {
               {paginationNumbers(safePage, pageCount).map((number) => (
                 <button
                   key={number}
-                  className={`catalog-page-btn catalog-page-number ${safePage === number ? 'active' : ''}`}
+                  className={`catalog-page-btn ${safePage === number ? 'active' : ''}`}
                   onClick={() => setPage(number)}
                 >
                   {number}

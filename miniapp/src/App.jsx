@@ -24,8 +24,6 @@ export default function App() {
   // Відкрите замовлення в чаті. Кнопка з бота веде сюди напряму.
   const [chatOrder, setChatOrder] = useState(null)
   const [openProduct, setOpenProduct] = useState(null)
-  // Каталог із bootstrap: перший екран малюється без додаткового запиту
-  const [seed, setSeed] = useState(null)
   const [wishlists, setWishlists] = useState([])
   // Товар, для якого відкрито вибір списку
   const [saving, setSaving] = useState(null)
@@ -316,12 +314,12 @@ export default function App() {
         <p>{fatal}</p>
 
         {!isTelegramContext() && (
-          <p style={{ marginTop: 10 }}>
+          <p>
             Застосунок відкрито поза Telegram. Скористайтесь кнопкою «Відкрити
             магазин» у чаті з ботом.
           </p>
         )}
-        <div className="actions" style={{ maxWidth: 320, margin: '20px auto 0' }}>
+        <div className="actions">
           <button className="primary" onClick={load}>
             Спробувати ще раз
           </button>
@@ -332,11 +330,11 @@ export default function App() {
           )}
         </div>
         {/* Технічні деталі — щоб не доводилось лізти в логи по кожен збій */}
-        <details style={{ marginTop: 22, textAlign: 'left' }}>
-          <summary className="hint" style={{ cursor: 'pointer' }}>
+        <details className="support-details">
+          <summary className="hint">
             Деталі для підтримки
           </summary>
-          <pre className="hint" style={{ whiteSpace: 'pre-wrap', fontSize: 11 }}>
+          <pre className="hint num">
 {`SDK Telegram: ${window.Telegram?.WebApp ? 'підключено' : 'відсутній'}
 initData: ${getInitData() ? `${getInitData().length} символів` : 'порожній'}
 джерело: ${initDataSource()}
@@ -356,7 +354,7 @@ initData: ${getInitData() ? `${getInitData().length} символів` : 'пор
   if (!config) {
     return (
       <div className="app">
-        <div className="list" style={{ paddingTop: 16 }}>
+        <div className="list list-loading">
           {[0, 1, 2].map((i) => (
             <div key={i} className="skeleton" />
           ))}
@@ -402,6 +400,13 @@ initData: ${getInitData() ? `${getInitData().length} символів` : 'пор
   if (openListId && openedList) {
     return (
       <div className="app">
+        {/* Назад — над списком, як на сторінці товару. Під списком кнопку
+            треба було шукати, догортаючи до кінця. */}
+        <div className="page-back">
+          <button className="back" onClick={() => setOpenListId(null)}>
+            До збереженого
+          </button>
+        </div>
         <WishlistPage
           config={config}
           list={openedList}
@@ -410,11 +415,6 @@ initData: ${getInitData() ? `${getInitData().length} символів` : 'пор
           onOpenProduct={setOpenProduct}
           onCartChange={(product, delta) => changeCart(product.id, delta)}
         />
-        <div className="screen">
-          <button className="chip" onClick={() => setOpenListId(null)}>
-            ← До збереженого
-          </button>
-        </div>
         <Footer onLegal={() => setLegal(true)} />
       </div>
     )
@@ -447,7 +447,7 @@ initData: ${getInitData() ? `${getInitData().length} символів` : 'пор
 
   if (checkingOut) {
     return (
-      <div className="app" style={{ paddingBottom: 24 }}>
+      <div className="app app-form">
         <Checkout
           config={config}
           cart={cart}
@@ -465,12 +465,14 @@ initData: ${getInitData() ? `${getInitData().length} символів` : 'пор
 
   return (
     <div className="app">
+      {/* Шапка в один рядок: назва магазину й вікова позначка. Раніше тут
+          були два рядки й окремий блок-заставка в каталозі — разом вони
+          з'їдали пів екрана, і до першого товару доводилось гортати. */}
       <header className="store-head">
-        <div>
-          <span className="store-kicker">ELFAR</span>
-          <strong>Магазин у Telegram</strong>
-        </div>
-        <span className="store-age">18+</span>
+        <strong className="store-name">{config.shop_name || 'Магазин'}</strong>
+        <span className="store-age" title="Лише для повнолітніх">
+          {config.min_age ?? 18}+
+        </span>
       </header>
 
       <div className="tabs" role="tablist" aria-label="Розділи магазину">
@@ -514,7 +516,6 @@ initData: ${getInitData() ? `${getInitData().length} символів` : 'пор
           config={config}
           cart={shownCart}
           onCartChange={changeCart}
-          seed={seed}
           onOpenProduct={setOpenProduct}
           wishlists={wishlists}
           onSave={setSaving}
@@ -550,7 +551,7 @@ initData: ${getInitData() ? `${getInitData().length} символів` : 'пор
           а мовчазна відмова тут найгірша — людина побачить порожній
           кошик аж на оформленні. */}
       {cartError && (
-        <div className="banner warn" style={{ margin: '0 14px 10px' }}>
+        <div className="banner warn">
           {cartError}
         </div>
       )}
@@ -604,7 +605,7 @@ initData: ${getInitData() ? `${getInitData().length} символів` : 'пор
       </div>
 
       {!isTelegramContext() && (
-        <div className="banner warn" style={{ margin: 14 }}>
+        <div className="banner warn">
           Застосунок відкрито поза Telegram — запити не пройдуть автентифікацію.
         </div>
       )}

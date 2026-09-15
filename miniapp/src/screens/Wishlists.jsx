@@ -84,7 +84,7 @@ export function SavePicker({ product, wishlists, onClose, onChanged }) {
           <strong>Зберегти в список</strong>
           <button className="chip" onClick={onClose}>Закрити</button>
         </div>
-        <p className="hint" style={{ margin: '0 0 10px' }}>{product.name}</p>
+        <p className="hint sheet-sub">{product.name}</p>
 
         {error && <div className="banner warn">{error}</div>}
 
@@ -107,7 +107,7 @@ export function SavePicker({ product, wishlists, onClose, onChanged }) {
         </div>
 
         {creating ? (
-          <div className="row" style={{ gap: 8, marginTop: 10 }}>
+          <div className="inline-field sheet-create">
             <input
               className="input"
               value={name}
@@ -116,12 +116,12 @@ export function SavePicker({ product, wishlists, onClose, onChanged }) {
               placeholder="Назва списку"
               autoFocus
             />
-            <button className="add" onClick={create} disabled={busy === -1 || !name.trim()}>
+            <button className="primary" onClick={create} disabled={busy === -1 || !name.trim()}>
               Створити
             </button>
           </div>
         ) : (
-          <button className="chip" style={{ marginTop: 10 }} onClick={() => setCreating(true)}>
+          <button className="secondary sheet-create" onClick={() => setCreating(true)}>
             + Новий список
           </button>
         )}
@@ -194,8 +194,10 @@ export function Wishlists({ wishlists, onChanged, onOpenList }) {
 
   return (
     <>
-      <div className="head">
-        <h1>Збережене</h1>
+      {/* Розділ усередині профілю, тож заголовок другого рівня: сторінкою
+          «Збережене» стає лише тоді, коли відкривають конкретний список. */}
+      <div className="section-head">
+        <h2>Збережене</h2>
         <p>Товари, які ви відклали на потім</p>
       </div>
 
@@ -223,24 +225,25 @@ export function Wishlists({ wishlists, onChanged, onOpenList }) {
                 onClick={() => onOpenList(list)}
                 title="Відкрити список"
               >
-                {list.name} <span className="hint num">· {list.size}</span>
+                <span className="grow">{list.name}</span>
+                <span className="wl-size num">{list.size}</span>
               </button>
             )}
           </div>
 
-          <div className="wl-actions" style={{ padding: '0 14px 12px' }}>
-            <button className="chip" onClick={() => onOpenList(list)}>Відкрити</button>
+          <div className="wl-actions">
+            <button className="secondary" onClick={() => onOpenList(list)}>Відкрити</button>
             <button
-              className="chip"
+              className="secondary"
               onClick={() => { setRenaming(list.id); setName(list.name) }}
             >
               Перейменувати
             </button>
-            <button className="chip" onClick={() => remove(list)}>Видалити</button>
+            <button className="ghost-btn" onClick={() => remove(list)}>Видалити</button>
           </div>
 
           {list.size === 0 && (
-            <p className="hint" style={{ padding: '0 14px 12px' }}>
+            <p className="hint wl-empty">
               Порожньо. Відкрийте товар у каталозі й натисніть «Відкласти».
             </p>
           )}
@@ -248,7 +251,7 @@ export function Wishlists({ wishlists, onChanged, onOpenList }) {
       ))}
 
       <div className="screen">
-        <button className="chip" onClick={create}>+ Новий список</button>
+        <button className="secondary" onClick={create}>Новий список</button>
       </div>
     </>
   )

@@ -45,10 +45,16 @@ run_node() {
     echo "пропущено — немає node"
     return
   fi
+  # Код виходу враховується разом із позначками. Раніше дивились лише на
+  # ✗/ПРОВАЛЕНО у виводі: набір, що друкував «FAIL» і виходив з кодом 1,
+  # показувався зеленим — так client-logging падав непоміченим.
   out=$(cd "../${3:-miniapp}" && node "$2" 2>&1)
-  if echo "$out" | grep -qE '✗|ПРОВАЛЕНО'; then
-    echo "ПРОВАЛ"
-    echo "$out" | grep -E '✗' | head -5 | sed 's/^/      /'
+  code=$?
+  if [[ $code -ne 0 ]] || echo "$out" | grep -qE '✗|ПРОВАЛЕНО|FAIL'; then
+    echo "ПРОВАЛ (код $code)"
+    # Без позначок у виводі (падіння до першої перевірки) показуємо хвіст.
+    echo "$out" | grep -E '✗|FAIL' | head -5 | sed 's/^/      /'
+    echo "$out" | grep -qE '✗|FAIL' || echo "$out" | tail -3 | sed 's/^/      /'
     fail=1
   else
     echo "$(echo "$out" | tail -1)"
@@ -66,10 +72,23 @@ run_node input-visibility tests/input-visibility.mjs
 run_node field-paint tests/field-paint.mjs
 run_node phone tests/phone.mjs
 run_node client-logging tests/client-logging.mjs
+run_node legacy-bridge tests/legacy-bridge.mjs
+run_node bridge-runtime tests/legacy-bridge-runtime.mjs
+# Набори полів і дизайну. field-guard і text-input стерегли поля, але не
+# входили в зведення, як і колишній ui-refresh (він друкував OK/FAIL, а
+# зведення бачить лише ✓/✗). Дизайн-набір замінює ui-refresh.
+run_node field-guard tests/field-guard.mjs
+run_node text-input tests/text-input.mjs
+run_node design tests/storefront-design.mjs
 run_node filters tests/filters.mjs dashboard
 run_node catalog-ux tests/catalog-ux.mjs dashboard
 run_node support-ux tests/support-ux.mjs dashboard
 run_node notifications tests/notifications.mjs dashboard
+# Ці три набори існували, але в зведення не входили. Два з них уже падали
+# (закріплена версія 1.32.1), і цього ніхто не бачив.
+run_node payment-ux tests/order-payment-ux.mjs dashboard
+run_node volume tests/notification-volume.mjs dashboard
+run_node performance tests/performance.mjs dashboard
 
 echo
 echo "Контракти й дані"

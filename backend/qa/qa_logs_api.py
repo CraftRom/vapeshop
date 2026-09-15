@@ -14,7 +14,7 @@ os.environ.update(BOT_TOKEN="777001:T", JWT_SECRET="t" * 32,
                   ELFAR_DATA_ROOT=DATA_ROOT,
                   DATABASE_URL="sqlite+aiosqlite:////tmp/qa_logsapi.db")
 
-os.makedirs(LOG_DIR if "LOG_DIR" in dir() else BACKUP_DIR, exist_ok=True)
+os.makedirs(LOG_DIR, exist_ok=True)
 
 from qa_common import Report, seed_operators                             # noqa: E402
 

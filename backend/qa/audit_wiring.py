@@ -135,8 +135,20 @@ check("logs_dir" in log_setup, "журнал пишеться у файл чер
 req_log = read("backend/api/request_log.py")
 for field in ("requestId", "durationMs", "userAgent", "status"):
     check(field in req_log, f"журнал запитів має поле {field}")
-check("x-forwarded-for" in req_log,
-      "IP береться з-за проксі — інакше в журналі буде адреса nginx")
+# Раніше тут вимагали x-forwarded-for. Його прибрали свідомо (крайню ліву
+# адресу в ньому задає клієнт), і перевірка падала на правильному коді,
+# ховаючи справжню діру: X-Real-IP за Cloudflare був адресою Cloudflare.
+# Тепер стережемо весь ланцюжок, а не одне слово.
+_client_ip = req_log[req_log.index("def client_ip"):req_log.index("def client_country")]
+check('"x-real-ip"' in _client_ip, "IP береться з X-Real-IP, який nginx перезаписує сам")
+check("x-forwarded-for" not in _client_ip.split('"""')[-1]
+      and "cf-connecting-ip" not in _client_ip.split('"""')[-1],
+      "підроблювані клієнтом заголовки не читаються напряму")
+_realip = read("deploy/nginx/cloudflare-realip.conf")
+check(_realip.count("set_real_ip_from") >= 20 and "real_ip_header CF-Connecting-IP;" in _realip,
+      "nginx бере адресу покупця з CF-Connecting-IP лише від адрес Cloudflare")
+check("real_ip_recursive" not in _realip and "set_real_ip_from 0.0.0.0/0" not in _realip,
+      "довіра не поширюється на довільні адреси")
 compose_src = read("deploy/docker-compose.prod.yml")
 import yaml as _yaml
 _compose = _yaml.safe_load(compose_src)
@@ -182,7 +194,41 @@ check("proxy_pass http://api" not in nginx_conf,
 check("$api_backend" in nginx_conf, "адреса API підставляється змінною")
 check("HOST_LOG_DIR" not in compose_src and "HOST_MEDIA_DIR" not in compose_src,
       "шляхи не задаються змінними — один корінь /data")
-check("./data:/data" in compose_src, "один том даних на всі сервіси")
+# Колись усі сервіси монтували ./data цілком. Посилення безпеки звузило
+# доступ до потрібних підкаталогів, а перевірка лишилась старою й падала.
+# Стережемо саме принцип: один корінь ./data → /data і мінімум прав.
+_mounts = {
+    _svc: [v.split(":")[0] for v in (_compose["services"][_svc].get("volumes") or [])
+           if v.startswith("./data")]
+    for _svc in ("api", "bot", "scheduler", "nginx")
+}
+check(all(m.startswith("./data/") for ms in _mounts.values() for m in ms),
+      "дані монтуються з одного кореня ./data", _mounts)
+check(_mounts["bot"] == ["./data/logs"],
+      "бот бачить лише журнал — ні медіа, ні копій бази", _mounts["bot"])
+check("./data/media" not in _mounts["scheduler"],
+      "планувальнику не потрібні медіа", _mounts["scheduler"])
+check(all(v.endswith(":ro") for v in _compose["services"]["nginx"]["volumes"] if v.startswith("./data")),
+      "nginx лише читає дані")
+_nginx_vols = " ".join(_compose["services"]["nginx"]["volumes"])
+check("cloudflare-realip.conf" in _nginx_vols, "налаштування адрес Cloudflare змонтоване в nginx")
+check("./nginx/deny.d:/etc/nginx/deny.d" in _nginx_vols, "список банів змонтований каталогом")
+check("forwarded-allow-ips" not in compose_src,
+      "uvicorn не довіряє X-Forwarded-For від будь-кого")
+_https_part = nginx_conf[nginx_conf.index("listen 443"):]
+check("include /etc/nginx/deny.d/*.conf;" in http_part and "include /etc/nginx/deny.d/*.conf;" in _https_part,
+      "бани fail2ban діють і на HTTP, і на HTTPS")
+_api_blocks = nginx_conf.split("proxy_pass $api_backend;")[1:]
+check(all("X-Real-IP $remote_addr" in b[:400] for b in _api_blocks),
+      "кожен шлях до API передає X-Real-IP", len(_api_blocks))
+_jail = read("deploy/fail2ban/jail-elfar.conf")
+check("nftables" not in _jail.split("#")[0] and _jail.count("banaction = elfar-nginx-deny") == 2,
+      "обидва jail банять через nginx: фаєрвол за Cloudflare і Docker бан не застосовує")
+_action = read("deploy/fail2ban/action-elfar-nginx-deny.conf")
+check("grep -qxF" in _action and "sed -i" not in _action,
+      "зняття бану порівнює рядок точно — крапка в IP не зачепить сусідні адреси")
+check("action-elfar-nginx-deny.conf" in read("deploy/bootstrap.sh"),
+      "bootstrap встановлює дію бану")
 
 greeting = read("backend/bot/greeting.py")
 check("/start" not in str(__import__("re").search(r"PUBLIC_COMMANDS = \(([^)]*)\)", greeting).group(1)),
@@ -755,11 +801,33 @@ for pack, css_path, srcs_glob in [("вітрина","miniapp/src/styles.css","mi
         for m in re.findall(r'className=\{`([^`]*)`\}', f.read_text()):
             static = re.sub(r'\$\{[^}]*\}', ' ', m)
             used.update(w for w in static.split() if re.fullmatch(r'[a-z][a-z0-9-]*', w))
-    used = {c for c in used if re.fullmatch(r'[a-z][a-z0-9-]*', c)}
+    # «status-» із `status-${order.status}` — префікс динамічного класу,
+    # а не ім'я. Шукати для нього окреме правило безглуздо.
+    used = {c for c in used if re.fullmatch(r'[a-z][a-z0-9-]*[a-z0-9]', c)}
     absent = sorted(c for c in used if not re.search(rf'\.{re.escape(c)}\b', css))
     check(not absent, f"{pack}: усі класи описані в CSS", absent[:12])
 
 print("\n=== ВЕРСІЇ Й ДОКУМЕНТИ ===")
+# Тести, прив'язані до точного номера, падають від звичайного підняття
+# версії. Так двічі сталося з вітриною 2.12.0 (client-logging,
+# legacy-bridge) і з трьома наборами панелі на 1.33.0 — а перші два ще й
+# ховались від зведення. Версію перевіряють лише за форматом або «не нижче».
+_pinned = []
+for _dir in ("miniapp/tests", "dashboard/tests"):
+    for _f in (root / _dir).glob("*.mjs"):
+        _txt = _f.read_text()
+        if any(re.search(r"includes\(", _l) and re.search(r"\d+\.\d+\.\d+", _l)
+               and re.search(r"version|APP_VERSION", _l) and not _l.lstrip().startswith("//")
+               for _l in _txt.splitlines()):
+            _pinned.append(f"{_dir}/{_f.name}")
+check(not _pinned, "тести не прив'язані до точної версії", _pinned)
+# Набори, яких немає в run_all.sh, не запускаються ніколи. Так пролежали
+# непоміченими field-guard, text-input, legacy-bridge, order-payment-ux,
+# notification-volume і performance — два останні вже падали.
+_runner = read("backend/qa/run_all.sh")
+_orphans = [f"{_dir}/{_f.name}" for _dir in ("miniapp/tests", "dashboard/tests")
+            for _f in sorted((root / _dir).glob("*.mjs")) if f"tests/{_f.name}" not in _runner]
+check(not _orphans, "кожен набір тестів входить у run_all.sh", _orphans)
 dv = read("dashboard/src/version.js"); mv = read("miniapp/src/version.js")
 # Перевіряємо не лише наявність APP_VERSION, а й формат. Порожній рядок
 # або «1.9» імпортувався б без помилки і виліз би вже в інтерфейсі.

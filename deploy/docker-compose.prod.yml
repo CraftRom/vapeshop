@@ -87,7 +87,7 @@ services:
     command: >
       uvicorn api.main:app
       --host 0.0.0.0 --port 8000
-      --workers 1 --proxy-headers --forwarded-allow-ips='*'
+      --workers 1
     env_file: ../.env
     depends_on:
       migrate:
@@ -191,6 +191,9 @@ services:
       - "443:443"
     volumes:
       - ./nginx/ratelimit.conf:/etc/nginx/conf.d/00-ratelimit.conf:ro
+      # Справжня адреса покупця з-за Cloudflare. Без неї ліміти, журнал і
+      # бани працюють з адресою вузла Cloudflare, спільною для всіх.
+      - ./nginx/cloudflare-realip.conf:/etc/nginx/conf.d/01-cloudflare-realip.conf:ro
       - ./nginx/generated/app.conf:/etc/nginx/conf.d/default.conf:ro
       # Читання, не запис: nginx лише віддає файли, кладе їх API.
       - ./data/media:/data/media:ro
@@ -199,6 +202,9 @@ services:
       # сертифікат. Монтуються на запис, бо їх наповнює скрипт із хоста.
       - ./nginx/redirect.d:/etc/nginx/redirect.d:ro
       - ./nginx/hsts.d:/etc/nginx/hsts.d:ro
+      # Список банів fail2ban. Каталог, а не файл: fail2ban переписує файл
+      # через тимчасовий, і змонтований окремо файл лишився б старим.
+      - ./nginx/deny.d:/etc/nginx/deny.d:ro
       - certbot-www:/var/www/certbot:ro
       - certbot-conf:/etc/letsencrypt:ro
     depends_on: [dashboard, miniapp, api]

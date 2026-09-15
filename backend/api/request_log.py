@@ -51,14 +51,16 @@ def client_ip(request: Request) -> str:
     """IP клієнта з урахуванням проксі.
 
     За nginx усі запити приходять з адреси контейнера, тому справжня
-    адреса — у заголовках від проксі.
+    адреса — у заголовку X-Real-IP, який nginx ПЕРЕЗАПИСУЄ своїм
+    `$remote_addr` у кожному location, що веде на API.
 
-    Довіряємо тільки X-Real-IP, який production-nginx ПЕРЕЗАПИСУЄ своїм
-    `$remote_addr`. Клієнтський CF-Connecting-IP тут навмисно ігноруємо:
-    якщо origin колись відкриють напряму, такий заголовок легко підробити.
-    За Cloudflare це буде адреса edge-вузла, доки на nginx не налаштований
-    real_ip_module з офіційними CIDR Cloudflare — менш зручно для аналітики,
-    зате безпечно для rate-limit/аудиту.
+    Справжнім `$remote_addr` стає завдяки nginx/cloudflare-realip.conf:
+    nginx бере CF-Connecting-IP, але лише від адрес Cloudflare. Тому тут
+    CF-Connecting-IP напряму не читаємо — від клієнта, що звернувся на
+    origin в обхід CDN, такий заголовок підробляється одним рядком.
+
+    X-Forwarded-For теж не беремо: крайню ліву адресу в ньому задає сам
+    клієнт. Саме тому uvicorn не отримує --forwarded-allow-ips.
     """
     direct = request.headers.get("x-real-ip", "").strip()
     if direct:

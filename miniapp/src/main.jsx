@@ -9,9 +9,6 @@ import './styles.css'
 function StorefrontPreparing() {
   return (
     <main className="prepare-screen" role="status" aria-live="polite">
-      <div className="prepare-glow prepare-glow-one" aria-hidden="true" />
-      <div className="prepare-glow prepare-glow-two" aria-hidden="true" />
-
       <section className="prepare-card">
         <div className="prepare-workshop" aria-hidden="true">
           <span className="prepare-gear gear-a">✦</span>
@@ -19,7 +16,7 @@ function StorefrontPreparing() {
           <span className="prepare-hammer">⌁</span>
         </div>
 
-        <div className="prepare-kicker">ELFAR · MINI APP</div>
+        <div className="prepare-kicker">Вхід у магазин</div>
         <h1>Почекай — гноми налаштовують вітрину</h1>
         <p>
           Перевіряємо безпечний вхід через Telegram, переносимо сесію та

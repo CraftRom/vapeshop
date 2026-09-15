@@ -94,12 +94,22 @@ print("\n--- політика пропускає те, без чого заст�
 # SDK Telegram: без нього немає ні initData, ні теми, ні кнопки «назад».
 r.check("https://telegram.org" in s.get("script-src", ""),
         "вітрина вантажить SDK Telegram", s.get("script-src"))
-# Шрифти панелі приходять з Google — без них інтерфейс лишиться
-# на системному шрифті, але верстка попливе.
-r.check("fonts.googleapis.com" in p.get("style-src", ""),
-        "панель вантажить таблицю стилів шрифтів", p.get("style-src"))
-r.check("fonts.gstatic.com" in p.get("font-src", ""),
-        "панель вантажить самі файли шрифтів", p.get("font-src"))
+# Шрифти панелі — системні (--display/--body у styles.css). Колись вони
+# вантажились із Google, і перевірка вимагала дозволити його в CSP; після
+# переходу на системні шрифти дозвіл прибрали, а вимога лишилась і падала.
+# Тепер стережемо узгодженість: панель не посилається на сторонні шрифти, і
+# політика їх не пропускає. Додасте Google Fonts — упаде тут, а не мовчки
+# в браузері, де CSP просто не дасть шрифту завантажитись.
+_panel_src = "".join(
+    _f.read_text(errors="ignore")
+    for _f in (root / "dashboard").rglob("*")
+    if _f.suffix in {".css", ".html", ".jsx", ".js"} and "node_modules" not in _f.parts
+    and _f.is_file()
+)
+r.check("fonts.googleapis.com" not in _panel_src and "fonts.gstatic.com" not in _panel_src,
+        "панель не залежить від сторонніх шрифтів")
+r.check("fonts.g" not in p.get("style-src", "") + p.get("font-src", ""),
+        "політика не пропускає сторонніх шрифтів", p.get("font-src"))
 # style={{...}} у React — це атрибути елементів, а не сторонній код.
 for label, policy in (("панель", p), ("вітрина", s)):
     r.check("'unsafe-inline'" in policy.get("style-src", ""),

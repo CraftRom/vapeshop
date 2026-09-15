@@ -6,6 +6,23 @@ const api = readFileSync('src/api.js', 'utf8')
 const css = readFileSync('src/styles.css', 'utf8')
 const version = readFileSync('src/version.js', 'utf8')
 
+/** Версія панелі не нижча за ту, де функцію випущено.
+ *
+ * Тут стояло точне «APP_VERSION = '1.32.1'», і набір падав на кожному
+ * наступному випуску панелі, хоча з функцією все гаразд. Перевірка, що
+ * падає від звичайного підняття версії, привчає не дивитись на провали.
+ */
+const atLeast = (source, minimum) => {
+  const found = source.match(/APP_VERSION\s*=\s*'(\d+)\.(\d+)\.(\d+)'/)
+  if (!found) return false
+  const have = found.slice(1).map(Number)
+  const need = minimum.split('.').map(Number)
+  for (let i = 0; i < 3; i += 1) {
+    if (have[i] !== need[i]) return have[i] > need[i]
+  }
+  return true
+}
+
 let bad = 0
 const check = (ok, label) => {
   if (!ok) bad++
@@ -26,7 +43,7 @@ check(page.includes('Ця сесія завершена') && page.includes('clos
 check(page.includes('support-mobile-back'), 'на телефоні є повернення зі чату до списку')
 check(css.includes('.support-client-group') && css.includes('.support-session'), 'desktop inbox має групи клієнтів і окремі сесії')
 check(css.includes('@media (max-width: 760px)') && css.includes('.support-chat-actions'), 'керування адаптоване для мобільного')
-check(version.includes("APP_VERSION = '1.32.1'"), 'версія панелі 1.32.1')
+check(atLeast(version, '1.32.1'), 'версія панелі не нижча за 1.32.1')
 
 console.log(`\nПІДТРИМКА UX: ${bad === 0 ? 'усе витримано' : `ПРОВАЛЕНО: ${bad}`}`)
 process.exit(bad ? 1 : 0)
