@@ -15,4 +15,15 @@ fi
 if [[ -f /etc/fail2ban/jail.d/elfar.conf ]] && grep -q 'nftables\|iptables' /etc/fail2ban/jail.d/elfar.conf; then
     echo 'FAIL: fail2ban банить фаєрволом — за Cloudflare і Docker такий бан не діє (перезапустіть bootstrap.sh)'; fail=1
 fi
+
+if awk '/listen 80;/{f=1} /# ---------------------------------------------------------------------- HTTPS/{f=0} f' deploy/nginx/app.conf.template | grep -q 'proxy_pass'; then
+  echo 'FAIL: HTTP проксіює застосунок/API — секрети можуть піти без TLS'; fail=1
+else
+  echo 'OK: HTTP використовується лише для ACME/HTTPS redirect'
+fi
+if grep -q 'limit_req zone=webhook' deploy/nginx/app.conf.template && grep -q 'zone=webhook:' deploy/nginx/ratelimit.conf; then
+  echo 'OK: SalesDrive webhook має окремий rate limit'
+else
+  echo 'FAIL: SalesDrive webhook без окремого rate limit'; fail=1
+fi
 exit "$fail"

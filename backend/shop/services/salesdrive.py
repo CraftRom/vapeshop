@@ -60,6 +60,19 @@ RETRY_STATES = (STATE_PENDING, STATE_UNCERTAIN, STATE_FAILED)
 STATUS_KEYS = tuple(s.value for s in OrderStatus)
 PAYMENT_KEYS = (shipment.PAYMENT_CARD, shipment.PAYMENT_COD)
 SHIPPING_KEYS = (shipment.METHOD_WAREHOUSE, shipment.METHOD_COURIER)
+
+# /handler/ expects the textual option value for payment_method/shipping_method,
+# while statusId is an ID.  The dictionaries API returns {id, name}; older
+# panel builds accidentally stored the ID for all three fields.  Keep safe
+# canonical fallbacks so already-created Elfar orders never lose data in CRM.
+DEFAULT_PAYMENT_NAMES = {
+    shipment.PAYMENT_CARD: "Переказ на картку",
+    shipment.PAYMENT_COD: "Накладений платіж",
+}
+DEFAULT_SHIPPING_NAMES = {
+    shipment.METHOD_WAREHOUSE: "Нова пошта",
+    shipment.METHOD_COURIER: "Кур'єр на адресу",
+}
 _MAP_KEYS = {
     "salesdrive_status_map": STATUS_KEYS,
     "salesdrive_payment_map": PAYMENT_KEYS,
@@ -240,10 +253,22 @@ def create_payload(order: Order, shop) -> dict:
         "sajt": _site(shop),
         "novaposhta": _novaposhta_block(order),
     }
-    if order.payment_method and payments.get(order.payment_method):
-        payload["payment_method"] = payments[order.payment_method]
-    if shippings.get(where.method):
-        payload["shipping_method"] = shippings[where.method]
+    # SalesDrive form fields use the *textual option value*, not dictionary ID.
+    # 1.36.0 stored IDs here by mistake. Numeric legacy values are therefore
+    # treated as unusable and replaced with the canonical value we already
+    # know from the Elfar checkout. This makes payment/delivery non-lossy even
+    # before an administrator re-saves the corrected mappings.
+    payment_value = str(payments.get(order.payment_method, "") or "").strip() if order.payment_method else ""
+    if not payment_value or payment_value.isdigit():
+        payment_value = DEFAULT_PAYMENT_NAMES.get(order.payment_method or "", "")
+    if payment_value:
+        payload["payment_method"] = payment_value
+
+    shipping_value = str(shippings.get(where.method, "") or "").strip()
+    if not shipping_value or shipping_value.isdigit():
+        shipping_value = DEFAULT_SHIPPING_NAMES.get(where.method, "")
+    if shipping_value:
+        payload["shipping_method"] = shipping_value
     if statuses.get(order.status.value):
         payload["statusId"] = statuses[order.status.value]
     return payload
@@ -505,7 +530,12 @@ async def handle_webhook(repo, payload: dict, *, bot=None) -> dict:
     order = await repo.find_order_by_crm_id(crm_id) if crm_id else None
     external = str(data.get("externalId") or "").strip()
     if not order and external.isdigit():
-        order = await repo.get_order(int(external))
+        candidate = await repo.get_order(int(external))
+        # Не дозволяємо webhook прив'язати історичне замовлення лише через
+        # збіг externalId. Воно має вже належати до CRM-черги (pending/
+        # creating/failed/uncertain/synced) або мати crm_id.
+        if candidate and (candidate.crm_id or candidate.crm_state):
+            order = candidate
     if not order:
         # Заявки, створені в CRM руками, у магазин не переносимо: замовлення
         # Elfar завжди має клієнта в Telegram, а в такої заявки його немає.

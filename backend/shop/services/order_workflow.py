@@ -96,7 +96,7 @@ async def apply_tracking(
     else:
         patch.update(waybill_ref=None, waybill_source=None, waybill_cost=None)
     if origin != ORIGIN_SALESDRIVE:
-        patch.update(_crm_pending_patch())
+        patch.update(_crm_pending_patch(order))
     await repo.update_order(order.id, patch)
     fresh = await repo.get_order(order.id) or order
 
@@ -255,14 +255,13 @@ async def _notify_referrer(repo, bot, order: Order, reward) -> None:
         )
 
 
-def _crm_pending_patch() -> dict:
-    """Позначка «відправити в CRM». Пишеться разом зі зміною.
+def _crm_pending_patch(order: Order) -> dict:
+    """Позначає зміну для CRM лише у вже синхронізованому/новому замовленні.
 
-    Не перевіряємо, чи увімкнена інтеграція: позначка нічого не коштує, а
-    ввімкнувши SalesDrive пізніше, власник отримає в черзі все, що
-    змінювалось, а не лише наступні зміни.
+    Порожні crm_id і crm_state означають історичне замовлення ELFAR. Його
+    не ставимо в чергу навіть після зміни статусу/ТТН: backfill заборонений.
     """
-    return {"crm_state": "pending"}
+    return {"crm_state": "pending"} if (order.crm_id or order.crm_state) else {}
 
 
 async def _kick_crm(order_id: int) -> None:

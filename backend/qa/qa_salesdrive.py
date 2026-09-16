@@ -168,6 +168,17 @@ async def scenario():
             "товари з ціною й кількістю", created["products"])
     r.check(created["payment_method"] == "Накладений платіж"
             and created["shipping_method"] == "Нова Пошта", "оплата й доставка — з відповідностей")
+
+    # 1.36.0 помилково зберігав ID довідників для payment/shipping.
+    # Навіть така стара конфігурація не має втрачати дані заявки.
+    legacy_shop = type("S", (), {**shop.__dict__,
+        "salesdrive_payment_map": json.dumps({"card": "11", "cod": "12"}),
+        "salesdrive_shipping_map": json.dumps({"warehouse": "21", "courier": "22"}),
+    })()
+    legacy_payload = salesdrive.create_payload(order, legacy_shop)
+    r.check(legacy_payload["payment_method"] == "Накладений платіж"
+            and legacy_payload["shipping_method"] == "Нова пошта",
+            "старі numeric ID не лишають оплату/доставку порожніми", legacy_payload)
     r.check(created["novaposhta"].get("city") == "city-ref-1"
             and created["novaposhta"].get("WarehouseNumber") == "wh-ref-5",
             "коди Нової пошти — ті самі, що зберегла вітрина", created["novaposhta"])

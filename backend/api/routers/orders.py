@@ -244,6 +244,8 @@ async def retry_crm_sync(order_id: int, repo: Repository = Depends(get_repo)):
     shop = await get_shop_settings(repo)
     if not shop.salesdrive_ready:
         raise HTTPException(409, "Інтеграцію з SalesDrive вимкнено або не налаштовано")
+    if not order.crm_id and not order.crm_state:
+        raise HTTPException(409, "Історичне замовлення не експортується в SalesDrive")
     # Заявка вже є — оновлюємо. Створення могло дійти без відповіді —
     # спершу пробуємо оновити, щоб не створити дубль. Інакше — створюємо.
     if order.crm_id:

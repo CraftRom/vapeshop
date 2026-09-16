@@ -210,10 +210,13 @@ async def create_order(
         for line in lines
     ]
     order = await repo.create_order(draft, order_lines)
-    # Нове замовлення одразу стає в чергу CRM — тим самим механізмом, що й
-    # зміни статусу. Окремої «первинної вивантажки» немає.
-    await repo.update_order(order.id, {"crm_state": "pending"})
-    _push_to_crm_soon(order.id)
+    # У SalesDrive потрапляють ЛИШЕ замовлення, створені коли інтеграція вже
+    # активна. Старі замовлення навмисно залишаються з порожнім crm_state:
+    # увімкнення/переналаштування CRM ніколи не робить історичний backfill.
+    if shop.salesdrive_ready:
+        await repo.update_order(order.id, {"crm_state": "pending"})
+        order.crm_state = "pending"
+        _push_to_crm_soon(order.id)
 
     for line in lines:
         await repo.adjust_stock(line.product_id, -line.qty)
@@ -355,7 +358,11 @@ async def change_order_status(
         return None
 
     patch: dict = {"status": status}
-    if origin != "salesdrive":
+    # Локальна зміна синхронізується лише для замовлення, яке вже було
+    # включене в SalesDrive при створенні. Порожній crm_state + crm_id —
+    # історичне замовлення: його ніколи не створюємо в CRM заднім числом.
+    crm_linked = bool(order.crm_id or order.crm_state)
+    if origin != "salesdrive" and crm_linked:
         patch["crm_state"] = "pending"
     await repo.update_order(order.id, patch)
     order.status = status
@@ -368,7 +375,7 @@ async def change_order_status(
     elif left_paid:
         await _bump_user_totals(repo, order, -1)
 
-    if origin != "salesdrive":
+    if origin != "salesdrive" and crm_linked:
         _push_to_crm_soon(order.id)
 
     if status == OrderStatus.DONE:

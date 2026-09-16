@@ -465,7 +465,7 @@ function EnvironmentCard() {
  * пропустити кому й вимкнути синхронізацію статусів. Порожні рядки у
  * відповідність не потрапляють: такий статус просто не передається.
  */
-function MapEditor({ keys, value, onChange, options = [] }) {
+function MapEditor({ keys, value, onChange, options = [], optionValue = 'id' }) {
   let data = {}
   try { data = JSON.parse(value || '{}') || {} } catch { data = {} }
   const update = (key, next) => {
@@ -481,7 +481,7 @@ function MapEditor({ keys, value, onChange, options = [] }) {
           <select className="input" value={data[key] ?? ''} onChange={(e) => update(key, e.target.value)}>
             <option value="">не передавати</option>
             {options.map((option) => (
-              <option key={option.id} value={option.id}>{option.name} · {option.id}</option>
+              <option key={option.id} value={optionValue === 'name' ? option.name : option.id}>{option.name} · {option.id}</option>
             ))}
           </select>
         </div>
@@ -599,12 +599,14 @@ export default function Settings() {
     }
     const paymentAliases = { card: ['карт', 'переказ', 'безготів', 'iban'], cod: ['наклад', 'післяплат', 'налож'] }
     const shippingAliases = { warehouse: ['нова пошт', 'відділен', 'warehouse'], courier: ['курєр', 'курьер', 'адрес', 'courier'] }
-    const build = (aliases, items) => Object.fromEntries(Object.entries(aliases).flatMap(([key, words]) => {
-      const hit = find(items, words); return hit ? [[key, hit.id]] : []
+    const build = (aliases, items, field = 'id') => Object.fromEntries(Object.entries(aliases).flatMap(([key, words]) => {
+      const hit = find(items, words); return hit ? [[key, hit[field]]] : []
     }))
-    const statusMap = build(statusAliases, sdDicts.statuses)
-    const paymentMap = build(paymentAliases, sdDicts.payments)
-    const shippingMap = build(shippingAliases, sdDicts.deliveries)
+    // statusId is an ID; payment_method and shipping_method are textual
+    // option values in the SalesDrive website-form contract.
+    const statusMap = build(statusAliases, sdDicts.statuses, 'id')
+    const paymentMap = build(paymentAliases, sdDicts.payments, 'name')
+    const shippingMap = build(shippingAliases, sdDicts.deliveries, 'name')
     setForm((f) => ({ ...f,
       salesdrive_status_map: Object.keys(statusMap).length ? JSON.stringify(statusMap) : f.salesdrive_status_map,
       salesdrive_payment_map: Object.keys(paymentMap).length ? JSON.stringify(paymentMap) : f.salesdrive_payment_map,
@@ -690,6 +692,7 @@ export default function Settings() {
                   keys={item.map}
                   value={form[item.key]}
                   options={item.key === 'salesdrive_status_map' ? sdDicts.statuses : item.key === 'salesdrive_payment_map' ? sdDicts.payments : sdDicts.deliveries}
+                  optionValue={item.key === 'salesdrive_status_map' ? 'id' : 'name'}
                   onChange={(value) => setForm((f) => ({ ...f, [item.key]: value }))}
                 />
               ) : item.webhook ? (
