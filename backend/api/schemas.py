@@ -474,6 +474,15 @@ class ShopSettingsIn(BaseModel):
         None, max_length=63, pattern=r"^$|^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
     # Секрети, як і ключ Нової пошти: записуються, але не читаються.
     salesdrive_form_key: str | None = Field(None, max_length=128)
+    @field_validator("salesdrive_telegram_form_id", mode="before")
+    @classmethod
+    def _empty_salesdrive_form_id(cls, value):
+        # Порожнє поле і legacy 0 означають «ще не привʼязано». Це не має
+        # ламати збереження інших налаштувань SalesDrive.
+        if value in (None, "", 0, "0"):
+            return None
+        return value
+
     salesdrive_telegram_form_id: int | None = Field(None, ge=1, le=2147483647)
     salesdrive_api_key: str | None = Field(None, max_length=128)
     salesdrive_webhook_token: str | None = Field(

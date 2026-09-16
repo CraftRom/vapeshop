@@ -465,7 +465,7 @@ function EnvironmentCard() {
  * пропустити кому й вимкнути синхронізацію статусів. Порожні рядки у
  * відповідність не потрапляють: такий статус просто не передається.
  */
-function MapEditor({ keys, value, onChange }) {
+function MapEditor({ keys, value, onChange, options = [] }) {
   let data = {}
   try { data = JSON.parse(value || '{}') || {} } catch { data = {} }
   const update = (key, next) => {
@@ -478,12 +478,12 @@ function MapEditor({ keys, value, onChange }) {
       {keys.map(([key, label]) => (
         <div className="map-row" key={key}>
           <span>{label}</span>
-          <input
-            className="input"
-            value={data[key] ?? ''}
-            onChange={(e) => update(key, e.target.value)}
-            placeholder="не передавати"
-          />
+          <select className="input" value={data[key] ?? ''} onChange={(e) => update(key, e.target.value)}>
+            <option value="">не передавати</option>
+            {options.map((option) => (
+              <option key={option.id} value={option.id}>{option.name} · {option.id}</option>
+            ))}
+          </select>
         </div>
       ))}
     </div>
@@ -560,6 +560,21 @@ export default function Settings() {
   const [initial, setInitial] = useState(null)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const [sdDicts, setSdDicts] = useState({ statuses: [], payments: [], deliveries: [] })
+  const [sdDictError, setSdDictError] = useState('')
+  const [sdDictBusy, setSdDictBusy] = useState(false)
+
+  const loadSalesDriveDictionaries = async () => {
+    setSdDictBusy(true)
+    setSdDictError('')
+    try {
+      setSdDicts(await api.settings.salesdriveDictionaries())
+    } catch (err) {
+      setSdDictError(err.message)
+    } finally {
+      setSdDictBusy(false)
+    }
+  }
 
   useEffect(() => {
     api.settings
@@ -570,6 +585,33 @@ export default function Settings() {
       })
       .catch((err) => setError(err.message))
   }, [])
+
+  useEffect(() => { loadSalesDriveDictionaries() }, [])
+
+  const autoMapSalesDrive = () => {
+    const norm = (v) => String(v || '').toLowerCase().replace(/[ʼ'’]/g, '').replace(/[^a-zа-яіїєґ0-9]+/giu, ' ').trim()
+    const find = (items, words) => items.find((item) => words.some((word) => norm(item.name).includes(norm(word))))
+    const statusAliases = {
+      new: ['нов', 'new'], confirmed: ['підтвердж', 'подтверж', 'confirm'],
+      accepted: ['прийнят', 'в робот', 'в роботу', 'processing'], paid: ['оплачен', 'paid'],
+      shipped: ['відправ', 'отправ', 'shipped'], done: ['виконан', 'заверш', 'успіш', 'done'],
+      cancelled: ['скасован', 'отмен', 'cancel'],
+    }
+    const paymentAliases = { card: ['карт', 'переказ', 'безготів', 'iban'], cod: ['наклад', 'післяплат', 'налож'] }
+    const shippingAliases = { warehouse: ['нова пошт', 'відділен', 'warehouse'], courier: ['курєр', 'курьер', 'адрес', 'courier'] }
+    const build = (aliases, items) => Object.fromEntries(Object.entries(aliases).flatMap(([key, words]) => {
+      const hit = find(items, words); return hit ? [[key, hit.id]] : []
+    }))
+    const statusMap = build(statusAliases, sdDicts.statuses)
+    const paymentMap = build(paymentAliases, sdDicts.payments)
+    const shippingMap = build(shippingAliases, sdDicts.deliveries)
+    setForm((f) => ({ ...f,
+      salesdrive_status_map: Object.keys(statusMap).length ? JSON.stringify(statusMap) : f.salesdrive_status_map,
+      salesdrive_payment_map: Object.keys(paymentMap).length ? JSON.stringify(paymentMap) : f.salesdrive_payment_map,
+      salesdrive_shipping_map: Object.keys(shippingMap).length ? JSON.stringify(shippingMap) : f.salesdrive_shipping_map,
+    }))
+    notify('Автозіставлення застосовано. Перевірте вибрані значення перед збереженням.')
+  }
 
   const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }))
 
@@ -647,6 +689,7 @@ export default function Settings() {
                 <MapEditor
                   keys={item.map}
                   value={form[item.key]}
+                  options={item.key === 'salesdrive_status_map' ? sdDicts.statuses : item.key === 'salesdrive_payment_map' ? sdDicts.payments : sdDicts.deliveries}
                   onChange={(value) => setForm((f) => ({ ...f, [item.key]: value }))}
                 />
               ) : item.webhook ? (
@@ -701,7 +744,20 @@ export default function Settings() {
             </Field>
           ))}
           </div>
-          {group.title === 'SalesDrive' && <SalesDriveCheck />}
+          {group.title === 'SalesDrive' && <>
+            <div className="row" style={{ marginTop: 10 }}>
+              <button type="button" className="btn ghost small" onClick={loadSalesDriveDictionaries} disabled={sdDictBusy}>
+                {sdDictBusy ? 'Оновлення довідників…' : 'Оновити дані SalesDrive'}
+              </button>
+              <button type="button" className="btn ghost small" onClick={autoMapSalesDrive} disabled={!sdDicts.statuses.length}>
+                Автозіставити
+              </button>
+              <span className={`chip ${sdDictError ? 'bad' : (sdDicts.statuses.length ? 'ok' : '')}`}>
+                {sdDictError || (sdDicts.statuses.length ? `Завантажено: ${sdDicts.statuses.length} статусів, ${sdDicts.payments.length} оплат, ${sdDicts.deliveries.length} доставок` : 'Довідники ще не завантажено')}
+              </span>
+            </div>
+            <SalesDriveCheck />
+          </>}
         </div>
       ))}
 

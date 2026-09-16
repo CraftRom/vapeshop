@@ -61,43 +61,106 @@ async def salesdrive_webhook(token: str, request: Request,
 @router.post("/salesdrive/check")
 async def salesdrive_check(_who: Principal = Depends(require_sysadmin),
                            repo: Repository = Depends(get_repo)):
-    """Перевірка звʼязку для панелі (лише системний адміністратор).
-
-    Читає одну заявку через API списку: так перевіряється і домен, і
-    API-ключ, і нічого не створюється в CRM. Ключ форми цим не
-    перевіряється — API додавання заявок не має способу «сухого» виклику.
-    """
+    """Перевіряє лише мережу/субдомен/API-ключ. formId і мапінги не блокують тест."""
     return await _check(repo)
 
 
-async def _check(repo) -> dict:
-    import httpx
+async def _sd_get(client, shop, path: str):
+    """GET довідника SalesDrive з єдиною авторизацією та зрозумілими помилками."""
+    from shop.services import salesdrive
+    response = await client.get(
+        salesdrive.base_url(shop) + path,
+        headers={"Form-Api-Key": shop.salesdrive_api_key, "X-Api-Key": shop.salesdrive_api_key,
+                 "Accept": "application/json"},
+    )
+    if response.status_code in (401, 403):
+        raise HTTPException(502, "SalesDrive відхилив API-ключ")
+    if response.status_code == 429:
+        raise HTTPException(429, "SalesDrive тимчасово обмежив частоту запитів")
+    if response.status_code >= 400:
+        raise HTTPException(502, f"SalesDrive відповів {response.status_code} для {path}")
+    try:
+        return response.json()
+    except ValueError as exc:
+        raise HTTPException(502, "SalesDrive повернув некоректну відповідь") from exc
 
+
+def _dictionary_items(payload) -> list[dict]:
+    """Нормалізує різні версії відповідей довідникових endpoint SalesDrive."""
+    if isinstance(payload, list):
+        rows = payload
+    elif isinstance(payload, dict):
+        rows = next((payload[k] for k in ("data", "items", "list", "results")
+                     if isinstance(payload.get(k), list)), [])
+    else:
+        rows = []
+    result = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        ident = row.get("id", row.get("value", row.get("statusId")))
+        name = row.get("name", row.get("label", row.get("title")))
+        if ident is None or name is None:
+            continue
+        result.append({"id": str(ident), "name": str(name).strip()})
+    return result
+
+
+@router.get("/salesdrive/dictionaries")
+async def salesdrive_dictionaries(_who: Principal = Depends(require_sysadmin),
+                                  repo: Repository = Depends(get_repo)):
+    """Актуальні статуси, оплати й доставки без ручного переписування з CRM."""
+    import asyncio
+    import httpx
     from shop.services import salesdrive
     from shop.services.shop_settings import get_shop_settings
 
     shop = await get_shop_settings(repo)
-    if salesdrive.telegram_form_id(shop) <= 0:
-        return {"ok": False, "problem": "Не вказано ID форми SalesDrive «ELFAR — Telegram Bot». Вкажіть formId у налаштуваннях інтеграції"}
+    if not (shop.salesdrive_domain or "").strip():
+        raise HTTPException(400, "Не вказано субдомен SalesDrive")
+    if not shop.salesdrive_api_connected:
+        raise HTTPException(400, "Не задано API-ключ SalesDrive")
+    try:
+        async with httpx.AsyncClient(timeout=salesdrive.REQUEST_TIMEOUT) as client:
+            raw_statuses, raw_payments, raw_deliveries = await asyncio.gather(
+                _sd_get(client, shop, "/api/statuses/"),
+                _sd_get(client, shop, "/api/payment-methods/"),
+                _sd_get(client, shop, "/api/delivery-methods/"),
+            )
+    except httpx.HTTPError as exc:
+        raise HTTPException(502, f"SalesDrive недоступний: {type(exc).__name__}") from exc
+    return {
+        "statuses": _dictionary_items(raw_statuses),
+        "payments": _dictionary_items(raw_payments),
+        "deliveries": _dictionary_items(raw_deliveries),
+    }
+
+
+async def _check(repo) -> dict:
+    import httpx
+    from shop.services import salesdrive
+    from shop.services.shop_settings import get_shop_settings
+
+    shop = await get_shop_settings(repo)
     if not (shop.salesdrive_domain or "").strip():
         return {"ok": False, "problem": "Не вказано субдомен SalesDrive"}
     if not shop.salesdrive_api_connected:
-        return {"ok": False, "problem": "Не задано API-ключ (потрібен для перевірки й читання заявок)"}
+        return {"ok": False, "problem": "Не задано API-ключ SalesDrive"}
     try:
         async with httpx.AsyncClient(timeout=salesdrive.REQUEST_TIMEOUT) as client:
-            response = await client.get(
-                salesdrive.base_url(shop) + "/api/order/list/",
-                params={"page": 1, "limit": 1},
-                headers={"Form-Api-Key": shop.salesdrive_api_key, "Accept": "application/json"},
-            )
+            await _sd_get(client, shop, "/api/statuses/")
+    except HTTPException as exc:
+        return {"ok": False, "problem": str(exc.detail)}
     except httpx.HTTPError as exc:
         return {"ok": False, "problem": f"SalesDrive недоступний: {type(exc).__name__}"}
-    if response.status_code in (401, 403):
-        return {"ok": False, "problem": "SalesDrive відхилив API-ключ"}
-    if response.status_code == 429:
-        return {"ok": False, "problem": "Ліміт API списку заявок: 10 запитів на хвилину. Спробуйте за хвилину"}
-    if response.status_code >= 400:
-        return {"ok": False, "problem": f"SalesDrive відповів {response.status_code}"}
-    return {"ok": True, "problem": None,
-            "telegramFormId": salesdrive.telegram_form_id(shop),
-            "sourceName": "ELFAR — Telegram Bot"}
+    form_id = salesdrive.telegram_form_id(shop)
+    return {"ok": True, "problem": None, "telegramFormId": form_id or None,
+            "sourceName": "ELFAR — Telegram Bot",
+            "mappingReady": bool(mapping_ready(shop))}
+
+
+def mapping_ready(shop) -> bool:
+    from shop.services import salesdrive
+    return bool(salesdrive.mapping(shop.salesdrive_status_map)
+                and salesdrive.mapping(shop.salesdrive_payment_map)
+                and salesdrive.mapping(shop.salesdrive_shipping_map))

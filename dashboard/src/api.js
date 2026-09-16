@@ -381,6 +381,7 @@ export const api = {
   settings: {
     environment: () => request('/settings/environment'),
     salesdriveCheck: () => request('/integrations/salesdrive/check', { method: 'POST' }),
+    salesdriveDictionaries: () => request('/integrations/salesdrive/dictionaries'),
     get: () => request('/settings'),
     update: (data) => request('/settings', { method: 'PUT', body: data }),
   },
