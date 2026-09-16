@@ -6,10 +6,10 @@ sd = (root / 'backend/shop/services/salesdrive.py').read_text()
 env = (root / '.env.example').read_text()
 compose = (root / 'docker-compose.yml').read_text()
 checks = {
-    'ENV має SALESDRIVE_TELEGRAM_SOURCE_ID': 'SALESDRIVE_TELEGRAM_SOURCE_ID=0' in env,
+    'панель має salesdrive_telegram_form_id': 'salesdrive_telegram_form_id: int | None' in (root / 'backend/api/schemas.py').read_text(),
     'локальна БД лишилась shop': 'POSTGRES_DB=shop' in env and '${POSTGRES_DB:-shop}' in compose,
-    'конфіг має source id': 'salesdrive_telegram_source_id: int = 0' in config,
-    'відправка fail-closed без source id': 'SALESDRIVE_TELEGRAM_SOURCE_ID не задано' in sd,
+    'конфіг має form id': 'salesdrive_telegram_form_id: int = 0' in config,
+    'відправка fail-closed без form id': 'Не вказано ID форми SalesDrive' in sd,
     'webhook звіряє formId': 'int(data.get("formId")) == expected' in sd,
     'webhook звіряє account': 'account != (shop.salesdrive_domain or "").strip().lower()' in sd,
 }

@@ -84,6 +84,8 @@ class ShopSettings:
     salesdrive_enabled: bool
     salesdrive_domain: str
     salesdrive_form_key: str
+    # ID форми/бази заявок «ELFAR — Telegram Bot». Редагується з панелі.
+    salesdrive_telegram_form_id: int
     salesdrive_api_key: str
     salesdrive_webhook_token: str
     salesdrive_site: str
@@ -166,6 +168,7 @@ class ShopSettings:
             salesdrive_enabled=settings.salesdrive_enabled,
             salesdrive_domain=settings.salesdrive_domain,
             salesdrive_form_key=settings.salesdrive_form_key,
+            salesdrive_telegram_form_id=settings.salesdrive_telegram_form_id,
             salesdrive_api_key=settings.salesdrive_api_key,
             salesdrive_webhook_token=settings.salesdrive_webhook_token,
             salesdrive_site=settings.salesdrive_site,
@@ -226,7 +229,7 @@ class ShopSettings:
         """Інтеграція увімкнена й має з чим працювати."""
         return bool(self.salesdrive_enabled and self.salesdrive_form_connected
                     and (self.salesdrive_domain or "").strip()
-                    and settings.salesdrive_telegram_source_id > 0)
+                    and self.salesdrive_telegram_form_id > 0)
 
     def volume_discount_for(self, subtotal: Decimal) -> Decimal:
         """Автоматична знижка за суму замовлення. Нуль — якщо не діє."""

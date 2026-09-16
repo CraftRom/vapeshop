@@ -77,8 +77,8 @@ async def _check(repo) -> dict:
     from shop.services.shop_settings import get_shop_settings
 
     shop = await get_shop_settings(repo)
-    if salesdrive.telegram_source_id() <= 0:
-        return {"ok": False, "problem": "Не задано SALESDRIVE_TELEGRAM_SOURCE_ID для бази «ELFAR — Telegram Bot»"}
+    if salesdrive.telegram_form_id(shop) <= 0:
+        return {"ok": False, "problem": "Не вказано ID форми SalesDrive «ELFAR — Telegram Bot». Вкажіть formId у налаштуваннях інтеграції"}
     if not (shop.salesdrive_domain or "").strip():
         return {"ok": False, "problem": "Не вказано субдомен SalesDrive"}
     if not shop.salesdrive_api_connected:
@@ -99,5 +99,5 @@ async def _check(repo) -> dict:
     if response.status_code >= 400:
         return {"ok": False, "problem": f"SalesDrive відповів {response.status_code}"}
     return {"ok": True, "problem": None,
-            "telegramSourceId": salesdrive.telegram_source_id(),
+            "telegramFormId": salesdrive.telegram_form_id(shop),
             "sourceName": "ELFAR — Telegram Bot"}

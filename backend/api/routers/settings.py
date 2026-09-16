@@ -50,7 +50,7 @@ INFRA_FIELDS = {
     # SalesDrive: ключі дають писати в CRM від імені магазину, а токен
     # вебхука — міняти статуси й накладні замовлень. Це рівень власника
     # системи, а не адміністратора магазину.
-    "salesdrive_enabled", "salesdrive_domain", "salesdrive_form_key",
+    "salesdrive_enabled", "salesdrive_domain", "salesdrive_form_key", "salesdrive_telegram_form_id",
     "salesdrive_api_key", "salesdrive_webhook_token",
 }
 

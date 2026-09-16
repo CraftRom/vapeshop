@@ -473,6 +473,7 @@ class ShopSettingsIn(BaseModel):
         None, max_length=63, pattern=r"^$|^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
     # Секрети, як і ключ Нової пошти: записуються, але не читаються.
     salesdrive_form_key: str | None = Field(None, max_length=128)
+    salesdrive_telegram_form_id: int | None = Field(None, ge=1, le=2147483647)
     salesdrive_api_key: str | None = Field(None, max_length=128)
     salesdrive_webhook_token: str | None = Field(
         None, max_length=128, pattern=r"^$|^[A-Za-z0-9_-]{24,128}$")
@@ -599,6 +600,7 @@ class ShopSettingsOut(BaseModel):
     salesdrive_enabled: bool
     salesdrive_domain: str
     salesdrive_form_connected: bool
+    salesdrive_telegram_form_id: int
     salesdrive_api_connected: bool
     salesdrive_webhook_connected: bool
     salesdrive_site: str

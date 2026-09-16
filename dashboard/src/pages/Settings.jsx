@@ -279,6 +279,8 @@ const FIELDS = [
           'видна біля замовлення. Заявки, створені в CRM руками, у магазин не переносяться.',
     items: [
       { key: 'salesdrive_domain', label: 'Субдомен', hint: 'Лише субдомен: «elfar» для elfar.salesdrive.me' },
+      { key: 'salesdrive_telegram_form_id', label: 'ID форми Telegram', type: 'number',
+        hint: 'formId окремої бази заявок «ELFAR — Telegram Bot». Інтеграція приймає webhook лише з цієї бази.' },
       {
         key: 'salesdrive_form_key',
         label: 'Ключ форми (бази заявок)',

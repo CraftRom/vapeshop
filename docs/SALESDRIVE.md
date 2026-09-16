@@ -196,9 +196,9 @@ Swagger SalesDrive недоступний без облікового запис
 Окремість реалізується всередині SalesDrive: створіть у «Інтеграція з сайтом» окрему
 форму/базу заявок з назвою **ELFAR — Telegram Bot**. Її ключ форми задається як
 `SALESDRIVE_FORM_KEY`, а числовий ID бази (`data.formId` у webhook) — як
-`SALESDRIVE_TELEGRAM_SOURCE_ID`.
+`salesdrive_telegram_form_id` у панелі налаштувань.
 
-Інтеграція працює fail-closed: без позитивного `SALESDRIVE_TELEGRAM_SOURCE_ID`
+Інтеграція працює fail-closed: без позитивного `formId` у полі «ID форми Telegram»
 відправка вимкнена. Webhook-и приймаються лише коли `data.formId` точно збігається
 з цим ID; додатково перевіряється `info.account`, якщо SalesDrive його передав. Це
 не дає статусам/ТТН з іншої бази SalesDrive змінити Telegram-замовлення.

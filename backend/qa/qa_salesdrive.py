@@ -109,7 +109,7 @@ async def scenario():
     import api.routers.telegram as tg
 
     from shop.config import settings as app_settings
-    app_settings.salesdrive_telegram_source_id = 4242
+    app_settings.salesdrive_telegram_form_id = 4242
 
     await init_db()
     bot = FakeBot()
