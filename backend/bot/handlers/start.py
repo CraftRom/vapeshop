@@ -87,7 +87,7 @@ async def age_no(callback: CallbackQuery, repo: Repository) -> None:
     await callback.answer()
 
 
-@router.message(F.text == "ℹ️ Довідка")
+@router.message(F.text == "🛍 Відкрити магазин")
 @router.message(Command("shop", "magazin", "katalog"))
 async def cmd_shop(message: Message, repo: Repository, user: User) -> None:
     """Головна команда магазину.
@@ -106,6 +106,7 @@ async def cmd_shop(message: Message, repo: Repository, user: User) -> None:
     await _offer_shop(message)
 
 
+@router.message(F.text == "ℹ️ Довідка")
 @router.message(Command("help"))
 async def cmd_help(message: Message) -> None:
     await message.answer(texts.HELP, reply_markup=kb.main_menu())

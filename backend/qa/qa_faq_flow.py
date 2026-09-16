@@ -4,7 +4,7 @@ from decimal import Decimal
 os.environ.update(BOT_TOKEN="1:t", JWT_SECRET="t"*32, ADMIN_CHAT_ID="-100111",
                   BOT_USERNAME="elfar1_bot", MINIAPP_SHORT_NAME="elfar",
                   PUBLIC_URL="https://www.elfar.pp.ua",
-                  DATABASE_URL="sqlite+aiosqlite:////tmp/faqflow.db")
+                  DATABASE_URL="sqlite+aiosqlite:////tmp/qa_faqflow.db")
 from types import SimpleNamespace
 from shop.entities import Order, OrderLine
 from bot.handlers import chat as handler
@@ -70,14 +70,19 @@ async def run(repo, label):
     # 6. Кнопка «питання менеджеру» не веде в глухий кут
     cb=SimpleNamespace(message=Msg(""), answer=lambda *a, **k: asyncio.sleep(0))
     await handler.ask_human(cb, repo=repo, user=await repo.get_user(u.id))
-    check(cb.message.replies and "менеджер" in cb.message.replies[0][0].lower(),
+    # Відповідь переробили: тепер вона розводить питання про замовлення й
+    # загальну підтримку, і слова «менеджер» у першій гілці немає. Набір
+    # цього не бачив — падав на залишках старої бази й показувався «ok».
+    # Суть перевірки та сама: людину не кинули, їй сказали, куди писати.
+    _reply = cb.message.replies[0][0].lower() if cb.message.replies else ""
+    check("підтримк" in _reply and ("замовлен" in _reply or "менеджер" in _reply),
           "перехід до менеджера пояснено", cb.message.replies)
 
 async def main():
     from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
     from shop.models import Base
     from shop.repo.sql import SqlRepository
-    e=create_async_engine("sqlite+aiosqlite:////tmp/faqflow.db")
+    e=create_async_engine("sqlite+aiosqlite:////tmp/qa_faqflow.db")
     async with e.begin() as c: await c.run_sync(Base.metadata.create_all)
     async with async_sessionmaker(e,expire_on_commit=False)() as s:
         await run(SqlRepository(s),"SQL")

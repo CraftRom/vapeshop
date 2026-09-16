@@ -61,6 +61,22 @@ class Settings(BaseSettings):
     # Місто, з якого відправляють. Потрібне для попереднього розрахунку
     # доставки: без нього перевізник не має від чого рахувати.
     novaposhta_sender_city: str = ""
+    # Відправник для формування ТТН. Контрагента й контактну особу API
+    # Нової пошти знаходить сам за ключем — вписувати їх коди не треба.
+    novaposhta_sender_phone: str = ""
+    novaposhta_sender_warehouse_ref: str = ""
+    novaposhta_sender_warehouse: str = ""
+    novaposhta_cargo_description: str = "Товари"
+    # SalesDrive. Вимкнено за замовчуванням: без ключа форми вмикати нічого.
+    salesdrive_enabled: bool = False
+    salesdrive_domain: str = ""
+    salesdrive_form_key: str = ""
+    salesdrive_api_key: str = ""
+    salesdrive_webhook_token: str = ""
+    salesdrive_site: str = ""
+    salesdrive_status_map: str = ""
+    salesdrive_payment_map: str = ""
+    salesdrive_shipping_map: str = ""
     # Курʼєр на адресу. За замовчуванням вимкнений: він доступний не в
     # кожному місті й не в кожного магазину налагоджений, а показана
     # покупцеві й недоступна насправді опція коштує скасованого

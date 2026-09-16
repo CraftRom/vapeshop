@@ -10,7 +10,7 @@ from api.auth import authenticate, create_token, Principal, require_sysadmin
 from api.routers import (
     backups as backups_router, broadcasts, catalog, customers,
     logs as logs_router, media as media_router,
-    orders, promos, support, notifications,
+    integrations, orders, promos, support, notifications,
     settings as settings_router, operators, shop as shop_router, stats, telegram,
 )
 from api.schemas import LoginIn, TokenOut
@@ -241,6 +241,9 @@ app.include_router(promos.router, prefix="/api/promos", tags=["promos"])
 app.include_router(broadcasts.router, prefix="/api/broadcasts", tags=["broadcasts"])
 app.include_router(operators.router, prefix="/api/operators", tags=["operators"])
 app.include_router(settings_router.router, prefix="/api/settings", tags=["settings"])
+# Вебхук зовнішніх систем — без авторизації панелі (див. модуль), а
+# перевірка звʼязку — лише для системного адміністратора.
+app.include_router(integrations.router, prefix="/api/integrations", tags=["integrations"])
 # Вітрина Mini App — окрема автентифікація (Telegram initData), не JWT панелі
 app.include_router(shop_router.router, prefix="/api/shop", tags=["shop"])
 app.include_router(telegram.router, prefix="/api", tags=["telegram"])

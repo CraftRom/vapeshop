@@ -8,8 +8,8 @@ import jwt as pyjwt
 c = TestClient(app); r = Report("SECURITY")
 
 A = {"Authorization": "Bearer " + c.post("/api/auth/login", json={"login":"admin","password":"secret"}).json()["access_token"]}
-c.post("/api/operators", json={"login":"olena","name":"Олена","password":"kvitka2026"}, headers=A)
-O = {"Authorization": "Bearer " + c.post("/api/auth/login", json={"login":"olena","password":"kvitka2026"}).json()["access_token"]}
+c.post("/api/operators", json={"login":"olena","name":"Олена","password":"kvitka-sadok-2026"}, headers=A)
+O = {"Authorization": "Bearer " + c.post("/api/auth/login", json={"login":"olena","password":"kvitka-sadok-2026"}).json()["access_token"]}
 cat = c.post("/api/catalog/categories", json={"name":"К","sort_order":0,"is_active":True}, headers=A).json()
 pr = c.post("/api/catalog/products", json={"category_id":cat["id"],"name":"Т","price":"300","stock":9,"is_active":True}, headers=A).json()
 
@@ -127,7 +127,11 @@ _catcher = _Catch()
 logging.getLogger("security").addHandler(_catcher)
 c.get("/api/shop/config", headers={
     "X-Telegram-Init-Data": "user=%7B%22id%22%3A1%7D&hash=deadbeef",
-    "CF-Connecting-IP": "203.0.113.7",
+    # Так запит виглядає після nginx: X-Real-IP перезаписаний справжньою
+    # адресою (nginx/cloudflare-realip.conf), а CF-Connecting-IP міг
+    # прийти від клієнта напряму на origin — підробленим.
+    "X-Real-IP": "203.0.113.7",
+    "CF-Connecting-IP": "198.51.100.66",
     "CF-IPCountry": "PL",
     "User-Agent": "qa-probe",
 })
@@ -136,8 +140,12 @@ logging.getLogger("security").removeHandler(_catcher)
 _rejected = [e for e in _events if e.get("event") == "security.initdata.rejected"]
 r.check(_rejected, "підроблений підпис записаний у журнал безпеки")
 _last = _rejected[-1] if _rejected else {}
+# Раніше тут вимагали адресу з CF-Connecting-IP. Застосунок свідомо
+# перестав йому довіряти (його підробляє будь-хто, хто звернувся на origin
+# в обхід CDN), а набір цього не помітив: він падав ще на вході й
+# показувався «ok». Справжню адресу тепер ставить nginx у X-Real-IP.
 r.check(_last.get("ip") == "203.0.113.7",
-        "адреса є — і взята з заголовка Cloudflare, який не підмінити ззовні",
+        "адреса є — з X-Real-IP, який перезаписує nginx, а не з підроблюваного заголовка",
         _last.get("ip"))
 r.check(_last.get("country") == "PL",
         "країна є: магазин возить лише по Україні, тож звернення з-за кордону "

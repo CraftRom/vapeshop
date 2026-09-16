@@ -237,15 +237,23 @@ from shop.services.status_messages import (                         # noqa: E402
     is_permanent_delivery_error, undelivered_reason,
 )
 
-_panel = pathlib.Path("api/routers/orders.py").read_text()
+# Доставка сповіщень панелі переїхала в спільний сценарій замовлення —
+# ним же користується SalesDrive. Перевіряємо сценарій і те, що панель
+# справді через нього проходить.
+_panel = pathlib.Path("shop/services/order_workflow.py").read_text()
+r.check("flow.apply_status" in pathlib.Path("api/routers/orders.py").read_text(),
+        "панель сповіщає клієнта через спільний сценарій")
 r.check("order.notify.failed" in _panel,
         "панель записує ту саму подію, що й чат")
 r.check("notify_user_detailed" in _panel and "delivery.permanent" in _panel,
         "панель відрізняє постійну недоступність від тимчасового збою")
 
+# Кнопки статусу в чаті теж перейшли на спільний сценарій. Подію
+# order.notify.failed пише тепер один код — для панелі, чату й CRM.
 _chat = pathlib.Path("bot/handlers/admin.py").read_text()
-r.check("order.notify.failed" in _chat, "чат записує її ж")
-r.check("undelivered_reason" in _chat,
+r.check("flow.apply_status" in _chat and "order.notify.failed" not in _chat,
+        "чат записує її ж — через той самий сценарій, без власної копії")
+r.check("undelivered_reason" in _panel and "outcome.reason" in _chat,
         "менеджерові пояснюють причину, а не здогад")
 
 # Дві причини вимагають різних дій, і плутати їх дорого: у першому

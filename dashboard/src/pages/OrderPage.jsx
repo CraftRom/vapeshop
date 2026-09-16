@@ -232,6 +232,150 @@ function Chat({ orderId, messages, onSent }) {
   )
 }
 
+const WAYBILL_SOURCE = {
+  novaposhta: 'створена з панелі',
+  salesdrive: 'з SalesDrive',
+  manual: 'вписана вручну',
+}
+
+const CRM_STATE = {
+  synced: { label: 'синхронізовано', tone: 'ok' },
+  pending: { label: 'у черзі', tone: '' },
+  creating: { label: 'створюється', tone: '' },
+  uncertain: { label: 'перевіряється', tone: 'warn' },
+  failed: { label: 'помилка', tone: 'bad' },
+}
+
+/** Накладна й SalesDrive в одному блоці.
+ *
+ * Одна накладна на замовлення: створена кнопкою, прийнята з CRM чи вписана
+ * руками — усе це ті самі поля, тож і показуються вони в одному місці.
+ * Причину, чому ТТН зараз не створити, показуємо ДО натискання: відмова
+ * «впишіть телефон відправника» корисніша за вимкнену кнопку без пояснень.
+ */
+function WaybillPanel({ order, busy, onChanged }) {
+  const notify = useToast()
+  const [readiness, setReadiness] = useState(null)
+  const [working, setWorking] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    if (order.tracking_number) {
+      setReadiness(null)
+      return undefined
+    }
+    api.orders.waybillReadiness(order.id)
+      .then((data) => { if (!cancelled) setReadiness(data) })
+      .catch(() => { if (!cancelled) setReadiness(null) })
+    return () => { cancelled = true }
+  }, [order.id, order.tracking_number, order.status])
+
+  const run = async (action, okText) => {
+    setWorking(true)
+    try {
+      const fresh = await action()
+      onChanged(fresh)
+      notify(okText)
+    } catch (err) {
+      notify(err.message, 'bad')
+    } finally {
+      setWorking(false)
+    }
+  }
+
+  const printLabel = async () => {
+    setWorking(true)
+    try {
+      const response = await fetch(api.orders.waybillLabelUrl(order.id), {
+        headers: { Authorization: `Bearer ${getToken()}` },
+      })
+      if (!response.ok) {
+        let detail = 'Не вдалося отримати маркування'
+        try { detail = (await response.json()).detail || detail } catch { /* не JSON */ }
+        throw new Error(detail)
+      }
+      const url = URL.createObjectURL(await response.blob())
+      window.open(url, '_blank', 'noopener')
+      setTimeout(() => URL.revokeObjectURL(url), 60000)
+    } catch (err) {
+      notify(err.message, 'bad')
+    } finally {
+      setWorking(false)
+    }
+  }
+
+  const crm = CRM_STATE[order.crm_state]
+  const disabled = busy || working
+
+  return (
+    <div className="waybill-panel">
+      {order.tracking_number ? (
+        <div className="row-between waybill-row">
+          <div>
+            <div className="num info-strong">{order.tracking_number}</div>
+            <div className="faint">
+              ТТН {WAYBILL_SOURCE[order.waybill_source] || 'без джерела'}
+              {order.waybill_cost ? ` · доставка ${Number(order.waybill_cost).toFixed(0)} грн` : ''}
+            </div>
+          </div>
+          {order.waybill_source === 'novaposhta' && (
+            <div className="row">
+              <button className="btn ghost small" disabled={disabled} onClick={printLabel}>
+                Маркування
+              </button>
+              {!['shipped', 'done'].includes(order.status) && (
+                <button
+                  className="btn ghost small danger"
+                  disabled={disabled}
+                  onClick={() => {
+                    if (confirm(`Видалити ТТН ${order.tracking_number} у Новій пошті?`)) {
+                      run(() => api.orders.deleteWaybill(order.id), 'Накладну видалено')
+                    }
+                  }}
+                >
+                  Видалити ТТН
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="waybill-row">
+          <button
+            className="btn"
+            disabled={disabled || !readiness?.ready}
+            onClick={() => run(() => api.orders.createWaybill(order.id), 'ТТН створено')}
+          >
+            {working ? 'Створення…' : 'Створити ТТН Нової пошти'}
+          </button>
+          {readiness && !readiness.ready && (
+            <p className="faint waybill-hint">{readiness.problem}</p>
+          )}
+        </div>
+      )}
+
+      {crm && (
+        <div className="row-between waybill-row">
+          <span className="faint">
+            SalesDrive: <span className={`chip ${crm.tone}`}>{crm.label}</span>
+            {order.crm_id ? <span className="num"> · заявка {order.crm_id}</span> : null}
+          </span>
+          {['failed', 'uncertain'].includes(order.crm_state) && (
+            <button
+              className="btn ghost small"
+              disabled={disabled}
+              onClick={() => run(() => api.orders.crmSync(order.id), 'Відправлено в SalesDrive')}
+            >
+              Повторити
+            </button>
+          )}
+        </div>
+      )}
+      {order.crm_error && <p className="faint waybill-hint bad-text">{order.crm_error}</p>}
+    </div>
+  )
+}
+
 export default function OrderPage() {
   const { id } = useParams()
   const navigate = useNavigate()
@@ -429,9 +573,11 @@ export default function OrderPage() {
               </button>
             )}
 
+            <WaybillPanel order={order} busy={busy} onChanged={(fresh) => { setOrder(fresh); setTracking(fresh.tracking_number || ''); load() }} />
+
             <Field
               label="Номер накладної"
-              hint="При переході в «Відправлено» надсилається клієнту автоматично"
+              hint="Вписати вручну, якщо ТТН створено в кабінеті перевізника чи в SalesDrive. При переході в «Відправлено» надсилається клієнту автоматично"
             >
               <div className="row">
                 <input

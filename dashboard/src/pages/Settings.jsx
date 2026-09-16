@@ -16,7 +16,18 @@ const ADMIN_ONLY = new Set([
 // магазин, а не ділянку роботи однієї людини.
 const SYSADMIN_ONLY = new Set([
   'Telegram-група', 'Бот і Mini App', 'Розсилки', 'Тихі години', 'Бекапи',
+  'SalesDrive',
 ])
+
+// Статуси й способи — ключі відповідностей SalesDrive. Порядок і назви ті
+// самі, що бачить менеджер у замовленні.
+const STATUS_KEYS = [
+  ['new', 'Нове'], ['confirmed', 'Підтверджене'], ['accepted', 'Прийняте в роботу'],
+  ['paid', 'Оплачене'], ['shipped', 'Відправлене'], ['done', 'Виконане'],
+  ['cancelled', 'Скасоване'],
+]
+const PAYMENT_KEYS = [['card', 'Переказ на картку'], ['cod', 'Накладений платіж']]
+const SHIPPING_KEYS = [['warehouse', 'Відділення Нової пошти'], ['courier', 'Курʼєр на адресу']]
 
 const FIELDS = [
   {
@@ -190,6 +201,8 @@ const FIELDS = [
         key: 'novaposhta_api_key',
         label: 'Ключ API Нової пошти',
         secret: 'novaposhta_connected',
+        secretHint: 'Поки ключа немає, покупець вписує місто й відділення руками, '
+          + 'а ТТН з панелі не створюється.',
         hint: 'Кабінет Нової пошти → Налаштування → Безпека → Ключі API. ' +
               'Потрібен ключ з доступом до довідників',
       },
@@ -224,6 +237,28 @@ const FIELDS = [
       },
       { key: 'delivery_days', label: 'Строк доставки', hint: 'Текстом: «1–3 дні»' },
       {
+        key: 'novaposhta_sender_phone',
+        label: 'Телефон відправника для ТТН',
+        hint: 'Той, що вказаний у кабінеті Нової пошти. Контрагента й контактну '
+          + 'особу панель знаходить сама за ключем',
+      },
+      {
+        key: 'novaposhta_sender_warehouse_ref',
+        label: 'Код відділення відправлення',
+        hint: 'Ref відділення, з якого відправляєте (довідник Нової пошти, '
+          + 'getWarehouses). Без нього ТТН з панелі не створюється',
+      },
+      {
+        key: 'novaposhta_sender_warehouse',
+        label: 'Відділення відправлення (назва)',
+        hint: 'Для людей: щоб через рік було зрозуміло, що це за код',
+      },
+      {
+        key: 'novaposhta_cargo_description',
+        label: 'Опис вантажу в ТТН',
+        hint: 'Одним словом, як вимагає перевізник: «Товари»',
+      },
+      {
         key: 'cod_commission_percent',
         label: 'Комісія накладеного платежу, %',
         type: 'number',
@@ -233,6 +268,38 @@ const FIELDS = [
         label: 'Фіксована комісія, грн',
         type: 'number',
       },
+    ],
+  },
+  {
+    title: 'SalesDrive',
+    toggle: 'salesdrive_enabled',
+    hint: 'Замовлення магазину створюються в SalesDrive заявками, статуси й ТТН ' +
+          'синхронізуються в обидва боки. Правила переходів ті самі, що й у панелі: ' +
+          'статус із CRM, який магазин не дозволяє, не застосується — причина буде ' +
+          'видна біля замовлення. Заявки, створені в CRM руками, у магазин не переносяться.',
+    items: [
+      { key: 'salesdrive_domain', label: 'Субдомен', hint: 'Лише субдомен: «elfar» для elfar.salesdrive.me' },
+      {
+        key: 'salesdrive_form_key',
+        label: 'Ключ форми (бази заявок)',
+        secret: 'salesdrive_form_connected',
+        secretHint: 'Без ключа форми заявки не створюються й не оновлюються.',
+        hint: 'Установки → Загальні налаштування і інтеграції → Інтеграція з сайтом',
+      },
+      {
+        key: 'salesdrive_api_key',
+        label: 'API-ключ',
+        secret: 'salesdrive_api_connected',
+        secretHint: 'Потрібен для перевірки звʼязку. Установки → Інші сервіси → API → API-ключі.',
+      },
+      { key: 'salesdrive_webhook_token', label: 'Адреса вебхука', webhook: 'salesdrive_webhook_connected' },
+      { key: 'salesdrive_site', label: 'Сайт у заявці', hint: 'Поле «Сайт». Порожнє — домен магазину' },
+      { key: 'salesdrive_status_map', label: 'Статуси', map: STATUS_KEYS,
+        hint: 'statusId із SalesDrive для кожного статусу магазину. Кілька статусів можна вести в один' },
+      { key: 'salesdrive_payment_map', label: 'Способи оплати', map: PAYMENT_KEYS,
+        hint: 'Назва способу оплати так, як вона записана в SalesDrive' },
+      { key: 'salesdrive_shipping_map', label: 'Способи доставки', map: SHIPPING_KEYS,
+        hint: 'Назва способу доставки так, як вона записана в SalesDrive' },
     ],
   },
   {
@@ -390,6 +457,101 @@ function EnvironmentCard() {
   )
 }
 
+/** Відповідність «статус магазину → значення SalesDrive» рядками.
+ *
+ * Зберігається JSON-ом, але редагувати JSON руками — вірний спосіб
+ * пропустити кому й вимкнути синхронізацію статусів. Порожні рядки у
+ * відповідність не потрапляють: такий статус просто не передається.
+ */
+function MapEditor({ keys, value, onChange }) {
+  let data = {}
+  try { data = JSON.parse(value || '{}') || {} } catch { data = {} }
+  const update = (key, next) => {
+    const merged = { ...data, [key]: next }
+    Object.keys(merged).forEach((k) => { if (!String(merged[k] ?? '').trim()) delete merged[k] })
+    onChange(Object.keys(merged).length ? JSON.stringify(merged) : '')
+  }
+  return (
+    <div className="map-editor">
+      {keys.map(([key, label]) => (
+        <div className="map-row" key={key}>
+          <span>{label}</span>
+          <input
+            className="input"
+            value={data[key] ?? ''}
+            onChange={(e) => update(key, e.target.value)}
+            placeholder="не передавати"
+          />
+        </div>
+      ))}
+    </div>
+  )
+}
+
+/** Токен вебхука: генерується в браузері й показується один раз.
+ *
+ * Як і ключі, назад він не читається — адреса з токеном дає змінювати
+ * статуси й ТТН замовлень. Тому адресу видно лише одразу після генерації,
+ * до збереження: скопіювати в SalesDrive, зберегти, і далі — лише стан.
+ */
+function WebhookToken({ connected, value, onChange }) {
+  const generate = () => {
+    const bytes = new Uint8Array(32)
+    crypto.getRandomValues(bytes)
+    const token = btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+    onChange(token)
+  }
+  const url = value ? `${window.location.origin}/api/integrations/salesdrive/webhook/${value}` : ''
+  return (
+    <div>
+      <button type="button" className="btn ghost small" onClick={generate}>
+        {connected ? 'Згенерувати нову адресу' : 'Згенерувати адресу'}
+      </button>
+      {url ? (
+        <p className="faint webhook-url" style={{ margin: '8px 0 0' }}>
+          Скопіюйте в SalesDrive (Установки → Інші сервіси → Webhook, події «Нова заявка» й
+          «Зміна статусу», повна інформація), потім збережіть налаштування:
+          <br /><code>{url}</code>
+        </p>
+      ) : (
+        <p className="faint" style={{ margin: '6px 0 0' }}>
+          {connected
+            ? 'Адресу задано. Прочитати її назад не можна; нова адреса робить стару недійсною.'
+            : 'Не задано — зміни з SalesDrive у магазин не надходять.'}
+        </p>
+      )}
+    </div>
+  )
+}
+
+function SalesDriveCheck() {
+  const [state, setState] = useState(null)
+  const [busy, setBusy] = useState(false)
+  const check = async () => {
+    setBusy(true)
+    try {
+      setState(await api.settings.salesdriveCheck())
+    } catch (err) {
+      setState({ ok: false, problem: err.message })
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <div className="row" style={{ marginTop: 8 }}>
+      <button type="button" className="btn ghost small" onClick={check} disabled={busy}>
+        {busy ? 'Перевірка…' : 'Перевірити звʼязок'}
+      </button>
+      {state && (
+        <span className={`chip ${state.ok ? 'ok' : 'bad'}`}>
+          {state.ok ? 'SalesDrive відповідає' : state.problem}
+        </span>
+      )}
+      <span className="faint">Перевіряє субдомен і API-ключ збереженими значеннями</span>
+    </div>
+  )
+}
+
 export default function Settings() {
   const notify = useToast()
   const [form, setForm] = useState(null)
@@ -479,7 +641,19 @@ export default function Settings() {
           <div style={{ opacity: group.toggle && !form[group.toggle] ? 0.45 : 1 }}>
           {group.items.map((item) => (
             <Field key={item.key} label={item.label} hint={item.hint}>
-              {item.bool ? (
+              {item.map ? (
+                <MapEditor
+                  keys={item.map}
+                  value={form[item.key]}
+                  onChange={(value) => setForm((f) => ({ ...f, [item.key]: value }))}
+                />
+              ) : item.webhook ? (
+                <WebhookToken
+                  connected={Boolean(form[item.webhook])}
+                  value={form[item.key]}
+                  onChange={(value) => setForm((f) => ({ ...f, [item.key]: value }))}
+                />
+              ) : item.bool ? (
                 <label className="row" style={{ gap: 8, cursor: 'pointer' }}>
                   <input
                     type="checkbox"
@@ -517,13 +691,15 @@ export default function Settings() {
                     ? 'Підключено. Прочитати збережений ключ назад не можна: '
                       + 'щоб замінити — впишіть новий, щоб відключити — очистіть '
                       + 'поле й збережіть.'
-                    : 'Не підключено. Поки ключа немає, покупець вписує місто '
-                      + 'й відділення руками.'}
+                    // Підказка своя для кожного ключа. Раніше текст про місто
+                    // й відділення стояв під будь-яким секретом.
+                    : `Не підключено. ${item.secretHint || ''}`}
                 </p>
               )}
             </Field>
           ))}
           </div>
+          {group.title === 'SalesDrive' && <SalesDriveCheck />}
         </div>
       ))}
 

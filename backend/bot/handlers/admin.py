@@ -8,13 +8,8 @@ from bot import keyboards as kb
 from shop.services.shop_settings import current, get_shop_settings
 from shop.entities import STATUS_LABELS, OrderStatus
 from shop.repo.base import Repository
-from shop.services.order_chat import announce_accepted, send_tracking
-from shop.services.shop_service import change_order_status, transition_error
-from shop.services.status_messages import (
-    compose,
-    is_permanent_delivery_error,
-    undelivered_reason,
-)
+from shop.services import order_workflow as flow
+from shop.services.shop_service import transition_error
 
 import logging
 
@@ -122,105 +117,28 @@ async def admin_change_status(callback: CallbackQuery, repo: Repository) -> None
         )
         return
 
-    reward = await change_order_status(repo, order, status)
-    fresh = await repo.get_order(order.id) or order
+    # Запис, сповіщення клієнта, реферальний бонус і черга SalesDrive — у
+    # спільному сценарії, тому ж, яким ідуть панель і CRM. Тут лишається
+    # тільки те, що стосується самої кнопки в Telegram.
+    async def saved(fresh):
+        # Спінер знімаємо одразу після запису в БД: доставка клієнту —
+        # окрема операція й може чекати мережевого таймауту Telegram.
+        await callback.answer(f"Статус: {label}")
+        try:
+            await callback.message.edit_reply_markup(
+                reply_markup=kb.admin_order(order.id, order.payment_method, fresh.status)
+            )
+        except Exception:
+            # Старе повідомлення могли видалити/змінити вручну. Статус у БД
+            # уже коректний, тому це лише косметична невдача.
+            log.info("Не вдалося оновити кнопки замовлення %s", order.id, exc_info=True)
 
-    # Знімаємо спінер одразу після того, як БД уже змінилась. Доставка
-    # повідомлення клієнту — окрема операція і не повинна створювати враження,
-    # що кнопка «зависла» на мережевому timeout Telegram.
-    await callback.answer(f"Статус: {label}")
     try:
-        await callback.message.edit_reply_markup(
-            reply_markup=kb.admin_order(order.id, order.payment_method, fresh.status)
-        )
-    except Exception:
-        # Старе повідомлення могли видалити/змінити вручну. Статус у БД уже
-        # коректний, тому це лише косметична невдача.
-        log.info("Не вдалося оновити кнопки замовлення %s", order.id, exc_info=True)
-
-    client = await repo.get_user(order.user_id)
-    if not client:
+        outcome = await flow.apply_status(repo, order, status, origin=flow.ORIGIN_BOT,
+                                          bot=callback.bot, on_saved=saved)
+    except flow.WorkflowError as exc:
+        await callback.answer(str(exc), show_alert=True)
         return
 
-    # Після першого постійного «chat not found / blocked» повторювати той
-    # самий запит при кожній зміні статусу безглуздо. У журналі саме це
-    # сталося тричі за 23 секунди з замовленням №21. /start автоматично
-    # повертає bot_reachable=True, тому після дії клієнта доставка відновиться.
-    if client.bot_reachable is False:
-        log.info(
-            "Сповіщення по замовленню %s пропущено: клієнт уже позначений недоступним",
-            order.id,
-            extra={"event": "order.notify.skipped_unreachable", "orderId": order.id,
-                   "clientId": client.tg_id, "status": status.value},
-        )
-        await _warn_delivery(
-            callback,
-            label,
-            "чат із ботом уже позначений недоступним — попросіть клієнта "
-            "відкрити/розблокувати бота або напишіть у стрічку замовлення",
-        )
-    else:
-        delivered = True
-
-        if status == OrderStatus.ACCEPTED:
-            delivered = await announce_accepted(
-                callback.bot, repo, fresh, fresh.operator_name
-            )
-        elif status == OrderStatus.SHIPPED:
-            delivered = await send_tracking(callback.bot, repo, fresh, tracking)
-        else:
-            shop_now = await get_shop_settings(repo)
-            text = compose(fresh, status, shop_now)
-            try:
-                await callback.bot.send_message(
-                    client.tg_id,
-                    text or f"Замовлення №{order.id}: статус — «{label}».",
-                )
-                await repo.set_bot_reachable(client.tg_id, True)
-            except Exception as exc:
-                delivered = False
-                permanent = is_permanent_delivery_error(exc)
-                if permanent:
-                    await repo.set_bot_reachable(client.tg_id, False)
-
-                log.warning(
-                    "Клієнт не отримав сповіщення про статус замовлення %s",
-                    order.id,
-                    extra={"event": "order.notify.failed", "orderId": order.id,
-                           "clientId": client.tg_id, "status": status.value,
-                           "permanent": permanent},
-                    exc_info=True,
-                )
-                await _warn_delivery(callback, label, undelivered_reason(exc))
-
-        if not delivered and status in (OrderStatus.ACCEPTED, OrderStatus.SHIPPED):
-            # Спеціалізовані функції вже записали точну причину в traceback і
-            # оновили bot_reachable лише для постійної відмови. Після них
-            # перечитуємо користувача, щоб менеджеру дати правильну дію.
-            latest = await repo.get_user(order.user_id)
-            if latest and latest.bot_reachable is False:
-                reason = (
-                    "клієнт не має доступного приватного чату з ботом — "
-                    "попросіть його відкрити/розблокувати бота"
-                )
-            else:
-                reason = "тимчасова помилка Telegram — спробуйте ще раз за хвилину"
-            await _warn_delivery(callback, label, reason)
-
-    if reward and client.referrer_id:
-        shop = await get_shop_settings(repo)
-        referrer = await repo.get_user(client.referrer_id)
-        if referrer:
-            try:
-                await callback.bot.send_message(
-                    referrer.tg_id,
-                    f"🎁 Вам нараховано {reward:.0f} {shop.currency} бонусів "
-                    f"за замовлення запрошеного друга.",
-                )
-            except Exception:
-                log.warning(
-                    "Реферальний бонус нараховано, але запрошувач не сповіщений",
-                    extra={"event": "referral.notify.failed",
-                           "referrerId": referrer.tg_id, "orderId": order.id},
-                    exc_info=True,
-                )
+    if outcome.delivered is False:
+        await _warn_delivery(callback, label, outcome.reason or "невідома причина")

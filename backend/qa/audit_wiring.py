@@ -409,9 +409,25 @@ _alerts = read("backend/shop/alerts.py")
 check("DEDUP_WINDOW" in _alerts, "однакові помилки згортаються, а не спамлять канал")
 check("RATE_LIMIT" in _alerts, "є межа частоти — Telegram не приймає більше ~20/хв")
 check("_sending" in _alerts, "невдала відправка не породжує нову помилку")
-check("status_messages" in read("backend/api/routers/orders.py")
-      and "status_messages" in read("backend/bot/handlers/admin.py"),
+# Сповіщення панелі, бота й SalesDrive живуть в одному сценарії замовлення.
+# Бот мав власну копію доставки — тепер ні, і сторож стежить, щоб вона не
+# повернулась: копія вже раз розійшлась (реферальний бонус сповіщав лише бот).
+_flow = read("backend/shop/services/order_workflow.py")
+check("status_messages" in _flow
+      and "flow.apply_status" in read("backend/bot/handlers/admin.py")
+      and "compose(" not in read("backend/bot/handlers/admin.py"),
       "статуси описуються одним текстом і з панелі, і з бота")
+check("_notify_referrer" in _flow and "referral.notify.failed" not in read("backend/bot/handlers/admin.py"),
+      "сповіщення про реферальний бонус однакове для панелі, бота й CRM")
+check("order_workflow" in read("backend/api/routers/orders.py")
+      and "flow.apply_status" in read("backend/api/routers/orders.py"),
+      "панель змінює статус через спільний сценарій замовлення")
+check("flow.apply_status" in read("backend/shop/services/salesdrive.py")
+      and "flow.apply_tracking" in read("backend/shop/services/salesdrive.py"),
+      "SalesDrive змінює статус і накладну тим самим сценарієм, що й панель")
+check("flow.apply_tracking" in read("backend/shop/services/waybill.py"),
+      "створена ТТН записується тим самим шляхом, що й вписана руками")
+
 _status = read("backend/shop/services/status_messages.py")
 # CONFIRMED тут немає навмисно: крок прибрано з маршруту, і текст для
 # нього більше нема з чого надіслати. ACCEPTED і SHIPPED теж відсутні —
@@ -476,12 +492,14 @@ import re as _re
 # Будь-який рядок «security.…» у лапках, а не лише перший аргумент
 # record(): код події буває у тернарному виразі, і вужчий розбір
 # оголошував би живу подію мертвою.
+# Усі модулі застосунку, а не ручний перелік файлів: перелік забували
+# доповнювати, і подія нового роутера (вебхук SalesDrive) оголошувалась
+# «ніде не записаною», хоча записувалась.
 _called = set(_re.findall(r'"(security\.[a-z_.]+)"', "\n".join(
-    read(f"backend/{f}") for f in (
-        "api/main.py", "api/auth.py", "api/webapp_auth.py",
-        "api/routers/telegram.py", "api/routers/operators.py",
-        "api/routers/settings.py", "api/routers/backups.py",
-    ))))
+    _f.read_text() for _dir in ("api", "shop", "bot", "scheduler")
+    for _f in (root / "backend" / _dir).rglob("*.py")
+    if _f.name != "security_log.py" and "__pycache__" not in _f.parts
+)))
 _declared = set(_re.findall(r'_e\("(security\.[a-z_.]+)"', _seclog))
 check(_called and _called <= _declared,
       "кожна записувана подія описана в каталозі",
@@ -589,7 +607,7 @@ check("customers.wishlists" in read("dashboard/src/pages/Customers.jsx"),
 check("unlink(missing_ok=True)" in read("backend/qa/qa_common.py"),
       "набори прибирають базу за собою — інакше падають через власні залишки")
 _admin_bot = read("backend/bot/handlers/admin.py")
-check("order.notify.failed" in _admin_bot,
+check("order.notify.failed" in _flow and "_warn_delivery" in _admin_bot,
       "недоставлене сповіщення клієнту не ковтається мовчки")
 check("_warn_delivery" in _admin_bot and "show_alert=True" in _admin_bot,
       "менеджер бачить, що клієнт не отримав повідомлення")
@@ -597,18 +615,17 @@ check("transition_error(order.status, status, order.payment_method)" in _admin_b
       "кнопки бота не обходять маршрут статусів панелі")
 check("status == OrderStatus.SHIPPED and not tracking" in _admin_bot,
       "бот не ставить «Відправлено» без номера накладної")
-check("order.notify.skipped_unreachable" in _admin_bot,
+check("order.notify.skipped_unreachable" in _flow,
       "після chat not found бот не повторює безглузду доставку на кожен статус")
 # Та сама невдача з панелі раніше не лишала нічого: відповідь Telegram
 # просто відкидалась, і менеджер вважав, що клієнта сповіщено.
-check("order.notify.failed" in read("backend/api/routers/orders.py"),
+check("order.notify.failed" in _flow,
       "панель записує ту саму подію, що й чат")
 # Позначка живе довше за одну спробу: за нею вітрина каже людині, що їй
 # нікуди писати, а панель попереджає менеджера заздалегідь.
-check("set_bot_reachable" in read("backend/api/routers/orders.py")
-      and "set_bot_reachable" in _admin_bot,
+check("set_bot_reachable" in _flow and "flow.apply_status" in _admin_bot,
       "результат доставки запамʼятовується")
-check("delivery.permanent" in read("backend/api/routers/orders.py"),
+check("delivery.permanent" in _flow,
       "тимчасовий 502/timeout не позначає клієнта недоступним")
 _bot_main = read("backend/bot/__main__.py")
 check("drop_pending_updates=False" in _bot_main,
@@ -807,6 +824,63 @@ for pack, css_path, srcs_glob in [("вітрина","miniapp/src/styles.css","mi
     absent = sorted(c for c in used if not re.search(rf'\.{re.escape(c)}\b', css))
     check(not absent, f"{pack}: усі класи описані в CSS", absent[:12])
 
+print("\n=== SALESDRIVE І ТТН: одна структура ===")
+_sd = read("backend/shop/services/salesdrive.py")
+_wb = read("backend/shop/services/waybill.py")
+_ship = read("backend/shop/services/shipment.py")
+_svc = read("backend/shop/services/shop_service.py")
+check("shipment.recipient" in _sd and "shipment.recipient" in _wb
+      and "shipment.parcel" in _wb,
+      "заявка CRM і ТТН будуються з однієї структури отримувача й посилки")
+check("novaposhta._call" in _wb and "httpx.AsyncClient" not in _wb.split("async def label_pdf")[0],
+      "ТТН ходить у Нову пошту спільним клієнтом довідника")
+_cos = _svc[_svc.index("async def change_order_status"):_svc.index("_COUNTED =")]
+# Саме умовний запис позначки, а не будь-яка згадка origin поруч: інакше
+# безумовне patch["crm_state"] проходило б перевірку й давало петлю.
+check(re.search(r'if origin != "salesdrive":\s*\n\s*patch\["crm_state"\] = "pending"', _cos)
+      and not re.search(r'^\s{4}patch\["crm_state"\] = "pending"', _cos, re.M),
+      "черга CRM ставиться тим самим записом, що й статус, крім змін із самої CRM")
+check('"crm_state": "pending"' in _svc[_svc.index("repo.create_order(draft"):],
+      "нове замовлення одразу стає в чергу CRM")
+_upd = _sd[_sd.index("def update_payload"):_sd.index("# -------------------------------------------------------------------- HTTP")]
+check('"comment"' not in _upd and "shipping_address" not in _upd,
+      "оновлення заявки не затирає правок, зроблених у CRM")
+check("waybill_source != \"salesdrive\"" in _upd,
+      "ТТН, що прийшла з CRM, не відправляється назад у CRM")
+check("STATE_UNCERTAIN" in _sd and "/api/order/update/" in _sd[_sd.index("async def push_order"):],
+      "після таймауту створення спершу оновлення — без дублів заявок")
+_integr = read("backend/api/routers/integrations.py")
+check("token_matches" in _integr and "compare_digest" in _sd,
+      "токен вебхука порівнюється сталим часом")
+check('HTTPException(404' in _integr, "невірний токен виглядає як неіснуюча адреса")
+_check_fn = _integr[_integr.index("async def salesdrive_check"):_integr.index("async def _check")]
+check("require_sysadmin" in _check_fn, "перевірка звʼязку SalesDrive — лише системний адміністратор")
+check("salesdrive/webhook/" in read("backend/shop/logging_setup.py"),
+      "токен вебхука вирізається з журналу запитів")
+check("/apiKey/" in read("backend/shop/logging_setup.py") and "PRINT_URL" in _wb
+      and "label_pdf" in read("backend/api/routers/orders.py"),
+      "маркування ТТН тягне сервер — ключ Нової пошти в браузер не йде")
+from shop.services.shop_settings import SECRET_FIELDS as _secrets  # noqa: E402
+from api.schemas import ShopSettingsOut as _out_schema  # noqa: E402
+check(not (set(_secrets) & set(_out_schema.model_fields)),
+      "жоден інтеграційний секрет не повертається в панель", sorted(set(_secrets) & set(_out_schema.model_fields)))
+check({"salesdrive_form_key", "salesdrive_api_key", "salesdrive_webhook_token",
+       "salesdrive_domain", "salesdrive_enabled"} <= INFRA_FIELDS,
+      "ключі, домен і ввімкнення SalesDrive — рівень системного адміністратора")
+_models = read("backend/shop/models.py")
+_migration_all = next((root / "backend/alembic/versions").glob("a7c3e1f5d2b9_*.py")).read_text()
+# Лише upgrade: у downgrade ті самі назви стоять у переліку на видалення, і
+# перевірка за назвою проходила б навіть без колонки в upgrade.
+_migration = _migration_all[:_migration_all.index("def downgrade")]
+_cols = ("waybill_ref", "waybill_source", "waybill_cost", "crm_id", "crm_state",
+         "crm_error", "crm_attempts", "crm_synced_at")
+check(all(f"{c}: Mapped" in _models and f'sa.Column("{c}"' in _migration for c in _cols),
+      "кожне поле накладної й CRM є і в моделі, і в міграції",
+      [c for c in _cols if not (f"{c}: Mapped" in _models and f'sa.Column("{c}"' in _migration)])
+_order_page = read("dashboard/src/pages/OrderPage.jsx")
+check("createWaybill" in _order_page and "crmSync" in _order_page and "crm_error" in _order_page,
+      "панель показує ТТН, стан SalesDrive і причину збою біля замовлення")
+
 print("\n=== ВЕРСІЇ Й ДОКУМЕНТИ ===")
 # Тести, прив'язані до точного номера, падають від звичайного підняття
 # версії. Так двічі сталося з вітриною 2.12.0 (client-logging,
@@ -827,6 +901,14 @@ check(not _pinned, "тести не прив'язані до точної вер
 _runner = read("backend/qa/run_all.sh")
 _orphans = [f"{_dir}/{_f.name}" for _dir in ("miniapp/tests", "dashboard/tests")
             for _f in sorted((root / _dir).glob("*.mjs")) if f"tests/{_f.name}" not in _runner]
+_py_suites = [f"backend/{_f.relative_to(root / 'backend')}"
+              for _f in sorted((root / "backend").glob("tests_*.py"))
+              + sorted((root / "backend/qa").glob("qa_*.py"))
+              if _f.name != "qa_common.py"]
+_orphans += [_p for _p in _py_suites
+             if _p.split("backend/", 1)[1] not in _runner]
+# Python-набори теж: tests_bot.py не входив у зведення й падав непоміченим
+# кілька випусків — хоча саме він проганяє кнопки статусу в чаті.
 check(not _orphans, "кожен набір тестів входить у run_all.sh", _orphans)
 dv = read("dashboard/src/version.js"); mv = read("miniapp/src/version.js")
 # Перевіряємо не лише наявність APP_VERSION, а й формат. Порожній рядок

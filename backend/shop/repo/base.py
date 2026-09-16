@@ -179,6 +179,14 @@ class Repository(ABC):
     async def update_order(self, order_id: int, data: dict) -> Order | None: ...
 
     @abstractmethod
+    async def find_order_by_crm_id(self, crm_id: str) -> Order | None:
+        """Замовлення за номером заявки в SalesDrive — з ним приходить вебхук."""
+
+    @abstractmethod
+    async def orders_for_crm_sync(self, states, limit: int = 50) -> list[Order]:
+        """Замовлення, які чекають відправки в CRM або впали на ній."""
+
+    @abstractmethod
     async def count_orders(self, status: OrderStatus | None = None) -> int: ...
 
     @abstractmethod

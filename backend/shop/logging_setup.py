@@ -50,12 +50,20 @@ _REDACT_PATTERNS = [
     re.compile(r"(?i)(bot\d{6,}:[A-Za-z0-9_-]{20,}|\d{6,}:[A-Za-z0-9_-]{20,})"),
     re.compile(r"(?i)((?:token|secret|password|api[_-]?key|init[_-]?data|bot[_-]?token)=)[^&\s]+"),
     re.compile(r"(?i)(authorization:\s*bearer\s+)[A-Za-z0-9._~-]+"),
+    # Токен вебхука SalesDrive стоїть у самому шляху, а шлях пишеться в
+    # журнал кожного запиту. Без цього правила токен лежав би в api.log.
+    re.compile(r"(/api/integrations/salesdrive/webhook/)[^/\s?\"']+"),
+    # Кабінет Нової пошти віддає PDF за адресою з ключем у шляху; текст
+    # помилки httpx містить адресу.
+    re.compile(r"(?i)(/apiKey/)[^/\s\"']+"),
+    re.compile(r"(?i)((?:form-api-key|\"form\")\s*[:=]\s*\"?)[^\"&\s,}]+"),
 ]
 
 def _secret_values() -> list[str]:
     names = ("BOT_TOKEN", "JWT_SECRET", "DATA_ENCRYPTION_KEY", "POSTGRES_PASSWORD",
              "REDIS_PASSWORD", "WEBHOOK_SECRET", "CRON_SECRET", "NOVAPOSHTA_API_KEY",
-             "DASHBOARD_PASSWORD")
+             "DASHBOARD_PASSWORD", "SALESDRIVE_FORM_KEY", "SALESDRIVE_API_KEY",
+             "SALESDRIVE_WEBHOOK_TOKEN")
     return [os.environ.get(name, "") for name in names if len(os.environ.get(name, "")) >= 6]
 
 def redact(value):

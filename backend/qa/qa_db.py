@@ -43,9 +43,9 @@ print("\n--- upgrade/downgrade на чистій базі ---")
 env = dict(os.environ, PYTHONPATH=os.getcwd(),
            DATABASE_URL="sqlite+aiosqlite:////tmp/qa_mig.db")
 if os.path.exists("/tmp/qa_mig.db"): os.remove("/tmp/qa_mig.db")
-up = subprocess.run(["/tmp/venv/bin/alembic","upgrade","head"], capture_output=True, text=True, env=env)
+up = subprocess.run([sys.executable,"-m","alembic","upgrade","head"], capture_output=True, text=True, env=env)
 r.check(up.returncode == 0, "міграції накочуються", (up.stderr or "")[-200:])
-down = subprocess.run(["/tmp/venv/bin/alembic","downgrade","base"], capture_output=True, text=True, env=env)
+down = subprocess.run([sys.executable,"-m","alembic","downgrade","base"], capture_output=True, text=True, env=env)
 r.check(down.returncode == 0, "міграції відкочуються", (down.stderr or "")[-200:])
 
 async def main():

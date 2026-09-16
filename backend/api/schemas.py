@@ -112,6 +112,15 @@ class OrderOut(ORMModel):
     comment: str | None
     admin_note: str | None
     tracking_number: str | None = None
+    # Накладна й стан синхронізації з SalesDrive — одні й ті самі поля,
+    # звідки б не прийшла зміна (панель, бот, CRM).
+    waybill_ref: str | None = None
+    waybill_source: str | None = None
+    waybill_cost: Decimal | None = None
+    crm_id: str | None = None
+    crm_state: str = ""
+    crm_error: str | None = None
+    crm_synced_at: datetime | None = None
     operator_id: int | None = None
     operator_name: str = ""
     created_at: datetime | None = None
@@ -383,7 +392,10 @@ class TopProduct(BaseModel):
 # Похідні поля відповіді: панель бачить їх у GET, але записувати нема
 # чого — вони обчислюються з інших. Перелічені поіменно, щоб одруківка
 # й далі падала, а власна ж відповідь приймалась назад без правок.
-DERIVED_FIELDS = {"novaposhta_connected"}
+DERIVED_FIELDS = {
+    "novaposhta_connected", "salesdrive_form_connected",
+    "salesdrive_api_connected", "salesdrive_webhook_connected",
+}
 
 
 class ShopSettingsIn(BaseModel):
@@ -397,6 +409,24 @@ class ShopSettingsIn(BaseModel):
     # Одне зайве ім'я відхиляло весь запит, і зберегти не вдавалось
     # нічого. Тому похідні поля відкидаємо мовчки й поіменно.
     model_config = ConfigDict(extra="forbid")
+
+    @field_validator("salesdrive_status_map", "salesdrive_payment_map",
+                     "salesdrive_shipping_map", mode="after")
+    @classmethod
+    def _mapping_json(cls, value, info):
+        """Відповідності — JSON-обʼєкт «наше значення → значення SalesDrive».
+
+        Перевіряємо на вході, а не при першій синхронізації: зіпсований
+        JSON, прийнятий панеллю, тихо вимкнув би передачу статусів, і про
+        це дізнались би з CRM, де замовлення тижнями стоять «новими».
+        """
+        if value is None or not value.strip():
+            return value
+        from shop.services.salesdrive import validate_mapping
+        problem = validate_mapping(info.field_name, value)
+        if problem:
+            raise ValueError(problem)
+        return value
 
     @model_validator(mode="before")
     @classmethod
@@ -432,6 +462,24 @@ class ShopSettingsIn(BaseModel):
     # скомпрометований ключ неможливо було б прибрати з панелі.
     novaposhta_api_key: str | None = Field(None, max_length=128)
     novaposhta_sender_city: str | None = Field(None, max_length=128)
+    novaposhta_sender_phone: str | None = Field(None, max_length=32)
+    novaposhta_sender_warehouse_ref: str | None = Field(None, max_length=64)
+    novaposhta_sender_warehouse: str | None = Field(None, max_length=255)
+    novaposhta_cargo_description: str | None = Field(None, max_length=100)
+    salesdrive_enabled: bool | None = None
+    # Лише субдомен: «elfar» з elfar.salesdrive.me. Повну адресу збирає
+    # код — так ключ неможливо відправити на чужий хост одруківкою.
+    salesdrive_domain: str | None = Field(
+        None, max_length=63, pattern=r"^$|^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
+    # Секрети, як і ключ Нової пошти: записуються, але не читаються.
+    salesdrive_form_key: str | None = Field(None, max_length=128)
+    salesdrive_api_key: str | None = Field(None, max_length=128)
+    salesdrive_webhook_token: str | None = Field(
+        None, max_length=128, pattern=r"^$|^[A-Za-z0-9_-]{24,128}$")
+    salesdrive_site: str | None = Field(None, max_length=128)
+    salesdrive_status_map: str | None = Field(None, max_length=2000)
+    salesdrive_payment_map: str | None = Field(None, max_length=1000)
+    salesdrive_shipping_map: str | None = Field(None, max_length=1000)
     delivery_courier_enabled: bool | None = None
     faq_public_enabled: bool | None = None
     faq_admin_chat_enabled: bool | None = None
@@ -544,6 +592,19 @@ class ShopSettingsOut(BaseModel):
     # «підключено», а щоб замінити ключ — його вписують наново.
     novaposhta_connected: bool
     novaposhta_sender_city: str
+    novaposhta_sender_phone: str
+    novaposhta_sender_warehouse_ref: str
+    novaposhta_sender_warehouse: str
+    novaposhta_cargo_description: str
+    salesdrive_enabled: bool
+    salesdrive_domain: str
+    salesdrive_form_connected: bool
+    salesdrive_api_connected: bool
+    salesdrive_webhook_connected: bool
+    salesdrive_site: str
+    salesdrive_status_map: str
+    salesdrive_payment_map: str
+    salesdrive_shipping_map: str
     delivery_courier_enabled: bool
     faq_public_enabled: bool
     faq_admin_chat_enabled: bool

@@ -14,7 +14,8 @@ A = {"Authorization": "Bearer " + c.post("/api/auth/login", json={"login":"admin
 print("\n--- класифікація ---")
 runtime = {f.name for f in dfields(ShopSettings)}
 SECRETS = {"bot_token","jwt_secret","dashboard_password","dashboard_login","webhook_secret",
-           "cron_secret","redis_url","database_url","postgres_password"}
+           "cron_secret","redis_url","database_url","postgres_password",
+           "data_encryption_key","redis_password"}
 INFRA = {"serverless","db_pool_size","db_pool_overflow","postgres_host",
          "postgres_port","postgres_user","postgres_db","enable_api_docs","cors_origins",
          "backup_dir","scheduler_interval_seconds","log_dir","log_json","log_level","media_dir"}
@@ -39,8 +40,8 @@ r.check(all(not any(str(v).startswith("777001:") for v in i.values()) for i in i
         "значень секретів у звіті немає")
 
 print("\n--- права ---")
-c.post("/api/operators", json={"login":"olena","name":"О","password":"kvitka2026"}, headers=A)
-O = {"Authorization": "Bearer " + c.post("/api/auth/login", json={"login":"olena","password":"kvitka2026"}).json()["access_token"]}
+c.post("/api/operators", json={"login":"olena","name":"О","password":"kvitka-sadok-2026"}, headers=A)
+O = {"Authorization": "Bearer " + c.post("/api/auth/login", json={"login":"olena","password":"kvitka-sadok-2026"}).json()["access_token"]}
 r.check(c.get("/api/settings/environment", headers=O).status_code == 403,
         "менеджер не бачить стану сервера")
 r.check(c.get("/api/settings/environment").status_code in (401,403), "без токена закрито")

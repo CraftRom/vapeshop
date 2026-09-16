@@ -6,6 +6,7 @@ Postgres, і на Firestore. Тут живуть усі правила — зн�
 """
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -16,6 +17,8 @@ from shop.entities import (
     STATUS_LABELS, Order, OrderLine, OrderStatus, Promo, PromoType, User,
 )
 from shop.repo.base import Repository
+
+log = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------- користувачі
@@ -207,6 +210,10 @@ async def create_order(
         for line in lines
     ]
     order = await repo.create_order(draft, order_lines)
+    # Нове замовлення одразу стає в чергу CRM — тим самим механізмом, що й
+    # зміни статусу. Окремої «первинної вивантажки» немає.
+    await repo.update_order(order.id, {"crm_state": "pending"})
+    _push_to_crm_soon(order.id)
 
     for line in lines:
         await repo.adjust_stock(line.product_id, -line.qty)
@@ -334,14 +341,23 @@ def transition_error(
 
 
 async def change_order_status(
-    repo: Repository, order: Order, status: OrderStatus
+    repo: Repository, order: Order, status: OrderStatus, *, origin: str = "shop",
 ) -> Decimal | None:
-    """Змінює статус. Повертає нараховану реферальну винагороду, якщо була."""
+    """Змінює статус. Повертає нараховану реферальну винагороду, якщо була.
+
+    Єдина точка зміни статусу для всіх джерел: панелі, бота, скасування
+    покупцем і SalesDrive. Тому й позначка для CRM ставиться тут, тим самим
+    записом, що й статус: зміна, яка оминула б черговість синхронізації,
+    просто неможлива. Виняток — зміна, що прийшла із самої CRM.
+    """
     previous = order.status
     if previous == status:
         return None
 
-    await repo.update_order(order.id, {"status": status})
+    patch: dict = {"status": status}
+    if origin != "salesdrive":
+        patch["crm_state"] = "pending"
+    await repo.update_order(order.id, patch)
     order.status = status
 
     became_paid = previous not in _COUNTED and status in _COUNTED
@@ -351,6 +367,9 @@ async def change_order_status(
         await _bump_user_totals(repo, order, +1)
     elif left_paid:
         await _bump_user_totals(repo, order, -1)
+
+    if origin != "salesdrive":
+        _push_to_crm_soon(order.id)
 
     if status == OrderStatus.DONE:
         return await _pay_referral(repo, order)
@@ -366,6 +385,16 @@ async def change_order_status(
 
 
 _COUNTED = (OrderStatus.PAID, OrderStatus.SHIPPED, OrderStatus.DONE)
+
+
+def _push_to_crm_soon(order_id: int) -> None:
+    """Відправка в SalesDrive у фоні. Збій тут не має зачепити замовлення:
+    позначка pending уже в базі, і планувальник дожене її."""
+    try:
+        from shop.services import salesdrive
+        salesdrive.push_soon(order_id)
+    except Exception:
+        log.exception("Не вдалося запланувати синхронізацію замовлення %s", order_id)
 
 
 async def _bump_user_totals(repo: Repository, order: Order, sign: int) -> None:

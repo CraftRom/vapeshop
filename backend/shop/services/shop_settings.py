@@ -21,6 +21,16 @@ from shop.secret_crypto import encrypt_secret, decrypt_secret
 # з панелі доїде максимум за цей час.
 CACHE_TTL_SECONDS = 30
 
+# Інтеграційні секрети: зберігаються зашифрованими й ніколи не віддаються
+# в панель — замість них відповідь містить ознаку «підключено». Перелік
+# поіменний, щоб новий секрет потрапляв сюди свідомо, а не за збігом назви.
+SECRET_FIELDS = (
+    "novaposhta_api_key",
+    "salesdrive_form_key",
+    "salesdrive_api_key",
+    "salesdrive_webhook_token",
+)
+
 
 @dataclass
 class ShopSettings:
@@ -67,6 +77,19 @@ class ShopSettings:
     # назад: панель бачить лише ознаку «підключено» (novaposhta_connected).
     novaposhta_api_key: str
     novaposhta_sender_city: str
+    novaposhta_sender_phone: str
+    novaposhta_sender_warehouse_ref: str
+    novaposhta_sender_warehouse: str
+    novaposhta_cargo_description: str
+    salesdrive_enabled: bool
+    salesdrive_domain: str
+    salesdrive_form_key: str
+    salesdrive_api_key: str
+    salesdrive_webhook_token: str
+    salesdrive_site: str
+    salesdrive_status_map: str
+    salesdrive_payment_map: str
+    salesdrive_shipping_map: str
     delivery_courier_enabled: bool
     faq_public_enabled: bool
     faq_admin_chat_enabled: bool
@@ -136,6 +159,19 @@ class ShopSettings:
             cod_commission_fixed=Decimal(str(settings.cod_commission_fixed)),
             novaposhta_api_key=settings.novaposhta_api_key,
             novaposhta_sender_city=settings.novaposhta_sender_city,
+            novaposhta_sender_phone=settings.novaposhta_sender_phone,
+            novaposhta_sender_warehouse_ref=settings.novaposhta_sender_warehouse_ref,
+            novaposhta_sender_warehouse=settings.novaposhta_sender_warehouse,
+            novaposhta_cargo_description=settings.novaposhta_cargo_description,
+            salesdrive_enabled=settings.salesdrive_enabled,
+            salesdrive_domain=settings.salesdrive_domain,
+            salesdrive_form_key=settings.salesdrive_form_key,
+            salesdrive_api_key=settings.salesdrive_api_key,
+            salesdrive_webhook_token=settings.salesdrive_webhook_token,
+            salesdrive_site=settings.salesdrive_site,
+            salesdrive_status_map=settings.salesdrive_status_map,
+            salesdrive_payment_map=settings.salesdrive_payment_map,
+            salesdrive_shipping_map=settings.salesdrive_shipping_map,
             delivery_courier_enabled=settings.delivery_courier_enabled,
             faq_public_enabled=settings.faq_public_enabled,
             faq_admin_chat_enabled=settings.faq_admin_chat_enabled,
@@ -169,6 +205,27 @@ class ShopSettings:
         щоб зрозуміти стан: підключено чи ні.
         """
         return bool((self.novaposhta_api_key or "").strip())
+
+    @property
+    def salesdrive_form_connected(self) -> bool:
+        """Ключ форми SalesDrive задано. Сам ключ панель не бачить."""
+        return bool((self.salesdrive_form_key or "").strip())
+
+    @property
+    def salesdrive_api_connected(self) -> bool:
+        """API-ключ SalesDrive (читання заявок) задано."""
+        return bool((self.salesdrive_api_key or "").strip())
+
+    @property
+    def salesdrive_webhook_connected(self) -> bool:
+        """Токен адреси вебхука задано."""
+        return bool((self.salesdrive_webhook_token or "").strip())
+
+    @property
+    def salesdrive_ready(self) -> bool:
+        """Інтеграція увімкнена й має з чим працювати."""
+        return bool(self.salesdrive_enabled and self.salesdrive_form_connected
+                    and (self.salesdrive_domain or "").strip())
 
     def volume_discount_for(self, subtotal: Decimal) -> Decimal:
         """Автоматична знижка за суму замовлення. Нуль — якщо не діє."""
@@ -232,7 +289,8 @@ class ShopSettings:
     def to_storage(self) -> dict[str, str]:
         """Усе зберігаємо рядками; інтеграційні секрети — зашифровано."""
         out = {key: str(value) for key, value in asdict(self).items()}
-        out["novaposhta_api_key"] = encrypt_secret(out.get("novaposhta_api_key", ""))
+        for name in SECRET_FIELDS:
+            out[name] = encrypt_secret(out.get(name, ""))
         return out
 
     @classmethod
@@ -266,7 +324,7 @@ class ShopSettings:
                     cleaned = str(value)
                     if f.name == "public_url":
                         cleaned = canonical_public_url(cleaned)
-                    elif f.name == "novaposhta_api_key":
+                    elif f.name in SECRET_FIELDS:
                         cleaned = decrypt_secret(cleaned)
                     setattr(base, f.name, cleaned)
             except (ValueError, ArithmeticError):
@@ -335,7 +393,9 @@ async def save_shop_settings(repo, data: dict) -> ShopSettings:
     # ще півдоби показував би відповіді, отримані попереднім ключем, і
     # той, хто щойно вписав новий, вирішив би, що він не спрацював.
     if current.novaposhta_api_key != merged.novaposhta_api_key:
-        from shop.services import novaposhta
+        from shop.services import novaposhta, waybill
 
         novaposhta.reset_cache()
+        # Відправник прив'язаний до ключа: інший ключ — інший кабінет.
+        waybill.reset_sender_cache()
     return merged

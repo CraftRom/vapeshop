@@ -212,3 +212,21 @@ async def forget_old_chat_files() -> int:
     if cleared:
         log.info("Прибрано вкладень за строком зберігання: %s", cleared)
     return cleared
+
+
+async def sync_salesdrive() -> dict:
+    """Доганяє чергу SalesDrive: відправки, що не пройшли одразу.
+
+    Основна відправка йде з процесу API в мить зміни. Тут — страховка:
+    SalesDrive лежав, ключ поміняли, API перезапустився посеред запиту.
+    """
+    from shop.repo.factory import open_repo
+    from shop.services import salesdrive
+
+    async with open_repo() as repo:
+        result = await salesdrive.sync_pending(repo)
+    if result.get("synced") or result.get("failed"):
+        log.info("SalesDrive: синхронізовано %s, не вдалося %s",
+                 result.get("synced", 0), result.get("failed", 0),
+                 extra={"event": "salesdrive.sync.pass", **result})
+    return result

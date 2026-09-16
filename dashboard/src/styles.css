@@ -321,6 +321,11 @@ button, input, select, textarea { font-family: inherit; font-size: 14px; }
 textarea.input { resize: vertical; min-height: 88px; }
 
 .field { display: flex; flex-direction: column; gap: 6px; }
+/* Сусідні поля поза .stack: підказка під одним полем налягала на підпис
+   наступного, і було неясно, до якого поля вона стосується. Так виглядали
+   всі групи налаштувань і поля накладної й нотатки в замовленні. */
+.field + .field { margin-top: 16px; }
+.stack > .field + .field { margin-top: 0; }
 .field > label { font-size: 12px; font-weight: 600; color: var(--muted); }
 .field .hint { font-size: 12px; color: var(--faint); }
 
@@ -3846,3 +3851,27 @@ button.support-stat:hover { border-color: rgba(139, 123, 240, 0.38); }
 }
 
 /* Notification audio routing fix 1.31.9: volume is applied post-compressor. */
+
+/* ---------------------------------------------- накладна й SalesDrive у замовленні */
+
+.waybill-panel {
+  display: grid;
+  gap: 10px;
+  margin: 4px 0 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--line, rgba(255, 255, 255, 0.08));
+  border-radius: 12px;
+}
+
+.waybill-row { gap: 10px; flex-wrap: wrap; }
+.waybill-hint { margin: 6px 0 0; }
+.bad-text { color: var(--rose); }
+
+/* Відповідність статусів SalesDrive: рядок «наш статус → значення CRM» */
+.map-editor { display: grid; gap: 8px; }
+.map-row { display: grid; grid-template-columns: minmax(120px, 1fr) minmax(120px, 1fr); gap: 10px; align-items: center; }
+.webhook-url { word-break: break-all; }
+
+@media (max-width: 560px) {
+  .map-row { grid-template-columns: 1fr; gap: 4px; }
+}

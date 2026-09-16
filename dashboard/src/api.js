@@ -160,6 +160,13 @@ export const api = {
     sendMessage: (id, text) =>
       request(`/orders/${id}/messages`, { method: 'POST', body: { text } }),
     unread: () => request('/orders/unread/counts'),
+    // Накладна й CRM — ті самі поля замовлення, звідки б не прийшла зміна
+    waybillReadiness: (id) => request(`/orders/${id}/waybill/readiness`),
+    createWaybill: (id) => request(`/orders/${id}/waybill`, { method: 'POST' }),
+    deleteWaybill: (id) => request(`/orders/${id}/waybill`, { method: 'DELETE' }),
+    // PDF тягне сервер: адреса кабінету Нової пошти містить ключ API
+    waybillLabelUrl: (id) => `${BASE}/orders/${id}/waybill/label`,
+    crmSync: (id) => request(`/orders/${id}/crm-sync`, { method: 'POST' }),
     // Вкладення тягнеться через бекенд, а не напряму з Telegram:
     // пряме посилання містило б токен бота у відкритому вигляді
     fileUrl: (orderId, messageId) => `${BASE}/orders/${orderId}/files/${messageId}`,
@@ -357,6 +364,7 @@ export const api = {
 
   settings: {
     environment: () => request('/settings/environment'),
+    salesdriveCheck: () => request('/integrations/salesdrive/check', { method: 'POST' }),
     get: () => request('/settings'),
     update: (data) => request('/settings', { method: 'PUT', body: data }),
   },

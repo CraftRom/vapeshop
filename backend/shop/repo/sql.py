@@ -99,6 +99,10 @@ def _order(row, with_user: bool = False) -> Order | None:
         delivery_warehouse_ref=row.delivery_warehouse_ref,
         comment=row.comment,
         admin_note=row.admin_note, tracking_number=row.tracking_number,
+        waybill_ref=row.waybill_ref, waybill_source=row.waybill_source,
+        waybill_cost=_dec(row.waybill_cost) if row.waybill_cost is not None else None,
+        crm_id=row.crm_id, crm_state=row.crm_state or "", crm_error=row.crm_error,
+        crm_attempts=row.crm_attempts or 0, crm_synced_at=row.crm_synced_at,
         operator_id=row.operator_id, operator_name=row.operator_name or "",
         referral_paid=row.referral_paid,
         created_at=row.created_at, search_key=row.search_key or "",
@@ -496,6 +500,33 @@ class SqlRepository(Repository):
             setattr(row, key, value)
         await self.s.commit()
         return _order(row, with_user=True)
+
+    async def find_order_by_crm_id(self, crm_id: str) -> Order | None:
+        row = await self.s.scalar(
+            select(m.Order).where(m.Order.crm_id == str(crm_id))
+            .options(selectinload(m.Order.items), selectinload(m.Order.user))
+        )
+        return _order(row, with_user=True)
+
+    async def orders_for_crm_sync(self, states, limit: int = 50) -> list[Order]:
+        from datetime import datetime, timedelta, timezone
+        from sqlalchemy import and_, or_
+        states = list(states)
+        # «creating» свіжий — означає, що відправка саме йде в процесі API.
+        # Узяти його зараз означало б створити дубль заявки. Старший за
+        # десять хвилин — процес упав посеред запиту, і стан невідомий.
+        stale = datetime.now(timezone.utc) - timedelta(minutes=10)
+        plain = [s for s in states if s != "creating"]
+        condition = m.Order.crm_state.in_(plain)
+        if "creating" in states:
+            condition = or_(condition, and_(m.Order.crm_state == "creating",
+                                            m.Order.updated_at < stale))
+        rows = await self.s.scalars(
+            select(m.Order).where(condition)
+            .options(selectinload(m.Order.items), selectinload(m.Order.user))
+            .order_by(m.Order.id).limit(limit)
+        )
+        return [_order(r, with_user=True) for r in rows]
 
     async def count_orders(self, status=None) -> int:
         query = select(func.count(m.Order.id))

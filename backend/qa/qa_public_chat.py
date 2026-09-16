@@ -377,39 +377,44 @@ r.check(Settings.model_fields["faq_public_enabled"].default is True,
         Settings.model_fields["faq_public_enabled"].default)
 
 print("\n--- входи у вітрину ---")
-# Кнопка з web_app у клавіатурі під полем вводу на частині клієнтів не
-# спрацьовує: натискання є, застосунок не відкривається. Синя кнопка
-# «Магазин» біля поля вводу при цьому працює, тож справа не в адресі й
-# не в домені бота. Тому входів має бути щонайменше два, і другий —
-# вбудована кнопка під повідомленням, яку підтримують усі клієнти.
+# Reply Keyboard WebApp у Telegram є Simple WebView. Він не є тим самим
+# авторизованим контекстом, що inline/menu WebView, тому вітрина, яка
+# покладається на initData користувача, не має запускатися цим шляхом.
 import pathlib                                                       # noqa: E402
 
 from bot import keyboards as _kb                                     # noqa: E402
 from shop.services.shop_settings import current as _now              # noqa: E402
 from shop.services.shop_settings import prime_cache as _prime        # noqa: E402
 
-# Без адреси вітрини кнопок Mini App не існує взагалі — це окремий,
-# уже перевірений випадок. Тут перевіряємо налаштований магазин.
 _shop = _now()
 _shop.public_url = "https://example.test"
 _prime(_shop)
 
 _menu = _kb.main_menu()
-_web_in_keyboard = any(
-    getattr(button, "web_app", None)
-    for row in _menu.keyboard for button in row
+_shop_buttons = [
+    button for row in _menu.keyboard for button in row
+    if getattr(button, "text", "") == "🛍 Відкрити магазин"
+]
+r.check(len(_shop_buttons) == 1, "нижня кнопка магазину присутня рівно один раз")
+r.check(
+    bool(_shop_buttons) and getattr(_shop_buttons[0], "web_app", None) is None,
+    "нижня кнопка є текстовою: Simple WebView більше не відкриває анонімну сесію",
 )
 _inline = _kb.open_shop()
-r.check(_inline is not None, "вбудована кнопка вітрини існує")
+r.check(_inline is not None, "авторизована inline-кнопка вітрини існує")
 r.check(
     _inline and any(
         getattr(button, "web_app", None)
         for row in _inline.inline_keyboard for button in row
     ),
-    "і вона справді відкриває Mini App, а не веде посиланням",
+    "inline-кнопка відкриває повноцінний Telegram WebView",
 )
-r.check(_web_in_keyboard, "кнопка в клавіатурі лишається: на більшості клієнтів вона працює")
-r.check("_offer_shop" in pathlib.Path("bot/handlers/start.py").read_text(),
-        "вітальне повідомлення несе вбудовану кнопку з собою")
+_start_source = pathlib.Path("bot/handlers/start.py").read_text()
+r.check('F.text == "🛍 Відкрити магазин"' in _start_source,
+        "натискання нижньої текстової кнопки має окремий handler")
+r.check('F.text == "ℹ️ Довідка"' in _start_source and 'Command("help")' in _start_source,
+        "кнопка «Довідка» більше не помилково запускає магазин")
+r.check("_offer_shop" in _start_source,
+        "handler магазину надсилає авторизовану inline-кнопку")
 
 r.done()

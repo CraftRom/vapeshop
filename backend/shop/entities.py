@@ -163,6 +163,18 @@ class Order:
     comment: str | None = None
     admin_note: str | None = None
     tracking_number: str | None = None
+    # Накладна: ref у Новій пошті (для видалення й друку), звідки взялась
+    # (manual — вписали руками, novaposhta — створена з панелі,
+    # salesdrive — прийшла з CRM) і вартість доставки за даними перевізника.
+    waybill_ref: str | None = None
+    waybill_source: str | None = None
+    waybill_cost: Decimal | None = None
+    # Синхронізація з SalesDrive (див. shop/services/salesdrive.py)
+    crm_id: str | None = None
+    crm_state: str = ""
+    crm_error: str | None = None
+    crm_attempts: int = 0
+    crm_synced_at: datetime | None = None
     operator_id: int | None = None
     operator_name: str = ""
     referral_paid: bool = False

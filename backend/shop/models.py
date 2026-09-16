@@ -205,6 +205,16 @@ class Order(Base):
     comment: Mapped[str | None] = mapped_column(Text)
     admin_note: Mapped[str | None] = mapped_column(Text)
     tracking_number: Mapped[str | None] = mapped_column(String(64))
+    # Спільний облік накладної й синхронізації з SalesDrive — пояснення в
+    # міграції a7c3e1f5d2b9 і в shop/services/order_workflow.py.
+    waybill_ref: Mapped[str | None] = mapped_column(String(64))
+    waybill_source: Mapped[str | None] = mapped_column(String(16))
+    waybill_cost: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    crm_id: Mapped[str | None] = mapped_column(String(32), index=True)
+    crm_state: Mapped[str] = mapped_column(String(16), default="", server_default="", index=True)
+    crm_error: Mapped[str | None] = mapped_column(String(512))
+    crm_attempts: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    crm_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # Хто веде замовлення — показується клієнту після «Прийнято»
     operator_id: Mapped[int | None] = mapped_column(Integer)
     operator_name: Mapped[str] = mapped_column(String(128), default="")

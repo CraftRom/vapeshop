@@ -47,6 +47,11 @@ INFRA_FIELDS = {
     # зробити викрадену сесію дійсною на місяць. Це рішення власника
     # системи, а не того, хто веде каталог.
     "jwt_ttl_hours",
+    # SalesDrive: ключі дають писати в CRM від імені магазину, а токен
+    # вебхука — міняти статуси й накладні замовлень. Це рівень власника
+    # системи, а не адміністратора магазину.
+    "salesdrive_enabled", "salesdrive_domain", "salesdrive_form_key",
+    "salesdrive_api_key", "salesdrive_webhook_token",
 }
 
 
@@ -58,7 +63,9 @@ def _out(shop) -> ShopSettingsOut:
     «підключено», якої немає серед збережених полів.
     """
     stored = {f.name: getattr(shop, f.name) for f in fields(shop)}
-    stored["novaposhta_connected"] = shop.novaposhta_connected
+    for flag in ("novaposhta_connected", "salesdrive_form_connected",
+                 "salesdrive_api_connected", "salesdrive_webhook_connected"):
+        stored[flag] = getattr(shop, flag)
     return ShopSettingsOut(**{
         key: value for key, value in stored.items()
         if key in ShopSettingsOut.model_fields

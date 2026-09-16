@@ -24,7 +24,7 @@ import signal
 from shop.config import settings
 from shop.logging_setup import setup as setup_logging
 from scheduler.tasks import (
-    forget_old_chat_files, run_backup_if_due, run_due_broadcasts,
+    forget_old_chat_files, run_backup_if_due, run_due_broadcasts, sync_salesdrive,
 )
 
 setup_logging("scheduler")
@@ -44,6 +44,11 @@ async def tick(state: dict) -> None:
         await run_backup_if_due(state)
     except Exception:
         log.exception("Помилка під час бекапу")
+    # Черга SalesDrive: усе, що API не зміг відправити одразу.
+    try:
+        await sync_salesdrive()
+    except Exception:
+        log.exception("Помилка під час синхронізації з SalesDrive")
 
     # Раз на добу, а не щотіку: запит проходить по всіх виконаних
     # замовленнях, а строк зберігання рахується днями — частіше просто

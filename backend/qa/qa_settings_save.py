@@ -55,7 +55,8 @@ r.check(not (incoming - stored),
 # його назад не можна. Замість значення панель читає ознаку
 # novaposhta_connected. Поіменний перелік потрібен саме для того, щоб
 # наступний секрет потрапляв сюди свідомо, а не за збігом у назві.
-WRITE_ONLY = {"novaposhta_api_key"}
+WRITE_ONLY = {"novaposhta_api_key", "salesdrive_form_key",
+              "salesdrive_api_key", "salesdrive_webhook_token"}
 
 invisible = incoming - outgoing - WRITE_ONLY
 r.check(not invisible,
@@ -106,6 +107,18 @@ def sample(name: str, field):
         return 7.0
     if name == "timezone":
         return "Europe/Warsaw"
+    # Поля SalesDrive мають формат: субдомен, токен, JSON-відповідності.
+    # Довільний рядок їх не проходить — і правильно.
+    if name == "salesdrive_domain":
+        return "probe-shop"
+    if name == "salesdrive_webhook_token":
+        return "probe_token_0123456789abcdef"
+    if name == "salesdrive_status_map":
+        return '{"new": "1", "shipped": "5"}'
+    if name == "salesdrive_payment_map":
+        return '{"card": "Картка", "cod": "Накладений платіж"}'
+    if name == "salesdrive_shipping_map":
+        return '{"warehouse": "Нова Пошта"}'
     if name in ("public_url",):
         return "https://example-shop.test"
     if name in ("bot_username", "miniapp_short_name"):

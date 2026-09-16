@@ -6,12 +6,12 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
 from api.auth import Principal, require_staff, require_sysadmin
 from api.schemas import OrderMessageIn, OrderMessageOut, OrderMessageResult, OrderOut, OrderPatch
-from shop.entities import STATUS_LABELS, OrderStatus
+from shop.entities import OrderStatus
 from shop.repo.base import Repository
 from shop.repo.factory import get_repo
-from shop.services.order_chat import send_tracking_update, announce_accepted, send_to_client, send_tracking
+from shop.services import order_workflow as flow
+from shop.services.order_chat import announce_accepted, send_to_client
 from shop.services.shop_service import change_order_status, transition_error
-from shop.telegram import notify_user_detailed
 
 log = logging.getLogger(__name__)
 
@@ -119,107 +119,141 @@ async def patch_order(
     who: Principal = Depends(require_staff),
     repo: Repository = Depends(get_repo),
 ):
+    """Нотатка, накладна, статус — через спільний сценарій замовлення.
+
+    Правила переходів, вимога накладної для «Відправлено», сповіщення
+    клієнта й черга SalesDrive живуть в order_workflow. Раніше вони були
+    написані тут, а SalesDrive вимагав би третьої копії.
+    """
     order = await repo.get_order(order_id)
     if not order:
         raise HTTPException(404, "Замовлення не знайдено")
 
-    patch: dict = {}
     if data.admin_note is not None:
-        patch["admin_note"] = data.admin_note
-    if data.tracking_number is not None:
-        patch["tracking_number"] = data.tracking_number.strip()
-    if patch:
-        await repo.update_order(order_id, patch)
+        await repo.update_order(order_id, {"admin_note": data.admin_note})
 
-    # Накладну виправили, коли замовлення вже в дорозі — клієнт має дізнатися
-    new_tracking = (data.tracking_number or "").strip()
-    if (
-        new_tracking
-        and order.status == OrderStatus.SHIPPED
-        and new_tracking != (order.tracking_number or "")
-        and data.status is None
-    ):
-        bot = _bot()
-        if bot:
-            fresh = await repo.get_order(order_id)
-            await send_tracking_update(bot, repo, fresh, new_tracking)
-
-    # Перехід у «Відправлено» без накладної залишив би клієнта без
-    # найпотрібнішої інформації, тож просимо її одразу
-    tracking = (data.tracking_number or order.tracking_number or "").strip()
-    if data.status == OrderStatus.SHIPPED and not tracking:
-        raise HTTPException(422, "Вкажіть номер накладної — він потрібен клієнту")
-
+    bot = _bot()
+    # Спершу перевіряємо статус, потім пишемо накладну: відмова в переході
+    # не має лишати половину змін збереженою.
     if data.status and data.status != order.status:
+        tracking_after = flow._normalize_tracking(
+            data.tracking_number if data.tracking_number is not None else order.tracking_number)
+        # Порядок перевірок той самий, що був до спільного сценарію: спершу
+        # накладна (422), потім перехід (409). Панель розрізняє ці коди.
+        if data.status == OrderStatus.SHIPPED and not tracking_after:
+            raise HTTPException(422, "Вкажіть номер накладної — він потрібен клієнту")
         problem = transition_error(order.status, data.status, order.payment_method)
         if problem:
             raise HTTPException(409, problem)
 
-        await change_order_status(repo, order, data.status)
-        fresh = await repo.get_order(order_id)
+    if data.tracking_number is not None:
+        # Сповіщення про виправлену накладну — лише коли статус не
+        # змінюється цим самим запитом: інакше клієнт отримав би два
+        # повідомлення з тим самим номером.
+        await flow.apply_tracking(repo, order, data.tracking_number, origin=flow.ORIGIN_PANEL,
+                                  bot=bot if data.status is None else None)
+        order = await repo.get_order(order_id) or order
 
-        bot = _bot()
-        # Ручний перехід у «Прийнято» лишається як запасний шлях — на
-        # випадок повернення із «Скасованого» чи розбору спадкових
-        # замовлень. Ім'я беремо те, що вже закріплене за замовленням,
-        # і не привласнюємо його тому, хто просто натиснув кнопку.
-        if data.status == OrderStatus.ACCEPTED and bot and fresh:
-            await announce_accepted(bot, repo, fresh, fresh.operator_name)
-        elif data.status == OrderStatus.SHIPPED and bot and fresh:
-            await send_tracking(bot, repo, fresh, tracking)
-        elif order.user and order.user.bot_reachable is False:
-            # Після постійної відмови Bot API повторювати той самий запит на
-            # кожен наступний статус немає сенсу. Будь-яке нове приватне
-            # повідомлення користувача боту повертає прапорець у True через
-            # RepositoryMiddleware.
-            log.info(
-                "Сповіщення по замовленню %s пропущено: чат клієнта недоступний",
-                order.id,
-                extra={"event": "order.notify.skipped_unreachable",
-                       "orderId": order.id, "clientId": order.user.tg_id,
-                       "status": data.status.value},
-            )
-        elif order.user:
-            # Розгорнутий текст замість «статус змінено на …»: клієнт має
-            # дізнатися, що сталося, що буде далі й чи потрібна його дія.
-            # Інакше кожне таке повідомлення породжує питання менеджеру.
-            from shop.services.shop_settings import get_shop_settings
-            from shop.services.status_messages import compose
+    if data.status and data.status != order.status:
+        try:
+            await flow.apply_status(repo, order, data.status, origin=flow.ORIGIN_PANEL, bot=bot)
+        except flow.WorkflowError as exc:
+            raise HTTPException(exc.code, str(exc)) from exc
 
-            shop = await get_shop_settings(repo)
-            text = compose(fresh or order, data.status, shop)
-            delivery = await notify_user_detailed(
-                order.user.tg_id,
-                text or f"Замовлення №{order.id}: статус — "
-                        f"«{STATUS_LABELS[data.status]}».",
-            )
-            # Успішна доставка підтверджує зв'язок. Постійна відмова
-            # («chat not found», blocked, deactivated) — навпаки. Але
-            # timeout/502/429 не змінюють довгоживучий стан клієнта:
-            # Telegram міг упасти на хвилину, а панель раніше трактувала
-            # це так, ніби користувач заблокував бота назавжди.
-            if delivery.delivered:
-                await repo.set_bot_reachable(order.user.tg_id, True)
-            elif delivery.permanent:
-                await repo.set_bot_reachable(order.user.tg_id, False)
+    return await repo.get_order(order_id)
 
-            if not delivery.delivered:
-                # Раніше відповідь просто відкидалась: менеджер міняв
-                # статус із панелі, бачив «збережено» і вважав, що клієнта
-                # сповіщено. У журналі не лишалось нічого — на відміну від
-                # тієї самої дії з чату, де запис був. Тепер подія одна й
-                # та сама, звідки б не натиснули, і сповіщення команді про
-                # неї приходить саме.
-                log.warning(
-                    "Клієнт не отримав сповіщення про статус замовлення %s",
-                    order.id,
-                    extra={"event": "order.notify.failed", "orderId": order.id,
-                           "clientId": order.user.tg_id,
-                           "status": data.status.value,
-                           "permanent": delivery.permanent,
-                           "deliveryError": delivery.error or "unknown"},
-                )
 
+@router.post("/{order_id}/waybill", response_model=OrderOut)
+async def create_waybill(order_id: int, repo: Repository = Depends(get_repo)):
+    """Створює ТТН Нової пошти й записує її в замовлення."""
+    from shop.services import waybill
+    from shop.services.shop_settings import get_shop_settings
+
+    order = await repo.get_order(order_id)
+    if not order:
+        raise HTTPException(404, "Замовлення не знайдено")
+    try:
+        await waybill.create(repo, order, await get_shop_settings(repo), bot=_bot())
+    except waybill.WaybillError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    return await repo.get_order(order_id)
+
+
+@router.get("/{order_id}/waybill/readiness")
+async def waybill_readiness(order_id: int, repo: Repository = Depends(get_repo)):
+    """Чи можна створити ТТН і що заважає. Кнопка в панелі показує причину
+    заздалегідь, а не після натискання."""
+    from shop.services import waybill
+    from shop.services.shop_settings import get_shop_settings
+
+    order = await repo.get_order(order_id)
+    if not order:
+        raise HTTPException(404, "Замовлення не знайдено")
+    problem = waybill.readiness(order, await get_shop_settings(repo))
+    return {"ready": problem is None, "problem": problem}
+
+
+@router.delete("/{order_id}/waybill", response_model=OrderOut)
+async def delete_waybill(order_id: int, repo: Repository = Depends(get_repo)):
+    """Видаляє ТТН, створену з панелі, у Новій пошті й у замовленні."""
+    from shop.services import waybill
+    from shop.services.shop_settings import get_shop_settings
+
+    order = await repo.get_order(order_id)
+    if not order:
+        raise HTTPException(404, "Замовлення не знайдено")
+    try:
+        await waybill.delete(repo, order, await get_shop_settings(repo), bot=_bot())
+    except waybill.WaybillError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    return await repo.get_order(order_id)
+
+
+@router.get("/{order_id}/waybill/label")
+async def waybill_label(order_id: int, repo: Repository = Depends(get_repo)):
+    """Маркування ТТН у PDF. Сервер тягне файл сам — ключ у браузер не йде."""
+    from shop.services import waybill
+    from shop.services.shop_settings import get_shop_settings
+
+    order = await repo.get_order(order_id)
+    if not order:
+        raise HTTPException(404, "Замовлення не знайдено")
+    try:
+        pdf = await waybill.label_pdf(order, await get_shop_settings(repo))
+    except waybill.WaybillError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    return Response(pdf, media_type="application/pdf", headers={
+        "Content-Disposition": f'inline; filename="ttn-{order.tracking_number}.pdf"',
+        "Cache-Control": "no-store",
+    })
+
+
+@router.post("/{order_id}/crm-sync", response_model=OrderOut)
+async def retry_crm_sync(order_id: int, repo: Repository = Depends(get_repo)):
+    """Повторна відправка в SalesDrive — після виправлення причини.
+
+    Лічильник спроб скидаємо: планувальник зупиняється після MAX_ATTEMPTS,
+    і людина, яка виправила ключ, має отримати свіжу серію.
+    """
+    from shop.services import salesdrive
+    from shop.services.shop_settings import get_shop_settings
+
+    order = await repo.get_order(order_id)
+    if not order:
+        raise HTTPException(404, "Замовлення не знайдено")
+    shop = await get_shop_settings(repo)
+    if not shop.salesdrive_ready:
+        raise HTTPException(409, "Інтеграцію з SalesDrive вимкнено або не налаштовано")
+    # Заявка вже є — оновлюємо. Створення могло дійти без відповіді —
+    # спершу пробуємо оновити, щоб не створити дубль. Інакше — створюємо.
+    if order.crm_id:
+        state = salesdrive.STATE_SYNCED
+    elif order.crm_state in (salesdrive.STATE_UNCERTAIN, salesdrive.STATE_CREATING):
+        state = salesdrive.STATE_UNCERTAIN
+    else:
+        state = salesdrive.STATE_PENDING
+    await repo.update_order(order_id, {"crm_state": state, "crm_attempts": 0})
+    await salesdrive.push_order(repo, order_id, shop)
     return await repo.get_order(order_id)
 
 

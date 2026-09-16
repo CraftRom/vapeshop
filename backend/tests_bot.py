@@ -346,7 +346,11 @@ async def run(backend: str) -> None:
     await feed(callback_update(bot, "order:confirm"))
     check("замовлення прийнято", "прийнято" in session.all_text(),
           session.all_text()[:100])
-    check("надіслано реквізити картки", "0000 1111 2222 3333" in session.all_text(),
+    # Реквізити картки більше не надсилаються автоматично: їх дає менеджер
+    # у чаті замовлення під конкретну суму й актуальну картку. Перевірка
+    # досі вимагала автоматичної відправки й падала з того часу, як це
+    # змінили, — набір просто не входив у run_all.sh.
+    check("реквізити картки не йдуть автоматично", "0000 1111 2222 3333" not in session.all_text(),
           session.all_text()[:200])
     check("адміну надіслано замовлення", len(session.sent_to(-1009999)) == 1,
           f"{len(session.sent_to(-1009999))}")
@@ -421,6 +425,16 @@ async def run(backend: str) -> None:
     check("звичайний клієнт статистики не отримує",
           "статистика" not in session.all_text().lower(), session.all_text()[:80])
 
+    # Маршрут картки: нове → прийняте → оплачене → відправлене → виконане.
+    # Раніше набір стрибав «нове → оплачене → виконане», чого бот не
+    # дозволяє вже давно. Кнопки йдуть через спільний сценарій замовлення —
+    # той самий, що панель і SalesDrive.
+    await feed(callback_update(bot, f"ao:{order_id}:accepted", tg_id=900001))
+    check("статус «Прийняте»", any("Прийняте" in a for a in session.alerts()), str(session.alerts()))
+    async with open_repo() as repo:
+        check("зміна з чату стала в чергу SalesDrive",
+              (await repo.get_order(order_id)).crm_state == "pending")
+
     await feed(callback_update(bot, f"ao:{order_id}:paid", tg_id=900001))
     check("статус змінено на «Оплачене»",
           any("Оплачене" in a for a in session.alerts()), str(session.alerts()))
@@ -435,8 +449,17 @@ async def run(backend: str) -> None:
           any("накладної" in t or "відправка" in t for t in client_texts),
           str(client_texts)[:150])
 
+    await feed(callback_update(bot, f"ao:{order_id}:shipped", tg_id=900001))
+    check("«Відправлено» без ТТН не ставиться і з чату",
+          any("накладної" in a for a in session.alerts()), str(session.alerts()[-1:]))
+    async with open_repo() as repo:
+        await repo.update_order(order_id, {"tracking_number": "20450000777888"})
+    await feed(callback_update(bot, f"ao:{order_id}:shipped", tg_id=900001))
+    check("клієнт отримав ТТН", any("20450000777888" in t for t in session.sent_to(500001)),
+          str(session.sent_to(500001))[-150:])
+
     await feed(callback_update(bot, f"ao:{order_id}:done", tg_id=900001))
-    check("статус «Виконане»", any("Виконане" in a for a in session.alerts()))
+    check("статус «Виконане»", any("Виконане" in a for a in session.alerts()), str(session.alerts()[-2:]))
 
     async with open_repo() as repo:
         buyer = await repo.get_user(buyer_id)

@@ -1,23 +1,36 @@
 #!/usr/bin/env bash
 # Повний цикл тестування. Запуск: bash qa/run_all.sh
 #
-# Провалом вважається лише позначка ✗ або рядок ПРОВАЛЕНО. Трейсбеки в
-# логах не рахуються: частина наборів навмисно імітує збої Telegram і бази,
-# і виняток там — очікуваний результат, а не поломка.
+# Провалом вважається позначка ✗, рядок ПРОВАЛЕНО або ненульовий код виходу.
+# Трейсбеки в логах самі по собі не рахуються: частина наборів навмисно
+# імітує збої Telegram і бази, і виняток там — очікуваний результат. А от
+# набір, що впав і вийшов з кодом 1, раніше показувався «ok», якщо встиг
+# упасти до першої позначки ✗.
 set -u
 cd "$(dirname "$0")/.."
 export PYTHONPATH="$PWD:$PWD/qa"
 PY="${PY:-python3}"
+
+# Без aiosqlite кожен Python-набір падає на імпорті, і зведення показує
+# десятки однакових провалів замість однієї причини.
+if ! $PY -c "import aiosqlite" 2>/dev/null; then
+  echo "Не встановлено залежності QA: pip install -r requirements-qa.txt"
+  exit 2
+fi
 fail=0
 
 run() {
   printf '  %-13s ' "$1"
   rm -f /tmp/qa_*.db 2>/dev/null
   out=$($PY "$2" 2>&1)
+  code=$?
   summary=$(echo "$out" | grep -E '^[A-ZА-Я ]+: [0-9]+/[0-9]+|Всього провалено|усі контракти' | tail -1)
-  if echo "$out" | grep -qE '✗|ПРОВАЛЕНО'; then
-    echo "ПРОВАЛ — ${summary:-див. деталі}"
+  # Код виходу враховується, як і в run_node. Без цього набір, що падав
+  # із traceback до першої перевірки, показувався «ok».
+  if [[ $code -ne 0 ]] || echo "$out" | grep -qE '✗|ПРОВАЛЕНО'; then
+    echo "ПРОВАЛ (код $code) — ${summary:-див. деталі}"
     echo "$out" | grep -E '✗' | head -5 | sed 's/^/      /'
+    echo "$out" | grep -qE '✗' || echo "$out" | tail -4 | sed 's/^/      /'
     fail=1
   else
     echo "${summary:-ok}"
@@ -94,6 +107,12 @@ echo
 echo "Контракти й дані"
 run contracts tests_contracts.py
 run repo tests_repo.py
+# Наскрізні сценарії бота. Існували, але в зведення не входили — і
+# tests_bot падав непоміченим, відколи маршрут статусів отримав обовʼязкове
+# «Прийнято». Саме він проганяє кнопки статусу в чаті.
+run bot tests_bot.py
+run smoke-api tests_smoke.py
+run api tests_api.py
 echo
 echo "Рівні тестування"
 run smoke qa/qa_smoke.py
@@ -127,6 +146,8 @@ run orders_delete qa/qa_orders_delete.py
 run settings_save qa/qa_settings_save.py
 run novaposhta qa/qa_novaposhta.py
 run e2e qa/qa_e2e.py
+run salesdrive qa/qa_salesdrive.py
+run wishlists qa/qa_wishlists.py
 run performance qa/qa_perf.py
 
 echo

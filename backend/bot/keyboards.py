@@ -98,7 +98,7 @@ def main_menu() -> ReplyKeyboardMarkup:
     if url:
         return ReplyKeyboardMarkup(
             keyboard=[
-                [KeyboardButton(text="🛍 Відкрити магазин", web_app=WebAppInfo(url=url))],
+                [KeyboardButton(text="🛍 Відкрити магазин")],
                 [KeyboardButton(text="🆘 Підтримка"), KeyboardButton(text="ℹ️ Довідка")],
             ],
             resize_keyboard=True,

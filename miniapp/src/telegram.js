@@ -4,7 +4,7 @@
  * якщо його відкрити у звичайному браузері — там SDK просто немає,
  * і кожна функція тихо стає порожньою.
  */
-const tg = window.Telegram?.WebApp
+const webApp = () => window.Telegram?.WebApp
 
 const CACHE_KEY = 'tgInitData'
 const BRIDGE_PARAM = 'elfarInitData'
@@ -66,7 +66,7 @@ function cacheWrite(value) {
 }
 
 function cacheRead() {
-  const currentUserId = String(tg?.initDataUnsafe?.user?.id || '')
+  const currentUserId = String(webApp()?.initDataUnsafe?.user?.id || '')
   for (const store of [window.sessionStorage, window.localStorage]) {
     try {
       const raw = store.getItem(CACHE_KEY)
@@ -162,7 +162,7 @@ function fromSearch() {
  * воно живе рівно стільки, скільки вкладка, і не потрапляє на диск.
  */
 export function getInitData() {
-  const fromSdk = tg?.initData
+  const fromSdk = webApp()?.initData
   if (fromSdk) {
     lastInitDataSource = 'SDK'
     cacheWrite(fromSdk)
@@ -228,7 +228,7 @@ export function startTarget() {
   const fromQuery = new URLSearchParams(window.location.search).get('chat')
   if (fromQuery && /^\d+$/.test(fromQuery)) return { screen: 'chat', orderId: Number(fromQuery) }
 
-  const param = tg?.initDataUnsafe?.start_param || ''
+  const param = webApp()?.initDataUnsafe?.start_param || ''
   const match = /^chat[-_](\d+)$/.exec(param)
   if (match) return { screen: 'chat', orderId: Number(match[1]) }
 
@@ -237,7 +237,7 @@ export function startTarget() {
 
 
 export function initDataSource() {
-  if (tg?.initData) return 'SDK'
+  if (webApp()?.initData) return 'SDK'
   if (fromHash()) return 'fragment URL'
   if (fromBridge()) return 'legacy bridge'
   if (fromSearch()) return 'query URL'
@@ -266,11 +266,11 @@ export async function waitForInitData(timeoutMs = 1500) {
 }
 
 export function ready() {
-  if (!tg) return
-  tg.ready()
-  tg.expand()
+  if (!webApp()) return
+  webApp().ready()
+  webApp().expand()
   // Свайп вниз закриває вікно — при прокрутці каталогу це дратує
-  tg.disableVerticalSwipes?.()
+  webApp()?.disableVerticalSwipes?.()
 }
 
 /** Розбирає #rrggbb у три числа. Повертає null на будь-чому іншому. */
@@ -324,16 +324,16 @@ function contrast(first, second) {
  *  введений текст ставав невидимим.Половина теми гірша за жодну.
  */
 export function applyTheme() {
-  if (!tg) return
+  if (!webApp()) return
   const root = document.documentElement
-  const p = tg.themeParams || {}
+  const p = webApp()?.themeParams || {}
 
   // Фон і текст — основа. Без них решта не має сенсу: змішувати чужий
   // текст із нашим фоном і означає отримати невидимі поля.
   const bg = parseHex(p.bg_color) ? p.bg_color : null
   const text = parseHex(p.text_color) ? p.text_color : null
   if (!bg || !text) {
-    root.dataset.scheme = tg.colorScheme || 'dark'
+    root.dataset.scheme = webApp()?.colorScheme || 'dark'
     return
   }
 
@@ -358,7 +358,7 @@ export function applyTheme() {
   for (const [name, value] of Object.entries(map)) {
     if (value) root.style.setProperty(name, value)
   }
-  root.dataset.scheme = tg.colorScheme || 'dark'
+  root.dataset.scheme = webApp()?.colorScheme || 'dark'
 }
 
 // Експортуємо для тестів: логіка кольорів надто дорога, щоб перевіряти
@@ -366,13 +366,13 @@ export function applyTheme() {
 export const _theme = { parseHex, toHex, deriveSecondary, contrast }
 
 export function onThemeChange(handler) {
-  tg?.onEvent?.('themeChanged', handler)
-  return () => tg?.offEvent?.('themeChanged', handler)
+  webApp()?.onEvent?.('themeChanged', handler)
+  return () => webApp()?.offEvent?.('themeChanged', handler)
 }
 
 /** Головна кнопка Telegram — нативний спосіб показати основну дію. */
 export function mainButton({ text, visible = true, loading = false, onClick }) {
-  const b = tg?.MainButton
+  const b = webApp()?.MainButton
   if (!b) return () => {}
   if (!visible) {
     b.hide()
@@ -389,7 +389,7 @@ export function mainButton({ text, visible = true, loading = false, onClick }) {
 }
 
 export function hideMainButton() {
-  tg?.MainButton?.hide()
+  webApp()?.MainButton?.hide()
 }
 
 // Поточна дія системної кнопки «назад» і ознака того, що обробник уже
@@ -412,7 +412,7 @@ let backBound = false
  * накопичуватись.
  */
 export function backButton(onClick) {
-  const b = tg?.BackButton
+  const b = webApp()?.BackButton
   if (!b) return () => {}
 
   if (!backBound) {
@@ -431,11 +431,11 @@ export function backButton(onClick) {
 }
 
 export function haptic(style = 'light') {
-  tg?.HapticFeedback?.impactOccurred?.(style)
+  webApp()?.HapticFeedback?.impactOccurred?.(style)
 }
 
 export function notify(type = 'success') {
-  tg?.HapticFeedback?.notificationOccurred?.(type)
+  webApp()?.HapticFeedback?.notificationOccurred?.(type)
 }
 
 /** Номер телефону з Telegram, без набору руками.
@@ -450,12 +450,12 @@ export function notify(type = 'success') {
  */
 export function requestContact() {
   return new Promise((resolve) => {
-    if (typeof tg?.requestContact !== 'function') {
+    if (typeof webApp()?.requestContact !== 'function') {
       resolve(null)
       return
     }
     try {
-      tg.requestContact((granted, event) => {
+      webApp().requestContact((granted, event) => {
         if (!granted) {
           resolve(null)
           return
@@ -481,26 +481,26 @@ export function requestContact() {
 }
 
 export function canRequestContact() {
-  return typeof tg?.requestContact === 'function'
+  return typeof webApp()?.requestContact === 'function'
 }
 
 export function close() {
-  tg?.close()
+  webApp()?.close()
 }
 
 export function openLink(url) {
-  tg?.openTelegramLink ? tg.openTelegramLink(url) : window.open(url, '_blank')
+  webApp()?.openTelegramLink ? webApp().openTelegramLink(url) : window.open(url, '_blank')
 }
 
 /** Нативний діалог замість window.confirm — той у Telegram виглядає чужим. */
 export function confirm(message) {
   return new Promise((resolve) => {
-    if (tg?.showConfirm) tg.showConfirm(message, resolve)
+    if (webApp()?.showConfirm) webApp().showConfirm(message, resolve)
     else resolve(window.confirm(message))
   })
 }
 
 export function alert(message) {
-  if (tg?.showAlert) tg.showAlert(message)
+  if (webApp()?.showAlert) webApp().showAlert(message)
   else window.alert(message)
 }
