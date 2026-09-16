@@ -147,6 +147,7 @@ run settings_save qa/qa_settings_save.py
 run novaposhta qa/qa_novaposhta.py
 run e2e qa/qa_e2e.py
 run salesdrive qa/qa_salesdrive.py
+run salesdrive-source qa/qa_salesdrive_source_guard.py
 run wishlists qa/qa_wishlists.py
 run performance qa/qa_perf.py
 

@@ -225,7 +225,8 @@ class ShopSettings:
     def salesdrive_ready(self) -> bool:
         """Інтеграція увімкнена й має з чим працювати."""
         return bool(self.salesdrive_enabled and self.salesdrive_form_connected
-                    and (self.salesdrive_domain or "").strip())
+                    and (self.salesdrive_domain or "").strip()
+                    and settings.salesdrive_telegram_source_id > 0)
 
     def volume_discount_for(self, subtotal: Decimal) -> Decimal:
         """Автоматична знижка за суму замовлення. Нуль — якщо не діє."""

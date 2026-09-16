@@ -108,6 +108,9 @@ async def scenario():
     from shop.db import init_db
     import api.routers.telegram as tg
 
+    from shop.config import settings as app_settings
+    app_settings.salesdrive_telegram_source_id = 4242
+
     await init_db()
     bot = FakeBot()
     tg._instances = lambda: (bot, None)
@@ -315,6 +318,11 @@ async def scenario():
         print("\n--- вебхук: ті самі правила, без петлі ---")
         wrong = await client.post("/api/integrations/salesdrive/webhook/" + "y" * 36, json={})
         r.check(wrong.status_code == 404, "невірний токен — адреса «не існує»", wrong.status_code)
+        foreign = await client.post(f"/api/integrations/salesdrive/webhook/{TOKEN}",
+                                    json={"info": {"webhookEvent": "status_change", "account": "elfar"},
+                                          "data": {"id": 9001, "formId": 9999, "statusId": "4"}})
+        r.check(foreign.status_code == 200 and foreign.json().get("reason") == "інша база заявок SalesDrive",
+                "webhook з іншої бази SalesDrive ігнорується", foreign.text[:160])
 
         async with open_repo() as repo:
             # Накладений платіж: «Прийняте → Відправлене» дозволено спільним
@@ -324,7 +332,7 @@ async def scenario():
             await repo.update_order(hooked.id, {"crm_id": "9001", "crm_state": "synced",
                                                 "status": OrderStatus.ACCEPTED})
         payload = {"info": {"webhookType": "order", "webhookEvent": "status_change", "account": "elfar"},
-                   "data": {"id": 9001, "statusId": "4",
+                   "data": {"id": 9001, "formId": 4242, "statusId": "4",
                             "ord_novaposhta": {"EN": "20450000999999", "ENref": "sd-ref", "cost": "90"}}}
         kicked.clear()
         sent_before = len(bot.sent)
@@ -346,7 +354,7 @@ async def scenario():
         async with open_repo() as repo:
             jump = await make_order(repo, 7007)
             await repo.update_order(jump.id, {"crm_id": "9002"})
-        bad = {"info": {"webhookEvent": "status_change"}, "data": {"id": "9002", "statusId": "5"}}
+        bad = {"info": {"webhookEvent": "status_change", "account": "elfar"}, "data": {"id": "9002", "formId": 4242, "statusId": "5"}}
         response = await client.post(f"/api/integrations/salesdrive/webhook/{TOKEN}", json=bad)
         async with open_repo() as repo:
             jump = await repo.get_order(jump.id)
@@ -356,7 +364,7 @@ async def scenario():
                 "причина відмови видна біля замовлення", jump.crm_error)
 
         unknown = await client.post(f"/api/integrations/salesdrive/webhook/{TOKEN}",
-                                    json={"info": {"webhookEvent": "new_order"}, "data": {"id": 777}})
+                                    json={"info": {"webhookEvent": "new_order", "account": "elfar"}, "data": {"id": 777, "formId": 4242}})
         r.check(unknown.json()["result"] == "ignored", "заявка, створена в CRM руками, ігнорується")
 
         print("\n--- секрети ---")

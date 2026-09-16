@@ -71,6 +71,10 @@ class Settings(BaseSettings):
     salesdrive_enabled: bool = False
     salesdrive_domain: str = ""
     salesdrive_form_key: str = ""
+    # ID окремої бази заявок SalesDrive «ELFAR — Telegram Bot».
+    # Це НЕ локальна БД: form key маршрутизує вихідні заявки, а цей ID
+    # жорстко обмежує вхідні webhook-и та служить fail-closed guard.
+    salesdrive_telegram_source_id: int = 0
     salesdrive_api_key: str = ""
     salesdrive_webhook_token: str = ""
     salesdrive_site: str = ""

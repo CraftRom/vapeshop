@@ -40,6 +40,7 @@ import httpx
 
 from shop.entities import Order, OrderStatus
 from shop.services import shipment
+from shop.config import settings
 
 log = logging.getLogger(__name__)
 
@@ -74,6 +75,32 @@ class SalesDriveError(Exception):
         self.temporary = temporary
         self.uncertain = uncertain
 
+
+
+def telegram_source_id() -> int:
+    """Єдина дозволена база заявок SalesDrive для Telegram-магазину.
+
+    ID навмисно береться тільки з ENV, а не з панелі/локальної БД: оператор
+    не може випадково перемкнути інтеграцію на іншу базу під час роботи.
+    Значення 0 означає fail-closed — жодних записів у SalesDrive.
+    """
+    return int(settings.salesdrive_telegram_source_id or 0)
+
+
+def source_matches(payload: dict, shop) -> bool:
+    """Webhook належить саме нашому акаунту і базі «ELFAR — Telegram Bot»."""
+    expected = telegram_source_id()
+    if expected <= 0:
+        return False
+    info = payload.get("info") if isinstance(payload.get("info"), dict) else {}
+    data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+    account = str(info.get("account") or "").strip().lower()
+    if account and account != (shop.salesdrive_domain or "").strip().lower():
+        return False
+    try:
+        return int(data.get("formId")) == expected
+    except (TypeError, ValueError):
+        return False
 
 # ------------------------------------------------------------- відповідності
 
@@ -254,6 +281,8 @@ def _headers(shop) -> dict:
 
 
 async def _send(shop, path: str, payload: dict) -> dict:
+    if telegram_source_id() <= 0:
+        raise SalesDriveError("SALESDRIVE_TELEGRAM_SOURCE_ID не задано; запис у SalesDrive заблоковано", temporary=False)
     url = base_url(shop) + path
     try:
         response = await _post(url, payload, _headers(shop))
@@ -459,6 +488,11 @@ async def handle_webhook(repo, payload: dict, *, bot=None) -> dict:
     from shop.services.shop_settings import get_shop_settings
 
     shop = await get_shop_settings(repo)
+    if not source_matches(payload, shop):
+        log.warning("Webhook SalesDrive відхилено: інша або невідома база заявок",
+                    extra={"event": "salesdrive.webhook.wrong_source",
+                           "expectedFormId": telegram_source_id()})
+        return {"result": "ignored", "reason": "інша база заявок SalesDrive"}
     info = payload.get("info") if isinstance(payload.get("info"), dict) else {}
     data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
     event = str(info.get("webhookEvent") or "")
