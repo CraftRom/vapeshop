@@ -124,6 +124,8 @@ class OrderOut(ORMModel):
     crm_state: str = ""
     crm_error: str | None = None
     crm_synced_at: datetime | None = None
+    crm_snapshot: dict | None = None
+    crm_fetched_at: datetime | None = None
     operator_id: int | None = None
     operator_name: str = ""
     created_at: datetime | None = None

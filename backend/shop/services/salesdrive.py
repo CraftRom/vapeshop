@@ -561,6 +561,9 @@ async def handle_webhook(repo, payload: dict, *, bot=None) -> dict:
         order = await repo.get_order(order.id) or order
         applied.append("tracking")
 
+    webhook_snapshot = _snapshot(data)
+    await repo.update_order(order.id, {"crm_snapshot": webhook_snapshot, "crm_fetched_at": datetime.now(timezone.utc)})
+
     incoming_status_id = str(data.get("statusId") or "").strip()
     incoming_status_name = str(data.get("statusName") or data.get("status_name") or "").strip()
     if incoming_status_id:
@@ -589,6 +592,100 @@ async def handle_webhook(repo, payload: dict, *, bot=None) -> dict:
 
     return {"result": "applied" if applied else ("rejected" if problems else "unchanged"),
             "orderId": order.id, "applied": applied, "problems": problems}
+
+
+def _order_list_rows(body) -> list[dict]:
+    if isinstance(body, list):
+        return [x for x in body if isinstance(x, dict)]
+    if not isinstance(body, dict):
+        return []
+    for key in ("data", "items", "list", "results"):
+        rows = body.get(key)
+        if isinstance(rows, list):
+            return [x for x in rows if isinstance(x, dict)]
+    return []
+
+
+def _snapshot(data: dict, statuses: dict[str, str] | None = None) -> dict:
+    """Безпечний read-model заявки CRM. Не використовується для зміни каталогу/цін."""
+    contacts = data.get("contacts") if isinstance(data.get("contacts"), list) else []
+    contact = contacts[0] if contacts and isinstance(contacts[0], dict) else {}
+    products = data.get("products") if isinstance(data.get("products"), list) else []
+    np = data.get("ord_novaposhta") if isinstance(data.get("ord_novaposhta"), dict) else {}
+    sid = str(data.get("statusId") or "").strip()
+    status_name = str(data.get("statusName") or data.get("status_name") or "").strip()
+    if not status_name and statuses:
+        status_name = statuses.get(sid, "")
+    manager = data.get("userName") or data.get("managerName") or data.get("user") or ""
+    if isinstance(manager, dict):
+        manager = manager.get("name") or manager.get("title") or ""
+    return {
+        "id": str(data.get("id") or ""), "externalId": str(data.get("externalId") or ""),
+        "formId": data.get("formId"), "statusId": sid, "statusName": status_name,
+        "paymentMethod": data.get("payment_method") or "", "shippingMethod": data.get("shipping_method") or "",
+        "paymentAmount": data.get("paymentAmount"), "payedAmount": data.get("payedAmount"), "restPay": data.get("restPay"),
+        "managerId": data.get("userId"), "managerName": str(manager or ""),
+        "comment": data.get("comment") or "", "orderTime": data.get("orderTime"),
+        "contact": {"fName": contact.get("fName") or "", "lName": contact.get("lName") or "", "mName": contact.get("mName") or "", "phone": contact.get("phone") or "", "email": contact.get("email") or ""},
+        "products": [{"id": x.get("productId") or x.get("id"), "name": x.get("name") or "", "sku": x.get("sku") or "", "amount": x.get("amount"), "price": x.get("price"), "discount": x.get("discount")} for x in products if isinstance(x, dict)],
+        "novaposhta": {"ttn": np.get("EN") or "", "status": np.get("status") or "", "statusCode": np.get("statusCode"), "cost": np.get("cost"), "deliveryDateAndTime": np.get("deliveryDateAndTime"), "recipientDateTime": np.get("recipientDateTime")},
+    }
+
+
+async def pull_order(repo, order_id: int, shop=None) -> Order:
+    """Читає фактичний стан вже пов'язаної заявки SalesDrive. No-backfill: без crm_id — відмова."""
+    from shop.services.shop_settings import get_shop_settings
+    shop = shop or await get_shop_settings(repo)
+    order = await repo.get_order(order_id)
+    if not order:
+        raise SalesDriveError("Замовлення не знайдено", temporary=False)
+    if not order.crm_id:
+        raise SalesDriveError("Legacy-замовлення не читається із SalesDrive", temporary=False)
+    if not shop.salesdrive_api_connected:
+        raise SalesDriveError("Не задано API-ключ SalesDrive", temporary=False)
+    params = {"page": 1, "limit": 100, "filter[statusId]": "__ALL__", "filter[id]": str(order.crm_id)}
+    headers = {"Accept": "application/json", "Form-Api-Key": shop.salesdrive_api_key, "X-Api-Key": shop.salesdrive_api_key}
+    try:
+        async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT, follow_redirects=False) as client:
+            response = await client.get(base_url(shop) + "/api/order/list/", params=params, headers=headers)
+    except httpx.HTTPError as exc:
+        raise SalesDriveError(f"SalesDrive недоступний: {type(exc).__name__}") from exc
+    if response.status_code in (401, 403):
+        raise SalesDriveError("SalesDrive відхилив API-ключ", temporary=False)
+    if response.status_code >= 400:
+        raise SalesDriveError(f"SalesDrive не віддав заявку ({response.status_code})")
+    try:
+        body = response.json()
+    except ValueError as exc:
+        raise SalesDriveError("SalesDrive повернув некоректну відповідь") from exc
+    rows = _order_list_rows(body)
+    row = next((x for x in rows if str(x.get("id") or "") == str(order.crm_id)), None)
+    if row is None:
+        raise SalesDriveError("Пов'язану заявку не знайдено у відповіді SalesDrive", temporary=False)
+    # Довідник статусів потрібен лише для назви, якщо order-list повернув тільки ID.
+    status_names = {}
+    try:
+        async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT, follow_redirects=False) as client:
+            sr = await client.get(base_url(shop) + "/api/statuses/", headers=headers)
+            if sr.status_code < 400:
+                raw = sr.json()
+                candidates = raw if isinstance(raw, list) else next((raw.get(k) for k in ("data","items","list","results") if isinstance(raw.get(k), list)), []) if isinstance(raw, dict) else []
+                status_names = {str(x.get("id", x.get("statusId", ""))): str(x.get("name", x.get("title", ""))) for x in candidates if isinstance(x, dict)}
+    except Exception:
+        pass
+    snap = _snapshot(row, status_names)
+    now = datetime.now(timezone.utc)
+    patch = {"crm_snapshot": snap, "crm_fetched_at": now, "crm_synced_at": now, "crm_error": None}
+    if snap.get("statusId"):
+        patch["crm_status_id"] = snap["statusId"]
+    if snap.get("statusName"):
+        patch["crm_status_name"] = snap["statusName"]
+    ttn = str((snap.get("novaposhta") or {}).get("ttn") or "").strip()
+    if ttn and ttn != (order.tracking_number or ""):
+        patch["tracking_number"] = ttn
+        patch["waybill_source"] = "salesdrive"
+    await repo.update_order(order.id, patch)
+    return await repo.get_order(order.id) or order
 
 async def set_crm_status(repo, order: Order, status_id: str, status_name: str, shop=None) -> Order:
     """Змінює авторитетний статус SalesDrive без ручного local→CRM mapping.

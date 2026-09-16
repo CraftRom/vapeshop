@@ -390,6 +390,8 @@ export default function OrderPage() {
   const [busy, setBusy] = useState(false)
   const [askTracking, setAskTracking] = useState(false)
   const [crmStatuses, setCrmStatuses] = useState([])
+  const [crmRefreshing, setCrmRefreshing] = useState(false)
+  const [crmAutoRefreshed, setCrmAutoRefreshed] = useState(false)
 
   const load = useCallback(async () => {
     try {
@@ -415,6 +417,28 @@ export default function OrderPage() {
       .then((data) => setCrmStatuses(Array.isArray(data?.statuses) ? data.statuses : []))
       .catch(() => setCrmStatuses([]))
   }, [])
+
+  const refreshCrm = useCallback(async (quiet = false) => {
+    if (!order?.crm_id || crmRefreshing) return
+    setCrmRefreshing(true)
+    try {
+      const fresh = await api.orders.salesdriveRefresh(order.id)
+      setOrder(fresh)
+      setTracking(fresh.tracking_number || '')
+      if (!quiet) notify('Дані SalesDrive оновлено')
+    } catch (err) {
+      if (!quiet) notify(err.message, 'bad')
+    } finally {
+      setCrmRefreshing(false)
+    }
+  }, [order?.id, order?.crm_id, crmRefreshing, notify])
+
+  useEffect(() => {
+    if (order?.crm_id && !crmAutoRefreshed) {
+      setCrmAutoRefreshed(true)
+      refreshCrm(true)
+    }
+  }, [order?.crm_id, crmAutoRefreshed, refreshCrm])
 
   // Прийшли зі списку по кнопці «Відпр.» — одразу питаємо накладну
   useEffect(() => {
@@ -567,6 +591,47 @@ export default function OrderPage() {
               </div>
             ) : (
               <div className="legacy-status-note">Legacy-статус: {STAGE_LABELS[order.status] || order.status}. Це старе замовлення не переноситься в CRM.</div>
+            )}
+
+            {order.crm_id && (
+              <section className="crm-live-card" aria-label="Актуальні дані SalesDrive">
+                <div className="crm-live-head">
+                  <div>
+                    <div className="order-payment-kicker">SalesDrive · заявка {order.crm_id}</div>
+                    <strong>{order.crm_status_name || 'Статус завантажується…'}</strong>
+                    <div className="faint">{order.crm_fetched_at ? `Прочитано з CRM: ${timestamp(order.crm_fetched_at)}` : 'Ще не читали стан заявки через API'}</div>
+                  </div>
+                  <button className="btn ghost small" disabled={crmRefreshing} onClick={() => refreshCrm(false)}>
+                    {crmRefreshing ? 'Оновлення…' : 'Оновити з CRM'}
+                  </button>
+                </div>
+                {order.crm_snapshot && (() => {
+                  const c = order.crm_snapshot.contact || {}
+                  const np = order.crm_snapshot.novaposhta || {}
+                  const products = Array.isArray(order.crm_snapshot.products) ? order.crm_snapshot.products : []
+                  return (
+                    <>
+                      <div className="crm-live-grid">
+                        <div><span>Оплата</span><strong>{order.crm_snapshot.paymentMethod || '—'}</strong></div>
+                        <div><span>Доставка</span><strong>{order.crm_snapshot.shippingMethod || '—'}</strong></div>
+                        <div><span>Менеджер</span><strong>{order.crm_snapshot.managerName || (order.crm_snapshot.managerId ? `ID ${order.crm_snapshot.managerId}` : '—')}</strong></div>
+                        <div><span>Сума CRM</span><strong>{order.crm_snapshot.paymentAmount ?? '—'}</strong></div>
+                        <div><span>Оплачено</span><strong>{order.crm_snapshot.payedAmount ?? '—'}</strong></div>
+                        <div><span>Залишок</span><strong>{order.crm_snapshot.restPay ?? '—'}</strong></div>
+                        <div><span>Одержувач</span><strong>{[c.lName,c.fName,c.mName].filter(Boolean).join(' ') || '—'}</strong></div>
+                        <div><span>Телефон CRM</span><strong>{c.phone || '—'}</strong></div>
+                        <div><span>ТТН</span><strong>{np.ttn || '—'}</strong></div>
+                        <div><span>Статус доставки</span><strong>{np.status || '—'}</strong></div>
+                      </div>
+                      {products.length > 0 && <div className="crm-live-products">
+                        <span className="faint">Товари в заявці SalesDrive</span>
+                        {products.map((p, i) => <div key={`${p.id || p.sku || i}-${i}`}><strong>{p.name || 'Товар'}</strong><span>{p.sku ? `SKU ${p.sku} · ` : ''}{p.amount ?? '—'} шт. · {p.price ?? '—'}</span></div>)}
+                      </div>}
+                    </>
+                  )
+                })()}
+                <p className="faint crm-live-note">Це read-only snapshot заявки CRM. Ціни каталогу ELFAR з нього не змінюються.</p>
+              </section>
             )}
 
             {!order.crm_id && allowedFrom(order.status, order.payment_method).includes('cancelled') && (

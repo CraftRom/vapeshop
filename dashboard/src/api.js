@@ -184,6 +184,7 @@ export const api = {
     waybillLabelUrl: (id) => `${BASE}/orders/${id}/waybill/label`,
     crmSync: (id) => request(`/orders/${id}/crm-sync`, { method: 'POST' }),
     salesdriveStatus: (id, statusId, statusName) => request(`/orders/${id}/salesdrive-status`, { method: 'PATCH', body: { status_id: String(statusId), status_name: statusName } }),
+    salesdriveRefresh: (id) => request(`/orders/${id}/salesdrive-refresh`, { method: 'POST' }),
     // Вкладення тягнеться через бекенд, а не напряму з Telegram:
     // пряме посилання містило б токен бота у відкритому вигляді
     fileUrl: (orderId, messageId) => `${BASE}/orders/${orderId}/files/${messageId}`,

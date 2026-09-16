@@ -221,6 +221,9 @@ class Order(Base):
     crm_error: Mapped[str | None] = mapped_column(String(512))
     crm_attempts: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     crm_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Останній прочитаний стан заявки SalesDrive. Це snapshot CRM, а не джерело цін каталогу.
+    crm_snapshot: Mapped[dict | None] = mapped_column(JsonType, nullable=True)
+    crm_fetched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # Хто веде замовлення — показується клієнту після «Прийнято»
     operator_id: Mapped[int | None] = mapped_column(Integer)
     operator_name: Mapped[str] = mapped_column(String(128), default="")

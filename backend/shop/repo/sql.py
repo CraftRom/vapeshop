@@ -104,6 +104,7 @@ def _order(row, with_user: bool = False) -> Order | None:
         crm_id=row.crm_id, crm_status_id=row.crm_status_id, crm_status_name=row.crm_status_name,
         crm_state=row.crm_state or "", crm_error=row.crm_error,
         crm_attempts=row.crm_attempts or 0, crm_synced_at=row.crm_synced_at,
+        crm_snapshot=row.crm_snapshot, crm_fetched_at=row.crm_fetched_at,
         operator_id=row.operator_id, operator_name=row.operator_name or "",
         referral_paid=row.referral_paid,
         created_at=row.created_at, search_key=row.search_key or "",

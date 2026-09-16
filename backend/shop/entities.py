@@ -178,6 +178,8 @@ class Order:
     crm_error: str | None = None
     crm_attempts: int = 0
     crm_synced_at: datetime | None = None
+    crm_snapshot: dict | None = None
+    crm_fetched_at: datetime | None = None
     operator_id: int | None = None
     operator_name: str = ""
     referral_paid: bool = False
