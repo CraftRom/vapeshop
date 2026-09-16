@@ -389,6 +389,7 @@ export default function OrderPage() {
   const [note, setNote] = useState('')
   const [busy, setBusy] = useState(false)
   const [askTracking, setAskTracking] = useState(false)
+  const [crmStatuses, setCrmStatuses] = useState([])
 
   const load = useCallback(async () => {
     try {
@@ -408,6 +409,12 @@ export default function OrderPage() {
   useEffect(() => {
     load()
   }, [load])
+
+  useEffect(() => {
+    api.settings.salesdriveDictionaries()
+      .then((data) => setCrmStatuses(Array.isArray(data?.statuses) ? data.statuses : []))
+      .catch(() => setCrmStatuses([]))
+  }, [])
 
   // Прийшли зі списку по кнопці «Відпр.» — одразу питаємо накладну
   useEffect(() => {
@@ -534,29 +541,35 @@ export default function OrderPage() {
               </div>
             </section>
 
-            <div className="row order-status-actions" style={{ flexWrap: 'wrap', gap: 8 }}>
-              {stagesFor(order.payment_method).map((s) => {
-                const current = order.status === s.key
-                const reachable = allowedFrom(order.status, order.payment_method)
-                  .includes(s.key)
-                return (
-                  <button
-                    key={s.key}
-                    className={current ? 'btn small' : 'btn ghost small'}
-                    disabled={busy || current || !reachable}
-                    title={
-                      current ? 'Поточний статус'
-                        : reachable ? '' : 'Недоступно з поточного статусу'
-                    }
-                    onClick={() => changeStatus(s.key)}
-                  >
-                    {STAGE_LABELS[s.key] || s.label}
-                  </button>
-                )
-              })}
-            </div>
+            {order.crm_id ? (
+              <div className="order-status-actions">
+                <label className="faint" htmlFor="crm-order-status">Статус SalesDrive</label>
+                <select
+                  id="crm-order-status"
+                  className="order-crm-status-select"
+                  value={order.crm_status_id || ''}
+                  disabled={busy}
+                  onChange={async (e) => {
+                    const option = crmStatuses.find((x) => String(x.id) === e.target.value)
+                    if (!option) return
+                    setBusy(true)
+                    try {
+                      const fresh = await api.orders.salesdriveStatus(order.id, option.id, option.name)
+                      setOrder(fresh)
+                      notify(`Статус SalesDrive: ${option.name}`)
+                    } catch (err) { notify(err.message, 'bad') }
+                    finally { setBusy(false) }
+                  }}
+                >
+                  {!order.crm_status_id && <option value="">Оберіть статус</option>}
+                  {crmStatuses.map((item) => <option key={item.id} value={String(item.id)}>{item.name}</option>)}
+                </select>
+              </div>
+            ) : (
+              <div className="legacy-status-note">Legacy-статус: {STAGE_LABELS[order.status] || order.status}. Це старе замовлення не переноситься в CRM.</div>
+            )}
 
-            {allowedFrom(order.status, order.payment_method).includes('cancelled') && (
+            {!order.crm_id && allowedFrom(order.status, order.payment_method).includes('cancelled') && (
               <button
                 className="btn danger small"
                 style={{ marginTop: 10 }}

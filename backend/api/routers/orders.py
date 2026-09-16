@@ -5,7 +5,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
 from api.auth import Principal, require_staff, require_sysadmin
-from api.schemas import OrderMessageIn, OrderMessageOut, OrderMessageResult, OrderOut, OrderPatch
+from api.schemas import OrderMessageIn, OrderMessageOut, OrderMessageResult, OrderOut, OrderPatch, SalesDriveStatusPatch
 from shop.entities import OrderStatus
 from shop.repo.base import Repository
 from shop.repo.factory import get_repo
@@ -227,6 +227,29 @@ async def waybill_label(order_id: int, repo: Repository = Depends(get_repo)):
         "Cache-Control": "no-store",
     })
 
+
+
+
+@router.patch("/{order_id}/salesdrive-status", response_model=OrderOut)
+async def patch_salesdrive_status(
+    order_id: int, data: SalesDriveStatusPatch,
+    _who: Principal = Depends(require_staff), repo: Repository = Depends(get_repo),
+):
+    """Змінює статус заявки прямо в SalesDrive.
+
+    Це єдиний UI-шлях для нових CRM-пов'язаних замовлень. Старі замовлення
+    без crm_id принципово не створюємо в CRM (no-backfill).
+    """
+    from shop.services import salesdrive
+    order = await repo.get_order(order_id)
+    if not order:
+        raise HTTPException(404, "Замовлення не знайдено")
+    if not order.crm_id:
+        raise HTTPException(409, "Старе замовлення не пов’язане із SalesDrive")
+    try:
+        return await salesdrive.set_crm_status(repo, order, data.status_id, data.status_name)
+    except salesdrive.SalesDriveError as exc:
+        raise HTTPException(502, str(exc)) from exc
 
 @router.post("/{order_id}/crm-sync", response_model=OrderOut)
 async def retry_crm_sync(order_id: int, repo: Repository = Depends(get_repo)):

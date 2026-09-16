@@ -119,6 +119,8 @@ class OrderOut(ORMModel):
     waybill_source: str | None = None
     waybill_cost: Decimal | None = None
     crm_id: str | None = None
+    crm_status_id: str | None = None
+    crm_status_name: str | None = None
     crm_state: str = ""
     crm_error: str | None = None
     crm_synced_at: datetime | None = None
@@ -133,6 +135,11 @@ class OrderPatch(BaseModel):
     status: OrderStatus | None = None
     admin_note: str | None = None
     tracking_number: str | None = Field(None, max_length=64)
+
+
+class SalesDriveStatusPatch(BaseModel):
+    status_id: str = Field(..., min_length=1, max_length=32)
+    status_name: str = Field(..., min_length=1, max_length=128)
 
 
 class OrderMessageIn(BaseModel):

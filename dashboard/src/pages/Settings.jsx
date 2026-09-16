@@ -275,8 +275,8 @@ const FIELDS = [
     toggle: 'salesdrive_enabled',
     hint: 'Замовлення магазину створюються в SalesDrive заявками, статуси й ТТН ' +
           'синхронізуються в обидва боки. Правила переходів ті самі, що й у панелі: ' +
-          'статус із CRM, який магазин не дозволяє, не застосується — причина буде ' +
-          'видна біля замовлення. Заявки, створені в CRM руками, у магазин не переносяться.',
+          'актуальний список статусів підтягується з SalesDrive автоматично. Для нових CRM-пов’язаних ' +
+          'замовлень SalesDrive є джерелом статусу; старі заявки в CRM не переносяться.',
     items: [
       { key: 'salesdrive_domain', label: 'Субдомен', hint: 'Лише субдомен: «elfar» для elfar.salesdrive.me' },
       { key: 'salesdrive_telegram_form_id', label: 'ID форми Telegram', type: 'number',
@@ -296,8 +296,6 @@ const FIELDS = [
       },
       { key: 'salesdrive_webhook_token', label: 'Адреса вебхука', webhook: 'salesdrive_webhook_connected' },
       { key: 'salesdrive_site', label: 'Сайт у заявці', hint: 'Поле «Сайт». Порожнє — домен магазину' },
-      { key: 'salesdrive_status_map', label: 'Статуси', map: STATUS_KEYS,
-        hint: 'statusId із SalesDrive для кожного статусу магазину. Кілька статусів можна вести в один' },
       { key: 'salesdrive_payment_map', label: 'Способи оплати', map: PAYMENT_KEYS,
         hint: 'Назва способу оплати так, як вона записана в SalesDrive' },
       { key: 'salesdrive_shipping_map', label: 'Способи доставки', map: SHIPPING_KEYS,

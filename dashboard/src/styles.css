@@ -796,10 +796,83 @@ a.info-strong:hover { color: var(--violet); }
   min-width: 0;
 }
 
-.order-unread {
-  padding: 2px 6px;
-  font-size: 10px;
+.order-row.has-unread-messages {
+  background: linear-gradient(90deg, rgba(101, 168, 255, .055), transparent 34%);
+  box-shadow: inset 3px 0 0 rgba(101, 168, 255, .72);
 }
+
+.order-row.has-unread-messages:hover {
+  background: linear-gradient(90deg, rgba(101, 168, 255, .075), rgba(255,255,255,.018) 42%);
+}
+
+.order-unread {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 24px;
+  padding: 3px 7px;
+  border: 1px solid rgba(101, 168, 255, .3);
+  border-radius: 999px;
+  background: rgba(101, 168, 255, .09);
+  color: #a9d0ff;
+  font-size: 10px;
+  font-weight: 650;
+  line-height: 1;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.order-unread:hover {
+  border-color: rgba(101, 168, 255, .58);
+  background: rgba(101, 168, 255, .14);
+  color: var(--text);
+}
+
+.order-unread-dot {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 6px;
+  border-radius: 50%;
+  background: #65a8ff;
+  box-shadow: 0 0 0 3px rgba(101,168,255,.12);
+}
+
+.order-unread > strong {
+  display: inline-grid;
+  place-items: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 99px;
+  background: rgba(101,168,255,.18);
+  color: #d8eaff;
+  font-size: 9px;
+}
+
+.orders-unread-summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 48px;
+  padding: 8px 16px;
+  border-bottom: 1px solid rgba(101,168,255,.18);
+  background: rgba(101,168,255,.045);
+}
+
+.orders-unread-summary-icon {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid rgba(101,168,255,.24);
+  border-radius: 9px;
+  background: rgba(101,168,255,.08);
+  font-size: 14px;
+}
+
+.orders-unread-summary > span:last-child { display: grid; gap: 2px; }
+.orders-unread-summary strong { color: var(--text); font-size: 12px; }
+.orders-unread-summary small { color: var(--muted); font-size: 10.5px; }
 
 .order-customer {
   display: flex;
@@ -3875,3 +3948,27 @@ button.support-stat:hover { border-color: rgba(139, 123, 240, 0.38); }
 @media (max-width: 560px) {
   .map-row { grid-template-columns: 1fr; gap: 4px; }
 }
+
+@media (max-width: 1220px) {
+  .order-row.has-unread-messages {
+    background: var(--panel);
+    border-color: rgba(101,168,255,.28);
+    box-shadow: inset 3px 0 0 rgba(101,168,255,.72);
+  }
+  .order-row.has-unread-messages:hover { background: var(--panel); }
+}
+
+@media (max-width: 760px) {
+  .order-unread-label { display: inline; }
+  .orders-unread-summary { margin-bottom: 10px; border: 1px solid rgba(101,168,255,.18); border-radius: 10px; }
+}
+
+
+/* 1.36.5 — SalesDrive is the status source for CRM-linked orders. */
+.order-crm-status-select {
+  width: 100%; min-height: 38px; border-radius: 9px; padding: 0 34px 0 11px;
+  border: 1px solid var(--line, rgba(255,255,255,.12)); background: var(--surface-2, #151321);
+  color: inherit; font: inherit; font-weight: 650;
+}
+.order-crm-status-select:focus { outline: 2px solid rgba(132,108,255,.35); outline-offset: 1px; }
+.legacy-status-note { font-size: 12px; opacity: .66; padding: 8px 10px; border: 1px dashed currentColor; border-radius: 8px; }

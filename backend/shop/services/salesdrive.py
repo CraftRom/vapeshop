@@ -404,18 +404,21 @@ async def _create(repo, order: Order, shop) -> str:
     await repo.update_order(order.id, {"crm_state": STATE_CREATING})
     body = await _send(shop, "/handler/", create_payload(order, shop))
     crm_id = _crm_id_from(body)
-    await _mark(repo, order, STATE_SYNCED, crm_id=crm_id)
+    initial_status_id = mapping(shop.salesdrive_status_map).get(order.status.value)
+    await _mark(repo, order, STATE_SYNCED, crm_id=crm_id, crm_status_id=initial_status_id)
     log.info("Замовлення %s створено в SalesDrive як %s", order.id, crm_id or "—",
              extra={"event": "salesdrive.order.created", "orderId": order.id,
                     "crmId": crm_id})
     return STATE_SYNCED
 
 
-async def _mark(repo, order: Order, state: str, crm_id: str | None = None) -> None:
+async def _mark(repo, order: Order, state: str, crm_id: str | None = None, crm_status_id: str | None = None) -> None:
     patch = {"crm_state": state, "crm_error": None, "crm_attempts": 0,
              "crm_synced_at": datetime.now(timezone.utc)}
     if crm_id and not order.crm_id:
         patch["crm_id"] = crm_id
+    if crm_status_id:
+        patch["crm_status_id"] = str(crm_status_id)
     await repo.update_order(order.id, patch)
 
 
@@ -558,7 +561,16 @@ async def handle_webhook(repo, payload: dict, *, bot=None) -> dict:
         order = await repo.get_order(order.id) or order
         applied.append("tracking")
 
-    target = status_from_crm(shop, data.get("statusId"))
+    incoming_status_id = str(data.get("statusId") or "").strip()
+    incoming_status_name = str(data.get("statusName") or data.get("status_name") or "").strip()
+    if incoming_status_id:
+        patch = {"crm_status_id": incoming_status_id}
+        if incoming_status_name:
+            patch["crm_status_name"] = incoming_status_name
+        await repo.update_order(order.id, patch)
+        order = await repo.get_order(order.id) or order
+
+    target = status_from_crm(shop, incoming_status_id)
     if target and target != order.status:
         try:
             await flow.apply_status(repo, order, target, origin=flow.ORIGIN_SALESDRIVE, bot=bot)
@@ -577,3 +589,24 @@ async def handle_webhook(repo, payload: dict, *, bot=None) -> dict:
 
     return {"result": "applied" if applied else ("rejected" if problems else "unchanged"),
             "orderId": order.id, "applied": applied, "problems": problems}
+
+async def set_crm_status(repo, order: Order, status_id: str, status_name: str, shop=None) -> Order:
+    """Змінює авторитетний статус SalesDrive без ручного local→CRM mapping.
+
+    Дозволено тільки вже створеним у CRM замовленням. Історичні ELFAR
+    замовлення не створюються і не потрапляють у SalesDrive.
+    """
+    from shop.services.shop_settings import get_shop_settings
+    shop = shop or await get_shop_settings(repo)
+    if not order.crm_id:
+        raise SalesDriveError("Замовлення не пов’язане із SalesDrive", temporary=False)
+    sid = str(status_id or "").strip()
+    name = str(status_name or "").strip()
+    if not sid or not name:
+        raise SalesDriveError("Некоректний статус SalesDrive", temporary=False)
+    await _send(shop, "/api/order/update/", {"form": shop.salesdrive_form_key, "id": order.crm_id, "data": {"statusId": sid}})
+    await repo.update_order(order.id, {"crm_status_id": sid, "crm_status_name": name,
+                                       "crm_state": STATE_SYNCED, "crm_error": None,
+                                       "crm_synced_at": datetime.now(timezone.utc)})
+    return await repo.get_order(order.id) or order
+

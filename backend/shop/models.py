@@ -213,6 +213,10 @@ class Order(Base):
     waybill_source: Mapped[str | None] = mapped_column(String(16))
     waybill_cost: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
     crm_id: Mapped[str | None] = mapped_column(String(32), index=True)
+    # Авторитетний статус заявки SalesDrive. Локальний status лишається лише
+    # внутрішнім станом для складського/бонусного обліку та legacy-замовлень.
+    crm_status_id: Mapped[str | None] = mapped_column(String(32), index=True)
+    crm_status_name: Mapped[str | None] = mapped_column(String(128))
     crm_state: Mapped[str] = mapped_column(String(16), default="", server_default="", index=True)
     crm_error: Mapped[str | None] = mapped_column(String(512))
     crm_attempts: Mapped[int] = mapped_column(Integer, default=0, server_default="0")

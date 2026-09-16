@@ -172,6 +172,8 @@ class Order:
     waybill_cost: Decimal | None = None
     # Синхронізація з SalesDrive (див. shop/services/salesdrive.py)
     crm_id: str | None = None
+    crm_status_id: str | None = None
+    crm_status_name: str | None = None
     crm_state: str = ""
     crm_error: str | None = None
     crm_attempts: int = 0

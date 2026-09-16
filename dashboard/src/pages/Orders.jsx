@@ -168,22 +168,28 @@ const OrderRow = memo(function OrderRow({
   onQuickView,
   onCancel,
   onRemove,
+  crmStatuses,
+  onCrmStatusChange,
 }) {
   const itemsText = order.items.map((i) => `${i.name} ×${i.qty}`).join(', ')
   const itemQty = order.items.reduce((sum, item) => sum + Number(item.qty || 0), 0)
 
   return (
-    <article className={`order-row status-${order.status}`}>
+    <article className={`order-row status-${order.status}${unreadCount > 0 ? ' has-unread-messages' : ''}`}>
       <div className="order-primary">
         <div className="order-id-line">
           <Link to={`/orders/${order.id}`} className="id-tag">#{order.id}</Link>
           {unreadCount > 0 && (
-            <span
-              className="chip order-unread"
-              title="Непрочитані повідомлення від клієнта"
+            <Link
+              to={`/orders/${order.id}#chat`}
+              className="order-unread"
+              title={`Від клієнта ${unreadCount} ${unreadCount === 1 ? 'нове повідомлення' : 'нових повідомлення'}`}
+              aria-label={`Відкрити ${unreadCount} непрочитаних повідомлень замовлення №${order.id}`}
             >
-              💬 {unreadCount}
-            </span>
+              <span className="order-unread-dot" aria-hidden="true" />
+              <span className="order-unread-label">{unreadCount === 1 ? 'Нове повідомлення' : `${unreadCount} нові повідомлення`}</span>
+              <strong>{unreadCount}</strong>
+            </Link>
           )}
         </div>
         <div className="faint">{dateTime(order.created_at)}</div>
@@ -207,16 +213,27 @@ const OrderRow = memo(function OrderRow({
       <div className="order-workflow">
         <div className="order-status-title">
           <span className="faint">Поточний статус</span>
-          <strong>{STATUS_LABELS[order.status] || order.status}</strong>
+          <strong>{order.crm_id ? (order.crm_status_name || crmStatuses.find((x) => String(x.id) === String(order.crm_status_id))?.name || 'SalesDrive') : (STATUS_LABELS[order.status] || order.status)}</strong>
           <span className="order-payment">
             {order.payment_method === 'card' ? 'Картка' : 'Накладений платіж'}
           </span>
         </div>
-        <StatusRail
-          status={order.status}
-          paymentMethod={order.payment_method}
-          onChange={(next) => onStatusChange(order, next)}
-        />
+        {order.crm_id ? (
+          <select
+            className="order-crm-status-select"
+            value={order.crm_status_id || ''}
+            onChange={(e) => {
+              const option = crmStatuses.find((x) => String(x.id) === e.target.value)
+              if (option) onCrmStatusChange(order, option)
+            }}
+            aria-label={`Статус SalesDrive замовлення №${order.id}`}
+          >
+            {!order.crm_status_id && <option value="">Оберіть статус SalesDrive</option>}
+            {crmStatuses.map((item) => <option key={item.id} value={String(item.id)}>{item.name}</option>)}
+          </select>
+        ) : (
+          <div className="legacy-status-note">Legacy: {STATUS_LABELS[order.status] || order.status} · не синхронізується з CRM</div>
+        )}
         <div className="orders-actions">
           <Link className="btn small order-open" to={`/orders/${order.id}`}>
             Відкрити
@@ -224,7 +241,7 @@ const OrderRow = memo(function OrderRow({
           <button className="btn ghost small" onClick={() => onQuickView(order)}>
             Швидкий перегляд
           </button>
-          {allowedFrom(order.status, order.payment_method).includes('cancelled') && (
+          {!order.crm_id && allowedFrom(order.status, order.payment_method).includes('cancelled') && (
             <button
               className="btn ghost small order-cancel"
               onClick={() => onCancel(order)}
@@ -265,6 +282,7 @@ export default function Orders() {
   const [selected, setSelected] = useState(null)
   // Клієнт відповідає в боті, тож панель має сама помічати нові повідомлення
   const [unread, setUnread] = useState({})
+  const [crmStatuses, setCrmStatuses] = useState([])
 
   const load = useCallback(async () => {
     setError('')
@@ -284,6 +302,12 @@ export default function Orders() {
     const timer = setTimeout(load, search ? 350 : 0)
     return () => clearTimeout(timer)
   }, [load, search])
+
+  useEffect(() => {
+    api.settings.salesdriveDictionaries()
+      .then((data) => setCrmStatuses(Array.isArray(data?.statuses) ? data.statuses : []))
+      .catch(() => setCrmStatuses([]))
+  }, [])
 
   const loadUnread = useCallback(async () => {
     const next = await api.orders.unread()
@@ -321,6 +345,20 @@ export default function Orders() {
       notify(err.message, 'bad')
     }
   }, [navigate, notify])
+
+  const changeCrmStatus = useCallback(async (order, option) => {
+    const previousId = order.crm_status_id
+    const previousName = order.crm_status_name
+    setOrders((list) => list?.map((o) => o.id === order.id ? { ...o, crm_status_id: String(option.id), crm_status_name: option.name } : o))
+    try {
+      const updated = await api.orders.salesdriveStatus(order.id, option.id, option.name)
+      setOrders((list) => list?.map((o) => o.id === order.id ? updated : o))
+      notify(`Замовлення №${order.id}: ${option.name}`)
+    } catch (err) {
+      setOrders((list) => list?.map((o) => o.id === order.id ? { ...o, crm_status_id: previousId, crm_status_name: previousName } : o))
+      notify(err.message, 'bad')
+    }
+  }, [notify])
 
   /** Видалення замовлення. Тільки системний адміністратор.
    *
@@ -479,6 +517,16 @@ export default function Orders() {
             </div>
           )}
 
+          {Object.values(unread).reduce((sum, count) => sum + Number(count || 0), 0) > 0 && (
+            <div className="orders-unread-summary" role="status">
+              <span className="orders-unread-summary-icon" aria-hidden="true">💬</span>
+              <span>
+                <strong>{Object.values(unread).reduce((sum, count) => sum + Number(count || 0), 0)} непрочитаних</strong>
+                <small>Нові повідомлення клієнтів позначені в замовленнях нижче</small>
+              </span>
+            </div>
+          )}
+
           <div className="orders-list-head" aria-hidden="true">
             <span>Замовлення</span>
             <span>Клієнт</span>
@@ -498,6 +546,8 @@ export default function Orders() {
                 onQuickView={setSelected}
                 onCancel={cancelOrder}
                 onRemove={removeOrder}
+              crmStatuses={crmStatuses}
+              onCrmStatusChange={changeCrmStatus}
               />
             ))}
           </div>
