@@ -8,6 +8,7 @@ import { Empty, ErrorBar, Field, Loading, Modal, confirmPurge, money, useToast }
 const EMPTY_PRODUCT = {
   category_id: '',
   name: '',
+  sku: '',
   description: '',
   price: '',
   old_price: '',
@@ -72,6 +73,9 @@ function ProductForm({ product, categories, onClose, onSaved }) {
         <ErrorBar error={error} />
         <Field label="Назва">
           <input className="input" value={form.name} onChange={set('name')} autoFocus />
+        </Field>
+        <Field label="Артикул (SKU)" hint="3–32 символи: A–Z, 0–9, крапка, дефіс або _. Порожній — згенерується автоматично.">
+          <input className="input mono" value={form.sku || ''} onChange={set('sku')} placeholder="Автоматично" />
         </Field>
         <Field label="Категорія">
           <select className="input" value={form.category_id} onChange={set('category_id')}>
@@ -281,6 +285,7 @@ function CategoryManager({ categories, onClose, onChanged }) {
         )}
       </Modal>
 
+
       {editing && (
         <CategoryForm
           category={editing.id ? editing : null}
@@ -352,6 +357,7 @@ function productPayload(product, overrides = {}) {
   return {
     category_id: Number(product.category_id),
     name: product.name,
+    sku: product.sku || null,
     description: product.description || null,
     price: Number(product.price),
     old_price: product.old_price ? Number(product.old_price) : null,
@@ -383,6 +389,37 @@ function paginationNumbers(current, total) {
   return [start, start + 1, start + 2]
 }
 
+function ImportProductsModal({ onClose, onDone }) {
+  const [file, setFile] = useState(null)
+  const [mode, setMode] = useState('upsert')
+  const [prices, setPrices] = useState('none')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const [result, setResult] = useState(null)
+  const run = async () => {
+    if (!file) return
+    setBusy(true); setError(''); setResult(null)
+    try {
+      const form=new FormData(); form.append('file',file); form.append('mode',mode); form.append('prices',prices)
+      const res=await api.products.importXlsx(form); setResult(res); onDone()
+    } catch (e) { setError(e.message) } finally { setBusy(false) }
+  }
+  return <Modal title="Імпорт товарів із SalesDrive" onClose={onClose} footer={<><button className="btn ghost" onClick={onClose}>Закрити</button><button className="btn" disabled={!file||busy} onClick={run}>{busy?'Імпортую…':'Імпортувати'}</button></>}>
+    <div className="stack">
+      <ErrorBar error={error}/>
+      <Field label="XLSX файл" hint="Підтримується стандартний експорт товарів SalesDrive."><input className="input" type="file" accept=".xlsx" onChange={e=>setFile(e.target.files?.[0]||null)}/></Field>
+      <Field label="Що робити з товарами">
+        <select className="input" value={mode} onChange={e=>setMode(e.target.value)}><option value="add">Тільки додавати нові</option><option value="update">Тільки оновлювати наявні</option><option value="upsert">Додати нові + перезаписати наявні</option></select>
+      </Field>
+      <Field label="Ціни" hint="За замовчуванням ціни в нашій базі взагалі не змінюються.">
+        <select className="input" value={prices} onChange={e=>setPrices(e.target.value)}><option value="none">Не імпортувати ціни</option><option value="regular">Тільки звичайна ціна</option><option value="discount">Ціна зі знижкою + звичайна в поле «Стара ціна»</option><option value="both">Обидві ціни</option></select>
+      </Field>
+      <div className="muted">Товар звіряється насамперед за SKU. Порожній або невалідний SKU буде замінено новим унікальним артикулом ELF-… . Новий товар без імпорту ціни створюється прихованим з ціною 0, щоб випадково не потрапити у продаж.</div>
+      {result && <div className="card"><strong>Готово</strong><div>Рядків: {result.rows} · додано: {result.created} · оновлено: {result.updated} · пропущено: {result.skipped}</div><div>Згенеровано SKU: {result.sku_generated} · змінено цін: {result.prices_changed}</div>{result.errors?.length>0 && <div className="bad">Помилок: {result.errors.length}. Перший рядок: {result.errors[0].row} — {result.errors[0].error}</div>}</div>}
+    </div>
+  </Modal>
+}
+
 export default function Catalog() {
   const notify = useToast()
   const [categories, setCategories] = useState([])
@@ -400,6 +437,7 @@ export default function Catalog() {
   const [error, setError] = useState('')
   const [editing, setEditing] = useState(null)
   const [managingCategories, setManagingCategories] = useState(false)
+  const [importing, setImporting] = useState(false)
   const [pageSize, setPageSize] = useState(20)
   const [page, setPage] = useState(1)
   const [selected, setSelected] = useState(() => new Set())
@@ -552,6 +590,8 @@ export default function Catalog() {
           <p>Товари, ціни та залишки — усе, що бачить клієнт у боті</p>
         </div>
         <div className="catalog-head-actions">
+          <button className="btn ghost" onClick={() => api.products.exportXlsx().catch(e => notify(e.message, 'bad'))}>Експорт XLSX</button>
+          <button className="btn ghost" onClick={() => setImporting(true)}>Імпорт XLSX</button>
           <button
             className="btn ghost catalog-categories-btn"
             onClick={() => setManagingCategories(true)}
@@ -585,7 +625,7 @@ export default function Catalog() {
             <span className="catalog-search-icon" aria-hidden="true">⌕</span>
             <input
               className="input"
-              placeholder="Пошук за назвою товару..."
+              placeholder="Пошук за назвою або SKU..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
@@ -661,6 +701,7 @@ export default function Catalog() {
                   <ProductThumb product={p} />
                   <div className="catalog-product-copy">
                     <strong title={p.name}>{p.name}</strong>
+                    <span className="mono muted" style={{fontSize: 12}}>{p.sku}</span>
                     {p.description && <p>{p.description}</p>}
                     <span className="catalog-mobile-category">{p.category_name}</span>
                   </div>
@@ -794,6 +835,8 @@ export default function Catalog() {
           </footer>
         </section>
       )}
+
+      {importing && <ImportProductsModal onClose={() => setImporting(false)} onDone={load} />}
 
       {editing && (
         <ProductForm

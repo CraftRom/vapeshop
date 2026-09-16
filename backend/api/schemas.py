@@ -45,6 +45,7 @@ class CategoryOut(ORMModel, CategoryIn):
 class ProductIn(BaseModel):
     category_id: int
     name: str = Field(min_length=1, max_length=255)
+    sku: str | None = Field(None, min_length=3, max_length=32)
     description: str | None = None
     price: Decimal = Field(ge=0)
     old_price: Decimal | None = None

@@ -97,6 +97,7 @@ class Product:
     category_id: int
     name: str
     price: Decimal
+    sku: str = ""
     description: str | None = None
     old_price: Decimal | None = None
     stock: int = 0

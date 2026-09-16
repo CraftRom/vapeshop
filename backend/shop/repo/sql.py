@@ -6,7 +6,7 @@ import string
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
-from sqlalchemy import case, delete, func, select, update
+from sqlalchemy import case, delete, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -73,7 +73,7 @@ def _product(row, category_name: str | None = None) -> Product | None:
     if row is None:
         return None
     return Product(
-        id=row.id, category_id=row.category_id, name=row.name,
+        id=row.id, category_id=row.category_id, name=row.name, sku=row.sku,
         price=_dec(row.price), description=row.description,
         old_price=_dec(row.old_price) if row.old_price is not None else None,
         stock=row.stock, photo_file_id=row.photo_file_id, photo_url=row.photo_url,
@@ -335,7 +335,7 @@ class SqlRepository(Repository):
         if category_id:
             query = query.where(m.Product.category_id == category_id)
         if search:
-            query = query.where(m.Product.name_lower.like(f"%{search.lower()}%"))
+            query = query.where(or_(m.Product.name_lower.like(f"%{search.lower()}%"), m.Product.sku.ilike(f"%{search}%")))
         if only_active:
             query = query.where(m.Product.is_active.is_(True))
         return [_product(row, name) for row, name in await self.s.execute(query)]
@@ -359,11 +359,18 @@ class SqlRepository(Repository):
 
     async def create_product(self, data: dict) -> Product:
         data = dict(data)
+        if not data.get("sku"):
+            from shop.services.product_io import generate_sku
+            data["sku"] = await generate_sku(self)
         data["name_lower"] = data["name"].lower()
         row = m.Product(**data)
         self.s.add(row)
         await self.s.commit()
         await self.s.refresh(row)
+        return _product(row)
+
+    async def get_product_by_sku(self, sku: str) -> Product | None:
+        row = await self.s.scalar(select(m.Product).where(m.Product.sku == sku.upper()))
         return _product(row)
 
     async def update_product(self, product_id, data: dict) -> Product | None:

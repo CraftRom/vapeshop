@@ -127,11 +127,13 @@ class Product(Base):
         # Каталог завжди читається як "активні товари категорії за порядком"
         Index("ix_products_category_active", "category_id", "is_active", "sort_order"),
         Index("ix_products_name_lower", "name_lower"),
+        Index("ux_products_sku", "sku", unique=True),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     category_id: Mapped[int] = mapped_column(ForeignKey("categories.id", ondelete="CASCADE"))
     name: Mapped[str] = mapped_column(String(255))
+    sku: Mapped[str] = mapped_column(String(32), nullable=False)
     description: Mapped[str | None] = mapped_column(Text)
     price: Mapped[Decimal] = mapped_column(Numeric(12, 2))
     old_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))

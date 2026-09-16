@@ -118,6 +118,20 @@ async function request(path, { method = 'GET', body, params } = {}) {
   return response.json()
 }
 
+
+async function upload(path, formData) {
+  const headers = {}; const token = getToken(); if (token) headers.Authorization = `Bearer ${token}`
+  const response = await fetch(new URL(`${BASE}${path}`, window.location.origin), { method: 'POST', headers, body: formData })
+  if (!response.ok) { let d; try { d=(await response.json()).detail } catch {} throw new ApiError(typeof d === 'string' ? d : `Помилка ${response.status}`, response.status) }
+  return response.json()
+}
+async function download(path, filename) {
+  const headers = {}; const token = getToken(); if (token) headers.Authorization = `Bearer ${token}`
+  const response = await fetch(new URL(`${BASE}${path}`, window.location.origin), { headers })
+  if (!response.ok) throw new ApiError(`Помилка ${response.status}`, response.status)
+  const blob=await response.blob(); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download=filename; a.click(); URL.revokeObjectURL(url)
+}
+
 export const api = {
   health: () => request('/health'),
 
@@ -149,6 +163,8 @@ export const api = {
     setStock: (id, stock) => request(`/catalog/products/${id}/stock`, { method: 'PATCH', body: { stock } }),
     remove: (id) => request(`/catalog/products/${id}`, { method: 'DELETE' }),
     purge: (id) => request(`/catalog/products/${id}/purge`, { method: 'DELETE' }),
+    importXlsx: (form) => upload('/catalog/product-transfer/import', form),
+    exportXlsx: () => download('/catalog/product-transfer/export', 'elfar-products.xlsx'),
   },
 
   orders: {
