@@ -4,7 +4,9 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api, getToken } from '../api'
 import { ErrorBar, Field, Info, Loading, Modal, money, useToast } from '../components/ui'
 import { STATUS_LABELS, allowedFrom } from '../components/StatusRail'
-import { OrderStatusBadge, SalesDriveStatusSelect, isNewOrderStatus } from '../components/OrderStatus'
+import {
+  OrderStatusBadge, SalesDriveStatusProgress, SalesDriveStatusSelect, isNewOrderStatus,
+} from '../components/OrderStatus'
 import { useVisiblePolling } from '../components/useVisiblePolling'
 
 // Спосіб доставки, обраний покупцем. Порожнє значення — замовлення з
@@ -24,6 +26,23 @@ function timestamp(value) {
 
 const FILE_LABEL = {
   photo: 'Фото', document: 'Документ', video: 'Відео', voice: 'Голосове',
+}
+
+function sameMessages(left, right) {
+  if (left === right) return true
+  if (!Array.isArray(left) || !Array.isArray(right) || left.length !== right.length) return false
+  return left.every((message, index) => {
+    const other = right[index]
+    return other
+      && message.id === other.id
+      && message.is_read === other.is_read
+      && message.direction === other.direction
+      && message.author === other.author
+      && message.text === other.text
+      && message.file_kind === other.file_kind
+      && message.file_name === other.file_name
+      && message.created_at === other.created_at
+  })
 }
 
 /** Вкладення з Telegram.
@@ -141,16 +160,29 @@ function Chat({ orderId, messages, newMessageIds, onSent }) {
   const notify = useToast()
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
-  const bottom = useRef(null)
+  const logRef = useRef(null)
+  const stickToBottomRef = useRef(true)
+  const initializedRef = useRef(false)
   const newIds = newMessageIds || new Set()
   const firstNewIndex = messages.findIndex((message) => newIds.has(message.id))
   const newCount = messages.reduce((count, message) => (
     count + (message.direction === 'in' && newIds.has(message.id) ? 1 : 0)
   ), 0)
+  const lastMessageId = messages.length ? messages[messages.length - 1].id : 0
 
   useEffect(() => {
-    bottom.current?.scrollIntoView({ block: 'end' })
-  }, [messages])
+    const node = logRef.current
+    if (!node) return
+    if (!initializedRef.current) {
+      initializedRef.current = true
+      node.scrollTop = node.scrollHeight
+      stickToBottomRef.current = true
+      return
+    }
+    // Фонове оновлення не повинно виривати менеджера з місця, де він
+    // читає стару переписку. Автоскрол — лише якщо він уже був унизу.
+    if (stickToBottomRef.current) node.scrollTop = node.scrollHeight
+  }, [lastMessageId])
 
   const send = async () => {
     const body = text.trim()
@@ -161,7 +193,12 @@ function Chat({ orderId, messages, newMessageIds, onSent }) {
       setText('')
       // Клієнт міг заблокувати бота — повідомлення збережеться, але не дійде
       if (!result.delivered) notify(result.warning || 'Не доставлено клієнту', 'bad')
-      onSent()
+      stickToBottomRef.current = true
+      onSent(result.message)
+      requestAnimationFrame(() => {
+        const node = logRef.current
+        if (node) node.scrollTop = node.scrollHeight
+      })
     } catch (err) {
       notify(err.message, 'bad')
     } finally {
@@ -192,7 +229,14 @@ function Chat({ orderId, messages, newMessageIds, onSent }) {
         )}
       </div>
 
-      <div className="chat-log">
+      <div
+        className="chat-log"
+        ref={logRef}
+        onScroll={(event) => {
+          const node = event.currentTarget
+          stickToBottomRef.current = node.scrollHeight - node.scrollTop - node.clientHeight < 80
+        }}
+      >
         {messages.length === 0 ? (
           <p className="faint" style={{ margin: 0 }}>
             Повідомлень ще немає. Клієнт отримає ваше в чаті з ботом і зможе
@@ -238,7 +282,6 @@ function Chat({ orderId, messages, newMessageIds, onSent }) {
             )
           })
         )}
-        <div ref={bottom} />
       </div>
 
       <textarea
@@ -332,38 +375,88 @@ function WaybillPanel({ order, busy, onChanged }) {
 
   const crm = CRM_STATE[order.crm_state]
   const disabled = busy || working
+  const crmNp = order.crm_snapshot?.novaposhta || {}
+  const crmUp = order.crm_snapshot?.ukrposhta || {}
+  const localTracking = String(order.tracking_number || '').trim()
+  const npTracking = String(crmNp.ttn || '').trim()
+  const upTracking = String(crmUp.ttn || '').trim()
+  const crmCarrier = npTracking && npTracking === localTracking
+    ? 'Нова пошта'
+    : upTracking && upTracking === localTracking
+      ? 'Укрпошта'
+      : ''
+  const crmWaybill = order.waybill_source === 'salesdrive'
+  const crmManual = crmCarrier === 'Нова пошта' ? crmNp.manual : crmUp.manual
+  const crmDeliveryStatus = crmCarrier === 'Нова пошта' ? crmNp.status : crmUp.status
+  const crmDeliveryUpdated = crmCarrier === 'Нова пошта' ? crmNp.dateStatusUpdate : crmUp.dateStatusUpdate
+  const sourceLabel = crmWaybill
+    ? crmManual === 0 || crmManual === '0'
+      ? 'сформована в SalesDrive'
+      : crmManual === 1 || crmManual === '1'
+        ? 'внесена вручну в SalesDrive'
+        : 'отримана з SalesDrive'
+    : WAYBILL_SOURCE[order.waybill_source] || 'без джерела'
+  // Не вгадуємо перевізника за самим номером. Для локально створеної
+  // накладної джерело однозначно Нова пошта; для CRM-пов'язаної даємо
+  // посилання лише коли snapshot прямо підтверджує Nova Poshta.
+  const npTrackingUrl = localTracking && (order.waybill_source === 'novaposhta' || crmCarrier === 'Нова пошта')
+    ? `https://novaposhta.ua/tracking/?cargo_number=${encodeURIComponent(localTracking)}`
+    : ''
 
   return (
     <div className="waybill-panel">
       {order.tracking_number ? (
-        <div className="row-between waybill-row">
-          <div>
-            <div className="num info-strong">{order.tracking_number}</div>
-            <div className="faint">
-              ТТН {WAYBILL_SOURCE[order.waybill_source] || 'без джерела'}
-              {order.waybill_cost ? ` · доставка ${Number(order.waybill_cost).toFixed(0)} грн` : ''}
+        <div className={`waybill-current${crmWaybill ? ' from-crm' : ''}`}>
+          <div className="waybill-current-main">
+            <div className="waybill-current-title">
+              <span className="waybill-carrier-icon" aria-hidden="true">{crmCarrier === 'Укрпошта' ? '✉️' : '📦'}</span>
+              <div>
+                <div className="faint">{crmCarrier || 'Накладна перевізника'}</div>
+                <div className="num info-strong waybill-number">{order.tracking_number}</div>
+              </div>
             </div>
+            <div className="waybill-meta-row">
+              <span className={`chip${crmWaybill ? ' crm-waybill-chip' : ''}`}>ТТН {sourceLabel}</span>
+              {order.waybill_ref && <span className="chip ok">Ref отримано</span>}
+              {order.waybill_cost ? <span className="chip">Доставка {Number(order.waybill_cost).toFixed(0)} грн</span> : null}
+            </div>
+            {crmDeliveryStatus && (
+              <div className="waybill-crm-status">
+                <span className="waybill-status-dot" aria-hidden="true" />
+                <div>
+                  <strong>{crmDeliveryStatus}</strong>
+                  {crmDeliveryUpdated && <small>Оновлено в CRM: {crmDate(crmDeliveryUpdated)}</small>}
+                </div>
+              </div>
+            )}
           </div>
-          {order.waybill_source === 'novaposhta' && (
-            <div className="row">
-              <button className="btn ghost small" disabled={disabled} onClick={printLabel}>
-                Маркування
-              </button>
-              {!['shipped', 'done'].includes(order.status) && (
-                <button
-                  className="btn ghost small danger"
-                  disabled={disabled}
-                  onClick={() => {
-                    if (confirm(`Видалити ТТН ${order.tracking_number} у Новій пошті?`)) {
-                      run(() => api.orders.deleteWaybill(order.id), 'Накладну видалено')
-                    }
-                  }}
-                >
-                  Видалити ТТН
+          <div className="row waybill-actions">
+            {npTrackingUrl && (
+              <a className="btn ghost small" href={npTrackingUrl} target="_blank" rel="noreferrer">
+                Відстежити
+              </a>
+            )}
+            {order.waybill_source === 'novaposhta' && (
+              <>
+                <button className="btn ghost small" disabled={disabled} onClick={printLabel}>
+                  Маркування
                 </button>
-              )}
-            </div>
-          )}
+                {!['shipped', 'done'].includes(order.status) && (
+                  <button
+                    className="btn ghost small danger"
+                    disabled={disabled}
+                    onClick={() => {
+                      if (confirm(`Видалити ТТН ${order.tracking_number} у Новій пошті?`)) {
+                        run(() => api.orders.deleteWaybill(order.id), 'Накладну видалено')
+                      }
+                    }}
+                  >
+                    Видалити ТТН
+                  </button>
+                )}
+              </>
+            )}
+          </div>
         </div>
       ) : (
         <div className="waybill-row">
@@ -723,15 +816,36 @@ export default function OrderPage() {
   const [crmRefreshing, setCrmRefreshing] = useState(false)
   const [crmAutoRefreshed, setCrmAutoRefreshed] = useState(false)
   const loadedOrderRef = useRef(null)
+  const messagesRef = useRef([])
+  const messagePollTickRef = useRef(0)
+  const trackingDirtyRef = useRef(false)
+  const noteDirtyRef = useRef(false)
+  const crmRefreshInFlightRef = useRef(false)
 
-  const load = useCallback(async () => {
+  useEffect(() => {
+    messagesRef.current = messages
+  }, [messages])
+
+  const applyFreshOrder = useCallback((fresh) => {
+    if (!fresh) return
+    setOrder(fresh)
+    // Фоновий refresh не має перезаписати текст, який менеджер саме зараз
+    // редагує у полі ТТН або нотатки. Серверне значення підтягуємо лише
+    // поки відповідна чернетка не змінена локально.
+    if (!trackingDirtyRef.current) setTracking(fresh.tracking_number || '')
+    if (!noteDirtyRef.current) setNote(fresh.admin_note || '')
+  }, [])
+
+  const loadInitial = useCallback(async () => {
     try {
       const [fresh, log] = await Promise.all([
         api.orders.get(id),
         api.orders.messages(id),
       ])
-      setOrder(fresh)
+      applyFreshOrder(fresh)
+      messagesRef.current = log
       setMessages(log)
+      setError('')
       const unseen = log
         .filter((message) => message.direction === 'in' && !message.is_read)
         .map((message) => message.id)
@@ -749,8 +863,6 @@ export default function OrderPage() {
           return next
         })
       }
-      setTracking(fresh.tracking_number || '')
-      setNote(fresh.admin_note || '')
       if (unseen.length > 0) {
         // Спершу зберегли список непрочитаних для UX, тільки потім гасимо
         // глобальний лічильник. Відповідь цього запиту навмисно не кладе́мо
@@ -760,11 +872,26 @@ export default function OrderPage() {
     } catch (err) {
       setError(err.message)
     }
-  }, [id])
+  }, [id, applyFreshOrder])
 
   useEffect(() => {
-    load()
-  }, [load])
+    // React Router може перевикористати той самий компонент для іншого id.
+    // Скидаємо тільки session-state картки, а не всю сторінку браузера.
+    loadedOrderRef.current = null
+    trackingDirtyRef.current = false
+    noteDirtyRef.current = false
+    crmRefreshInFlightRef.current = false
+    setOrder(null)
+    messagesRef.current = []
+    messagePollTickRef.current = 0
+    setMessages([])
+    setNewMessageIds(new Set())
+    setTracking('')
+    setNote('')
+    setError('')
+    setCrmAutoRefreshed(false)
+    loadInitial()
+  }, [id, loadInitial])
 
   // Клік по синій мітці «Нове повідомлення» у списку веде одразу до
   // листування. Hash браузер може обробити раніше, ніж React намалює чат,
@@ -791,19 +918,20 @@ export default function OrderPage() {
   }, [loadCrmStatuses])
 
   const refreshCrm = useCallback(async (quiet = false) => {
-    if (!order?.crm_id || crmRefreshing) return
-    setCrmRefreshing(true)
+    if (!order?.crm_id || crmRefreshInFlightRef.current) return
+    crmRefreshInFlightRef.current = true
+    if (!quiet) setCrmRefreshing(true)
     try {
       const fresh = await api.orders.salesdriveRefresh(order.id, !quiet)
-      setOrder(fresh)
-      setTracking(fresh.tracking_number || '')
+      applyFreshOrder(fresh)
       if (!quiet) notify('Дані SalesDrive оновлено')
     } catch (err) {
       if (!quiet) notify(err.message, 'bad')
     } finally {
-      setCrmRefreshing(false)
+      crmRefreshInFlightRef.current = false
+      if (!quiet) setCrmRefreshing(false)
     }
-  }, [order?.id, order?.crm_id, crmRefreshing, notify])
+  }, [order?.id, order?.crm_id, notify, applyFreshOrder])
 
   useEffect(() => {
     if (order?.crm_id && !crmAutoRefreshed) {
@@ -819,6 +947,15 @@ export default function OrderPage() {
   useVisiblePolling(() => refreshCrm(true), 300000, { enabled: Boolean(order?.crm_id) })
   useVisiblePolling(loadCrmStatuses, 300000, { enabled: Boolean(order?.crm_id) })
 
+  // Webhook змінює локальний рядок замовлення майже миттєво. Цей легкий
+  // poll читає тільки нашу БД, без звернення до SalesDrive, і непомітно
+  // підтягує статус, ТТН, оплату, нотатку та інші поля у відкриту картку.
+  const refreshLocalOrder = useCallback(async () => {
+    const fresh = await api.orders.get(id)
+    applyFreshOrder(fresh)
+  }, [id, applyFreshOrder])
+  useVisiblePolling(refreshLocalOrder, 10000)
+
   // Прийшли зі списку по кнопці «Відпр.» — одразу питаємо накладну
   useEffect(() => {
     if (order && params.get('ship') === '1' && order.status !== 'shipped') {
@@ -827,33 +964,68 @@ export default function OrderPage() {
     }
   }, [order, params, setParams])
 
-  // Відповідь клієнта приходить у бот, а не в панель. Першу історію вже
-  // забрав load(), тому тут лише фонове оновлення. У прихованій вкладці
-  // таймера немає взагалі, а після повернення стрічка оновлюється одразу.
+  // Відповідь клієнта приходить у бот, а не в панель. Оновлюємо тільки
+  // стрічку повідомлень; решта картки не переходить у loading і не скаче.
+  // Якщо історія не змінилась, навіть React-state лишається тим самим.
   const pollMessages = useCallback(async () => {
-    const fresh = await api.orders.messages(id)
-    setMessages(fresh)
+    messagePollTickRef.current += 1
+    // Нові повідомлення треба бачити швидко, але немає сенсу кожні 5 с
+    // передавати назад усі 200 реплік. П'ять циклів читаємо лише delta,
+    // шостий робимо компактну повну звірку: так оновлюються й ✓✓ read
+    // receipts для вже надісланих менеджером повідомлень.
+    const reconcile = messagePollTickRef.current % 6 === 0
+    const current = messagesRef.current
+    const lastId = current.length ? current[current.length - 1]?.id : null
+    const fresh = await api.orders.messages(id, false, reconcile ? null : lastId)
+
+    let next = current
+    if (reconcile || lastId === null) {
+      next = sameMessages(current, fresh) ? current : fresh
+    } else if (fresh.length > 0) {
+      const byId = new Map(current.map((message) => [message.id, message]))
+      fresh.forEach((message) => byId.set(message.id, message))
+      next = [...byId.values()].sort((a, b) => Number(a.id) - Number(b.id))
+    }
+
+    if (next !== current) {
+      messagesRef.current = next
+      setMessages(next)
+    }
+
+    // Для нових маркерів цікавить лише відповідь поточного запиту: при
+    // reconcile старі вже прочитані сервером і не створять дубль.
     const unseen = fresh
       .filter((message) => message.direction === 'in' && !message.is_read)
       .map((message) => message.id)
     if (unseen.length > 0) {
-      setNewMessageIds((current) => {
-        const next = new Set(current)
-        unseen.forEach((messageId) => next.add(messageId))
-        return next
+      setNewMessageIds((known) => {
+        const nextIds = new Set(known)
+        unseen.forEach((messageId) => nextIds.add(messageId))
+        return nextIds
       })
       api.orders.markMessagesRead(id).catch(() => {})
     }
   }, [id])
-  useVisiblePolling(pollMessages, 15000)
+  useVisiblePolling(pollMessages, 5000)
+
+  const appendSentMessage = useCallback((message) => {
+    if (!message) return
+    setMessages((current) => {
+      const index = current.findIndex((item) => item.id === message.id)
+      const next = index < 0 ? [...current, message] : current.map((item) => item.id === message.id ? message : item)
+      messagesRef.current = next
+      return next
+    })
+  }, [])
 
   const patch = async (payload, okText) => {
     setBusy(true)
     try {
       const fresh = await api.orders.patch(id, payload)
-      setOrder(fresh)
+      if (Object.prototype.hasOwnProperty.call(payload, 'tracking_number')) trackingDirtyRef.current = false
+      if (Object.prototype.hasOwnProperty.call(payload, 'admin_note')) noteDirtyRef.current = false
+      applyFreshOrder(fresh)
       notify(okText)
-      load()
     } catch (err) {
       notify(err.message, 'bad')
     } finally {
@@ -871,6 +1043,7 @@ export default function OrderPage() {
   }
 
   const confirmShipping = async (value) => {
+    trackingDirtyRef.current = false
     setTracking(value)
     await patch(
       { status: 'shipped', tracking_number: value },
@@ -974,6 +1147,10 @@ export default function OrderPage() {
               )}
             </div>
 
+            {order.crm_id && (
+              <SalesDriveStatusProgress order={order} statuses={crmStatuses} />
+            )}
+
             {order.crm_id ? (
               <div className="order-status-actions">
                 <label className="faint" htmlFor="crm-order-status">Змінити статус у SalesDrive</label>
@@ -985,7 +1162,7 @@ export default function OrderPage() {
                     setBusy(true)
                     try {
                       const fresh = await api.orders.salesdriveStatus(order.id, option.id)
-                      setOrder(fresh)
+                      applyFreshOrder(fresh)
                       notify(`Статус SalesDrive: ${fresh.crm_status_name || option.name}`)
                     } catch (err) { notify(err.message, 'bad') }
                     finally { setBusy(false) }
@@ -1022,7 +1199,14 @@ export default function OrderPage() {
               </button>
             )}
 
-            <WaybillPanel order={order} busy={busy} onChanged={(fresh) => { setOrder(fresh); setTracking(fresh.tracking_number || ''); load() }} />
+            <WaybillPanel
+              order={order}
+              busy={busy}
+              onChanged={(fresh) => {
+                trackingDirtyRef.current = false
+                applyFreshOrder(fresh)
+              }}
+            />
 
             <Field
               label="Номер накладної"
@@ -1032,7 +1216,10 @@ export default function OrderPage() {
                 <input
                   className="input"
                   value={tracking}
-                  onChange={(e) => setTracking(e.target.value)}
+                  onChange={(e) => {
+                    trackingDirtyRef.current = true
+                    setTracking(e.target.value)
+                  }}
                   placeholder="20450912345678"
                 />
                 <button
@@ -1050,7 +1237,10 @@ export default function OrderPage() {
                 className="input"
                 rows={2}
                 value={note}
-                onChange={(e) => setNote(e.target.value)}
+                onChange={(e) => {
+                  noteDirtyRef.current = true
+                  setNote(e.target.value)
+                }}
               />
             </Field>
             <button
@@ -1162,7 +1352,7 @@ export default function OrderPage() {
             )}
           </div>
 
-          <Chat orderId={id} messages={messages} newMessageIds={newMessageIds} onSent={load} />
+          <Chat orderId={id} messages={messages} newMessageIds={newMessageIds} onSent={appendSentMessage} />
         </div>
       </div>
 

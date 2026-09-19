@@ -265,7 +265,7 @@ async def refresh_salesdrive_order(
     if not order.crm_id:
         raise HTTPException(409, "Legacy-замовлення не пов’язане із SalesDrive")
     try:
-        return await salesdrive.pull_order(repo, order_id, force=force)
+        return await salesdrive.pull_order(repo, order_id, force=force, bot=_bot())
     except salesdrive.SalesDriveError as exc:
         raise HTTPException(502, str(exc)) from exc
 
@@ -287,7 +287,9 @@ async def patch_salesdrive_status(
     if not order.crm_id:
         raise HTTPException(409, "Старе замовлення не пов’язане із SalesDrive")
     try:
-        return await salesdrive.set_crm_status(repo, order, data.status_id, data.status_name)
+        return await salesdrive.set_crm_status(
+            repo, order, data.status_id, data.status_name, bot=_bot(),
+        )
     except salesdrive.SalesDriveError as exc:
         raise HTTPException(502, str(exc)) from exc
 
@@ -336,19 +338,25 @@ def _bot():
 
 @router.get("/{order_id}/messages", response_model=list[OrderMessageOut])
 async def order_messages(
-    order_id: int, mark_read: bool = False, repo: Repository = Depends(get_repo)
+    order_id: int,
+    mark_read: bool = False,
+    after_id: int | None = Query(None, ge=0),
+    repo: Repository = Depends(get_repo),
 ):
     """Стрічка листування.
 
     mark_read вимикається за замовчуванням навмисно: сторінка замовлення
-    оновлює стрічку у фоні кожні 15 секунд, і якби кожен такий запит гасив
+    оновлює стрічку окремим фоновим polling, і якби кожен такий запит гасив
     лічильник, непрочитані зникали б у вкладці, на яку ніхто не дивиться.
+
+    ``after_id`` використовується live-панеллю для delta polling: кожні
+    кілька секунд передаються лише нові репліки, а не вся історія.
     """
     if not await repo.get_order(order_id):
         raise HTTPException(404, "Замовлення не знайдено")
     if mark_read:
         await repo.mark_messages_read(order_id)
-    return await repo.list_order_messages(order_id)
+    return await repo.list_order_messages(order_id, after_id=after_id)
 
 
 @router.post("/{order_id}/messages/read")

@@ -48,6 +48,7 @@ log = logging.getLogger(__name__)
 REQUEST_TIMEOUT = 20.0
 DICTIONARY_TTL_SECONDS = 10 * 60
 ORDER_PULL_MIN_AGE_SECONDS = 90
+READ_RETRY_DELAY_SECONDS = 0.35
 # Після стількох невдалих спроб планувальник зупиняється: помилка, яка не
 # минає за добу повторів (зіпсований ключ, видалена форма), сама не мине.
 # Далі — кнопка «Повторити» в панелі після виправлення.
@@ -418,6 +419,12 @@ def _resolve_option(raw, items: list[dict]) -> tuple[str, str]:
 
 
 async def _get_json(shop, path: str, *, params: dict | None = None, client: httpx.AsyncClient | None = None):
+    """GET із SalesDrive з одним обережним retry для read-only помилок.
+
+    Write-запити навмисно НЕ повторюємо автоматично: після таймауту POST міг
+    уже виконатися в CRM, а повтор створив би дубль/подвійну дію. Для GET
+    повтор безпечний, але 429 не ретраїмо — поважаємо rate-limit SalesDrive.
+    """
     if not (getattr(shop, "salesdrive_domain", "") or "").strip():
         raise SalesDriveError("Не задано домен SalesDrive", temporary=False)
     if not getattr(shop, "salesdrive_api_connected", False):
@@ -425,15 +432,40 @@ async def _get_json(shop, path: str, *, params: dict | None = None, client: http
     owned = client is None
     if owned:
         client = httpx.AsyncClient(timeout=REQUEST_TIMEOUT, follow_redirects=False)
+
+    response = None
     try:
-        response = await client.get(base_url(shop) + path, params=params, headers=_read_headers(shop))
-    except httpx.TimeoutException as exc:
-        raise SalesDriveError("SalesDrive не відповів вчасно") from exc
-    except httpx.HTTPError as exc:
-        raise SalesDriveError(f"SalesDrive недоступний: {type(exc).__name__}") from exc
+        for attempt in range(2):
+            try:
+                response = await client.get(base_url(shop) + path, params=params, headers=_read_headers(shop))
+            except (httpx.TimeoutException, httpx.TransportError) as exc:
+                if attempt == 0:
+                    log.warning(
+                        "SalesDrive GET %s тимчасово недоступний (%s), одна повторна спроба",
+                        path, type(exc).__name__,
+                        extra={"event": "salesdrive.read.retry", "path": path, "attempt": 1},
+                    )
+                    await asyncio.sleep(READ_RETRY_DELAY_SECONDS)
+                    continue
+                message = "SalesDrive не відповів вчасно" if isinstance(exc, httpx.TimeoutException) else f"SalesDrive недоступний: {type(exc).__name__}"
+                raise SalesDriveError(message) from exc
+
+            if response.status_code in (502, 503, 504) and attempt == 0:
+                log.warning(
+                    "SalesDrive GET %s повернув %s, одна повторна спроба",
+                    path, response.status_code,
+                    extra={"event": "salesdrive.read.retry", "path": path,
+                           "attempt": 1, "status": response.status_code},
+                )
+                await asyncio.sleep(READ_RETRY_DELAY_SECONDS)
+                continue
+            break
     finally:
         if owned and client is not None:
             await client.aclose()
+
+    if response is None:
+        raise SalesDriveError("SalesDrive не повернув відповідь")
     if response.status_code in (401, 403):
         raise SalesDriveError("SalesDrive відхилив API-ключ", temporary=False)
     if response.status_code == 429:
@@ -447,7 +479,7 @@ async def _get_json(shop, path: str, *, params: dict | None = None, client: http
     try:
         return response.json()
     except ValueError as exc:
-        raise SalesDriveError("SalesDrive повернув некоректну відповідь", temporary=False) from exc
+        raise SalesDriveError("SalesDrive повернув некоректну JSON-відповідь", temporary=False) from exc
 
 
 async def dictionary_bundle(shop, *, force: bool = False) -> dict:
@@ -813,6 +845,7 @@ def token_matches(shop, token: str) -> bool:
 
 
 def _tracking_from(data: dict) -> tuple[str, str | None, Decimal | None]:
+    """Номер, ref та вартість накладної з документованих CRM-полів."""
     np_block = data.get("ord_novaposhta") if isinstance(data.get("ord_novaposhta"), dict) else {}
     number = str(np_block.get("EN") or "").strip()
     if number:
@@ -820,11 +853,33 @@ def _tracking_from(data: dict) -> tuple[str, str | None, Decimal | None]:
         try:
             if np_block.get("cost") not in (None, ""):
                 cost = Decimal(str(np_block.get("cost")))
-        except ArithmeticError:
+        except (ArithmeticError, ValueError):
             cost = None
         return number, (str(np_block.get("ENref") or "").strip() or None), cost
+
     up_block = data.get("ord_ukrposhta") if isinstance(data.get("ord_ukrposhta"), dict) else {}
-    return str(up_block.get("barcode") or "").strip(), None, None
+    number = str(up_block.get("barcode") or "").strip()
+    cost = None
+    try:
+        if up_block.get("cost") not in (None, ""):
+            cost = Decimal(str(up_block.get("cost")))
+    except (ArithmeticError, ValueError):
+        cost = None
+    return number, (str(up_block.get("barcodeUuid") or "").strip() or None), cost
+
+
+def _tracking_explicitly_present(data: dict) -> bool:
+    """Webhook справді передав поле ТТН, навіть якщо воно порожнє.
+
+    Це відрізняє «CRM видалила ТТН» від часткового webhook, який блок
+    доставки взагалі не надсилав. У другому випадку локальний номер не
+    чіпаємо.
+    """
+    np_block = data.get("ord_novaposhta")
+    if isinstance(np_block, dict) and "EN" in np_block:
+        return True
+    up_block = data.get("ord_ukrposhta")
+    return isinstance(up_block, dict) and "barcode" in up_block
 
 
 async def handle_webhook(repo, payload: dict, *, bot=None) -> dict:
@@ -868,11 +923,27 @@ async def handle_webhook(repo, payload: dict, *, bot=None) -> dict:
     problems: list[str] = []
 
     number, ref, cost = _tracking_from(data)
-    if number and number != (order.tracking_number or ""):
-        await flow.apply_tracking(repo, order, number, origin=flow.ORIGIN_SALESDRIVE, bot=bot,
-                                  ref=ref or "", source=flow.SOURCE_SALESDRIVE, cost=cost)
-        order = await repo.get_order(order.id) or order
-        applied.append("tracking")
+    if number:
+        # Викликаємо навіть коли номер той самий: пізніший webhook часто
+        # довантажує ENref/вартість/джерело вже після створення ТТН.
+        result = await flow.apply_tracking(
+            repo, order, number, origin=flow.ORIGIN_SALESDRIVE, bot=bot,
+            ref=ref or "", source=flow.SOURCE_SALESDRIVE, cost=cost,
+        )
+        order = result.order
+        if result.changed:
+            applied.append("tracking")
+    elif (_tracking_explicitly_present(data)
+          and order.waybill_source == flow.SOURCE_SALESDRIVE
+          and order.tracking_number):
+        # Порожній EN/barcode, який CRM передала явно, означає видалення
+        # накладної. Частковий webhook без поля ТТН сюди не потрапляє.
+        result = await flow.apply_tracking(
+            repo, order, "", origin=flow.ORIGIN_SALESDRIVE, bot=None,
+        )
+        order = result.order
+        if result.changed:
+            applied.append("tracking")
 
     incoming_status_id = str(data.get("statusId") or "").strip()
     incoming_status_name = str(data.get("statusName") or data.get("status_name") or "").strip()
@@ -911,7 +982,7 @@ async def handle_webhook(repo, payload: dict, *, bot=None) -> dict:
     target = status_from_crm(shop, incoming_status_id)
     if target and target != order.status:
         try:
-            await flow.apply_status(repo, order, target, origin=flow.ORIGIN_SALESDRIVE, bot=bot)
+            await flow.apply_crm_status_progression(repo, order, target, bot=bot)
             applied.append("status")
         except flow.WorkflowError as exc:
             problems.append(str(exc))
@@ -1145,7 +1216,7 @@ def _snapshot_age_seconds(order: Order) -> float | None:
     return max(0.0, (now - value).total_seconds())
 
 
-async def pull_order(repo, order_id: int, shop=None, *, force: bool = False) -> Order:
+async def pull_order(repo, order_id: int, shop=None, *, force: bool = False, bot=None) -> Order:
     """Читає фактичний стан вже пов'язаної заявки SalesDrive.
 
     ``force=False`` захищає ліміт ``/api/order/list/`` від фонового polling:
@@ -1153,6 +1224,7 @@ async def pull_order(repo, order_id: int, shop=None, *, force: bool = False) -> 
     кнопка «Оновити з CRM» передає ``force=True``. No-backfill: без crm_id —
     відмова.
     """
+    from shop.services import order_workflow as flow
     from shop.services.shop_settings import get_shop_settings
     shop = shop or await get_shop_settings(repo)
     order = await repo.get_order(order_id)
@@ -1172,18 +1244,45 @@ async def pull_order(repo, order_id: int, shop=None, *, force: bool = False) -> 
         "page": 1, "limit": 1, "filter[statusId]": "__ALL__",
         "filter[id][from]": str(order.crm_id), "filter[id][to]": str(order.crm_id),
     }
-    body = await _get_json(shop, "/api/order/list/", params=params)
+    try:
+        body = await _get_json(shop, "/api/order/list/", params=params)
+    except SalesDriveError as exc:
+        # Фоновий refresh у браузері тихий, тому причина має лишитися у
+        # самій картці замовлення. Успішне наступне читання очистить її.
+        await repo.update_order(order.id, {
+            "crm_error": f"Не вдалося оновити дані SalesDrive: {exc}"[:500],
+        })
+        log.warning(
+            "Не вдалося прочитати SalesDrive заявку %s: %s", order.crm_id, exc,
+            extra={"event": "salesdrive.pull.failed", "orderId": order.id,
+                   "crmId": order.crm_id, "temporary": exc.temporary},
+        )
+        raise
     rows = _order_list_rows(body)
     row = next((x for x in rows if str(x.get("id") or "") == str(order.crm_id)), None)
     if row is None:
-        raise SalesDriveError("Пов'язану заявку не знайдено у відповіді SalesDrive", temporary=False)
+        message = "Пов’язану заявку не знайдено у відповіді SalesDrive"
+        await repo.update_order(order.id, {"crm_error": message[:500]})
+        log.warning(
+            "SalesDrive не повернув пов’язану заявку %s", order.crm_id,
+            extra={"event": "salesdrive.pull.missing", "orderId": order.id, "crmId": order.crm_id},
+        )
+        raise SalesDriveError(message, temporary=False)
     expected_form = telegram_form_id(shop)
     try:
         row_form = int(row.get("formId")) if row.get("formId") not in (None, "") else 0
     except (TypeError, ValueError):
         row_form = 0
     if expected_form > 0 and row_form > 0 and row_form != expected_form:
-        raise SalesDriveError("Заявка належить іншій базі SalesDrive", temporary=False)
+        message = "Заявка належить іншій базі SalesDrive"
+        await repo.update_order(order.id, {"crm_error": message[:500]})
+        log.warning(
+            "SalesDrive заявка %s має formId=%s замість очікуваного %s",
+            order.crm_id, row_form, expected_form,
+            extra={"event": "salesdrive.pull.form_mismatch", "orderId": order.id,
+                   "crmId": order.crm_id, "formId": row_form, "expectedFormId": expected_form},
+        )
+        raise SalesDriveError(message, temporary=False)
 
     # Спочатку використовуємо вже прогріті довідники + meta[fields] із самої
     # відповіді order-list. Це часто дозволяє обійтися одним HTTP-запитом.
@@ -1216,20 +1315,52 @@ async def pull_order(repo, order_id: int, shop=None, *, force: bool = False) -> 
         # Якщо назву не вдалося розв'язати, очищаємо старий підпис, а не
         # показуємо його поруч із новим ID.
         patch["crm_status_name"] = snap.get("statusName") or None
-    ttn = str((snap.get("novaposhta") or {}).get("ttn") or (snap.get("ukrposhta") or {}).get("ttn") or "").strip()
-    if ttn and ttn != (order.tracking_number or ""):
-        patch["tracking_number"] = ttn
-        patch["waybill_source"] = "salesdrive"
-    np_cost = (snap.get("novaposhta") or {}).get("cost")
-    if np_cost not in (None, ""):
-        try:
-            patch["waybill_cost"] = Decimal(str(np_cost))
-        except (ArithmeticError, ValueError):
-            pass
     await repo.update_order(order.id, patch)
-    return await repo.get_order(order.id) or order
+    order = await repo.get_order(order.id) or order
 
-async def set_crm_status(repo, order: Order, status_id: str, status_name: str | None = None, shop=None) -> Order:
+    # ТТН із SalesDrive — не декоративне поле snapshot. Вона має стати
+    # єдиною накладною замовлення разом із ENref і вартістю доставки.
+    # Якщо ТТН було видалено саме в CRM, прибираємо локальну копію тільки
+    # коли її джерело теж SalesDrive: номер, створений у нашій панелі, не
+    # можна стерти через тимчасово порожню відповідь CRM.
+    np_snap = snap.get("novaposhta") or {}
+    up_snap = snap.get("ukrposhta") or {}
+    ttn = str(np_snap.get("ttn") or up_snap.get("ttn") or "").strip()
+    ref = str(np_snap.get("ref") or up_snap.get("ref") or "").strip()
+    crm_cost = np_snap.get("cost") if np_snap.get("cost") not in (None, "") else up_snap.get("cost")
+    cost = None
+    if crm_cost not in (None, ""):
+        try:
+            cost = Decimal(str(crm_cost))
+        except (ArithmeticError, ValueError):
+            cost = None
+
+    if ttn:
+        await flow.apply_tracking(
+            repo, order, ttn, origin=flow.ORIGIN_SALESDRIVE, bot=None,
+            ref=ref, source=flow.SOURCE_SALESDRIVE, cost=cost,
+        )
+        order = await repo.get_order(order.id) or order
+    elif order.waybill_source == flow.SOURCE_SALESDRIVE and order.tracking_number:
+        await flow.apply_tracking(repo, order, "", origin=flow.ORIGIN_SALESDRIVE, bot=None)
+        order = await repo.get_order(order.id) or order
+
+    # Якщо webhook загубився, пряме читання заявки все одно наздожене
+    # локальний workflow. Пізніший CRM-статус означає, що попередні етапи
+    # вже пройдені; проміжні кроки застосовуються послідовно.
+    target = status_from_crm(shop, snap.get("statusId"))
+    if target and target != order.status:
+        try:
+            await flow.apply_crm_status_progression(repo, order, target, bot=bot)
+            order = await repo.get_order(order.id) or order
+        except flow.WorkflowError as exc:
+            await repo.update_order(order.id, {
+                "crm_error": f"Статус із SalesDrive прочитано, але локальний workflow не наздогнано: {exc}"[:500],
+            })
+            order = await repo.get_order(order.id) or order
+    return order
+
+async def set_crm_status(repo, order: Order, status_id: str, status_name: str | None = None, shop=None, *, bot=None) -> Order:
     """Змінює авторитетний статус прямо в SalesDrive.
 
     ``status_name`` лишено тільки для сумісності зі старими клієнтами й
@@ -1237,6 +1368,7 @@ async def set_crm_status(repo, order: Order, status_id: str, status_name: str | 
     CRM, а назву сервер бере звідти ж. Так браузер не може записати
     неіснуючий/застарілий підпис статусу.
     """
+    from shop.services import order_workflow as flow
     from shop.services.shop_settings import get_shop_settings
     shop = shop or await get_shop_settings(repo)
     if not order.crm_id:
@@ -1269,4 +1401,17 @@ async def set_crm_status(repo, order: Order, status_id: str, status_name: str | 
         patch["crm_snapshot"] = snapshot
         patch["crm_fetched_at"] = now
     await repo.update_order(order.id, patch)
-    return await repo.get_order(order.id) or order
+    fresh = await repo.get_order(order.id) or order
+
+    # Не чекаємо webhook, щоб локальні лічильники/бонуси/етапи одразу
+    # відповідали статусу, який менеджер щойно встановив у CRM. Повторний
+    # webhook ідемпотентний і вже нічого не дублює.
+    target = status_from_crm(shop, sid)
+    if target and target != fresh.status:
+        try:
+            await flow.apply_crm_status_progression(repo, fresh, target, bot=bot)
+        except flow.WorkflowError as exc:
+            await repo.update_order(order.id, {
+                "crm_error": f"Статус у SalesDrive змінено, але локальний workflow не наздогнано: {exc}"[:500],
+            })
+    return await repo.get_order(order.id) or fresh

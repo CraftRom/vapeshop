@@ -171,8 +171,13 @@ export const api = {
     list: (params) => request('/orders', { params }),
     get: (id) => request(`/orders/${id}`),
     patch: (id, data) => request(`/orders/${id}`, { method: 'PATCH', body: data }),
-    messages: (id, markRead = false) =>
-      request(`/orders/${id}/messages`, { params: { mark_read: markRead || undefined } }),
+    messages: (id, markRead = false, afterId = null) =>
+      request(`/orders/${id}/messages`, {
+        params: {
+          mark_read: markRead || undefined,
+          after_id: afterId === null || afterId === undefined ? undefined : afterId,
+        },
+      }),
     markMessagesRead: (id) => request(`/orders/${id}/messages/read`, { method: 'POST' }),
     sendMessage: (id, text) =>
       request(`/orders/${id}/messages`, { method: 'POST', body: { text } }),

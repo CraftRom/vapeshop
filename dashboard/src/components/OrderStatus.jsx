@@ -112,3 +112,46 @@ export function SalesDriveStatusSelect({ order, statuses = [], disabled = false,
     </select>
   )
 }
+
+/**
+ * Послідовність статусів так, як її повертає SalesDrive.
+ *
+ * Для робочої картки діє проста модель: якщо поточний статус знаходиться
+ * далі у CRM-списку, усі етапи ліворуч уже пройдено. Це лише візуальна
+ * історія процесу; фінансові/складські побічні ефекти як і раніше виконує
+ * backend через свій workflow, а не браузер.
+ */
+export function SalesDriveStatusProgress({ order, statuses = [] }) {
+  const current = orderDisplayStatus(order, statuses)
+  if (!current.isCrm || statuses.length < 2) return null
+
+  const currentIndex = statuses.findIndex((item) => String(item.id) === current.id)
+  if (currentIndex < 0) return null
+
+  return (
+    <div className="crm-status-progress-wrap">
+      <div className="crm-status-progress-head">
+        <span>Етапи CRM</span>
+        <small>{currentIndex + 1} з {statuses.length}</small>
+      </div>
+      <div className="crm-status-progress" role="list" aria-label="Послідовність статусів SalesDrive">
+        {statuses.map((item, index) => {
+          const passed = index < currentIndex
+          const active = index === currentIndex
+          return (
+            <div
+              key={item.id}
+              role="listitem"
+              aria-current={active ? 'step' : undefined}
+              className={`crm-status-step${passed ? ' passed' : ''}${active ? ' current' : ''}`}
+              title={passed ? 'Етап уже пройдено' : active ? 'Поточний статус' : 'Наступний етап'}
+            >
+              <span className="crm-status-step-dot" aria-hidden="true">{passed ? '✓' : ''}</span>
+              <span className="crm-status-step-label">{item.name}</span>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}

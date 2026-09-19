@@ -423,7 +423,8 @@ check("_notify_referrer" in _flow and "referral.notify.failed" not in read("back
 check("order_workflow" in read("backend/api/routers/orders.py")
       and "flow.apply_status" in read("backend/api/routers/orders.py"),
       "панель змінює статус через спільний сценарій замовлення")
-check("flow.apply_status" in read("backend/shop/services/salesdrive.py")
+check(("flow.apply_crm_status_progression" in read("backend/shop/services/salesdrive.py")
+       or "flow.apply_status" in read("backend/shop/services/salesdrive.py"))
       and "flow.apply_tracking" in read("backend/shop/services/salesdrive.py"),
       "SalesDrive змінює статус і накладну тим самим сценарієм, що й панель")
 check("flow.apply_tracking" in read("backend/shop/services/waybill.py"),

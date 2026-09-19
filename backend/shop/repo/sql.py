@@ -1117,13 +1117,37 @@ class SqlRepository(Repository):
         await self.s.refresh(row)
         return _order_message(row)
 
-    async def list_order_messages(self, order_id, limit: int = 200) -> list[OrderMessage]:
-        rows = await self.s.scalars(
+    async def list_order_messages(
+        self, order_id, limit: int = 200, after_id: int | None = None,
+    ) -> list[OrderMessage]:
+        """Останні повідомлення або інкремент після ``after_id``.
+
+        Старий запит сортував ASC і лише потім застосовував LIMIT 200, тому
+        у довгій переписці повертав *найстаріші* 200 повідомлень і нові
+        репліки фактично переставали з'являтися в панелі. Початкове читання
+        тепер бере останні 200 через DESC + reverse, а live polling тягне
+        лише повідомлення з більшим id.
+        """
+        cap = max(1, min(int(limit or 200), 500))
+        if after_id is not None:
+            rows = list(await self.s.scalars(
+                select(m.OrderMessage)
+                .where(
+                    m.OrderMessage.order_id == order_id,
+                    m.OrderMessage.id > int(after_id),
+                )
+                .order_by(m.OrderMessage.id)
+                .limit(cap)
+            ))
+            return [_order_message(r) for r in rows]
+
+        rows = list(await self.s.scalars(
             select(m.OrderMessage)
             .where(m.OrderMessage.order_id == order_id)
-            .order_by(m.OrderMessage.created_at, m.OrderMessage.id)
-            .limit(limit)
-        )
+            .order_by(m.OrderMessage.created_at.desc(), m.OrderMessage.id.desc())
+            .limit(cap)
+        ))
+        rows.reverse()
         return [_order_message(r) for r in rows]
 
     async def find_order_by_tg_message(self, tg_message_id: int) -> int | None:

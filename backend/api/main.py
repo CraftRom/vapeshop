@@ -83,7 +83,7 @@ app = FastAPI(
     title=f"{settings.shop_name} — Dashboard API",
     # Версія API. Піднімається разом із помітними змінами контракту:
     # три ролі замість двох і новий розділ журналу — саме такий випадок.
-    version="1.8.0",
+    version="1.9.0",
     lifespan=lifespan,
     docs_url="/docs" if _docs_on else None,
     redoc_url=None,

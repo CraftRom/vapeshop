@@ -25,7 +25,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 
 from shop.entities import STATUS_LABELS, Order, OrderStatus
-from shop.services.shop_service import change_order_status, transition_error
+from shop.services.shop_service import change_order_status, stages_for, transition_error
 
 log = logging.getLogger(__name__)
 
@@ -79,7 +79,10 @@ async def apply_tracking(
     """
     new = _normalize_tracking(tracking)
     old = order.tracking_number or ""
-    if new == old and (ref is None or ref == (order.waybill_ref or "")):
+    same_ref = ref is None or ref == (order.waybill_ref or "")
+    same_source = source is None or source == (order.waybill_source or "")
+    same_cost = cost is None or cost == order.waybill_cost
+    if new == old and same_ref and same_source and same_cost:
         return Outcome(order=order)
 
     patch: dict = {"tracking_number": new or None}
@@ -153,6 +156,96 @@ async def apply_status(
     # Позначку CRM і фонову відправку ставить change_order_status — там
     # вона спільна з ботом і скасуванням покупцем.
     return outcome
+
+
+def _progress_index(order: Order, status: OrderStatus, stages: tuple[OrderStatus, ...]) -> int | None:
+    """Позиція локального статусу у послідовному маршруті.
+
+    У базі ще можуть лишатися два історичні стани, яких уже немає у
+    ``stages_for``. Для синхронізації з CRM трактуємо їх як уже пройдений
+    найближчий етап, а не як причину зупинити весь ланцюжок.
+    """
+    try:
+        return stages.index(status)
+    except ValueError:
+        pass
+
+    if status == OrderStatus.CONFIRMED:
+        # Старе «Підтверджено» було між NEW та ACCEPTED.
+        try:
+            return stages.index(OrderStatus.NEW)
+        except ValueError:
+            return None
+    if status == OrderStatus.PAID and getattr(order, "payment_method", None) == "cod":
+        # Історичний COD міг застрягти в PAID, хоча сучасний маршрут
+        # переходить ACCEPTED → SHIPPED напряму.
+        try:
+            return stages.index(OrderStatus.ACCEPTED)
+        except ValueError:
+            return None
+    return None
+
+
+async def apply_crm_status_progression(
+    repo, order: Order, status: OrderStatus, *, bot=None,
+) -> Outcome:
+    """Проєктує пізніший статус SalesDrive на локальний workflow.
+
+    У CRM менеджер може одразу поставити, наприклад, «Відправлений». Це
+    означає, що попередні етапи вже пройдено, тож локальний облік не повинен
+    застрягати на NEW лише тому, що webhook перескочив через ACCEPTED/PAID.
+
+    Проміжні кроки застосовуємо послідовно через ту саму бізнес-логіку
+    (лічильники, бонуси, склад), але клієнта повідомляємо тільки про фінальний
+    статус. Рух назад автоматично не робимо: CRM лишається авторитетним
+    display-статусом, а відкат локальних фінансових побічних ефектів без
+    окремої бізнес-операції був би небезпечним.
+    """
+    # Два історичні локальні коди ще можуть бути в старій CRM-мапі, хоча
+    # сучасний workflow їх не використовує. Не даємо такій мапі ламати
+    # синхронізацію: «Підтверджено» означає, що етап NEW уже пройдено і
+    # замовлення щонайменше прийняте; «Оплачено» для COD не є окремим
+    # локальним етапом, тому теж не вставляємо неіснуючий крок.
+    if status == OrderStatus.CONFIRMED:
+        status = OrderStatus.ACCEPTED
+    if status == OrderStatus.PAID and getattr(order, "payment_method", None) == "cod":
+        status = OrderStatus.ACCEPTED
+
+    if status == order.status:
+        return Outcome(order=order)
+
+    # Скасування — не «наступний етап», а окрема гілка. Для нього працюють
+    # звичайні правила переходів і повернення залишків/бонусів.
+    if status == OrderStatus.CANCELLED:
+        return await apply_status(repo, order, status, origin=ORIGIN_SALESDRIVE, bot=bot)
+
+    stages = stages_for(getattr(order, "payment_method", None))
+    current_index = _progress_index(order, order.status, stages)
+    try:
+        target_index = stages.index(status)
+    except ValueError:
+        # Невідомий/історичний стан — лишаємо звичайну перевірку, щоб не
+        # вигадувати маршрут, якого немає у бізнес-логіці.
+        return await apply_status(repo, order, status, origin=ORIGIN_SALESDRIVE, bot=bot)
+
+    if current_index is None:
+        return await apply_status(repo, order, status, origin=ORIGIN_SALESDRIVE, bot=bot)
+    if target_index <= current_index:
+        # Не відкочуємо локальні побічні ефекти через рух CRM назад.
+        return Outcome(order=order, reason="CRM-статус не просуває локальний workflow вперед")
+
+    current = order
+    final = Outcome(order=order)
+    for step in stages[current_index + 1:target_index + 1]:
+        # Сповіщення про кожен пропущений етап створювало б серію з кількох
+        # Telegram-повідомлень за одну дію в CRM. Надсилаємо лише фінальний.
+        result = await apply_status(
+            repo, current, step, origin=ORIGIN_SALESDRIVE,
+            bot=bot if step == status else None,
+        )
+        current = result.order
+        final = result
+    return final
 
 
 async def _notify_status(repo, bot, before: Order, fresh: Order, status: OrderStatus):

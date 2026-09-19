@@ -95,6 +95,7 @@ run_node text-input tests/text-input.mjs
 run_node design tests/storefront-design.mjs
 run_node crm-status-ui tests/crm-status-source.mjs dashboard
 run_node crm-api-rich tests/crm-api-richness.mjs dashboard
+run_node order-live-sync tests/order-live-sync.mjs dashboard
 run_node filters tests/filters.mjs dashboard
 run_node new-markers tests/new-order-message-markers.mjs dashboard
 run_node catalog-ux tests/catalog-ux.mjs dashboard
@@ -157,6 +158,7 @@ run sd-dicts qa/qa_salesdrive_dictionaries.py
 run sd-no-backfill qa/qa_salesdrive_no_backfill.py
 run sd-read-side qa/qa_salesdrive_read_side.py
 run sd-rich-read qa/qa_salesdrive_rich_read.py
+run crm-live-sync qa/qa_crm_live_sync.py
 run crm-status qa/qa_crm_status_authority.py
 run salesdrive-source qa/qa_salesdrive_source_guard.py
 run wishlists qa/qa_wishlists.py
