@@ -146,6 +146,84 @@ class SalesDriveStatusPatch(BaseModel):
     status_name: str | None = Field(None, max_length=128)
 
 
+class SalesDriveProductPatch(BaseModel):
+    """Одна товарна позиція для документованого /api/order/update/."""
+
+    id: str | None = Field(None, max_length=128)
+    name: str | None = Field(None, max_length=255)
+    cost_per_item: Decimal | None = Field(None, ge=0)
+    amount: Decimal | None = Field(None, gt=0)
+    description: str | None = Field(None, max_length=1000)
+    discount: str | None = Field(None, max_length=64)
+    sku: str | None = Field(None, max_length=128)
+    commission: str | None = Field(None, max_length=64)
+    stock_id: int | None = Field(None, ge=1)
+    upsell: int | None = Field(None, ge=0, le=1)
+
+    @model_validator(mode="after")
+    def _has_identity(self):
+        if not (str(self.id or "").strip() or str(self.name or "").strip() or str(self.sku or "").strip()):
+            raise ValueError("Для товару потрібен id, name або sku")
+        return self
+
+
+class SalesDriveOrderPatch(BaseModel):
+    """Безпечна підмножина полів SalesDrive order-update.
+
+    Адресні поля перевізників тут відсутні навмисно: документація
+    /api/order/update/ прямо забороняє змінювати місто, відділення й адресу
+    Нової Пошти/Укрпошти цим endpoint.
+    """
+
+    manager_id: int | None = Field(None, ge=1)
+    payment_date: str | None = Field(None, max_length=10)
+    rejection_reason_id: int | None = Field(None, ge=1)
+    comment: str | None = Field(None, max_length=4000)
+    payment_method: str | None = Field(None, max_length=128)
+    shipping_method: str | None = Field(None, max_length=128)
+
+    l_name: str | None = Field(None, max_length=128)
+    f_name: str | None = Field(None, max_length=128)
+    m_name: str | None = Field(None, max_length=128)
+    phone: str | None = Field(None, max_length=64)
+    email: str | None = Field(None, max_length=254)
+    company: str | None = Field(None, max_length=255)
+    date_of_birth: str | None = Field(None, max_length=10)
+    counterparty_name: str | None = Field(None, max_length=255)
+    counterparty_code: str | None = Field(None, max_length=64)
+
+    carrier: str | None = Field(None, pattern=r"^(novaposhta|ukrposhta|meest|rozetka_delivery)$")
+    tracking_number: str | None = Field(None, max_length=128)
+
+    products: list[SalesDriveProductPatch] | None = Field(None, max_length=200)
+    products_mode: str | None = Field(None, pattern=r"^replace$")
+
+    @field_validator("payment_date", "date_of_birth", mode="after")
+    @classmethod
+    def _date_ddmmyyyy(cls, value: str | None) -> str | None:
+        if value is None or value == "":
+            return value
+        import re
+        if not re.fullmatch(r"\d{2}\.\d{2}\.\d{4}", value):
+            raise ValueError("Очікується дата у форматі ДД.ММ.РРРР")
+        try:
+            datetime.strptime(value, "%d.%m.%Y")
+        except ValueError as exc:
+            raise ValueError("Некоректна календарна дата") from exc
+        return value
+
+    @model_validator(mode="after")
+    def _consistent(self):
+        supplied = self.model_fields_set
+        if ("carrier" in supplied) != ("tracking_number" in supplied):
+            raise ValueError("carrier і tracking_number потрібно передавати разом")
+        if self.products_mode and not self.products:
+            raise ValueError("productsMode має сенс лише разом із products")
+        if not supplied:
+            raise ValueError("Не передано жодного поля для SalesDrive")
+        return self
+
+
 class OrderMessageIn(BaseModel):
     text: str = Field(..., min_length=1, max_length=2000)
 

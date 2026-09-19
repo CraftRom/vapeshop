@@ -549,7 +549,218 @@ function CrmMetric({ label, value, strong = false, tone = '' }) {
   )
 }
 
-function CrmSnapshotPanel({ order, crmStatuses, refreshing, onRefresh }) {
+function toDmy(value) {
+  const raw = String(value || '').trim()
+  if (!raw) return ''
+  if (/^\d{2}\.\d{2}\.\d{4}$/.test(raw)) return raw
+  const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})/)
+  return match ? `${match[3]}.${match[2]}.${match[1]}` : raw
+}
+
+function crmCarrierFromSnapshot(snap) {
+  if (snap?.novaposhta?.ttn) return 'novaposhta'
+  if (snap?.ukrposhta?.ttn) return 'ukrposhta'
+  const provider = String(snap?.deliveryData?.provider || '').trim().toLowerCase()
+  return ['novaposhta', 'ukrposhta', 'meest', 'rozetka_delivery'].includes(provider) ? provider : 'novaposhta'
+}
+
+function crmEditInitial(order) {
+  const snap = order?.crm_snapshot || {}
+  const contact = snap.contact || {}
+  const counterparty = contact.counterparty || {}
+  const ttn = snap?.novaposhta?.ttn || snap?.ukrposhta?.ttn || snap?.deliveryData?.trackingNumber || order?.tracking_number || ''
+  return {
+    manager_id: snap.managerId ? String(snap.managerId) : '',
+    payment_date: toDmy(snap.paymentDate),
+    rejection_reason_id: snap.rejectionReasonId ? String(snap.rejectionReasonId) : '',
+    comment: snap.comment || '',
+    payment_method: snap.paymentMethodRaw || '',
+    shipping_method: snap.shippingMethodRaw || '',
+    l_name: contact.lName || '',
+    f_name: contact.fName || '',
+    m_name: contact.mName || '',
+    phone: contact.phone || '',
+    email: contact.email || '',
+    company: contact.company || '',
+    date_of_birth: toDmy(contact.dateOfBirth),
+    counterparty_name: counterparty.name || '',
+    counterparty_code: counterparty.code || '',
+    carrier: crmCarrierFromSnapshot(snap),
+    tracking_number: ttn,
+  }
+}
+
+function CrmEditPanel({ order, onSave }) {
+  const snap = order?.crm_snapshot || {}
+  const options = snap.writeOptions || {}
+  const [open, setOpen] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [form, setForm] = useState(() => crmEditInitial(order))
+  const initialRef = useRef(crmEditInitial(order))
+
+  useEffect(() => {
+    const next = crmEditInitial(order)
+    initialRef.current = next
+    setForm(next)
+  }, [order?.crm_fetched_at, order?.crm_id])
+
+  const set = (key, value) => setForm((current) => ({ ...current, [key]: value }))
+  const changed = Object.keys(form).filter((key) => String(form[key] ?? '') !== String(initialRef.current[key] ?? ''))
+
+  const submit = async () => {
+    if (!changed.length) return
+    const payload = {}
+    for (const key of changed) {
+      const value = form[key]
+      if (key === 'manager_id' || key === 'rejection_reason_id') {
+        if (String(value).trim()) payload[key] = Number(value)
+        continue
+      }
+      payload[key] = value
+    }
+    // SalesDrive вимагає carrier + tracking_number парою. Якщо менеджер
+    // змінив лише номер або лише службу, передаємо і друге актуальне поле.
+    if (changed.includes('tracking_number') || changed.includes('carrier')) {
+      payload.carrier = form.carrier
+      payload.tracking_number = form.tracking_number
+    }
+    setBusy(true)
+    try {
+      const fresh = await onSave(payload)
+      const next = crmEditInitial(fresh || order)
+      initialRef.current = next
+      setForm(next)
+      setOpen(false)
+    } catch {
+      // Повідомлення про помилку показує батьківський екран через toast.
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const managers = Array.isArray(options.managers) ? options.managers : []
+  const rejectionReasons = Array.isArray(options.rejectionReasons) ? options.rejectionReasons : []
+  const paymentMethods = Array.isArray(options.paymentMethods) ? options.paymentMethods : []
+  const shippingMethods = Array.isArray(options.shippingMethods) ? options.shippingMethods : []
+
+  return (
+    <details className="crm-editor" open={open} onToggle={(e) => setOpen(e.currentTarget.open)}>
+      <summary>
+        <span>Редагувати дані SalesDrive</span>
+        <small>Змінюються тільки вибрані поля; адреса Нової Пошти/Укрпошти тут не редагується</small>
+      </summary>
+      <div className="crm-editor-body">
+        <div className="crm-editor-section">
+          <h4>Обробка заявки</h4>
+          <div className="crm-editor-grid">
+            <Field label="Менеджер CRM">
+              {managers.length ? (
+                <select className="input" value={form.manager_id} onChange={(e) => set('manager_id', e.target.value)}>
+                  {!form.manager_id && <option value="">Не призначено</option>}
+                  {form.manager_id && !managers.some((item) => String(item.value) === String(form.manager_id)) && (
+                    <option value={form.manager_id}>Поточний менеджер · ID {form.manager_id}</option>
+                  )}
+                  {managers.map((item) => <option key={item.value} value={item.value}>{item.name}</option>)}
+                </select>
+              ) : (
+                <input className="input" inputMode="numeric" value={form.manager_id} onChange={(e) => set('manager_id', e.target.value.replace(/\D/g, ''))} placeholder="SalesDrive manager ID" />
+              )}
+            </Field>
+            <Field label="Дата оплати" hint="ДД.ММ.РРРР">
+              <input className="input" value={form.payment_date} onChange={(e) => set('payment_date', e.target.value)} placeholder="25.08.2025" />
+            </Field>
+            <Field label="Причина відмови">
+              {rejectionReasons.length ? (
+                <select className="input" value={form.rejection_reason_id} onChange={(e) => set('rejection_reason_id', e.target.value)}>
+                  {!form.rejection_reason_id && <option value="">Не вибрано</option>}
+                  {form.rejection_reason_id && !rejectionReasons.some((item) => String(item.value) === String(form.rejection_reason_id)) && (
+                    <option value={form.rejection_reason_id}>Поточна причина · ID {form.rejection_reason_id}</option>
+                  )}
+                  {rejectionReasons.map((item) => <option key={item.value} value={item.value}>{item.name}</option>)}
+                </select>
+              ) : (
+                <input className="input" inputMode="numeric" value={form.rejection_reason_id} onChange={(e) => set('rejection_reason_id', e.target.value.replace(/\D/g, ''))} placeholder="ID причини" />
+              )}
+            </Field>
+            {paymentMethods.length > 0 && (
+              <Field label="Спосіб оплати CRM">
+                <select className="input" value={form.payment_method} onChange={(e) => set('payment_method', e.target.value)}>
+                  {form.payment_method && !paymentMethods.some((item) => String(item.value) === String(form.payment_method)) && (
+                    <option value={form.payment_method}>Поточне значення · {form.payment_method}</option>
+                  )}
+                  {paymentMethods.map((item) => <option key={item.value} value={item.value}>{item.name}</option>)}
+                </select>
+              </Field>
+            )}
+            {shippingMethods.length > 0 && (
+              <Field label="Спосіб доставки CRM" hint="Місто/відділення/адреса не змінюються цим API">
+                <select className="input" value={form.shipping_method} onChange={(e) => set('shipping_method', e.target.value)}>
+                  {form.shipping_method && !shippingMethods.some((item) => String(item.value) === String(form.shipping_method)) && (
+                    <option value={form.shipping_method}>Поточне значення · {form.shipping_method}</option>
+                  )}
+                  {shippingMethods.map((item) => <option key={item.value} value={item.value}>{item.name}</option>)}
+                </select>
+              </Field>
+            )}
+          </div>
+          <Field label="Коментар CRM">
+            <textarea className="input" rows={3} value={form.comment} onChange={(e) => set('comment', e.target.value)} />
+          </Field>
+        </div>
+
+        <div className="crm-editor-section">
+          <h4>Контакт у CRM</h4>
+          <div className="crm-editor-grid">
+            <Field label="Прізвище"><input className="input" value={form.l_name} onChange={(e) => set('l_name', e.target.value)} /></Field>
+            <Field label="Імʼя"><input className="input" value={form.f_name} onChange={(e) => set('f_name', e.target.value)} /></Field>
+            <Field label="По батькові"><input className="input" value={form.m_name} onChange={(e) => set('m_name', e.target.value)} /></Field>
+            <Field label="Телефон"><input className="input" value={form.phone} onChange={(e) => set('phone', e.target.value)} /></Field>
+            <Field label="Email"><input className="input" value={form.email} onChange={(e) => set('email', e.target.value)} /></Field>
+            <Field label="Компанія"><input className="input" value={form.company} onChange={(e) => set('company', e.target.value)} /></Field>
+            <Field label="Дата народження" hint="ДД.ММ.РРРР"><input className="input" value={form.date_of_birth} onChange={(e) => set('date_of_birth', e.target.value)} /></Field>
+            <Field label="Контрагент"><input className="input" value={form.counterparty_name} onChange={(e) => set('counterparty_name', e.target.value)} /></Field>
+            <Field label="Код контрагента"><input className="input" value={form.counterparty_code} onChange={(e) => set('counterparty_code', e.target.value)} /></Field>
+          </div>
+        </div>
+
+        <div className="crm-editor-section">
+          <h4>ТТН у SalesDrive</h4>
+          <div className="crm-editor-grid crm-editor-tracking">
+            <Field label="Перевізник">
+              <select
+                className="input"
+                value={form.carrier}
+                disabled={Boolean(initialRef.current.tracking_number)}
+                onChange={(e) => set('carrier', e.target.value)}
+              >
+                <option value="novaposhta">Нова Пошта</option>
+                <option value="ukrposhta">Укрпошта</option>
+                <option value="meest">Meest</option>
+                <option value="rozetka_delivery">Rozetka Delivery</option>
+              </select>
+            </Field>
+            <Field label="ТТН">
+              <input className="input num" value={form.tracking_number} onChange={(e) => set('tracking_number', e.target.value.trim())} placeholder="Номер накладної" />
+            </Field>
+          </div>
+          <p className="faint crm-editor-warning">
+            Місто, відділення та адресу Нової Пошти/Укрпошти цей endpoint SalesDrive не дозволяє змінювати. Панель їх лише читає з CRM.
+            {initialRef.current.tracking_number ? ' Для вже створеної ТТН перевізник зафіксований: змінюється тільки номер у тому самому carrier-блоці.' : ''}
+          </p>
+        </div>
+
+        <div className="crm-editor-actions">
+          <span className="faint">{changed.length ? `Змінено полів: ${changed.length}` : 'Немає незбережених змін'}</span>
+          <button className="btn" disabled={busy || !changed.length} onClick={submit}>
+            {busy ? 'Зберігаємо в CRM…' : 'Зберегти в SalesDrive'}
+          </button>
+        </div>
+      </div>
+    </details>
+  )
+}
+
+function CrmSnapshotPanel({ order, crmStatuses, refreshing, onRefresh, onUpdate }) {
   const snap = order.crm_snapshot
   const contact = snap?.contact || {}
   const np = snap?.novaposhta || {}
@@ -801,6 +1012,8 @@ function CrmSnapshotPanel({ order, crmStatuses, refreshing, onRefresh }) {
               )}
             </div>
           </details>
+
+          <CrmEditPanel order={order} onSave={onUpdate} />
         </>
       )}
 
@@ -947,6 +1160,19 @@ export default function OrderPage() {
     } finally {
       crmRefreshInFlightRef.current = false
       if (!quiet) setCrmRefreshing(false)
+    }
+  }, [order?.id, order?.crm_id, notify, applyFreshOrder])
+
+  const updateCrm = useCallback(async (payload) => {
+    if (!order?.crm_id) throw new Error('Замовлення не пов’язане із SalesDrive')
+    try {
+      const fresh = await api.orders.salesdriveUpdate(order.id, payload)
+      applyFreshOrder(fresh)
+      notify('Дані SalesDrive збережено')
+      return fresh
+    } catch (err) {
+      notify(err.message, 'bad')
+      throw err
     }
   }, [order?.id, order?.crm_id, notify, applyFreshOrder])
 
@@ -1196,6 +1422,7 @@ export default function OrderPage() {
                 crmStatuses={crmStatuses}
                 refreshing={crmRefreshing}
                 onRefresh={() => { refreshCrm(false); loadCrmStatuses() }}
+                onUpdate={updateCrm}
               />
             )}
 
@@ -1335,14 +1562,18 @@ export default function OrderPage() {
                 «де посилка», лізти по номер в іншу картку незручно. */}
             {order.tracking_number && (
               <Info label="Накладна" copy={order.tracking_number}>
-                <a
-                  className="info-strong num"
-                  href={`https://novaposhta.ua/tracking/?cargo_number=${order.tracking_number}`}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  {order.tracking_number}
-                </a>
+                {(order.waybill_source === 'novaposhta' || String(order.crm_snapshot?.novaposhta?.ttn || '') === String(order.tracking_number)) ? (
+                  <a
+                    className="info-strong num"
+                    href={`https://novaposhta.ua/tracking/?cargo_number=${encodeURIComponent(order.tracking_number)}`}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    {order.tracking_number}
+                  </a>
+                ) : (
+                  <span className="info-strong num">{order.tracking_number}</span>
+                )}
               </Info>
             )}
 

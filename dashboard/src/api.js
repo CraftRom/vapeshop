@@ -193,6 +193,7 @@ export const api = {
     salesdriveStatuses: () => request('/orders/salesdrive-statuses'),
     // Назву статусу браузер не надсилає: backend сам звіряє ID з SalesDrive.
     salesdriveStatus: (id, statusId) => request(`/orders/${id}/salesdrive-status`, { method: 'PATCH', body: { status_id: String(statusId) } }),
+    salesdriveUpdate: (id, body) => request(`/orders/${id}/salesdrive`, { method: 'PATCH', body }),
     salesdriveRefresh: (id, force = false) => request(`/orders/${id}/salesdrive-refresh`, { method: 'POST', params: { force: force || undefined } }),
     // Вкладення тягнеться через бекенд, а не напряму з Telegram:
     // пряме посилання містило б токен бота у відкритому вигляді

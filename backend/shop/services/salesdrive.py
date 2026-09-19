@@ -285,11 +285,30 @@ def create_payload(order: Order, shop) -> dict:
     return payload
 
 
-def update_payload(order: Order, shop) -> dict:
-    """Тіло POST /api/order/update/ — лише те, що веде Elfar.
+def crm_update_payload(order: Order, data: dict) -> dict:
+    """Тіло документованого ``POST /api/order/update/``.
 
-    Коментар, адресу, менеджера в CRM не перезаписуємо: їх там редагують
-    руками, і кожна наша зміна статусу затирала б чужу роботу.
+    SalesDrive приймає ``id`` АБО ``externalId`` плюс лише ті ключі ``data``,
+    які реально змінюються. Поля форми тут немає: ``form`` належить
+    ``/handler/`` створення заявки, а write API авторизується API-ключем.
+    """
+    clean = {k: v for k, v in (data or {}).items() if v is not None}
+    if not clean:
+        raise SalesDriveError("Немає даних для оновлення SalesDrive", temporary=False)
+    payload = {"data": clean}
+    if order.crm_id:
+        payload["id"] = int(order.crm_id) if str(order.crm_id).isdigit() else str(order.crm_id)
+    else:
+        payload["externalId"] = str(order.id)
+    return payload
+
+
+def update_payload(order: Order, shop) -> dict:
+    """Автоматичний sync ELFAR → SalesDrive: лише наш статус і наша ТТН.
+
+    Коментар, контакт, менеджера та товари тут принципово не додаємо — інакше
+    звичайна зміна локального статусу могла б затерти ручні правки менеджера в
+    CRM. Для явного редагування цих полів є ``update_crm_order``.
     """
     data: dict = {}
     status_id = mapping(shop.salesdrive_status_map).get(order.status.value)
@@ -297,12 +316,81 @@ def update_payload(order: Order, shop) -> dict:
         data["statusId"] = status_id
     if order.tracking_number and order.waybill_source != "salesdrive":
         data["novaposhta"] = {"ttn": order.tracking_number}
-    payload = {"form": shop.salesdrive_form_key, "data": data}
-    if order.crm_id:
-        payload["id"] = order.crm_id
-    else:
-        payload["externalId"] = str(order.id)
-    return payload
+    return crm_update_payload(order, data)
+
+
+def _json_number(value):
+    if value is None:
+        return None
+    try:
+        number = Decimal(str(value))
+    except (ArithmeticError, ValueError):
+        return value
+    return int(number) if number == number.to_integral_value() else float(number)
+
+
+def explicit_update_data(changes: dict) -> dict:
+    """Перекладає DTO панелі в точні назви полів SalesDrive.
+
+    Адресу, місто та відділення перевізника ця функція навмисно не приймає:
+    документація ``/api/order/update/`` забороняє їх змінювати.
+    """
+    out: dict = {}
+    scalar = {
+        "manager_id": "salesdrive_manager",
+        "payment_date": "paymentDate",
+        "rejection_reason_id": "rejectionReasonId",
+        "comment": "comment",
+        "payment_method": "payment_method",
+        "shipping_method": "shipping_method",
+        "l_name": "lName", "f_name": "fName", "m_name": "mName",
+        "phone": "phone", "email": "email", "company": "company",
+        "date_of_birth": "dateOfBirth",
+    }
+    for source, target in scalar.items():
+        if source in changes and changes[source] is not None:
+            out[target] = changes[source]
+
+    if "counterparty_name" in changes or "counterparty_code" in changes:
+        counterparty = {}
+        if changes.get("counterparty_name") is not None:
+            counterparty["name"] = changes.get("counterparty_name")
+        if changes.get("counterparty_code") is not None:
+            counterparty["code"] = changes.get("counterparty_code")
+        if counterparty:
+            out["counterparty"] = counterparty
+
+    if "carrier" in changes or "tracking_number" in changes:
+        carrier = str(changes.get("carrier") or "").strip()
+        ttn = str(changes.get("tracking_number") or "").strip()
+        if carrier not in {"novaposhta", "ukrposhta", "meest", "rozetka_delivery"}:
+            raise SalesDriveError("Непідтримуваний перевізник для ТТН", temporary=False)
+        out[carrier] = {"ttn": ttn}
+
+    if "products" in changes and changes.get("products") is not None:
+        rows = []
+        field_map = {
+            "id": "id", "name": "name", "cost_per_item": "costPerItem",
+            "amount": "amount", "description": "description",
+            "discount": "discount", "sku": "sku", "commission": "commission",
+            "stock_id": "stockId", "upsell": "upsell",
+        }
+        for product in changes.get("products") or []:
+            raw = product if isinstance(product, dict) else {}
+            item = {}
+            for source, target in field_map.items():
+                if source not in raw or raw[source] is None:
+                    continue
+                value = raw[source]
+                if source in {"cost_per_item", "amount"}:
+                    value = _json_number(value)
+                item[target] = value
+            if item:
+                rows.append(item)
+        out["products"] = rows
+        if changes.get("products_mode"):
+            out["productsMode"] = changes["products_mode"]
+    return out
 
 
 # -------------------------------------------------------------------- HTTP
@@ -645,8 +733,14 @@ def _manager_name(data: dict, body=None) -> str:
 
 
 async def _send(shop, path: str, payload: dict) -> dict:
-    if telegram_form_id(shop) <= 0:
-        raise SalesDriveError("Не вказано ID форми SalesDrive «ELFAR — Telegram Bot»; запис заблоковано", temporary=False)
+    # ``formId`` потрібен нам як guard для створення/webhook, але
+    # /api/order/update/ працює за id/externalId і X-Api-Key. Старий глобальний
+    # guard помилково блокував редагування вже пов'язаної заявки, якщо formId
+    # тимчасово не заповнений у налаштуваннях панелі.
+    if path == "/handler/" and telegram_form_id(shop) <= 0:
+        raise SalesDriveError("Не вказано ID форми SalesDrive «ELFAR — Telegram Bot»; створення заблоковано", temporary=False)
+    if path.startswith("/api/") and not getattr(shop, "salesdrive_api_connected", False):
+        raise SalesDriveError("Не задано API-ключ SalesDrive", temporary=False)
     url = base_url(shop) + path
     try:
         response = await _post(url, payload, _headers(shop))
@@ -667,8 +761,10 @@ async def _send(shop, path: str, payload: dict) -> dict:
     if response.status_code >= 400:
         raise SalesDriveError(f"SalesDrive відхилив запит ({response.status_code}): "
                               f"{_reason(body)}", temporary=False)
-    if isinstance(body, dict) and body.get("success") is False:
-        raise SalesDriveError(f"SalesDrive відхилив запит: {_reason(body)}", temporary=False)
+    if isinstance(body, dict):
+        status_word = str(body.get("status") or "").strip().casefold()
+        if body.get("success") is False or status_word in {"error", "fail", "failed"}:
+            raise SalesDriveError(f"SalesDrive відхилив запит: {_reason(body)}", temporary=False)
     return body if isinstance(body, dict) else {}
 
 
@@ -1186,6 +1282,10 @@ def _snapshot(data: dict, statuses: dict[str, str] | None = None, *,
         shipping_name = meta.get(str(shipping_raw).strip(), shipping_name)
 
     manager = _manager_name(data, body)
+    manager_options = _meta_field_options(body, ("salesdrive_manager", "userId", "manager", "managerId", "user"))
+    rejection_options = _meta_field_options(body, ("rejectionReasonId", "rejectionReason", "rejection_reason"))
+    payment_write_options = _meta_field_options(body, ("payment_method", "paymentMethod"))
+    shipping_write_options = _meta_field_options(body, ("shipping_method", "shippingMethod"))
 
     product_rows = []
     for x in products:
@@ -1214,7 +1314,9 @@ def _snapshot(data: dict, statuses: dict[str, str] | None = None, *,
         "source": source,
         "id": str(data.get("id") or ""), "externalId": str(data.get("externalId") or ""),
         "version": data.get("version"), "formId": data.get("formId"), "typeId": data.get("typeId"),
-        "statusId": sid, "statusName": status_name, "rejectionReason": data.get("rejectionReason") or "",
+        "statusId": sid, "statusName": status_name,
+        "rejectionReasonId": data.get("rejectionReasonId"),
+        "rejectionReason": data.get("rejectionReason") or "",
         "paymentMethodId": payment_id, "paymentMethod": payment_name,
         "paymentMethodRaw": str(payment_raw or ""),
         "shippingMethodId": shipping_id, "shippingMethod": shipping_name,
@@ -1226,6 +1328,12 @@ def _snapshot(data: dict, statuses: dict[str, str] | None = None, *,
         "profitAmount": data.get("profitAmount"), "payedAmount": data.get("payedAmount"),
         "restPay": data.get("restPay"), "paymentDate": data.get("paymentDate"),
         "managerId": data.get("userId"), "managerName": manager,
+        "writeOptions": {
+            "managers": [{"value": k, "name": v} for k, v in manager_options.items()],
+            "rejectionReasons": [{"value": k, "name": v} for k, v in rejection_options.items()],
+            "paymentMethods": [{"value": k, "name": v} for k, v in payment_write_options.items()],
+            "shippingMethods": [{"value": k, "name": v} for k, v in shipping_write_options.items()],
+        },
         "comment": data.get("comment") or "", "orderTime": data.get("orderTime"),
         "updateAt": data.get("updateAt"), "timeEntryOrder": data.get("timeEntryOrder"), "holderTime": data.get("holderTime"),
         "delivery": data.get("ord_delivery"),
@@ -1489,9 +1597,17 @@ async def pull_order(repo, order_id: int, shop=None, *, force: bool = False, bot
     # можна стерти через тимчасово порожню відповідь CRM.
     np_snap = snap.get("novaposhta") or {}
     up_snap = snap.get("ukrposhta") or {}
-    ttn = str(np_snap.get("ttn") or up_snap.get("ttn") or "").strip()
-    ref = str(np_snap.get("ref") or up_snap.get("ref") or "").strip()
+    delivery_snap = snap.get("deliveryData") or {}
+    generic_items = delivery_snap.get("items") if isinstance(delivery_snap.get("items"), list) else []
+    generic_tracking = next((row for row in generic_items
+                             if isinstance(row, dict) and str(row.get("trackingNumber") or "").strip()), {})
+    ttn = str(np_snap.get("ttn") or up_snap.get("ttn") or generic_tracking.get("trackingNumber") or "").strip()
+    ref = str(np_snap.get("ref") or up_snap.get("ref") or generic_tracking.get("trackingNumberRef") or "").strip()
     crm_cost = np_snap.get("cost") if np_snap.get("cost") not in (None, "") else up_snap.get("cost")
+    if crm_cost in (None, ""):
+        crm_cost = generic_tracking.get("cost")
+    if crm_cost in (None, "") and ttn and len(generic_items) == 1:
+        crm_cost = snap.get("shippingCosts")
     cost = None
     if crm_cost not in (None, ""):
         try:
@@ -1524,6 +1640,113 @@ async def pull_order(repo, order_id: int, shop=None, *, force: bool = False, bot
             order = await repo.get_order(order.id) or order
     return order
 
+def _crm_date_compare(value) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    for fmt in ("%d.%m.%Y", "%Y-%m-%d", "%Y-%m-%d %H:%M:%S"):
+        try:
+            return datetime.strptime(raw, fmt).strftime("%Y-%m-%d")
+        except ValueError:
+            pass
+    return raw
+
+
+def _snapshot_confirms_update(snapshot: dict | None, changes: dict) -> bool:
+    """Чи GET після невідомого результату POST вже бачить потрібні значення.
+
+    Це не привід повторювати POST. Якщо write timeout стався після того, як
+    SalesDrive прийняв зміни, наступний order-list дозволяє безпечно
+    підтвердити успіх і не показувати менеджеру хибну помилку.
+    """
+    if not isinstance(snapshot, dict):
+        return False
+    contact = snapshot.get("contact") if isinstance(snapshot.get("contact"), dict) else {}
+    counterparty = contact.get("counterparty") if isinstance(contact.get("counterparty"), dict) else {}
+    scalar = {
+        "manager_id": snapshot.get("managerId"),
+        "comment": snapshot.get("comment"),
+        "payment_method": snapshot.get("paymentMethodRaw"),
+        "shipping_method": snapshot.get("shippingMethodRaw"),
+        "l_name": contact.get("lName"), "f_name": contact.get("fName"),
+        "m_name": contact.get("mName"), "phone": contact.get("phone"),
+        "email": contact.get("email"), "company": contact.get("company"),
+        "counterparty_name": counterparty.get("name"),
+        "counterparty_code": counterparty.get("code"),
+        "rejection_reason_id": snapshot.get("rejectionReasonId"),
+    }
+    for key, actual in scalar.items():
+        if key in changes and changes[key] is not None and str(actual or "") != str(changes[key] or ""):
+            return False
+    if "payment_date" in changes and _crm_date_compare(snapshot.get("paymentDate")) != _crm_date_compare(changes.get("payment_date")):
+        return False
+    if "date_of_birth" in changes and _crm_date_compare(contact.get("dateOfBirth")) != _crm_date_compare(changes.get("date_of_birth")):
+        return False
+    if "tracking_number" in changes:
+        expected = str(changes.get("tracking_number") or "").strip()
+        actual = str(
+            (snapshot.get("novaposhta") or {}).get("ttn")
+            or (snapshot.get("ukrposhta") or {}).get("ttn")
+            or (snapshot.get("deliveryData") or {}).get("trackingNumber")
+            or ""
+        ).strip()
+        if actual != expected:
+            return False
+    # productsMode=replace може мати серверну нормалізацію полів/цін. Не
+    # оголошуємо timeout успіхом без окремого детального порівняння позицій.
+    if "products" in changes:
+        return False
+    return True
+
+
+async def update_crm_order(repo, order: Order, changes: dict, shop=None, *, bot=None) -> Order:
+    """Явно редагує документовані поля вже пов'язаної заявки SalesDrive.
+
+    Це write-through дія менеджера: відправляємо тільки поля, які були
+    передані у формі, а після успіху перечитуємо заявку через order/list,
+    щоб UI показував не наш optimistic payload, а фактичний стан CRM.
+    """
+    from shop.services.shop_settings import get_shop_settings
+    shop = shop or await get_shop_settings(repo)
+    if not order.crm_id:
+        raise SalesDriveError("Замовлення не пов’язане із SalesDrive", temporary=False)
+    if not shop.salesdrive_api_connected:
+        raise SalesDriveError("Не задано API-ключ SalesDrive", temporary=False)
+
+    data = explicit_update_data(changes)
+    if not data:
+        raise SalesDriveError("Не передано полів, які можна оновити в SalesDrive", temporary=False)
+    payload = crm_update_payload(order, data)
+    try:
+        await _send(shop, "/api/order/update/", payload)
+    except SalesDriveError as exc:
+        if not exc.uncertain:
+            raise
+        # POST міг виконатись, а відповідь загубитися. Не робимо повторний
+        # write: один force GET перевіряє фактичний стан заявки.
+        try:
+            verified = await pull_order(repo, order.id, shop=shop, force=True, bot=bot)
+        except SalesDriveError:
+            raise exc
+        if _snapshot_confirms_update(getattr(verified, "crm_snapshot", None), changes):
+            log.warning(
+                "SalesDrive update %s підтверджено read-after-timeout", order.crm_id,
+                extra={"event": "salesdrive.write.verified_after_timeout", "orderId": order.id,
+                       "crmId": order.crm_id, "fields": sorted(data)},
+            )
+            return verified
+        raise exc
+
+    log.info(
+        "SalesDrive заявку %s оновлено з панелі: %s", order.crm_id, ", ".join(sorted(data)),
+        extra={"event": "salesdrive.order.updated", "orderId": order.id,
+               "crmId": order.crm_id, "fields": sorted(data)},
+    )
+    # Force-read важливий для ТТН/менеджера/контакту: snapshot і локальна ТТН
+    # мають одразу відобразити саме те, що CRM реально прийняла.
+    return await pull_order(repo, order.id, shop=shop, force=True, bot=bot)
+
+
 async def set_crm_status(repo, order: Order, status_id: str, status_name: str | None = None, shop=None, *, bot=None) -> Order:
     """Змінює авторитетний статус прямо в SalesDrive.
 
@@ -1546,11 +1769,20 @@ async def set_crm_status(repo, order: Order, status_id: str, status_name: str | 
     if not name:
         raise SalesDriveError("Статус більше не існує в SalesDrive — оновіть список статусів", temporary=False)
 
-    await _send(shop, "/api/order/update/", {
-        "form": shop.salesdrive_form_key,
-        "id": order.crm_id,
-        "data": {"statusId": sid},
-    })
+    try:
+        await _send(shop, "/api/order/update/", crm_update_payload(order, {"statusId": sid}))
+    except SalesDriveError as exc:
+        if not exc.uncertain:
+            raise
+        # Як і для інших partial update, timeout не повторюємо сліпо.
+        # Перечитуємо заявку: якщо statusId уже змінився, POST виконався.
+        try:
+            verified = await pull_order(repo, order.id, shop=shop, force=True, bot=bot)
+        except SalesDriveError:
+            raise exc
+        if str(getattr(verified, "crm_status_id", "") or "") == sid:
+            return verified
+        raise exc
 
     now = datetime.now(timezone.utc)
     patch = {

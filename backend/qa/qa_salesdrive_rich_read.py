@@ -46,6 +46,10 @@ checks = {
     "payment ID resolved": snap["paymentMethodId"] == "56" and snap["paymentMethod"] == "Накладений платіж",
     "delivery ID resolved": snap["shippingMethodId"] == "57" and snap["shippingMethod"] == "Нова Пошта",
     "manager from meta": snap["managerId"] == 8 and snap["managerName"] == "Олена Менеджер",
+    "write options come from meta fields": (
+        snap["writeOptions"]["managers"] == [{"value": "8", "name": "Олена Менеджер"}]
+        and snap["writeOptions"]["paymentMethods"] == [{"value": "56", "name": "Накладений платіж"}]
+    ),
     "financials preserved": snap["paymentAmount"] == "880" and snap["restPay"] == "680",
     "contact history preserved": snap["contact"]["leadsSalesAmount"] == "1760",
     "new product fields": snap["products"][0]["upsell"] == 1 and snap["products"][0]["defaultPriceData"]["price"] == 900,

@@ -5,7 +5,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
 from api.auth import Principal, require_staff, require_sysadmin
-from api.schemas import OrderMessageIn, OrderMessageOut, OrderMessageResult, OrderOut, OrderPatch, SalesDriveStatusPatch
+from api.schemas import OrderMessageIn, OrderMessageOut, OrderMessageResult, OrderOut, OrderPatch, SalesDriveOrderPatch, SalesDriveStatusPatch
 from shop.entities import OrderStatus
 from shop.repo.base import Repository
 from shop.repo.factory import get_repo
@@ -268,6 +268,32 @@ async def refresh_salesdrive_order(
         return await salesdrive.pull_order(repo, order_id, force=force, bot=_bot())
     except salesdrive.SalesDriveError as exc:
         raise HTTPException(502, str(exc)) from exc
+
+
+@router.patch("/{order_id}/salesdrive", response_model=OrderOut)
+async def patch_salesdrive_order(
+    order_id: int, data: SalesDriveOrderPatch,
+    _who: Principal = Depends(require_staff), repo: Repository = Depends(get_repo),
+):
+    """Частково оновлює дозволені поля заявки через SalesDrive order-update.
+
+    Місто/відділення/адреса перевізника навмисно відсутні у схемі API:
+    SalesDrive не дозволяє змінювати їх через /api/order/update/.
+    """
+    from shop.services import salesdrive
+    order = await repo.get_order(order_id)
+    if not order:
+        raise HTTPException(404, "Замовлення не знайдено")
+    if not order.crm_id:
+        raise HTTPException(409, "Старе замовлення не пов’язане із SalesDrive")
+    try:
+        changes = data.model_dump(exclude_unset=True)
+        if "products" in changes and changes["products"] is not None:
+            changes["products"] = [p.model_dump(exclude_unset=True) if hasattr(p, "model_dump") else p
+                                   for p in changes["products"]]
+        return await salesdrive.update_crm_order(repo, order, changes, bot=_bot())
+    except salesdrive.SalesDriveError as exc:
+        raise HTTPException(502 if exc.temporary else 422, str(exc)) from exc
 
 
 @router.patch("/{order_id}/salesdrive-status", response_model=OrderOut)

@@ -164,14 +164,18 @@ function OrderDetails({ order, onClose, onSaved, crmStatuses = [] }) {
           </Info>
           {order.tracking_number && (
             <Info label="Накладна" copy={order.tracking_number}>
-              <a
-                className="info-strong num"
-                href={`https://novaposhta.ua/tracking/?cargo_number=${order.tracking_number}`}
-                target="_blank"
-                rel="noreferrer"
-              >
-                {order.tracking_number}
-              </a>
+              {(order.waybill_source === 'novaposhta' || String(order.crm_snapshot?.novaposhta?.ttn || '') === String(order.tracking_number)) ? (
+                <a
+                  className="info-strong num"
+                  href={`https://novaposhta.ua/tracking/?cargo_number=${encodeURIComponent(order.tracking_number)}`}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  {order.tracking_number}
+                </a>
+              ) : (
+                <span className="info-strong num">{order.tracking_number}</span>
+              )}
             </Info>
           )}
           <Info label="Telegram">{contact}</Info>
