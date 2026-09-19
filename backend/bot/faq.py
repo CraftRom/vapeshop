@@ -208,7 +208,7 @@ RULES: tuple[Rule, ...] = (
             "🛍 <b>Замовити просто</b>\n\n"
             "1. Відкрийте магазин кнопкою нижче\n"
             "2. Оберіть товар і додайте в кошик\n"
-            "3. Натисніть «Оформити» та вкажіть ПІБ, телефон і відділення\n\n"
+            "3. Натисніть «Оформити» та вкажіть {checkout_delivery_fields}\n\n"
             "Далі з вами звʼяжеться менеджер і підтвердить замовлення."
         ),
         public_answer="Каталог, кошик і оформлення — у магазині, кнопка нижче. Менеджер підтвердить замовлення після оформлення.",
@@ -271,9 +271,8 @@ RULES: tuple[Rule, ...] = (
                  "коли прийде", "коли надійде", "терміни"),),
         answer=(
             "🚚 <b>Доставка</b>\n\n"
-            "Новою поштою двома способами:\n"
-            "• у відділення\n"
-            "• адресна доставка курʼєром\n\n"
+            "Новою поштою доступно:\n"
+            "{delivery_methods}\n\n"
             "Термін по Україні — {delivery_days}. Вартість від "
             "{delivery_cost_from} {currency} за тарифами перевізника.\n\n"
             "<b>Коли відправляємо</b>\n"
@@ -284,7 +283,7 @@ RULES: tuple[Rule, ...] = (
         
         
         ),
-        public_answer="Нова пошта, {delivery_days}, від {delivery_cost_from} {currency}. Відправки: будні 11:00–12:00 і 18:00–19:00, вихідні 16:00–17:00.",
+        public_answer="Нова пошта: {delivery_methods_inline}. Термін — {delivery_days}, від {delivery_cost_from} {currency}. Відправки: будні 11:00–12:00 і 18:00–19:00, вихідні 16:00–17:00.",
     ),
     Rule(
         key="payment",
@@ -292,8 +291,7 @@ RULES: tuple[Rule, ...] = (
         groups=(("оплат", "оплач", "платіж", "платеж", "картк", "карта", "картою", "карті", "накладений", "накладеним", "передопл", "наложен", "готівк", "наличк", "переказ", "перевод", "монобанк", "моно", "privat", "iban", "реквізит", "реквизит", "накладений платіж", "предоплат", "передоплат", "розстрочк", "частинами"),),
         answer=(
             "💳 <b>Оплата</b>\n\n"
-            "Накладений платіж Новою поштою: платите при отриманні у "
-            "відділенні або курʼєру.\n\n"
+            "Накладений платіж Новою поштою: платите при отриманні {cod_receive_place}.\n\n"
             "Комісія за грошовий переказ — {cod_commission_percent}% від "
             "вартості товару та {cod_commission_fixed} {currency}. "
             "Її бере перевізник, не магазин.\n\n"
@@ -595,10 +593,48 @@ def match(text: str, shop=None, public: bool = False) -> Rule | None:
     return None
 
 
-def render(rule: Rule, shop=None, public: bool = False) -> str:
-    """Підставляє в відповідь дані магазину.
+def _courier_enabled(shop) -> bool:
+    """Єдине джерело правди для текстів про курʼєрську доставку.
 
-    public=True — беремо стислий варіант, якщо він заданий.
+    Вітрина перевіряє цей самий delivery_courier_enabled. FAQ не повинен
+    обіцяти спосіб доставки, якого покупець потім не побачить в оформленні.
+    Відсутнє поле трактуємо як False — це безпечний дефолт для старих
+    налаштувань і тестових обʼєктів.
+    """
+    return bool(getattr(shop, "delivery_courier_enabled", False))
+
+
+def _delivery_methods(shop) -> str:
+    methods = ["• у відділення Нової пошти"]
+    if _courier_enabled(shop):
+        methods.append("• адресна доставка курʼєром Нової пошти")
+    return "\n".join(methods)
+
+
+def _delivery_methods_inline(shop) -> str:
+    if _courier_enabled(shop):
+        return "у відділення або адресно курʼєром"
+    return "у відділення"
+
+
+def _checkout_delivery_fields(shop) -> str:
+    if _courier_enabled(shop):
+        return "ПІБ, телефон та оберіть спосіб доставки — у відділення або курʼєром"
+    return "ПІБ, телефон і відділення Нової пошти"
+
+
+def _cod_receive_place(shop) -> str:
+    if _courier_enabled(shop):
+        return "у відділенні або курʼєру"
+    return "у відділенні"
+
+
+def render(rule: Rule, shop=None, public: bool = False) -> str:
+    """Підставляє в відповідь актуальні дані й можливості магазину.
+
+    public=True — беремо стислий варіант, якщо він заданий. Умови доставки
+    генеруються з того самого прапорця, що й checkout, тому бот не рекламує
+    вимкненого курʼєра.
     """
     body = rule.public_answer if (public and rule.public_answer) else rule.answer
     return body.format(
@@ -610,6 +646,10 @@ def render(rule: Rule, shop=None, public: bool = False) -> str:
         # лишався правдивим навіть коли налаштування ще не читались.
         delivery_days=getattr(shop, "delivery_days", "1–3 дні"),
         delivery_cost_from=getattr(shop, "delivery_cost_from", 80),
+        delivery_methods=_delivery_methods(shop),
+        delivery_methods_inline=_delivery_methods_inline(shop),
+        checkout_delivery_fields=_checkout_delivery_fields(shop),
+        cod_receive_place=_cod_receive_place(shop),
         cod_commission_percent=_num(getattr(shop, "cod_commission_percent", Decimal(2))),
         cod_commission_fixed=_num(getattr(shop, "cod_commission_fixed", Decimal(20))),
     )
