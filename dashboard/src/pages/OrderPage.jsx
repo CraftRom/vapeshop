@@ -402,6 +402,305 @@ function WaybillPanel({ order, busy, onChanged }) {
   )
 }
 
+
+const CRM_DELIVERY = {
+  Warehouse: 'У відділення Нової пошти',
+  WarehouseWarehouse: 'У відділення Нової пошти',
+  WarehouseDoors: 'Адресна доставка курʼєром Нової пошти',
+  DoorsDoors: 'Курʼєром від адреси до адреси',
+  DoorsWarehouse: 'До відділення від адреси',
+}
+
+const CRM_NP_PARTY = { Recipient: 'Одержувач', Sender: 'Відправник' }
+const CRM_NP_PAYMENT = { Cash: 'Готівка', NonCash: 'Безготівково' }
+const CRM_NP_CARGO = {
+  Parcel: 'Посилка', Cargo: 'Вантаж', Documents: 'Документи',
+  TiresWheels: 'Шини / диски', Pallet: 'Палета',
+}
+const CRM_NP_BACK = { Money: 'Післяплата', PaymentControl: 'Контроль оплати', None: 'Без післяплати' }
+
+function crmAmount(value) {
+  if (value === null || value === undefined || value === '') return '—'
+  const number = Number(value)
+  if (!Number.isFinite(number)) return String(value)
+  return `${number.toLocaleString('uk-UA', { maximumFractionDigits: 2 })} ₴`
+}
+
+function crmDate(value) {
+  if (!value) return '—'
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return String(value)
+  return parsed.toLocaleString('uk-UA', {
+    day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit',
+  })
+}
+
+function resolvedCrmOption(label, raw) {
+  const text = String(label || '').trim()
+  const source = String(raw || '').trim()
+  if (!text && !source) return '—'
+  if ((!text || text === source) && /^\d+$/.test(source)) return `ID ${source} · назву не знайдено`
+  return text || source
+}
+
+function CrmMetric({ label, value, strong = false, tone = '' }) {
+  return (
+    <div className={`crm-metric ${tone}`}>
+      <span>{label}</span>
+      <strong className={strong ? 'crm-metric-main' : ''}>{value}</strong>
+    </div>
+  )
+}
+
+function CrmSnapshotPanel({ order, crmStatuses, refreshing, onRefresh }) {
+  const snap = order.crm_snapshot
+  const contact = snap?.contact || {}
+  const np = snap?.novaposhta || {}
+  const up = snap?.ukrposhta || {}
+  const utm = snap?.utm || {}
+  const deliveryData = snap?.deliveryData || {}
+  const products = Array.isArray(snap?.products) ? snap.products : []
+  const ttn = np.ttn || up.ttn || ''
+  const deliveryStatus = np.status || up.status || ''
+  const deliveryCost = np.cost ?? up.cost
+  const deliveryCode = np.delivery || up.delivery || ''
+  const total = Number(snap?.paymentAmount)
+  const paid = Number(snap?.payedAmount)
+  const rest = Number(snap?.restPay)
+  const progress = Number.isFinite(total) && total > 0 && Number.isFinite(paid)
+    ? Math.max(0, Math.min(100, Math.round((paid / total) * 100)))
+    : null
+  const customerName = [contact.lName, contact.fName, contact.mName].filter(Boolean).join(' ')
+  const hasFinanceDetails = [snap?.commissionAmount, snap?.costPriceAmount, snap?.expensesAmount, snap?.profitAmount]
+    .some((value) => value !== null && value !== undefined && value !== '')
+  const hasSource = [utm.source, utm.medium, utm.campaign, utm.page, utm.sourceFull].some(Boolean)
+  const managerLabel = snap?.managerName || (snap?.managerId ? `ID ${snap.managerId}` : 'Не призначено')
+  const snapshotSource = snap?.source === 'webhook' ? 'Webhook' : 'API'
+  const paymentLabel = resolvedCrmOption(snap?.paymentMethod, snap?.paymentMethodRaw)
+  const shippingLabel = resolvedCrmOption(snap?.shippingMethod, snap?.shippingMethodRaw)
+  const paymentUnresolved = /^ID \d+/.test(paymentLabel)
+  const shippingUnresolved = /^ID \d+/.test(shippingLabel)
+  const crmAddress = [np.city, np.street, np.house, np.flat].filter(Boolean).join(', ')
+  const localDestination = [order.delivery_city, order.delivery_address].filter(Boolean).join(', ')
+  const cargoLabel = CRM_NP_CARGO[np.cargoType || deliveryData.cargoType] || np.cargoType || deliveryData.cargoType || ''
+  const deliveryPaymentLabel = CRM_NP_PAYMENT[np.paymentMethod || deliveryData.paymentMethod] || np.paymentMethod || deliveryData.paymentMethod || ''
+  const postpayPayerLabel = CRM_NP_PARTY[np.postpayPayer || deliveryData.postpayPayer] || np.postpayPayer || deliveryData.postpayPayer || ''
+  const deliveryPayerLabel = CRM_NP_PARTY[np.payer] || np.payer || ''
+  const backDeliveryLabel = CRM_NP_BACK[np.backDelivery] || np.backDelivery || ''
+
+  return (
+    <section className="crm-live-card crm-live-card-v2" aria-label="Актуальні дані SalesDrive">
+      <div className="crm-live-head">
+        <div>
+          <div className="order-payment-kicker">SalesDrive · заявка {order.crm_id}</div>
+          <div className="crm-live-title-row">
+            <OrderStatusBadge order={order} crmStatuses={crmStatuses} compact />
+            <span className={`crm-source-chip ${snapshotSource === 'Webhook' ? 'webhook' : ''}`}>{snapshotSource}</span>
+          </div>
+          <div className="faint">
+            {order.crm_fetched_at ? `Дані CRM оновлено: ${timestamp(order.crm_fetched_at)}` : 'Ще не отримували актуальний стан заявки'}
+          </div>
+        </div>
+        <button className="btn ghost small" disabled={refreshing} onClick={onRefresh}>
+          {refreshing ? 'Оновлення…' : 'Оновити з CRM'}
+        </button>
+      </div>
+
+      {!snap ? (
+        <div className="crm-empty-snapshot">
+          Дані заявки ще не завантажені. Натисніть «Оновити з CRM».
+        </div>
+      ) : (
+        <>
+          <div className="crm-primary-grid">
+            <div className="crm-primary-card">
+              <span className="crm-primary-icon" aria-hidden="true">💳</span>
+              <div>
+                <span className="crm-primary-label">Спосіб оплати</span>
+                <strong className={paymentUnresolved ? 'crm-unresolved' : ''}>{paymentLabel}</strong>
+                <small>{snap.paymentDate ? `Продаж/оплата: ${crmDate(snap.paymentDate)}` : `${crmAmount(snap.payedAmount)} оплачено · ${crmAmount(snap.restPay)} залишок`}</small>
+              </div>
+            </div>
+            <div className="crm-primary-card">
+              <span className="crm-primary-icon" aria-hidden="true">📦</span>
+              <div>
+                <span className="crm-primary-label">Спосіб доставки</span>
+                <strong className={shippingUnresolved ? 'crm-unresolved' : ''}>{shippingLabel}</strong>
+                <small>{CRM_DELIVERY[deliveryCode] || deliveryStatus || localDestination || 'Деталі служби доставки ще не заповнені'}</small>
+              </div>
+            </div>
+            <div className="crm-primary-card">
+              <span className="crm-primary-icon" aria-hidden="true">👤</span>
+              <div>
+                <span className="crm-primary-label">Відповідальний менеджер</span>
+                <strong>{managerLabel}</strong>
+                <small>{snap.managerId ? `SalesDrive ID ${snap.managerId}` : 'У CRM менеджера ще не призначено'}</small>
+              </div>
+            </div>
+          </div>
+
+          <div className="crm-data-strip">
+            <span><b>CRM ID</b> {snap.id || order.crm_id}</span>
+            {snap.version !== null && snap.version !== undefined && <span><b>Версія</b> {snap.version}</span>}
+            <span><b>Джерело</b> {snapshotSource}</span>
+            {(paymentUnresolved || shippingUnresolved) && (
+              <span className="crm-data-warning"><b>Увага</b> довідник CRM не розвʼязав назву однієї з опцій</span>
+            )}
+          </div>
+
+          <div className="crm-section">
+            <div className="crm-section-head">
+              <div>
+                <h3>Розрахунки</h3>
+                <p>Фактичні суми із заявки SalesDrive</p>
+              </div>
+              {progress !== null && <span className={`crm-payment-progress-label ${progress >= 100 ? 'done' : ''}`}>{progress}% оплачено</span>}
+            </div>
+            {progress !== null && (
+              <div className="crm-payment-progress" aria-label={`Оплачено ${progress}%`}>
+                <span style={{ width: `${progress}%` }} />
+              </div>
+            )}
+            <div className="crm-metrics-grid">
+              <CrmMetric label="Сума CRM" value={crmAmount(snap.paymentAmount)} strong />
+              <CrmMetric label="Оплачено" value={crmAmount(snap.payedAmount)} tone={Number(paid) > 0 ? 'ok' : ''} />
+              <CrmMetric label="Залишок" value={crmAmount(snap.restPay)} tone={Number(rest) > 0 ? 'warn' : 'ok'} />
+              {deliveryCost !== null && deliveryCost !== undefined && deliveryCost !== '' && (
+                <CrmMetric label="Вартість доставки" value={crmAmount(deliveryCost)} />
+              )}
+            </div>
+            {hasFinanceDetails && (
+              <div className="crm-secondary-metrics">
+                <CrmMetric label="Собівартість" value={crmAmount(snap.costPriceAmount)} />
+                <CrmMetric label="Комісія" value={crmAmount(snap.commissionAmount)} />
+                <CrmMetric label="Витрати" value={crmAmount(snap.expensesAmount)} />
+                <CrmMetric label="Прибуток" value={crmAmount(snap.profitAmount)} tone="ok" />
+              </div>
+            )}
+          </div>
+
+          <div className="crm-two-columns">
+            <div className="crm-section">
+              <div className="crm-section-head compact"><div><h3>Одержувач</h3><p>Контакт, який зараз записаний у CRM</p></div></div>
+              <div className="crm-detail-list">
+                <div><span>ПІБ</span><strong>{customerName || '—'}</strong></div>
+                <div><span>Телефон</span><strong>{contact.phone || '—'}</strong></div>
+                {contact.email && <div><span>Email</span><strong>{contact.email}</strong></div>}
+                {contact.company && <div><span>Компанія</span><strong>{contact.company}</strong></div>}
+                {contact.counterparty?.name && <div><span>Контрагент</span><strong>{contact.counterparty.name}{contact.counterparty.code ? ` · ${contact.counterparty.code}` : ''}</strong></div>}
+                {contact.leadsCount !== null && contact.leadsCount !== undefined && <div><span>Заявок клієнта</span><strong>{contact.leadsCount}</strong></div>}
+                {contact.leadsSalesCount !== null && contact.leadsSalesCount !== undefined && <div><span>Успішних продажів</span><strong>{contact.leadsSalesCount}</strong></div>}
+                {contact.leadsSalesAmount !== null && contact.leadsSalesAmount !== undefined && <div><span>Сума продажів</span><strong>{crmAmount(contact.leadsSalesAmount)}</strong></div>}
+                {contact.userId && <div><span>Менеджер контакту</span><strong>ID {contact.userId}</strong></div>}
+              </div>
+            </div>
+
+            <div className="crm-section">
+              <div className="crm-section-head compact"><div><h3>Доставка</h3><p>ТТН і стан перевізника із SalesDrive</p></div></div>
+              <div className="crm-detail-list">
+                <div><span>Тип</span><strong>{CRM_DELIVERY[deliveryCode] || shippingLabel}</strong></div>
+                <div><span>ТТН</span><strong>{ttn || 'Ще не створена'}</strong></div>
+                <div><span>Статус</span><strong>{deliveryStatus || '—'}</strong></div>
+                {localDestination && <div className="crm-detail-wide"><span>Адреса з ELFAR</span><strong>{localDestination}</strong></div>}
+                {crmAddress && <div className="crm-detail-wide"><span>Адреса/Ref у CRM</span><strong className="crm-break">{crmAddress}</strong></div>}
+                {np.branchNumber && <div><span>Відділення</span><strong>№{np.branchNumber}</strong></div>}
+                {!np.branchNumber && np.branch && <div className="crm-detail-wide"><span>Ref відділення</span><strong className="crm-break">{np.branch}</strong></div>}
+                {np.postpaySum !== null && np.postpaySum !== undefined && np.postpaySum !== '' && <div><span>Післяплата</span><strong>{crmAmount(np.postpaySum)}</strong></div>}
+                {cargoLabel && <div><span>Тип вантажу</span><strong>{cargoLabel}</strong></div>}
+                {deliveryPayerLabel && <div><span>Платник доставки</span><strong>{deliveryPayerLabel}</strong></div>}
+                {deliveryPaymentLabel && <div><span>Оплата доставки</span><strong>{deliveryPaymentLabel}</strong></div>}
+                {backDeliveryLabel && <div><span>Зворотна доставка</span><strong>{backDeliveryLabel}</strong></div>}
+                {postpayPayerLabel && <div><span>Платник післяплати</span><strong>{postpayPayerLabel}</strong></div>}
+                {np.statusCode !== null && np.statusCode !== undefined && np.statusCode !== '' && <div><span>Код статусу НП</span><strong>{String(np.statusCode)}</strong></div>}
+                {np.manual !== null && np.manual !== undefined && <div><span>Джерело ТТН</span><strong>{Number(np.manual) === 1 ? 'Введена вручну в CRM' : 'Створена через SalesDrive'}</strong></div>}
+                {np.dateStatusUpdate && <div><span>Статус оновлено</span><strong>{crmDate(np.dateStatusUpdate)}</strong></div>}
+                {(np.deliveryDateAndTime || up.deliveryDateAndTime) && <div><span>Прибуття</span><strong>{crmDate(np.deliveryDateAndTime || up.deliveryDateAndTime)}</strong></div>}
+                {np.recipientDateTime && <div><span>Отримано</span><strong>{crmDate(np.recipientDateTime)}</strong></div>}
+              </div>
+            </div>
+          </div>
+
+          {products.length > 0 && (
+            <div className="crm-section">
+              <div className="crm-section-head compact"><div><h3>Товари в заявці</h3><p>Позиції читаються з актуального data[].products, без застарілого meta.products.options</p></div></div>
+              <div className="crm-products-v2">
+                {products.map((product, index) => (
+                  <div className="crm-product-row" key={`${product.id || product.productId || product.sku || index}-${index}`}>
+                    <div className="crm-product-main">
+                      <strong>{product.name || 'Товар'}</strong>
+                      <span>{[
+                        product.sku ? `SKU ${product.sku}` : '',
+                        product.barcode ? `штрихкод ${product.barcode}` : '',
+                        product.categoryName || '',
+                      ].filter(Boolean).join(' · ')}</span>
+                      {(product.description || product.note) && <small>{product.description || product.note}</small>}
+                      {(product.manufacturer || product.mass || product.volume) && (
+                        <small>{[
+                          product.manufacturer ? `Виробник: ${product.manufacturer}` : '',
+                          product.mass ? `Вага: ${product.mass}` : '',
+                          product.volume ? `Обʼєм: ${product.volume}` : '',
+                        ].filter(Boolean).join(' · ')}</small>
+                      )}
+                      {product.href && <small className="crm-break">CRM URL: {product.href}</small>}
+                    </div>
+                    <div className="crm-product-numbers">
+                      <strong>{product.amount ?? '—'} × {crmAmount(product.price)}</strong>
+                      {(product.discount !== null && product.discount !== undefined && product.discount !== '' && Number(product.discount) !== 0) && (
+                        <span>Знижка: {product.discount}{Number(product.percentDiscount) === 1 ? '%' : ' ₴'}</span>
+                      )}
+                      {product.costPrice !== null && product.costPrice !== undefined && product.costPrice !== '' && <span>Собівартість: {crmAmount(product.costPrice)}</span>}
+                      {product.restCount !== null && product.restCount !== undefined && <span>Залишок: {product.restCount}</span>}
+                      {product.stockId && <span>Склад ID: {product.stockId}</span>}
+                      {Array.isArray(product.priceTypes) && product.priceTypes.length > 0 && <span>Додаткових цін: {product.priceTypes.length}</span>}
+                      {Array.isArray(product.complect) && product.complect.length > 0 && <span>Складових комплекту: {product.complect.length}</span>}
+                      {product.defaultPriceData && <span>Є базова ціна каталогу CRM</span>}
+                      {Number(product.upsell) === 1 && <span className="crm-product-chip">Допродаж</span>}
+                      {Number(product.isComplect) === 1 && <span className="crm-product-chip">Комплект</span>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <details className="crm-more">
+            <summary>Додаткові дані CRM</summary>
+            <div className="crm-two-columns crm-more-body">
+              <div className="crm-section inner">
+                <div className="crm-detail-list">
+                  <div><span>Створено в CRM</span><strong>{crmDate(snap.orderTime)}</strong></div>
+                  {snap.externalId && <div><span>External ID</span><strong>{snap.externalId}</strong></div>}
+                  {snap.formId !== null && snap.formId !== undefined && <div><span>База / Form ID</span><strong>{String(snap.formId)}</strong></div>}
+                  {snap.typeId !== null && snap.typeId !== undefined && <div><span>Тип заявки ID</span><strong>{String(snap.typeId)}</strong></div>}
+                  {snap.timeEntryOrder && <div><span>Прийнято</span><strong>{crmDate(snap.timeEntryOrder)}</strong></div>}
+                  {snap.holderTime && <div><span>Час обробки</span><strong>{String(snap.holderTime)}</strong></div>}
+                  {snap.rejectionReason && <div><span>Причина відмови</span><strong>{String(snap.rejectionReason)}</strong></div>}
+                  {snap.comment && <div className="crm-detail-wide"><span>Коментар CRM</span><strong>{snap.comment}</strong></div>}
+                </div>
+              </div>
+              {hasSource && (
+                <div className="crm-section inner">
+                  <div className="crm-detail-list">
+                    {utm.source && <div><span>Джерело</span><strong>{utm.source}</strong></div>}
+                    {utm.medium && <div><span>Канал</span><strong>{utm.medium}</strong></div>}
+                    {utm.campaign && <div><span>Кампанія</span><strong>{utm.campaign}</strong></div>}
+                    {utm.page && <div><span>Сторінка</span><strong>{utm.page}</strong></div>}
+                    {utm.sourceFull && <div className="crm-detail-wide"><span>Повне джерело</span><strong className="crm-break">{utm.sourceFull}</strong></div>}
+                  </div>
+                </div>
+              )}
+            </div>
+          </details>
+        </>
+      )}
+
+      <p className="faint crm-live-note">
+        SalesDrive є джерелом цих CRM-даних. Локальний каталог ELFAR і його ціни з read-side snapshot не перезаписуються.
+      </p>
+    </section>
+  )
+}
+
 export default function OrderPage() {
   const { id } = useParams()
   const navigate = useNavigate()
@@ -495,7 +794,7 @@ export default function OrderPage() {
     if (!order?.crm_id || crmRefreshing) return
     setCrmRefreshing(true)
     try {
-      const fresh = await api.orders.salesdriveRefresh(order.id)
+      const fresh = await api.orders.salesdriveRefresh(order.id, !quiet)
       setOrder(fresh)
       setTracking(fresh.tracking_number || '')
       if (!quiet) notify('Дані SalesDrive оновлено')
@@ -514,9 +813,10 @@ export default function OrderPage() {
   }, [order?.crm_id, crmAutoRefreshed, refreshCrm])
 
   // Поки картка відкрита, періодично перечитуємо саме заявку SalesDrive.
-  // 120 с не перевантажує order-list API, але не залишає менеджеру старий
-  // статус після зміни в CRM з іншої вкладки/телефону.
-  useVisiblePolling(() => refreshCrm(true), 120000, { enabled: Boolean(order?.crm_id) })
+  // Статуси приходять webhook-ом, а повний read-side потрібен для оплат,
+  // менеджера й доставки. 5 хв плюс серверний fresh-cache не витрачають
+  // документований ліміт /api/order/list/ на кожну відкриту вкладку.
+  useVisiblePolling(() => refreshCrm(true), 300000, { enabled: Boolean(order?.crm_id) })
   useVisiblePolling(loadCrmStatuses, 300000, { enabled: Boolean(order?.crm_id) })
 
   // Прийшли зі списку по кнопці «Відпр.» — одразу питаємо накладну
@@ -697,44 +997,12 @@ export default function OrderPage() {
             )}
 
             {order.crm_id && (
-              <section className="crm-live-card" aria-label="Актуальні дані SalesDrive">
-                <div className="crm-live-head">
-                  <div>
-                    <div className="order-payment-kicker">SalesDrive · заявка {order.crm_id}</div>
-                    <OrderStatusBadge order={order} crmStatuses={crmStatuses} compact />
-                    <div className="faint">{order.crm_fetched_at ? `Прочитано з CRM: ${timestamp(order.crm_fetched_at)}` : 'Ще не читали стан заявки через API'}</div>
-                  </div>
-                  <button className="btn ghost small" disabled={crmRefreshing} onClick={() => { refreshCrm(false); loadCrmStatuses() }}>
-                    {crmRefreshing ? 'Оновлення…' : 'Оновити з CRM'}
-                  </button>
-                </div>
-                {order.crm_snapshot && (() => {
-                  const c = order.crm_snapshot.contact || {}
-                  const np = order.crm_snapshot.novaposhta || {}
-                  const products = Array.isArray(order.crm_snapshot.products) ? order.crm_snapshot.products : []
-                  return (
-                    <>
-                      <div className="crm-live-grid">
-                        <div><span>Оплата</span><strong>{order.crm_snapshot.paymentMethod || '—'}</strong></div>
-                        <div><span>Доставка</span><strong>{order.crm_snapshot.shippingMethod || '—'}</strong></div>
-                        <div><span>Менеджер</span><strong>{order.crm_snapshot.managerName || (order.crm_snapshot.managerId ? `ID ${order.crm_snapshot.managerId}` : '—')}</strong></div>
-                        <div><span>Сума CRM</span><strong>{order.crm_snapshot.paymentAmount ?? '—'}</strong></div>
-                        <div><span>Оплачено</span><strong>{order.crm_snapshot.payedAmount ?? '—'}</strong></div>
-                        <div><span>Залишок</span><strong>{order.crm_snapshot.restPay ?? '—'}</strong></div>
-                        <div><span>Одержувач</span><strong>{[c.lName,c.fName,c.mName].filter(Boolean).join(' ') || '—'}</strong></div>
-                        <div><span>Телефон CRM</span><strong>{c.phone || '—'}</strong></div>
-                        <div><span>ТТН</span><strong>{np.ttn || '—'}</strong></div>
-                        <div><span>Статус доставки</span><strong>{np.status || '—'}</strong></div>
-                      </div>
-                      {products.length > 0 && <div className="crm-live-products">
-                        <span className="faint">Товари в заявці SalesDrive</span>
-                        {products.map((p, i) => <div key={`${p.id || p.sku || i}-${i}`}><strong>{p.name || 'Товар'}</strong><span>{p.sku ? `SKU ${p.sku} · ` : ''}{p.amount ?? '—'} шт. · {p.price ?? '—'}</span></div>)}
-                      </div>}
-                    </>
-                  )
-                })()}
-                <p className="faint crm-live-note">Це read-only snapshot заявки CRM. Ціни каталогу ELFAR з нього не змінюються.</p>
-              </section>
+              <CrmSnapshotPanel
+                order={order}
+                crmStatuses={crmStatuses}
+                refreshing={crmRefreshing}
+                onRefresh={() => { refreshCrm(false); loadCrmStatuses() }}
+              />
             )}
 
             {!order.crm_id && allowedFrom(order.status, order.payment_method).includes('cancelled') && (

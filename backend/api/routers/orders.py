@@ -254,7 +254,8 @@ async def waybill_label(order_id: int, repo: Repository = Depends(get_repo)):
 
 @router.post("/{order_id}/salesdrive-refresh", response_model=OrderOut)
 async def refresh_salesdrive_order(
-    order_id: int, _who: Principal = Depends(require_staff), repo: Repository = Depends(get_repo),
+    order_id: int, force: bool = Query(False),
+    _who: Principal = Depends(require_staff), repo: Repository = Depends(get_repo),
 ):
     """Читає фактичний стан вже пов'язаної заявки CRM. Старі замовлення не шукає і не імпортує."""
     from shop.services import salesdrive
@@ -264,7 +265,7 @@ async def refresh_salesdrive_order(
     if not order.crm_id:
         raise HTTPException(409, "Legacy-замовлення не пов’язане із SalesDrive")
     try:
-        return await salesdrive.pull_order(repo, order_id)
+        return await salesdrive.pull_order(repo, order_id, force=force)
     except salesdrive.SalesDriveError as exc:
         raise HTTPException(502, str(exc)) from exc
 

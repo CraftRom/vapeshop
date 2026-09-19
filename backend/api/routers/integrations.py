@@ -65,38 +65,14 @@ async def salesdrive_check(_who: Principal = Depends(require_sysadmin),
     return await _check(repo)
 
 
-async def _sd_get(client, shop, path: str):
-    """GET довідника SalesDrive з єдиною авторизацією та зрозумілими помилками."""
-    from shop.services import salesdrive
-    response = await client.get(
-        salesdrive.base_url(shop) + path,
-        headers={"Form-Api-Key": shop.salesdrive_api_key, "X-Api-Key": shop.salesdrive_api_key,
-                 "Accept": "application/json"},
-    )
-    if response.status_code in (401, 403):
-        raise HTTPException(502, "SalesDrive відхилив API-ключ")
-    if response.status_code == 429:
-        raise HTTPException(429, "SalesDrive тимчасово обмежив частоту запитів")
-    if response.status_code >= 400:
-        raise HTTPException(502, f"SalesDrive відповів {response.status_code} для {path}")
-    try:
-        return response.json()
-    except ValueError as exc:
-        raise HTTPException(502, "SalesDrive повернув некоректну відповідь") from exc
-
-
-def _dictionary_items(payload) -> list[dict]:
-    # Backwards-compatible wrapper: єдині правила нормалізації живуть у service.
-    from shop.services import salesdrive
-    return salesdrive.dictionary_items(payload)
-
-
 @router.get("/salesdrive/dictionaries")
 async def salesdrive_dictionaries(_who: Principal = Depends(require_sysadmin),
                                   repo: Repository = Depends(get_repo)):
-    """Актуальні статуси, оплати й доставки без ручного переписування з CRM."""
-    import asyncio
-    import httpx
+    """Актуальні статуси, оплати й доставки без ручного переписування з CRM.
+
+    Ручне оновлення у налаштуваннях обходить кеш, щоб адміністратор одразу
+    побачив щойно змінені довідники SalesDrive.
+    """
     from shop.services import salesdrive
     from shop.services.shop_settings import get_shop_settings
 
@@ -106,23 +82,12 @@ async def salesdrive_dictionaries(_who: Principal = Depends(require_sysadmin),
     if not shop.salesdrive_api_connected:
         raise HTTPException(400, "Не задано API-ключ SalesDrive")
     try:
-        async with httpx.AsyncClient(timeout=salesdrive.REQUEST_TIMEOUT) as client:
-            raw_statuses, raw_payments, raw_deliveries = await asyncio.gather(
-                _sd_get(client, shop, "/api/statuses/"),
-                _sd_get(client, shop, "/api/payment-methods/"),
-                _sd_get(client, shop, "/api/delivery-methods/"),
-            )
-    except httpx.HTTPError as exc:
-        raise HTTPException(502, f"SalesDrive недоступний: {type(exc).__name__}") from exc
-    return {
-        "statuses": _dictionary_items(raw_statuses),
-        "payments": _dictionary_items(raw_payments),
-        "deliveries": _dictionary_items(raw_deliveries),
-    }
+        return await salesdrive.dictionary_bundle(shop, force=True)
+    except salesdrive.SalesDriveError as exc:
+        raise HTTPException(502, str(exc)) from exc
 
 
 async def _check(repo) -> dict:
-    import httpx
     from shop.services import salesdrive
     from shop.services.shop_settings import get_shop_settings
 
@@ -132,12 +97,9 @@ async def _check(repo) -> dict:
     if not shop.salesdrive_api_connected:
         return {"ok": False, "problem": "Не задано API-ключ SalesDrive"}
     try:
-        async with httpx.AsyncClient(timeout=salesdrive.REQUEST_TIMEOUT) as client:
-            await _sd_get(client, shop, "/api/statuses/")
-    except HTTPException as exc:
-        return {"ok": False, "problem": str(exc.detail)}
-    except httpx.HTTPError as exc:
-        return {"ok": False, "problem": f"SalesDrive недоступний: {type(exc).__name__}"}
+        await salesdrive.status_options(shop, force=True)
+    except salesdrive.SalesDriveError as exc:
+        return {"ok": False, "problem": str(exc)}
     form_id = salesdrive.telegram_form_id(shop)
     return {"ok": True, "problem": None, "telegramFormId": form_id or None,
             "sourceName": "ELFAR — Telegram Bot",

@@ -31,8 +31,10 @@ from __future__ import annotations
 
 import asyncio
 import hmac
+import hashlib
 import json
 import logging
+import time
 from datetime import datetime, timezone
 from decimal import Decimal
 
@@ -44,6 +46,8 @@ from shop.services import shipment
 log = logging.getLogger(__name__)
 
 REQUEST_TIMEOUT = 20.0
+DICTIONARY_TTL_SECONDS = 10 * 60
+ORDER_PULL_MIN_AGE_SECONDS = 90
 # Після стількох невдалих спроб планувальник зупиняється: помилка, яка не
 # минає за добу повторів (зіпсований ключ, видалена форма), сама не мине.
 # Далі — кнопка «Повторити» в панелі після виправлення.
@@ -208,10 +212,17 @@ def _comment(order: Order, shop) -> str:
 
 
 def _novaposhta_block(order: Order) -> dict:
-    """Дані Нової пошти в заявці. Коди — ті самі, що зберігає вітрина."""
+    """Дані Нової пошти для ``POST /handler/`` SalesDrive.
+
+    Важливо не плутати цей контракт із Nova Poshta InternetDocument API:
+    SalesDrive для доставки у відділення документує ``ServiceType=Warehouse``.
+    Для адресної доставки лишаємо сумісне значення ``WarehouseDoors``, яке
+    описує фактичний маршрут від нашого відділення-відправника до дверей;
+    текстова адреса також завжди передається у ``shipping_address``.
+    """
     where = shipment.destination(order)
     block = {
-        "ServiceType": "WarehouseDoors" if where.to_door else "WarehouseWarehouse",
+        "ServiceType": "WarehouseDoors" if where.to_door else "Warehouse",
         "payer": "Recipient",
     }
     if where.city_ref:
@@ -302,9 +313,19 @@ async def _post(url: str, payload: dict, headers: dict) -> httpx.Response:
 
 
 def _headers(shop) -> dict:
+    """Заголовки для write API та /handler/.
+
+    Поточний Swagger SalesDrive документує ``X-Api-Key`` для API, тоді як
+    старі endpoint/акаунти використовують ``Form-Api-Key``. Відправляємо
+    обидва для API-ключа; /handler/ додатково автентифікується полем ``form``
+    у payload, тому зайвий сумісний заголовок не змінює семантику заявки.
+    """
     headers = {"Content-Type": "application/json", "Accept": "application/json"}
     if shop.salesdrive_api_connected:
-        headers["Form-Api-Key"] = shop.salesdrive_api_key
+        key = str(shop.salesdrive_api_key or "").strip()
+        if key:
+            headers["Form-Api-Key"] = key
+            headers["X-Api-Key"] = key
     return headers
 
 
@@ -323,9 +344,9 @@ def _read_headers(shop) -> dict:
 def dictionary_items(payload) -> list[dict]:
     """Нормалізований довідник SalesDrive ``[{id, name}]``.
 
-    У різних версіях API список приходив напряму або під data/items/list/results.
-    Панель і backend користуються одним нормалізатором, щоб назва статусу не
-    визначалася окремо в двох місцях.
+    У різних endpoint/версіях API список приходить напряму або під
+    ``data/items/list/results``. Тут не вгадуємо бізнес-значення, лише
+    нормалізуємо документований ``id`` + ``name`` і сумісні назви полів.
     """
     if isinstance(payload, list):
         rows = payload
@@ -350,21 +371,76 @@ def dictionary_items(payload) -> list[dict]:
     return result
 
 
-async def _get_json(shop, path: str, *, params: dict | None = None):
+def _cache_key(shop) -> str:
+    """Ключ кешу без збереження API-ключа у відкритому вигляді."""
+    domain = str(getattr(shop, "salesdrive_domain", "") or "").strip().lower()
+    key = str(getattr(shop, "salesdrive_api_key", "") or "")
+    fingerprint = hashlib.sha256(key.encode()).hexdigest()[:12] if key else "no-key"
+    return f"{domain}:{fingerprint}"
+
+
+_dictionary_cache: dict[str, dict] = {}
+_status_cache: dict[str, dict] = {}
+
+
+def cached_dictionary_bundle(shop) -> dict:
+    """Останні довідники без мережевого запиту (для швидкого webhook)."""
+    cached = _dictionary_cache.get(_cache_key(shop))
+    if not cached:
+        return {"statuses": [], "payments": [], "deliveries": []}
+    return cached.get("value") or {"statuses": [], "payments": [], "deliveries": []}
+
+
+def _option_map(items: list[dict]) -> dict[str, str]:
+    return {str(x.get("id") or "").strip(): str(x.get("name") or "").strip()
+            for x in items if str(x.get("id") or "").strip() and str(x.get("name") or "").strip()}
+
+
+def _resolve_option(raw, items: list[dict]) -> tuple[str, str]:
+    """Повертає ``(id/raw, human name)``.
+
+    order-list/webhook в різних полях можуть віддати або ID опції, або її
+    текст. Панель завжди повинна показувати людині текст, але сире значення
+    лишаємо у snapshot для діагностики й майбутніх змін API.
+    """
+    value = str(raw or "").strip()
+    if not value:
+        return "", ""
+    by_id = _option_map(items)
+    if value in by_id:
+        return value, by_id[value]
+    lowered = value.casefold()
+    for item in items:
+        name = str(item.get("name") or "").strip()
+        if name and name.casefold() == lowered:
+            return str(item.get("id") or "").strip(), name
+    return value, value
+
+
+async def _get_json(shop, path: str, *, params: dict | None = None, client: httpx.AsyncClient | None = None):
     if not (getattr(shop, "salesdrive_domain", "") or "").strip():
         raise SalesDriveError("Не задано домен SalesDrive", temporary=False)
     if not getattr(shop, "salesdrive_api_connected", False):
         raise SalesDriveError("Не задано API-ключ SalesDrive", temporary=False)
+    owned = client is None
+    if owned:
+        client = httpx.AsyncClient(timeout=REQUEST_TIMEOUT, follow_redirects=False)
     try:
-        async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT, follow_redirects=False) as client:
-            response = await client.get(base_url(shop) + path, params=params, headers=_read_headers(shop))
+        response = await client.get(base_url(shop) + path, params=params, headers=_read_headers(shop))
     except httpx.TimeoutException as exc:
         raise SalesDriveError("SalesDrive не відповів вчасно") from exc
     except httpx.HTTPError as exc:
         raise SalesDriveError(f"SalesDrive недоступний: {type(exc).__name__}") from exc
+    finally:
+        if owned and client is not None:
+            await client.aclose()
     if response.status_code in (401, 403):
         raise SalesDriveError("SalesDrive відхилив API-ключ", temporary=False)
-    if response.status_code == 429 or response.status_code >= 500:
+    if response.status_code == 429:
+        retry = str(response.headers.get("Retry-After") or "").strip()
+        suffix = f"; повторити через {retry} с" if retry.isdigit() else ""
+        raise SalesDriveError(f"SalesDrive обмежив частоту запитів (429){suffix}")
+    if response.status_code >= 500:
         raise SalesDriveError(f"SalesDrive тимчасово відмовив ({response.status_code})")
     if response.status_code >= 400:
         raise SalesDriveError(f"SalesDrive відповів {response.status_code} для {path}", temporary=False)
@@ -374,15 +450,166 @@ async def _get_json(shop, path: str, *, params: dict | None = None):
         raise SalesDriveError("SalesDrive повернув некоректну відповідь", temporary=False) from exc
 
 
-async def status_options(shop) -> list[dict]:
-    """Поточний довідник статусів прямо з CRM."""
-    return dictionary_items(await _get_json(shop, "/api/statuses/"))
+async def dictionary_bundle(shop, *, force: bool = False) -> dict:
+    """Статуси, оплати й доставки одним кешованим read-side викликом.
+
+    Довідники змінюються рідко, а SalesDrive має окремі rate limits для
+    читання. Тому робочі екрани не повинні робити три HTTP-запити при
+    кожному відкритті заявки. Коротка недоступність CRM повертає останній
+    успішний кеш, якщо він існує.
+    """
+    key = _cache_key(shop)
+    now = time.monotonic()
+    cached = _dictionary_cache.get(key)
+    if cached and not force and now - cached["stored"] < DICTIONARY_TTL_SECONDS:
+        return {**cached["value"], "cached": True}
+
+    try:
+        async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT, follow_redirects=False) as client:
+            raw_statuses, raw_payments, raw_deliveries = await asyncio.gather(
+                _get_json(shop, "/api/statuses/", client=client),
+                _get_json(shop, "/api/payment-methods/", client=client),
+                _get_json(shop, "/api/delivery-methods/", client=client),
+            )
+        value = {
+            "statuses": dictionary_items(raw_statuses),
+            "payments": dictionary_items(raw_payments),
+            "deliveries": dictionary_items(raw_deliveries),
+            "fetchedAt": datetime.now(timezone.utc).isoformat(),
+        }
+        _dictionary_cache[key] = {"stored": now, "value": value}
+        _status_cache[key] = {"stored": now, "value": value["statuses"]}
+        return {**value, "cached": False}
+    except SalesDriveError:
+        # force=True використовується кнопкою/діагностикою «Перевірити».
+        # У цьому режимі stale-cache не має маскувати реальну недоступність CRM.
+        if cached and not force:
+            return {**cached["value"], "cached": True, "stale": True}
+        raise
+
+
+async def status_options(shop, *, force: bool = False) -> list[dict]:
+    """Поточний довідник статусів CRM без зайвих payment/delivery запитів.
+
+    Робочі сторінки оновлюють список статусів частіше за налаштування, тому
+    тягнути три довідники щоразу було зайвим. Повний ``dictionary_bundle``
+    лишається для налаштувань і одночасно прогріває цей кеш.
+    """
+    key = _cache_key(shop)
+    now = time.monotonic()
+    cached = _status_cache.get(key)
+    if cached and not force and now - cached["stored"] < DICTIONARY_TTL_SECONDS:
+        return cached["value"]
+
+    full = _dictionary_cache.get(key)
+    if full and not force and now - full["stored"] < DICTIONARY_TTL_SECONDS:
+        value = full.get("value", {}).get("statuses", [])
+        _status_cache[key] = {"stored": now, "value": value}
+        return value
+
+    try:
+        value = dictionary_items(await _get_json(shop, "/api/statuses/"))
+        _status_cache[key] = {"stored": now, "value": value}
+        return value
+    except SalesDriveError:
+        if cached and not force:
+            return cached["value"]
+        raise
 
 
 def status_name_from_options(status_id, options: list[dict]) -> str:
     wanted = str(status_id or "").strip()
     return next((str(x.get("name") or "").strip() for x in options
                  if str(x.get("id") or "") == wanted), "")
+
+
+def _pairs_from_options(value) -> dict[str, str]:
+    """Нормалізує ``options`` із meta[fields] до ``id -> label``.
+
+    SalesDrive документує meta[fields] як джерело значень полів, але форма
+    конкретних option залежить від типу поля. Підтримуємо лише очевидні
+    структури й не намагаємося вгадувати невідомі значення.
+    """
+    result: dict[str, str] = {}
+    if isinstance(value, dict):
+        # Простий словник {id: name}.
+        if all(not isinstance(v, (dict, list)) for v in value.values()):
+            for k, v in value.items():
+                sid, name = str(k or "").strip(), str(v or "").strip()
+                if sid and name:
+                    result[sid] = name
+            return result
+        for key in ("options", "values", "items", "list", "data"):
+            if key in value:
+                result.update(_pairs_from_options(value.get(key)))
+    elif isinstance(value, list):
+        for row in value:
+            if not isinstance(row, dict):
+                continue
+            ident = row.get("id", row.get("value", row.get("key")))
+            name = row.get("name", row.get("label", row.get("title", row.get("text"))))
+            sid, title = str(ident or "").strip(), str(name or "").strip()
+            if sid and title:
+                result[sid] = title
+    return result
+
+
+def _field_key(value) -> str:
+    return "".join(ch for ch in str(value or "").casefold() if ch.isalnum())
+
+
+def _meta_field_options(body, aliases: tuple[str, ...]) -> dict[str, str]:
+    """Шукає опції конкретного поля у документованому ``meta[fields]``.
+
+    SalesDrive повертає ``meta[fields]`` у різних формах залежно від поля та
+    версії API: словником або масивом описів полів. Обидві форми читаємо, але
+    лише за явним ім'ям/ключем поля — ніякого вгадування опцій за позицією.
+    """
+    if not isinstance(body, dict):
+        return {}
+    meta = body.get("meta") if isinstance(body.get("meta"), dict) else {}
+    fields = meta.get("fields")
+    wanted = {_field_key(a) for a in aliases}
+
+    candidates: list[tuple[object, object]] = []
+    if isinstance(fields, dict):
+        candidates.extend(fields.items())
+    elif isinstance(fields, list):
+        for row in fields:
+            if not isinstance(row, dict):
+                continue
+            key = (row.get("name") or row.get("key") or row.get("field") or
+                   row.get("code") or row.get("slug"))
+            candidates.append((key, row))
+
+    for key, value in candidates:
+        if _field_key(key) not in wanted:
+            continue
+        pairs = _pairs_from_options(value)
+        if pairs:
+            return pairs
+    return {}
+
+
+def _manager_name(data: dict, body=None) -> str:
+    for key in ("userName", "managerName", "responsibleName"):
+        value = data.get(key)
+        if str(value or "").strip():
+            return str(value).strip()
+    for key in ("user", "manager", "responsible"):
+        value = data.get(key)
+        if isinstance(value, dict):
+            name = value.get("name") or value.get("title") or value.get("label")
+            if str(name or "").strip():
+                return str(name).strip()
+        elif str(value or "").strip() and not str(value).strip().isdigit():
+            return str(value).strip()
+    uid = str(data.get("userId") or "").strip()
+    if uid:
+        names = _meta_field_options(body, ("userId", "manager", "managerId", "user"))
+        if uid in names:
+            return names[uid]
+    return ""
 
 
 async def _send(shop, path: str, payload: dict) -> dict:
@@ -426,14 +653,23 @@ def _reason(body) -> str:
 
 
 def _crm_id_from(body: dict) -> str | None:
-    """Номер заявки з відповіді на створення. Формат відповіді в базі
-    знань не описаний, тож шукаємо в очевидних місцях і не вгадуємо далі."""
+    """ID заявки з відповіді ``/handler/`` при ``getResultData=1``.
+
+    Поточний документований формат — ``data.orderId``; сумісні fallback-и
+    лишені для старих акаунтів/відповідей, які вже підтримував проєкт.
+    """
     for container in (body.get("data") if isinstance(body.get("data"), dict) else {}, body):
         for key in ("orderId", "id", "order_id"):
             value = container.get(key)
             if value not in (None, "", 0):
                 return str(value)
     return None
+
+
+def _created_manager_id(body: dict) -> str:
+    data = body.get("data") if isinstance(body, dict) and isinstance(body.get("data"), dict) else {}
+    value = data.get("userId")
+    return str(value).strip() if value not in (None, "", 0) else ""
 
 
 # ------------------------------------------------------------ синхронізація
@@ -480,11 +716,12 @@ async def _create(repo, order: Order, shop) -> str:
     await repo.update_order(order.id, {"crm_state": STATE_CREATING})
     body = await _send(shop, "/handler/", create_payload(order, shop))
     crm_id = _crm_id_from(body)
+    manager_id = _created_manager_id(body)
     initial_status_id = mapping(shop.salesdrive_status_map).get(order.status.value)
     await _mark(repo, order, STATE_SYNCED, crm_id=crm_id, crm_status_id=initial_status_id)
     log.info("Замовлення %s створено в SalesDrive як %s", order.id, crm_id or "—",
              extra={"event": "salesdrive.order.created", "orderId": order.id,
-                    "crmId": crm_id})
+                    "crmId": crm_id, "crmManagerId": manager_id or None})
     return STATE_SYNCED
 
 
@@ -649,9 +886,14 @@ async def handle_webhook(repo, payload: dict, *, bot=None) -> dict:
     status_names = ({incoming_status_id: incoming_status_name}
                     if incoming_status_id and incoming_status_name else {})
 
-    webhook_snapshot = _snapshot(data, status_names)
+    cached_bundle = cached_dictionary_bundle(shop)
+    webhook_snapshot = _snapshot(
+        data, status_names, payments=cached_bundle.get("payments", []),
+        deliveries=cached_bundle.get("deliveries", []), body=payload, source="webhook",
+    )
     if incoming_status_name and not webhook_snapshot.get("statusName"):
         webhook_snapshot["statusName"] = incoming_status_name
+    webhook_snapshot = _merge_webhook_snapshot(order.crm_snapshot, webhook_snapshot, data)
     await repo.update_order(order.id, {
         "crm_snapshot": webhook_snapshot, "crm_fetched_at": datetime.now(timezone.utc),
     })
@@ -699,34 +941,218 @@ def _order_list_rows(body) -> list[dict]:
     return []
 
 
-def _snapshot(data: dict, statuses: dict[str, str] | None = None) -> dict:
-    """Безпечний read-model заявки CRM. Не використовується для зміни каталогу/цін."""
+def _snapshot(data: dict, statuses: dict[str, str] | None = None, *,
+              payments: list[dict] | None = None, deliveries: list[dict] | None = None,
+              body=None, source: str = "api") -> dict:
+    """Повний безпечний read-model заявки CRM.
+
+    Snapshot читає тільки документовані поля SalesDrive. Каталог ELFAR,
+    локальні ціни й адреса замовлення з нього не перезаписуються. Сирі ID
+    опцій зберігаємо поруч із людиночитаними назвами, щоб панель не показувала
+    ``56``/``57`` замість способу оплати або доставки.
+    """
     contacts = data.get("contacts") if isinstance(data.get("contacts"), list) else []
     contact = contacts[0] if contacts and isinstance(contacts[0], dict) else {}
+    counterparty = contact.get("counterparty") if isinstance(contact.get("counterparty"), dict) else {}
     products = data.get("products") if isinstance(data.get("products"), list) else []
     np = data.get("ord_novaposhta") if isinstance(data.get("ord_novaposhta"), dict) else {}
+    up = data.get("ord_ukrposhta") if isinstance(data.get("ord_ukrposhta"), dict) else {}
+    delivery_data = data.get("ord_delivery_data") if isinstance(data.get("ord_delivery_data"), dict) else {}
+
     sid = str(data.get("statusId") or "").strip()
     status_name = str(data.get("statusName") or data.get("status_name") or "").strip()
     if not status_name and statuses:
         status_name = statuses.get(sid, "")
-    manager = data.get("userName") or data.get("managerName") or data.get("user") or ""
-    if isinstance(manager, dict):
-        manager = manager.get("name") or manager.get("title") or ""
+    if not status_name and sid:
+        status_name = _meta_field_options(body, ("statusId", "status", "status_id")).get(sid, "")
+
+    payment_raw = data.get("payment_method")
+    shipping_raw = data.get("shipping_method")
+    payment_id, payment_name = _resolve_option(payment_raw, payments or [])
+    shipping_id, shipping_name = _resolve_option(shipping_raw, deliveries or [])
+
+    # Якщо order-list віддав ID, а довідник недоступний, спробуємо
+    # документований meta[fields] із тієї ж відповіді — без другого HTTP.
+    if payment_name == str(payment_raw or "").strip() and str(payment_raw or "").strip().isdigit():
+        meta = _meta_field_options(body, ("payment_method", "paymentMethod"))
+        payment_name = meta.get(str(payment_raw).strip(), payment_name)
+    if shipping_name == str(shipping_raw or "").strip() and str(shipping_raw or "").strip().isdigit():
+        meta = _meta_field_options(body, ("shipping_method", "shippingMethod"))
+        shipping_name = meta.get(str(shipping_raw).strip(), shipping_name)
+
+    manager = _manager_name(data, body)
+
+    product_rows = []
+    for x in products:
+        if not isinstance(x, dict):
+            continue
+        product_rows.append({
+            "id": x.get("id"), "productId": x.get("productId"), "parameter": x.get("parameter"),
+            "name": x.get("name") or "", "sku": x.get("sku") or "", "barcode": x.get("barcode") or "",
+            "amount": x.get("amount"), "price": x.get("price"), "costPrice": x.get("costPrice"),
+            "discount": x.get("discount"), "percentDiscount": x.get("percentDiscount"),
+            "commission": x.get("commission"), "percentCommission": x.get("percentCommission"),
+            "description": x.get("description") or "", "note": x.get("note") or "",
+            "stockId": x.get("stockId"), "mass": x.get("mass"), "volume": x.get("volume"),
+            "restCount": x.get("restCount"), "manufacturer": x.get("manufacturer") or "",
+            # З 27.08.2026 SalesDrive використовує upsell; preSale лишаємо
+            # лише як fallback для старих webhook payload.
+            "upsell": x.get("upsell", x.get("preSale")), "isComplect": x.get("isComplect"),
+            "categoryId": x.get("categoryId"), "categoryName": x.get("categoryName") or "",
+            "href": x.get("href") or "", "defaultPriceData": x.get("defaultPriceData"),
+            "priceTypes": x.get("priceTypes"), "complect": x.get("complect"),
+        })
+
     return {
+        "source": source,
         "id": str(data.get("id") or ""), "externalId": str(data.get("externalId") or ""),
-        "formId": data.get("formId"), "statusId": sid, "statusName": status_name,
-        "paymentMethod": data.get("payment_method") or "", "shippingMethod": data.get("shipping_method") or "",
-        "paymentAmount": data.get("paymentAmount"), "payedAmount": data.get("payedAmount"), "restPay": data.get("restPay"),
-        "managerId": data.get("userId"), "managerName": str(manager or ""),
+        "version": data.get("version"), "formId": data.get("formId"), "typeId": data.get("typeId"),
+        "statusId": sid, "statusName": status_name, "rejectionReason": data.get("rejectionReason") or "",
+        "paymentMethodId": payment_id, "paymentMethod": payment_name,
+        "paymentMethodRaw": str(payment_raw or ""),
+        "shippingMethodId": shipping_id, "shippingMethod": shipping_name,
+        "shippingMethodRaw": str(shipping_raw or ""),
+        "paymentAmount": data.get("paymentAmount"), "commissionAmount": data.get("commissionAmount"),
+        "costPriceAmount": data.get("costPriceAmount"), "expensesAmount": data.get("expensesAmount"),
+        "profitAmount": data.get("profitAmount"), "payedAmount": data.get("payedAmount"),
+        "restPay": data.get("restPay"), "paymentDate": data.get("paymentDate"),
+        "managerId": data.get("userId"), "managerName": manager,
         "comment": data.get("comment") or "", "orderTime": data.get("orderTime"),
-        "contact": {"fName": contact.get("fName") or "", "lName": contact.get("lName") or "", "mName": contact.get("mName") or "", "phone": contact.get("phone") or "", "email": contact.get("email") or ""},
-        "products": [{"id": x.get("productId") or x.get("id"), "name": x.get("name") or "", "sku": x.get("sku") or "", "amount": x.get("amount"), "price": x.get("price"), "discount": x.get("discount")} for x in products if isinstance(x, dict)],
-        "novaposhta": {"ttn": np.get("EN") or "", "status": np.get("status") or "", "statusCode": np.get("statusCode"), "cost": np.get("cost"), "deliveryDateAndTime": np.get("deliveryDateAndTime"), "recipientDateTime": np.get("recipientDateTime")},
+        "timeEntryOrder": data.get("timeEntryOrder"), "holderTime": data.get("holderTime"),
+        "delivery": data.get("ord_delivery"),
+        # У order-list з 2025 SalesDrive окремо повертає додаткові параметри
+        # доставки. Зберігаємо тільки документовані поля; решта лишається у CRM.
+        "deliveryData": {
+            "paymentMethod": delivery_data.get("paymentMethod") or "",
+            "postpayPayer": delivery_data.get("postpayPayer") or "",
+            "cargoType": delivery_data.get("cargoType") or "",
+        },
+        "utm": {
+            "page": data.get("utmPage") or "", "medium": data.get("utmMedium") or "",
+            "campaignId": data.get("campaignId"), "sourceFull": data.get("utmSourceFull") or "",
+            "source": data.get("utmSource") or "", "campaign": data.get("utmCampaign") or "",
+        },
+        "contact": {
+            "id": contact.get("id"), "formId": contact.get("formId"), "version": contact.get("version"),
+            "createTime": contact.get("createTime"), "fName": contact.get("fName") or "",
+            "lName": contact.get("lName") or "", "mName": contact.get("mName") or "",
+            "phone": contact.get("phone") or "", "email": contact.get("email") or "",
+            "company": contact.get("company") or "", "comment": contact.get("comment") or "",
+            "userId": contact.get("userId"), "leadsCount": contact.get("leadsCount"),
+            "leadsSalesCount": contact.get("leadsSalesCount"), "leadsSalesAmount": contact.get("leadsSalesAmount"),
+            "counterparty": {"id": counterparty.get("id"), "name": counterparty.get("name") or "",
+                             "code": counterparty.get("code") or ""},
+        },
+        "products": product_rows,
+        "novaposhta": {
+            "delivery": np.get("delivery") or "", "settlementRef": np.get("settlementRef") or "",
+            "city": np.get("city") or "", "branch": np.get("branch") or "", "branchNumber": np.get("branchNumber") or "",
+            "street": np.get("street") or "", "house": np.get("house") or "", "flat": np.get("flat") or "",
+            "note": np.get("note") or "", "cargoType": np.get("cargoType") or "", "payer": np.get("payer") or "",
+            "paymentMethod": np.get("paymentMethod") or "", "ttn": np.get("EN") or "", "ref": np.get("ENref") or "",
+            "backDelivery": np.get("backDelivery") or "", "postpayPayer": np.get("postpayPayer") or "",
+            "postpaySum": np.get("postpaySum"), "status": np.get("status") or "", "statusCode": np.get("statusCode"),
+            "dateStatusUpdate": np.get("dateStatusUpdate"), "deliveryDateAndTime": np.get("deliveryDateAndTime"),
+            "recipientDateTime": np.get("recipientDateTime"), "manual": np.get("manual"), "idEntity": np.get("idEntity"),
+            "cost": np.get("cost"), "legal": np.get("legal"), "companyName": np.get("companyName") or "",
+            "egrpou": np.get("egrpou") or "", "ownershipFormId": np.get("ownershipFormId"), "packing": np.get("packing") or "",
+        },
+        "ukrposhta": {
+            "delivery": up.get("delivery") or "", "region": up.get("region"), "district": up.get("district"),
+            "city": up.get("city"), "branch": up.get("branch"), "street": up.get("street"), "house": up.get("house") or "",
+            "flat": up.get("flat") or "", "payer": up.get("payer") or "", "typeUkrPoshta": up.get("typeUkrPoshta") or "",
+            "ttn": up.get("barcode") or "", "ref": up.get("barcodeUuid") or "", "postpaySum": up.get("postpaySum"),
+            "status": up.get("status") or "", "statusCode": up.get("statusCode"), "dateStatusUpdate": up.get("dateStatusUpdate"),
+            "deliveryDateAndTime": up.get("deliveryDateAndTime"), "manual": up.get("manual"), "cost": up.get("cost"),
+            "sum": up.get("sum"), "mass": up.get("mass"), "length": up.get("length"), "description": up.get("description") or "",
+            "cityName": up.get("cityName") or "", "branchName": up.get("branchName") or "", "streetName": up.get("streetName") or "",
+        },
     }
 
 
-async def pull_order(repo, order_id: int, shop=None) -> Order:
-    """Читає фактичний стан вже пов'язаної заявки SalesDrive. No-backfill: без crm_id — відмова."""
+def _merge_webhook_snapshot(previous: dict | None, incoming: dict, raw: dict) -> dict:
+    """Накладає webhook на останній повний read-side snapshot.
+
+    Webhook SalesDrive може бути коротшим за ``/api/order/list/``. Повністю
+    замінювати snapshot означало втрачати назву менеджера, розширені дані
+    товарів та вже розв'язані опції після звичайної зміни статусу. Водночас
+    не можна сліпо зберігати старе значення, якщо CRM явно надіслала порожнє.
+    Тому оновлюємо лише ті групи, чиї сирі поля реально були у webhook.
+    """
+    if not isinstance(previous, dict):
+        return incoming
+    merged = dict(previous)
+    merged["source"] = "webhook"
+
+    scalar_sources = {
+        "id": "id", "externalId": "externalId", "version": "version", "formId": "formId",
+        "typeId": "typeId", "rejectionReason": "rejectionReason",
+        "paymentAmount": "paymentAmount", "commissionAmount": "commissionAmount",
+        "costPriceAmount": "costPriceAmount", "expensesAmount": "expensesAmount",
+        "profitAmount": "profitAmount", "payedAmount": "payedAmount", "restPay": "restPay",
+        "paymentDate": "paymentDate", "comment": "comment", "orderTime": "orderTime",
+        "timeEntryOrder": "timeEntryOrder", "holderTime": "holderTime", "delivery": "ord_delivery",
+    }
+    for target, source_key in scalar_sources.items():
+        if source_key in raw:
+            merged[target] = incoming.get(target)
+
+    if "statusId" in raw or "statusName" in raw or "status_name" in raw:
+        merged["statusId"] = incoming.get("statusId", "")
+        # Якщо прийшов новий ID без розв'язаної назви, стару назву прибираємо.
+        merged["statusName"] = incoming.get("statusName", "")
+    if "payment_method" in raw:
+        for key in ("paymentMethodId", "paymentMethod", "paymentMethodRaw"):
+            merged[key] = incoming.get(key, "")
+    if "shipping_method" in raw:
+        for key in ("shippingMethodId", "shippingMethod", "shippingMethodRaw"):
+            merged[key] = incoming.get(key, "")
+    if any(k in raw for k in ("userId", "userName", "managerName", "responsibleName", "user", "manager", "responsible")):
+        merged["managerId"] = incoming.get("managerId")
+        merged["managerName"] = incoming.get("managerName", "")
+    if "contacts" in raw:
+        merged["contact"] = incoming.get("contact", {})
+    if "products" in raw:
+        merged["products"] = incoming.get("products", [])
+    if "ord_novaposhta" in raw:
+        merged["novaposhta"] = incoming.get("novaposhta", {})
+    if "ord_ukrposhta" in raw:
+        merged["ukrposhta"] = incoming.get("ukrposhta", {})
+    if "ord_delivery_data" in raw:
+        merged["deliveryData"] = incoming.get("deliveryData", {})
+
+    utm_sources = {
+        "page": "utmPage", "medium": "utmMedium", "campaignId": "campaignId",
+        "sourceFull": "utmSourceFull", "source": "utmSource", "campaign": "utmCampaign",
+    }
+    if any(source_key in raw for source_key in utm_sources.values()):
+        current_utm = dict(merged.get("utm") or {})
+        incoming_utm = incoming.get("utm") or {}
+        for target, source_key in utm_sources.items():
+            if source_key in raw:
+                current_utm[target] = incoming_utm.get(target)
+        merged["utm"] = current_utm
+    return merged
+
+
+def _snapshot_age_seconds(order: Order) -> float | None:
+    value = getattr(order, "crm_fetched_at", None)
+    if not value:
+        return None
+    now = datetime.now(timezone.utc)
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return max(0.0, (now - value).total_seconds())
+
+
+async def pull_order(repo, order_id: int, shop=None, *, force: bool = False) -> Order:
+    """Читає фактичний стан вже пов'язаної заявки SalesDrive.
+
+    ``force=False`` захищає ліміт ``/api/order/list/`` від фонового polling:
+    якщо snapshot щойно читав інший менеджер/вкладка, повертаємо його. Ручна
+    кнопка «Оновити з CRM» передає ``force=True``. No-backfill: без crm_id —
+    відмова.
+    """
     from shop.services.shop_settings import get_shop_settings
     shop = shop or await get_shop_settings(repo)
     order = await repo.get_order(order_id)
@@ -736,11 +1162,14 @@ async def pull_order(repo, order_id: int, shop=None) -> Order:
         raise SalesDriveError("Legacy-замовлення не читається із SalesDrive", temporary=False)
     if not shop.salesdrive_api_connected:
         raise SalesDriveError("Не задано API-ключ SalesDrive", temporary=False)
+    age = _snapshot_age_seconds(order)
+    if not force and order.crm_snapshot and age is not None and age < ORDER_PULL_MIN_AGE_SECONDS:
+        return order
+
     # У SalesDrive фільтр за ID задається діапазоном id[from]/id[to].
-    # Старий filter[id] API ігнорував, тому ми могли взяти першу сторінку
-    # заявок і вирішити, що потрібної заявки в CRM немає.
+    # Ліміт 1 достатній: ми все одно перевіряємо точний ID після відповіді.
     params = {
-        "page": 1, "limit": 100, "filter[statusId]": "__ALL__",
+        "page": 1, "limit": 1, "filter[statusId]": "__ALL__",
         "filter[id][from]": str(order.crm_id), "filter[id][to]": str(order.crm_id),
     }
     body = await _get_json(shop, "/api/order/list/", params=params)
@@ -755,25 +1184,48 @@ async def pull_order(repo, order_id: int, shop=None) -> Order:
         row_form = 0
     if expected_form > 0 and row_form > 0 and row_form != expected_form:
         raise SalesDriveError("Заявка належить іншій базі SalesDrive", temporary=False)
-    # order-list повертає statusId, а людина має бачити актуальну назву
-    # саме з довідника CRM. Якщо довідник тимчасово недоступний, ID все одно
-    # зберігаємо — стару назву не вигадуємо.
-    status_names = {}
-    try:
-        status_names = {x["id"]: x["name"] for x in await status_options(shop)}
-    except SalesDriveError:
-        pass
-    snap = _snapshot(row, status_names)
+
+    # Спочатку використовуємо вже прогріті довідники + meta[fields] із самої
+    # відповіді order-list. Це часто дозволяє обійтися одним HTTP-запитом.
+    # Повні довідники довантажуємо лише якщо числове значення/статус лишилися
+    # нерозв'язаними. Так відкриття картки не породжує 4 запити до CRM.
+    bundle = cached_dictionary_bundle(shop)
+    status_names = _option_map(bundle.get("statuses", []))
+    snap = _snapshot(row, status_names, payments=bundle.get("payments", []),
+                     deliveries=bundle.get("deliveries", []), body=body, source="api")
+
+    unresolved_payment = (str(snap.get("paymentMethodRaw") or "").isdigit() and
+                          snap.get("paymentMethod") == snap.get("paymentMethodRaw"))
+    unresolved_delivery = (str(snap.get("shippingMethodRaw") or "").isdigit() and
+                           snap.get("shippingMethod") == snap.get("shippingMethodRaw"))
+    unresolved_status = bool(snap.get("statusId") and not snap.get("statusName"))
+    if unresolved_payment or unresolved_delivery or unresolved_status:
+        try:
+            bundle = await dictionary_bundle(shop)
+            status_names = _option_map(bundle.get("statuses", []))
+            snap = _snapshot(row, status_names, payments=bundle.get("payments", []),
+                             deliveries=bundle.get("deliveries", []), body=body, source="api")
+        except SalesDriveError:
+            # Read-side заявки цінніший за підпис опції: при тимчасовій
+            # недоступності довідників не втрачаємо сам snapshot.
+            pass
     now = datetime.now(timezone.utc)
     patch = {"crm_snapshot": snap, "crm_fetched_at": now, "crm_synced_at": now, "crm_error": None}
     if snap.get("statusId"):
         patch["crm_status_id"] = snap["statusId"]
-    if snap.get("statusName"):
-        patch["crm_status_name"] = snap["statusName"]
-    ttn = str((snap.get("novaposhta") or {}).get("ttn") or "").strip()
+        # Якщо назву не вдалося розв'язати, очищаємо старий підпис, а не
+        # показуємо його поруч із новим ID.
+        patch["crm_status_name"] = snap.get("statusName") or None
+    ttn = str((snap.get("novaposhta") or {}).get("ttn") or (snap.get("ukrposhta") or {}).get("ttn") or "").strip()
     if ttn and ttn != (order.tracking_number or ""):
         patch["tracking_number"] = ttn
         patch["waybill_source"] = "salesdrive"
+    np_cost = (snap.get("novaposhta") or {}).get("cost")
+    if np_cost not in (None, ""):
+        try:
+            patch["waybill_cost"] = Decimal(str(np_cost))
+        except (ArithmeticError, ValueError):
+            pass
     await repo.update_order(order.id, patch)
     return await repo.get_order(order.id) or order
 
