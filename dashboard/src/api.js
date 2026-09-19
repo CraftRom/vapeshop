@@ -173,6 +173,7 @@ export const api = {
     patch: (id, data) => request(`/orders/${id}`, { method: 'PATCH', body: data }),
     messages: (id, markRead = false) =>
       request(`/orders/${id}/messages`, { params: { mark_read: markRead || undefined } }),
+    markMessagesRead: (id) => request(`/orders/${id}/messages/read`, { method: 'POST' }),
     sendMessage: (id, text) =>
       request(`/orders/${id}/messages`, { method: 'POST', body: { text } }),
     unread: () => request('/orders/unread/counts'),

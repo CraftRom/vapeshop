@@ -350,6 +350,21 @@ async def order_messages(
     return await repo.list_order_messages(order_id)
 
 
+@router.post("/{order_id}/messages/read")
+async def mark_order_messages_read(order_id: int, repo: Repository = Depends(get_repo)):
+    """Позначити вхідні повідомлення замовлення прочитаними без повторної
+    передачі всієї історії чату.
+
+    Картка замовлення спочатку читає історію з ``mark_read=false``, щоб
+    зафіксувати точні ID нових реплік для UI, і лише потім викликає цей
+    endpoint. Старий query-параметр лишається для сумісності клієнтів.
+    """
+    if not await repo.get_order(order_id):
+        raise HTTPException(404, "Замовлення не знайдено")
+    marked = await repo.mark_messages_read(order_id)
+    return {"marked": marked}
+
+
 @router.post("/{order_id}/messages", response_model=OrderMessageResult, status_code=201)
 async def send_message(
     order_id: int,

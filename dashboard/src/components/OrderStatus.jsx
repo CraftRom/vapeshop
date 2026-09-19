@@ -1,6 +1,19 @@
 import { STATUS_LABELS } from './StatusRail'
 
 /**
+ * Бізнес-ознака «нового» замовлення без прив'язки до ID статусу SalesDrive.
+ *
+ * ID статусів у CRM налаштовувані, тому конкретний числовий statusId тут не фіксуємо.
+ * Для CRM спершу будуємо той самий display-model, що показує інтерфейс, і
+ * вже його назву використовуємо для маркування. Legacy має стабільний
+ * технічний код `new`.
+ */
+export function isNewStatusName(value) {
+  const name = String(value || '').trim().toLocaleLowerCase('uk-UA')
+  return ['новий', 'нове', 'new'].includes(name)
+}
+
+/**
  * Один display-model статусу для всієї панелі.
  *
  * CRM-linked замовлення ніколи не підписуємо через local order.status:
@@ -32,11 +45,18 @@ export function orderDisplayStatus(order, crmStatuses = []) {
   }
 }
 
+export function isNewOrderStatus(order, crmStatuses = []) {
+  if (!order) return false
+  const status = orderDisplayStatus(order, crmStatuses)
+  return status.isCrm ? isNewStatusName(status.name) : status.id === 'new'
+}
+
 export function StatusBadge({ source = 'crm', name, id = '', compact = false, title = '' }) {
   const label = String(name || (id ? `Статус #${id}` : '—'))
+  const isNew = isNewStatusName(label)
   return (
     <span
-      className={`order-status-badge ${source === 'crm' ? 'crm' : 'legacy'}${compact ? ' compact' : ''}`}
+      className={`order-status-badge ${source === 'crm' ? 'crm' : 'legacy'}${compact ? ' compact' : ''}${isNew ? ' is-new' : ''}`}
       title={title || (source === 'crm' ? `SalesDrive${id ? ` · ID ${id}` : ''}` : 'Локальний legacy-статус')}
     >
       <span className="order-status-source">{source === 'crm' ? 'CRM' : 'Legacy'}</span>

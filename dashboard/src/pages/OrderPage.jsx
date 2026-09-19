@@ -4,7 +4,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api, getToken } from '../api'
 import { ErrorBar, Field, Info, Loading, Modal, money, useToast } from '../components/ui'
 import { STATUS_LABELS, allowedFrom } from '../components/StatusRail'
-import { OrderStatusBadge, SalesDriveStatusSelect } from '../components/OrderStatus'
+import { OrderStatusBadge, SalesDriveStatusSelect, isNewOrderStatus } from '../components/OrderStatus'
 import { useVisiblePolling } from '../components/useVisiblePolling'
 
 // Спосіб доставки, обраний покупцем. Порожнє значення — замовлення з
@@ -137,11 +137,16 @@ function TrackingModal({ initial, onCancel, onConfirm }) {
   )
 }
 
-function Chat({ orderId, messages, onSent }) {
+function Chat({ orderId, messages, newMessageIds, onSent }) {
   const notify = useToast()
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
   const bottom = useRef(null)
+  const newIds = newMessageIds || new Set()
+  const firstNewIndex = messages.findIndex((message) => newIds.has(message.id))
+  const newCount = messages.reduce((count, message) => (
+    count + (message.direction === 'in' && newIds.has(message.id) ? 1 : 0)
+  ), 0)
 
   useEffect(() => {
     bottom.current?.scrollIntoView({ block: 'end' })
@@ -173,8 +178,19 @@ function Chat({ orderId, messages, onSent }) {
   }
 
   return (
-    <div className="card">
-      <h2 style={{ marginTop: 0 }}>Листування</h2>
+    <div className={`card order-chat-card${newCount > 0 ? ' has-new-messages' : ''}`} id="chat">
+      <div className="order-chat-head">
+        <div>
+          <h2>Листування</h2>
+          <div className="faint">Повідомлення клієнта з Telegram і відповіді менеджера</div>
+        </div>
+        {newCount > 0 && (
+          <span className="chat-new-counter">
+            <span className="chat-new-counter-dot" aria-hidden="true" />
+            {newCount} {newCount === 1 ? 'нове' : 'нових'}
+          </span>
+        )}
+      </div>
 
       <div className="chat-log">
         {messages.length === 0 ? (
@@ -183,26 +199,44 @@ function Chat({ orderId, messages, onSent }) {
             відповісти прямо звідти.
           </p>
         ) : (
-          messages.map((m) => (
-            <div key={m.id} className={`bubble ${m.direction === 'out' ? 'mine' : ''}`}>
-              <div className="bubble-head faint">
-                {m.direction === 'out' ? m.author || 'Менеджер' : m.author || 'Клієнт'}
-                {' · '}
-                {timestamp(m.created_at)}
-              </div>
-              {m.text && <div className="bubble-text">{m.text}</div>}
-              {m.file_kind && <Attachment orderId={orderId} message={m} />}
-              {/* Квитанція про прочитання — лише на своїх повідомленнях.
-                  Без неї мовчання клієнта нічого не означає: незрозуміло,
-                  чи він читає й не відповідає, чи просто не відкривав
-                  застосунок, і чи варто дзвонити. */}
-              {m.direction === 'out' && (
-                <div className={`receipt ${m.is_read ? 'seen' : ''}`}>
-                  {m.is_read ? '✓✓ Прочитано' : '✓ Надіслано'}
+          messages.map((m, index) => {
+            const isNewMessage = m.direction === 'in' && newIds.has(m.id)
+            return (
+              <div key={m.id} className="chat-message-group">
+                {index === firstNewIndex && (
+                  <div className="new-messages-divider" role="separator" aria-label="Нові повідомлення">
+                    <span>Нові повідомлення</span>
+                  </div>
+                )}
+                <div className={`bubble ${m.direction === 'out' ? 'mine' : ''}${isNewMessage ? ' is-new' : ''}`}>
+                  <div className="bubble-head faint">
+                    <span>
+                      {m.direction === 'out' ? m.author || 'Менеджер' : m.author || 'Клієнт'}
+                      {' · '}
+                      {timestamp(m.created_at)}
+                    </span>
+                    {isNewMessage && (
+                      <span className="bubble-new-badge">
+                        <span aria-hidden="true" />
+                        Нове
+                      </span>
+                    )}
+                  </div>
+                  {m.text && <div className="bubble-text">{m.text}</div>}
+                  {m.file_kind && <Attachment orderId={orderId} message={m} />}
+                  {/* Квитанція про прочитання — лише на своїх повідомленнях.
+                      Без неї мовчання клієнта нічого не означає: незрозуміло,
+                      чи він читає й не відповідає, чи просто не відкривав
+                      застосунок, і чи варто дзвонити. */}
+                  {m.direction === 'out' && (
+                    <div className={`receipt ${m.is_read ? 'seen' : ''}`}>
+                      {m.is_read ? '✓✓ Прочитано' : '✓ Надіслано'}
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
-          ))
+              </div>
+            )
+          })
         )}
         <div ref={bottom} />
       </div>
@@ -376,6 +410,11 @@ export default function OrderPage() {
 
   const [order, setOrder] = useState(null)
   const [messages, setMessages] = useState([])
+  // Повідомлення, які були непрочитаними в момент, коли менеджер побачив
+  // цю картку. На сервері вони одразу стають прочитаними, але локальна
+  // мітка живе до виходу зі сторінки — інакше «Нове» зникало б ще до того,
+  // як око встигне знайти репліку в довгій історії.
+  const [newMessageIds, setNewMessageIds] = useState(() => new Set())
   const [error, setError] = useState('')
   const [tracking, setTracking] = useState('')
   const [note, setNote] = useState('')
@@ -384,17 +423,41 @@ export default function OrderPage() {
   const [crmStatuses, setCrmStatuses] = useState([])
   const [crmRefreshing, setCrmRefreshing] = useState(false)
   const [crmAutoRefreshed, setCrmAutoRefreshed] = useState(false)
+  const loadedOrderRef = useRef(null)
 
   const load = useCallback(async () => {
     try {
       const [fresh, log] = await Promise.all([
         api.orders.get(id),
-        api.orders.messages(id, true),
+        api.orders.messages(id),
       ])
       setOrder(fresh)
       setMessages(log)
+      const unseen = log
+        .filter((message) => message.direction === 'in' && !message.is_read)
+        .map((message) => message.id)
+      // Перший вхід у конкретне замовлення задає стартову межу «нових».
+      // Подальші load() після зміни статусу/нотатки не повинні її стирати:
+      // сервер уже позначив репліки прочитаними, але менеджеру все ще треба
+      // бачити, що саме було новим у цій сесії перегляду.
+      if (loadedOrderRef.current !== String(id)) {
+        loadedOrderRef.current = String(id)
+        setNewMessageIds(new Set(unseen))
+      } else if (unseen.length > 0) {
+        setNewMessageIds((current) => {
+          const next = new Set(current)
+          unseen.forEach((messageId) => next.add(messageId))
+          return next
+        })
+      }
       setTracking(fresh.tracking_number || '')
       setNote(fresh.admin_note || '')
+      if (unseen.length > 0) {
+        // Спершу зберегли список непрочитаних для UX, тільки потім гасимо
+        // глобальний лічильник. Відповідь цього запиту навмисно не кладе́мо
+        // у state, щоб мітки не мигнули й не зникли.
+        api.orders.markMessagesRead(id).catch(() => {})
+      }
     } catch (err) {
       setError(err.message)
     }
@@ -403,6 +466,17 @@ export default function OrderPage() {
   useEffect(() => {
     load()
   }, [load])
+
+  // Клік по синій мітці «Нове повідомлення» у списку веде одразу до
+  // листування. Hash браузер може обробити раніше, ніж React намалює чат,
+  // тому після завантаження картки повторюємо scrollIntoView явно.
+  useEffect(() => {
+    if (!order || window.location.hash !== '#chat') return
+    const frame = requestAnimationFrame(() => {
+      document.getElementById('chat')?.scrollIntoView({ block: 'start', behavior: 'smooth' })
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [order?.id])
 
   const loadCrmStatuses = useCallback(async () => {
     try {
@@ -459,6 +533,17 @@ export default function OrderPage() {
   const pollMessages = useCallback(async () => {
     const fresh = await api.orders.messages(id)
     setMessages(fresh)
+    const unseen = fresh
+      .filter((message) => message.direction === 'in' && !message.is_read)
+      .map((message) => message.id)
+    if (unseen.length > 0) {
+      setNewMessageIds((current) => {
+        const next = new Set(current)
+        unseen.forEach((messageId) => next.add(messageId))
+        return next
+      })
+      api.orders.markMessagesRead(id).catch(() => {})
+    }
   }, [id])
   useVisiblePolling(pollMessages, 15000)
 
@@ -522,6 +607,7 @@ export default function OrderPage() {
       : paymentIsConfirmed
         ? 'Кошти вже позначені як отримані. Замовлення можна готувати до відправлення за звичайним маршрутом.'
         : 'Перед відправленням перевірте фактичне надходження коштів і переведіть замовлення в статус «Оплачено».'
+  const isNewOrder = isNewOrderStatus(order, crmStatuses)
 
   return (
     <>
@@ -533,6 +619,12 @@ export default function OrderPage() {
           <h1 style={{ marginTop: 8 }}>Замовлення №{order.id}</h1>
           <div className="order-head-meta">
             <span>{timestamp(order.created_at)}</span>
+            {isNewOrder && (
+              <span className="order-new-order-chip">
+                <span aria-hidden="true" />
+                Нове замовлення
+              </span>
+            )}
             <span className={`order-head-payment ${paymentMethod}`}>
               {paymentMethod === 'cod' ? '📦' : '💳'} {paymentTitle}
             </span>
@@ -802,7 +894,7 @@ export default function OrderPage() {
             )}
           </div>
 
-          <Chat orderId={id} messages={messages} onSent={load} />
+          <Chat orderId={id} messages={messages} newMessageIds={newMessageIds} onSent={load} />
         </div>
       </div>
 

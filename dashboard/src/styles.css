@@ -475,6 +475,12 @@ textarea.input { resize: vertical; min-height: 88px; }
   background: var(--panel-2, rgba(255, 255, 255, 0.04));
 }
 
+.chat-message-group {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+
 /* Репліки оператора притиснуті праворуч — щоб стрічку читали як діалог,
    а не як журнал подій */
 .bubble.mine {
@@ -482,7 +488,95 @@ textarea.input { resize: vertical; min-height: 88px; }
   background: rgba(124, 106, 247, 0.16);
 }
 
-.bubble-head { margin-bottom: 3px; font-size: 11.5px; }
+.bubble-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 3px;
+  font-size: 11.5px;
+}
+
+.bubble.is-new {
+  border: 1px solid rgba(101,168,255,.30);
+  background: rgba(101,168,255,.075);
+  box-shadow: inset 3px 0 0 rgba(101,168,255,.82);
+}
+
+.bubble-new-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 20px;
+  padding: 2px 6px;
+  border: 1px solid rgba(101,168,255,.28);
+  border-radius: 999px;
+  background: rgba(101,168,255,.12);
+  color: #b9d9ff;
+  font-size: 9.5px;
+  font-weight: 800;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.bubble-new-badge > span,
+.chat-new-counter-dot {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 6px;
+  border-radius: 50%;
+  background: #65a8ff;
+}
+
+.new-messages-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  margin: 4px 0 8px;
+  color: #9dc9ff;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .055em;
+  text-transform: uppercase;
+}
+
+.new-messages-divider::before,
+.new-messages-divider::after {
+  content: '';
+  height: 1px;
+  flex: 1 1 auto;
+  background: rgba(101,168,255,.25);
+}
+
+.order-chat-card.has-new-messages {
+  border-color: rgba(101,168,255,.30);
+}
+
+.order-chat-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.order-chat-head h2 { margin: 0 0 2px; }
+
+.chat-new-counter {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 4px 9px;
+  border: 1px solid rgba(101,168,255,.30);
+  border-radius: 999px;
+  background: rgba(101,168,255,.09);
+  color: #b9d9ff;
+  font-size: 10.5px;
+  font-weight: 800;
+  white-space: nowrap;
+}
 
 .bubble-text { white-space: pre-wrap; word-break: break-word; font-size: 14px; }
 
@@ -805,6 +899,26 @@ a.info-strong:hover { color: var(--violet); }
   background: linear-gradient(90deg, rgba(101, 168, 255, .075), rgba(255,255,255,.018) 42%);
 }
 
+/* «Новий» — це окремий операційний стан, а не просто ще одна назва CRM.
+   Жовтий акцент означає «замовлення ще не взяли далі в роботу», синій —
+   «є непрочитане повідомлення». Коли обидві умови одночасно, лишаємо
+   обидва маркери, щоб одна важлива подія не приховувала іншу. */
+.order-row.is-new-order {
+  background: rgba(242, 179, 71, .035);
+  box-shadow: inset 3px 0 0 rgba(242, 179, 71, .72);
+}
+
+.order-row.is-new-order:hover {
+  background: rgba(242, 179, 71, .055);
+}
+
+.order-row.is-new-order.has-unread-messages {
+  background: rgba(101, 168, 255, .045);
+  box-shadow:
+    inset 6px 0 0 rgba(242, 179, 71, .68),
+    inset 3px 0 0 rgba(101, 168, 255, .9);
+}
+
 .order-unread {
   display: inline-flex;
   align-items: center;
@@ -849,30 +963,79 @@ a.info-strong:hover { color: var(--violet); }
   font-size: 9px;
 }
 
-.orders-unread-summary {
+.orders-attention-summary {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  min-height: 52px;
+  border-bottom: 1px solid var(--line-soft);
+  background: rgba(255,255,255,.012);
+}
+
+.orders-attention-item {
   display: flex;
   align-items: center;
-  gap: 10px;
-  min-height: 48px;
-  padding: 8px 16px;
-  border-bottom: 1px solid rgba(101,168,255,.18);
-  background: rgba(101,168,255,.045);
+  gap: 9px;
+  min-width: 0;
+  padding: 9px 16px;
 }
 
-.orders-unread-summary-icon {
+.orders-attention-item + .orders-attention-item {
+  border-left: 1px solid var(--line-soft);
+}
+
+.orders-attention-item > span:last-child {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.orders-attention-item strong { color: var(--text); font-size: 12px; }
+.orders-attention-item small { color: var(--muted); font-size: 10.5px; }
+
+.orders-attention-dot {
+  width: 9px;
+  height: 9px;
+  flex: 0 0 9px;
+  border-radius: 50%;
+  background: var(--amber);
+  box-shadow: 0 0 0 4px rgba(242,179,71,.11);
+}
+
+.orders-attention-message {
   display: grid;
   place-items: center;
-  width: 30px;
-  height: 30px;
+  width: 29px;
+  height: 29px;
+  flex: 0 0 29px;
   border: 1px solid rgba(101,168,255,.24);
-  border-radius: 9px;
+  border-radius: 8px;
   background: rgba(101,168,255,.08);
-  font-size: 14px;
+  font-size: 13px;
 }
 
-.orders-unread-summary > span:last-child { display: grid; gap: 2px; }
-.orders-unread-summary strong { color: var(--text); font-size: 12px; }
-.orders-unread-summary small { color: var(--muted); font-size: 10.5px; }
+.order-new-flag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 24px;
+  padding: 3px 7px;
+  border: 1px solid rgba(242,179,71,.30);
+  border-radius: 999px;
+  background: rgba(242,179,71,.075);
+  color: var(--amber);
+  font-size: 10px;
+  font-weight: 750;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.order-new-flag-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
 
 .order-customer {
   display: flex;
@@ -3906,6 +4069,28 @@ button.support-stat:hover { border-color: rgba(139, 123, 240, 0.38); }
   color: var(--amber);
 }
 
+.order-new-order-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 25px;
+  padding: 3px 8px;
+  border: 1px solid rgba(242,179,71,.30);
+  border-radius: 999px;
+  background: rgba(242,179,71,.085);
+  color: var(--amber);
+  font-weight: 780;
+  line-height: 1;
+}
+
+.order-new-order-chip > span {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 0 3px rgba(242,179,71,.10);
+}
+
 .order-payment-summary.confirmed .order-payment-state { color: var(--mint); }
 .order-payment-summary.cancelled .order-payment-state { color: var(--rose); }
 .order-payment-summary.cancelled { opacity: .88; }
@@ -3917,6 +4102,12 @@ button.support-stat:hover { border-color: rgba(139, 123, 240, 0.38); }
   }
 
   .order-head-payment {
+    min-height: 27px;
+    padding: 4px 9px;
+    font-size: 11px;
+  }
+
+  .order-new-order-chip {
     min-height: 27px;
     padding: 4px 9px;
     font-size: 11px;
@@ -3950,17 +4141,31 @@ button.support-stat:hover { border-color: rgba(139, 123, 240, 0.38); }
 }
 
 @media (max-width: 1220px) {
+  .order-row.is-new-order {
+    background: var(--panel);
+    border-color: rgba(242,179,71,.28);
+    box-shadow: inset 3px 0 0 rgba(242,179,71,.72);
+  }
+
   .order-row.has-unread-messages {
     background: var(--panel);
     border-color: rgba(101,168,255,.28);
     box-shadow: inset 3px 0 0 rgba(101,168,255,.72);
   }
   .order-row.has-unread-messages:hover { background: var(--panel); }
+
+  .order-row.is-new-order.has-unread-messages {
+    border-color: rgba(101,168,255,.30);
+    box-shadow:
+      inset 6px 0 0 rgba(242,179,71,.68),
+      inset 3px 0 0 rgba(101,168,255,.9);
+  }
 }
 
 @media (max-width: 760px) {
   .order-unread-label { display: inline; }
-  .orders-unread-summary { margin-bottom: 10px; border: 1px solid rgba(101,168,255,.18); border-radius: 10px; }
+  .orders-attention-summary { margin-bottom: 10px; flex-direction: column; border: 1px solid var(--line); border-radius: 10px; }
+  .orders-attention-item + .orders-attention-item { border-left: 0; border-top: 1px solid var(--line-soft); }
 }
 
 
@@ -4045,6 +4250,16 @@ button.support-stat:hover { border-color: rgba(139, 123, 240, 0.38); }
 .order-status-badge.compact strong { font-size: 11.5px; }
 .order-status-badge.compact .order-status-source { min-height: 16px; font-size: 8.5px; padding: 1px 4px; }
 
+.order-status-badge.is-new {
+  border-color: rgba(242,179,71,.34);
+  background: rgba(242,179,71,.085);
+}
+
+.order-status-badge.is-new .order-status-source {
+  background: rgba(242,179,71,.16);
+  color: var(--amber);
+}
+
 .order-current-status {
   display: flex;
   align-items: flex-end;
@@ -4069,4 +4284,35 @@ button.support-stat:hover { border-color: rgba(139, 123, 240, 0.38); }
   .order-status-freshness { text-align: left; }
   .order-quick-status { align-items: flex-start; flex-direction: column; }
   .order-status-badge { max-width: 100%; }
+}
+
+/* 1.39.0 — зрозумілі маркери нових замовлень і нових повідомлень. */
+@media (max-width: 760px) {
+  .order-status-title {
+    flex-wrap: wrap;
+  }
+
+  .order-payment {
+    margin-left: 0;
+  }
+
+  .order-new-flag {
+    order: 3;
+  }
+
+  .bubble {
+    max-width: 92%;
+  }
+
+  .bubble-head {
+    align-items: flex-start;
+  }
+
+  .order-chat-head {
+    align-items: flex-start;
+  }
+
+  .chat-new-counter {
+    flex: 0 0 auto;
+  }
 }

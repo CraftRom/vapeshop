@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 
 import { api, isSysadmin } from '../api'
 import { STATUS_LABELS, allowedFrom } from '../components/StatusRail'
-import { OrderStatusBadge, SalesDriveStatusSelect } from '../components/OrderStatus'
+import { OrderStatusBadge, SalesDriveStatusSelect, isNewOrderStatus } from '../components/OrderStatus'
 import { Empty, ErrorBar, Field, Info, Loading, Modal, dateTime, money, useToast } from '../components/ui'
 import { useFilters } from '../components/useFilters'
 import { useVisiblePolling } from '../components/useVisiblePolling'
@@ -22,6 +22,15 @@ const LEGACY_FILTERS = [
   { value: 'done', label: 'Виконане' },
   { value: 'cancelled', label: 'Скасоване' },
 ]
+
+function ukForm(value, one, few, many) {
+  const count = Math.abs(Number(value || 0))
+  const mod10 = count % 10
+  const mod100 = count % 100
+  if (mod10 === 1 && mod100 !== 11) return one
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return few
+  return many
+}
 
 function OrderDetails({ order, onClose, onSaved, crmStatuses = [] }) {
   const notify = useToast()
@@ -172,9 +181,10 @@ const OrderRow = memo(function OrderRow({
 }) {
   const itemsText = order.items.map((i) => `${i.name} ×${i.qty}`).join(', ')
   const itemQty = order.items.reduce((sum, item) => sum + Number(item.qty || 0), 0)
+  const isNewOrder = isNewOrderStatus(order, crmStatuses)
 
   return (
-    <article className={`order-row ${order.crm_id ? 'status-crm' : `status-${order.status}`}${unreadCount > 0 ? ' has-unread-messages' : ''}`}>
+    <article className={`order-row ${order.crm_id ? 'status-crm' : `status-${order.status}`}${isNewOrder ? ' is-new-order' : ''}${unreadCount > 0 ? ' has-unread-messages' : ''}`}>
       <div className="order-primary">
         <div className="order-id-line">
           <Link to={`/orders/${order.id}`} className="id-tag">#{order.id}</Link>
@@ -213,6 +223,12 @@ const OrderRow = memo(function OrderRow({
         <div className="order-status-title">
           <span className="faint">Поточний статус</span>
           <OrderStatusBadge order={order} crmStatuses={crmStatuses} />
+          {isNewOrder && (
+            <span className="order-new-flag" title="Замовлення ще має статус «Новий»">
+              <span className="order-new-flag-dot" aria-hidden="true" />
+              Нове замовлення
+            </span>
+          )}
           <span className="order-payment">
             {order.payment_method === 'card' ? 'Картка' : 'Накладений платіж'}
           </span>
@@ -429,6 +445,11 @@ export default function Orders() {
   // Роль однакова для всіх рядків. Не читаємо й не JSON.parse-имо session
   // з localStorage всередині map для кожного замовлення.
   const canDelete = isSysadmin()
+  // Summary описує саме видимий список. Якщо активний пошук/фільтр, не
+  // обіцяємо «2 непрочитаних нижче», коли ці два замовлення відфільтровані.
+  const unreadTotal = orders?.reduce((sum, order) => sum + Number(unread[order.id] || 0), 0) || 0
+  const unreadOrders = orders?.filter((order) => Number(unread[order.id] || 0) > 0).length || 0
+  const newOrders = orders?.filter((order) => isNewOrderStatus(order, crmStatuses)).length || 0
 
 
   return (
@@ -549,13 +570,26 @@ export default function Orders() {
             </div>
           )}
 
-          {Object.values(unread).reduce((sum, count) => sum + Number(count || 0), 0) > 0 && (
-            <div className="orders-unread-summary" role="status">
-              <span className="orders-unread-summary-icon" aria-hidden="true">💬</span>
-              <span>
-                <strong>{Object.values(unread).reduce((sum, count) => sum + Number(count || 0), 0)} непрочитаних</strong>
-                <small>Нові повідомлення клієнтів позначені в замовленнях нижче</small>
-              </span>
+          {(newOrders > 0 || unreadTotal > 0) && (
+            <div className="orders-attention-summary" role="status" aria-label="Замовлення, що потребують уваги">
+              {newOrders > 0 && (
+                <div className="orders-attention-item new-orders">
+                  <span className="orders-attention-dot" aria-hidden="true" />
+                  <span>
+                    <strong>{newOrders} {ukForm(newOrders, 'нове замовлення', 'нові замовлення', 'нових замовлень')}</strong>
+                    <small>Ще мають початковий статус «Новий»</small>
+                  </span>
+                </div>
+              )}
+              {unreadTotal > 0 && (
+                <div className="orders-attention-item unread-messages">
+                  <span className="orders-attention-message" aria-hidden="true">💬</span>
+                  <span>
+                    <strong>{unreadTotal} {ukForm(unreadTotal, 'непрочитане повідомлення', 'непрочитані повідомлення', 'непрочитаних повідомлень')}</strong>
+                    <small>У {unreadOrders} {ukForm(unreadOrders, 'замовленні', 'замовленнях', 'замовленнях')} · відкрийте рядок із синьою міткою</small>
+                  </span>
+                </div>
+              )}
             </div>
           )}
 
