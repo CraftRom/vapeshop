@@ -23,6 +23,38 @@ const LEGACY_FILTERS = [
   { value: 'cancelled', label: 'Скасоване' },
 ]
 
+const PAYMENT_METHODS = {
+  card: {
+    title: 'Переказ на картку',
+    hint: 'Клієнт обрав переказ',
+    icon: '💳',
+  },
+  cod: {
+    title: 'Накладений платіж',
+    hint: 'Оплата при отриманні',
+    icon: '📦',
+  },
+}
+
+function OrderPaymentMethod({ order, compact = false }) {
+  const method = order.payment_method === 'cod' ? 'cod' : 'card'
+  const meta = PAYMENT_METHODS[method]
+
+  return (
+    <div
+      className={`order-payment-method ${method}${compact ? ' compact' : ''}`}
+      aria-label={`Спосіб оплати: ${meta.title}`}
+    >
+      <span className="order-payment-method-icon" aria-hidden="true">{meta.icon}</span>
+      <span className="order-payment-method-copy">
+        <small className="order-payment-method-kicker">Оплата</small>
+        <strong>{meta.title}</strong>
+        <small>{meta.hint}</small>
+      </span>
+    </div>
+  )
+}
+
 function ukForm(value, one, few, many) {
   const count = Math.abs(Number(value || 0))
   const mod10 = count % 10
@@ -107,6 +139,10 @@ function OrderDetails({ order, onClose, onSaved, crmStatuses = [] }) {
           </div>
         </div>
 
+        <div className="order-quick-payment">
+          <OrderPaymentMethod order={order} />
+        </div>
+
         <div>
           <h3>Отримувач і доставка</h3>
           {/* Той самий вигляд, що й на сторінці замовлення: підпис
@@ -139,9 +175,6 @@ function OrderDetails({ order, onClose, onSaved, crmStatuses = [] }) {
             </Info>
           )}
           <Info label="Telegram">{contact}</Info>
-          <Info label="Оплата">
-            {order.payment_method === 'card' ? 'Переказ на картку' : 'Накладений платіж'}
-          </Info>
           <Info label="Створено">{dateTime(order.created_at)}</Info>
           {order.comment && <Info label="Коментар покупця">{order.comment}</Info>}
         </div>
@@ -219,6 +252,10 @@ const OrderRow = memo(function OrderRow({
 
       <div className="order-total mono">{money(order.total)}</div>
 
+      <div className="order-payment-cell">
+        <OrderPaymentMethod order={order} compact />
+      </div>
+
       <div className="order-workflow">
         <div className="order-status-title">
           <span className="faint">Поточний статус</span>
@@ -229,9 +266,6 @@ const OrderRow = memo(function OrderRow({
               Нове замовлення
             </span>
           )}
-          <span className="order-payment">
-            {order.payment_method === 'card' ? 'Картка' : 'Накладений платіж'}
-          </span>
         </div>
         {order.crm_id ? (
           <SalesDriveStatusSelect
@@ -598,6 +632,7 @@ export default function Orders() {
             <span>Клієнт</span>
             <span>Склад</span>
             <span className="num">Сума</span>
+            <span>Оплата</span>
             <span>Статус і дії</span>
           </div>
 

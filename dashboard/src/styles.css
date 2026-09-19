@@ -845,11 +845,12 @@ a.info-strong:hover { color: var(--violet); }
   display: grid;
   grid-template-columns:
     88px
-    minmax(150px, .8fr)
-    minmax(210px, 1.25fr)
+    minmax(145px, .75fr)
+    minmax(200px, 1.15fr)
     92px
-    minmax(390px, 1.8fr);
-  gap: 16px;
+    minmax(165px, .72fr)
+    minmax(350px, 1.65fr);
+  gap: 14px;
 }
 
 .orders-list-head {
@@ -881,6 +882,7 @@ a.info-strong:hover { color: var(--violet); }
 .order-primary,
 .order-customer,
 .order-items,
+.order-payment-cell,
 .order-workflow { min-width: 0; }
 
 .order-id-line {
@@ -1109,15 +1111,94 @@ a.info-strong:hover { color: var(--violet); }
   white-space: nowrap;
 }
 
-.order-payment {
-  margin-left: auto;
-  padding: 2px 7px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  color: var(--faint);
-  font-size: 10px;
-  white-space: nowrap;
+/* Спосіб оплати — окрема робоча ознака, а не дрібний бейдж біля CRM-статусу. */
+.order-payment-cell {
+  align-self: center;
 }
+
+.order-payment-method {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  padding: 8px 9px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(255,255,255,.018);
+}
+
+.order-payment-method.card {
+  border-color: rgba(139,123,240,.25);
+  background: rgba(139,123,240,.055);
+}
+
+.order-payment-method.cod {
+  border-color: rgba(242,179,71,.25);
+  background: rgba(242,179,71,.05);
+}
+
+.order-payment-method-icon {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: rgba(139,123,240,.13);
+  font-size: 16px;
+  line-height: 1;
+}
+
+.order-payment-method.cod .order-payment-method-icon {
+  background: rgba(242,179,71,.13);
+}
+
+.order-payment-method-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.order-payment-method-copy strong {
+  color: var(--text);
+  font-size: 11.5px;
+  line-height: 1.22;
+}
+
+.order-payment-method-copy > small:last-child {
+  color: var(--faint);
+  font-size: 9.5px;
+  line-height: 1.2;
+}
+
+.order-payment-method-kicker {
+  display: none;
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 650;
+  letter-spacing: .05em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.order-quick-payment {
+  margin-top: 2px;
+}
+
+.order-quick-payment .order-payment-method {
+  grid-template-columns: 38px minmax(0, 1fr);
+  padding: 10px 11px;
+}
+
+.order-quick-payment .order-payment-method-icon {
+  width: 38px;
+  height: 38px;
+  font-size: 18px;
+}
+
+.order-quick-payment .order-payment-method-kicker { display: block; }
+.order-quick-payment .order-payment-method-copy strong { font-size: 13px; }
+.order-quick-payment .order-payment-method-copy > small:last-child { font-size: 10.5px; }
 
 .order-workflow .rail { width: 100%; }
 .order-workflow .rail button { min-height: 30px; }
@@ -1150,7 +1231,7 @@ a.info-strong:hover { color: var(--violet); }
 
 /* Ноутбук / невеликий десктоп: замість горизонтального скролу кожне
    замовлення стає компактною двоколонковою карткою. */
-@media (max-width: 1220px) {
+@media (max-width: 1320px) {
   .orders-list-head { display: none; }
 
   .orders-panel {
@@ -1179,6 +1260,7 @@ a.info-strong:hover { color: var(--violet); }
       "primary total"
       "customer customer"
       "items items"
+      "payment payment"
       "workflow workflow";
     gap: 10px 16px;
     padding: 14px;
@@ -1192,7 +1274,21 @@ a.info-strong:hover { color: var(--violet); }
   .order-customer { grid-area: customer; }
   .order-items { grid-area: items; }
   .order-total { grid-area: total; align-self: start; }
+  .order-payment-cell { grid-area: payment; }
   .order-workflow { grid-area: workflow; padding-top: 4px; }
+
+  .order-payment-method {
+    grid-template-columns: 36px minmax(0, 1fr);
+    max-width: 360px;
+  }
+
+  .order-payment-method-icon {
+    width: 36px;
+    height: 36px;
+  }
+
+  .order-payment-method-kicker { display: block; }
+  .order-payment-method-copy strong { font-size: 12px; }
 
   .order-customer {
     padding-top: 9px;
@@ -1386,10 +1482,16 @@ a.info-strong:hover { color: var(--violet); }
 
   .order-customer,
   .order-items,
+  .order-payment-cell,
   .order-workflow {
     margin-top: 11px;
     padding-top: 11px;
     border-top: 1px solid var(--line-soft);
+  }
+
+  .order-payment-method {
+    max-width: none;
+    width: 100%;
   }
 
   .order-customer { gap: 3px; }
@@ -4184,7 +4286,7 @@ button.support-stat:hover { border-color: rgba(139, 123, 240, 0.38); }
   .map-row { grid-template-columns: 1fr; gap: 4px; }
 }
 
-@media (max-width: 1220px) {
+@media (max-width: 1320px) {
   .order-row.is-new-order {
     background: var(--panel);
     border-color: rgba(242,179,71,.28);
@@ -4336,10 +4438,6 @@ button.support-stat:hover { border-color: rgba(139, 123, 240, 0.38); }
     flex-wrap: wrap;
   }
 
-  .order-payment {
-    margin-left: 0;
-  }
-
   .order-new-flag {
     order: 3;
   }
@@ -4364,3 +4462,9 @@ button.support-stat:hover { border-color: rgba(139, 123, 240, 0.38); }
 
 /* 1.40.0 — FAQ-автовідповіді в підтримці мають окрему службову
    ідентичність у панелі: автор «Бот» + бейдж «Автовідповідь». */
+
+
+/* 1.41.0 — спосіб оплати в списку має власну колонку й не змішується зі статусом CRM. */
+@media (min-width: 1321px) {
+  .order-payment-method.compact .order-payment-method-kicker { display: none; }
+}
