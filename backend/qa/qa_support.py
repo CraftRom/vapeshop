@@ -258,8 +258,9 @@ async def scenario():
     order = Order(id=42, user_id=repo.user.id, total=Decimal("800"))
     markup = order_chat.contact_options_keyboard([order])
     order_button = markup.inline_keyboard[0][0]
-    r.check(order_button.web_app is not None and "?chat=42" in order_button.web_app.url,
-            "кнопка замовлення веде в чат конкретного замовлення")
+    r.check(order_button.url is not None and
+            order_button.url.startswith("https://t.me/elfarshop_bot/elfar?startapp=chat_42"),
+            "кнопка замовлення веде в Named Mini App на конкретний чат")
     r.check(markup.inline_keyboard[-1][0].callback_data == "support:start",
             "окремо доступний старт загальної підтримки")
 

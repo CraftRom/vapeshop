@@ -404,10 +404,10 @@ _inline = _kb.open_shop()
 r.check(_inline is not None, "авторизована inline-кнопка вітрини існує")
 r.check(
     _inline and any(
-        getattr(button, "web_app", None)
+        getattr(button, "url", "") == "https://t.me/elfarshop_bot/elfar"
         for row in _inline.inline_keyboard for button in row
     ),
-    "inline-кнопка відкриває повноцінний Telegram WebView",
+    "inline-кнопка веде на канонічний Named Mini App",
 )
 _start_source = pathlib.Path("bot/handlers/start.py").read_text()
 r.check('F.text == "🛍 Відкрити магазин"' in _start_source,

@@ -4,7 +4,7 @@ from aiogram import F, Router
 from aiogram.types import CallbackQuery, Message
 
 from bot import keyboards as kb
-from shop.links import app_link, chat_link
+from shop.links import app_link
 from shop.services.shop_settings import get_shop_settings
 from shop.entities import STATUS_LABELS, User
 from shop.repo.base import Repository
@@ -13,8 +13,8 @@ router = Router()
 
 
 def referral_link(code: str) -> str:
-    """Веде одразу у вітрину, якщо Mini App зареєстровано, інакше — в чат."""
-    return app_link(code) or chat_link(code)
+    """Реферальний Named Mini App URL із підписаним Telegram startapp."""
+    return app_link(code)
 
 
 @router.message(F.text == "👤 Профіль")

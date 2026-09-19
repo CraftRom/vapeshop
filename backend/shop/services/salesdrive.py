@@ -40,7 +40,6 @@ import httpx
 
 from shop.entities import Order, OrderStatus
 from shop.services import shipment
-from shop.config import settings
 
 log = logging.getLogger(__name__)
 

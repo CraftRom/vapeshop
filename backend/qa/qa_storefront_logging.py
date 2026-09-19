@@ -27,7 +27,7 @@ checks = {
     "telemetry schema forbids extras": 'ConfigDict(extra="forbid")' in shop,
     "api request log keeps telemetry quiet": '"/api/shop/client-log"' in (ROOT / "api/request_log.py").read_text(),
     "polling refreshes telegram menu url": 'set_chat_menu_button' in bot_main and 'canonical_public_url' in bot_main,
-    "public links avoid stale named app url": 'return chat_link(start_param)' in links,
+    "public links use canonical named app url": 'NAMED_MINIAPP_URL = "https://t.me/elfarshop_bot/elfar"' in links and '?startapp=' in links,
     "deploy renderer canonicalizes stale www": 'www.elfar.pp.ua' in render and 'DOMAIN="elfar.pp.ua"' in render,
     "miniapp self-heals stale www before React": 'legacyHostRedirectUrl' in mini_main and 'window.location.replace' in mini_main,
     "miniapp accepts launch data from query": 'fromSearch()' in mini_tg and 'window.location.search' in mini_tg,

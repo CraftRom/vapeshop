@@ -15,7 +15,7 @@
 # Тому тут entrypoint явно перевизначається на сам certbot.
 set -euo pipefail
 
-SCRIPT_VERSION="2026-08-30.1"
+SCRIPT_VERSION="2026-09-19.1"
 
 cd "$(dirname "$0")"
 echo "certbot-init ${SCRIPT_VERSION}"
@@ -244,12 +244,11 @@ $COMPOSE run --rm --entrypoint certbot certbot \
     --email "$EMAIL" --agree-tos --no-eff-email \
     "${ACME_ARGS[@]}" "${FORCE[@]}"
 
-echo "==> Вмикаю HTTPS-режим"
-# Доки сертифіката не було, сайт віддавався по HTTP. Тепер можна і
-# перенаправляти, і вмикати HSTS. Порядок саме такий: спершу файли,
-# потім перезапуск, інакше nginx підхопить лише половину.
-mkdir -p nginx/redirect.d nginx/hsts.d
-echo 'return 301 https://$host$request_uri;' > nginx/redirect.d/force-https.conf
+echo "==> Вмикаю HSTS для перевіреного сертифіката"
+# Порт 80 завжди лишається тільки ACME + редіректом на HTTPS. До появи
+# довіреного сертифіката ми не вмикаємо лише HSTS: інакше браузер може
+# закешувати HTTPS для домену, на якому ще стоїть тимчасова заглушка.
+mkdir -p nginx/hsts.d
 echo 'add_header Strict-Transport-Security "max-age=31536000" always;' > nginx/hsts.d/hsts.conf
 
 echo "==> Перезапускаю nginx із сертифікатом"
@@ -262,12 +261,13 @@ for attempt in 1 2 3 4 5 6 7 8 9 10; do
 done
 
 if [[ "$state" != "running" ]]; then
-    # Відкочуємо HTTPS-режим: краще працюючий сайт по HTTP, ніж мертвий
-    # nginx. Інакше одна невдача лишає магазин недоступним геть.
-    rm -f nginx/redirect.d/force-https.conf nginx/hsts.d/hsts.conf
+    # HSTS не повинен лишатися після невдалого перемикання сертифіката.
+    # Сам HTTP при цьому все одно не віддає застосунок: лише ACME challenge
+    # і редірект на HTTPS, щоб токени та дані магазину не йшли відкрито.
+    rm -f nginx/hsts.d/hsts.conf
     $COMPOSE restart nginx >/dev/null 2>&1 || true
     echo "" >&2
-    echo "nginx не піднявся з новим сертифікатом — повернув режим HTTP." >&2
+    echo "nginx не піднявся з новим сертифікатом." >&2
     echo "Найчастіша причина: сертифікат ліг не за тим шляхом." >&2
     echo "" >&2
     echo "Перевірте, що бачить certbot і куди дивиться nginx:" >&2

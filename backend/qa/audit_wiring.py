@@ -114,8 +114,8 @@ check("--force-recreate nginx" in cert,
       "nginx перестворюється — зациклений у рестарті контейнер звичайним up не полагодити")
 check("127.0.0.1" in cert,
       "локальна перевірка окремо від зовнішньої")
-check("redirect.d" in cert and "hsts.d" in cert,
-      "HTTPS-режим вмикається лише після справжнього сертифіката")
+check("hsts.d" in cert and "redirect.d" not in cert,
+      "HSTS вмикається після справжнього сертифіката без мертвого redirect-перемикача")
 check("--cert-name" in cert,
       "шлях до сертифіката прибитий — інакше certbot створює live/<домен>-0001")
 check("SCRIPT_VERSION" in cert, "скрипт друкує свою версію")
@@ -173,8 +173,8 @@ check("--workers 1" in _api["command"],
       "один воркер: другий подвоює памʼять і впирається в ліміт")
 _limit = _api["deploy"]["resources"]["limits"]["memory"]
 check(_limit in ("1G", "1024M"), f"ліміт памʼяті api: {_limit}")
-check("rm -f nginx/redirect.d" in cert,
-      "невдалий запуск відкочує режим у HTTP, а не лишає nginx мертвим")
+check("rm -f nginx/hsts.d/hsts.conf" in cert,
+      "невдалий запуск прибирає HSTS, не відкриваючи застосунок по HTTP")
 import re as _re
 _used = set(_re.findall(r"\$\{([A-Z_]+)[}:]", cert))
 _defined = set(_re.findall(r"^([A-Z_]+)=", cert, _re.M)) | {"CERTBOT_EMAIL"}
@@ -182,10 +182,11 @@ check(not (_used - _defined), "у скрипті немає невизначен
       sorted(_used - _defined))
 nginx_conf = read("deploy/nginx/app.conf.template")
 http_part = nginx_conf[nginx_conf.index("listen 80;"):nginx_conf.index("listen 443")]
-check("dashboard_static" in http_part,
-      "порт 80 віддає сайт, а не лише редіректить — щоб магазин працював без TLS")
+check("return 301 https://$host$request_uri;" in http_part
+      and "proxy_pass" not in http_part,
+      "порт 80 віддає лише ACME та редіректить застосунок на HTTPS")
 check("include /etc/nginx/hsts.d" in nginx_conf,
-      "HSTS умовний: інакше браузер заблокує запасний HTTP")
+      "HSTS умовний до появи довіреного сертифіката")
 check(nginx_conf.count("{") == nginx_conf.count("}"), "дужки в конфізі nginx збалансовані")
 check("resolver 127.0.0.11" in nginx_conf,
       "nginx перечитує адреси контейнерів — інакше після recreate буде вічний 502")
@@ -516,8 +517,9 @@ check(_declared <= _called,
 # шаблон: його правильність стереже окремий набір qa_recon, який ганяє
 # правило по всіх справжніх маршрутах застосунку.
 _ngx = read("deploy/nginx/app.conf.template")
-check(_ngx.count("return 444") == 2,
-      "сканери відсікаються в обох блоках — і HTTP, і HTTPS",
+check(_ngx.count("return 444") == 1
+      and "return 301 https://$host$request_uri;" in http_part,
+      "розвідка відсікається на HTTPS, а HTTP до API взагалі не доходить",
       _ngx.count("return 444"))
 # Дивимось саме рядок правила, а не файл цілком: обидва шляхи згадані
 # поруч у коментарі — там пояснено, чому їх у переліку немає. Перевірка
@@ -632,6 +634,10 @@ check("drop_pending_updates=False" in _bot_main,
       "рестарт polling не викидає накопичені повідомлення")
 check("BackoffConfig" in _bot_main and "min_delay=5.0" in _bot_main,
       "після flood/network error polling не молотить Telegram щосекунди")
+check('NAMED_MINIAPP_URL = "https://t.me/elfarshop_bot/elfar"' in read("backend/shop/links.py"),
+      "усі Telegram-кнопки мають канонічний Named Mini App URL")
+check("startapp=chat_" in read("backend/shop/services/order_chat.py"),
+      "чат замовлення відкривається через Named Mini App startapp")
 check("bot_reachable" in read("miniapp/src/screens/Profile.jsx"),
       "клієнт бачить попередження у вітрині")
 check("bot_reachable" in read("dashboard/src/pages/OrderPage.jsx"),
@@ -837,9 +843,9 @@ check("novaposhta._call" in _wb and "httpx.AsyncClient" not in _wb.split("async 
 _cos = _svc[_svc.index("async def change_order_status"):_svc.index("_COUNTED =")]
 # Саме умовний запис позначки, а не будь-яка згадка origin поруч: інакше
 # безумовне patch["crm_state"] проходило б перевірку й давало петлю.
-check(re.search(r'if origin != "salesdrive":\s*\n\s*patch\["crm_state"\] = "pending"', _cos)
+check(re.search(r'if origin != "salesdrive" and crm_linked:\s*\n\s*patch\["crm_state"\] = "pending"', _cos)
       and not re.search(r'^\s{4}patch\["crm_state"\] = "pending"', _cos, re.M),
-      "черга CRM ставиться тим самим записом, що й статус, крім змін із самої CRM")
+      "черга CRM ставиться тим самим записом, що й статус, лише для вже звʼязаних CRM-замовлень")
 check('"crm_state": "pending"' in _svc[_svc.index("repo.create_order(draft"):],
       "нове замовлення одразу стає в чергу CRM")
 _upd = _sd[_sd.index("def update_payload"):_sd.index("# -------------------------------------------------------------------- HTTP")]

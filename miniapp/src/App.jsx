@@ -101,8 +101,7 @@ export default function App() {
       return
     }
 
-    const ask = (retry) => api
-      .config()
+    api.config()
       .then((value) => {
         setConfig(value)
         clientLog('storefront.open.ok', {
@@ -111,21 +110,14 @@ export default function App() {
         })
       })
       .catch((err) => {
-        if (retry && !err.status) {
-          clientLog('storefront.open.retry', {
-            level: 'warning', message: err?.message || 'Мережева помилка, повторна спроба',
-          })
-          setTimeout(() => ask(false), 900)
-          return
-        }
+        // Повтори безпечних GET централізовані в api.js. Тут не дублюємо
+        // таймери й не створюємо кілька паралельних ланцюжків завантаження.
         clientLog('storefront.open.failed', {
           level: 'error', message: err?.message || 'Невідома помилка',
           status: err?.status || null,
         })
         setFatal(err.message || 'Невідома помилка')
       })
-
-    ask(true)
   }, [])
   useEffect(load, [load])
 

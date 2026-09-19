@@ -104,9 +104,27 @@ export function registerGlobalClientLogging() {
   clientLog('storefront.launch', { message: 'Вітрина запущена', once: 'launch' })
 
   window.addEventListener('error', (event) => {
+    const message = event.message || 'window.error'
+    const genericExternal = message === 'Script error.' && !event.filename && !event.error
+
+    // Chromium/WebView маскує винятки сторонніх cross-origin скриптів як
+    // «Script error.» без файла, рядка й самого Error. У наших логах такі
+    // записи приходили переважно після згортання Telegram і не містили
+    // жодної діагностики. Не видаємо їх за падіння нашого застосунку.
+    if (genericExternal) {
+      if (document.visibilityState !== 'hidden') {
+        clientLog('storefront.runtime.external_error', {
+          level: 'warning',
+          message: 'Сторонній скрипт повідомив помилку без діагностики',
+          once: 'generic-external-script-error',
+        })
+      }
+      return
+    }
+
     clientLog('storefront.runtime.error', {
       level: 'error',
-      message: event.message || 'window.error',
+      message,
       errorName: event.error?.name || '',
       file: safePath(event.filename),
       line: event.lineno || 0,

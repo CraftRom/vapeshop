@@ -2,9 +2,9 @@
 
 Ключова складність — у клієнта може бути кілька відкритих замовлень
 одночасно, а в Telegram у нього один чат із ботом. Тому кожне повідомлення
-менеджера йде з підписом «Замовлення №N» і з ForceReply: відповідь клієнта
-несе reply_to_message_id, за яким ми однозначно знаходимо потрібне
-замовлення. Якщо клієнт пише не відповіддю, бот перепитує кнопками.
+менеджера йде з підписом «Замовлення №N» та кнопкою, що відкриває чат
+цього замовлення в Mini App. Якщо клієнт відповідає без контексту, бот
+уточнює, до якого замовлення належить повідомлення.
 """
 from __future__ import annotations
 
@@ -12,11 +12,9 @@ import logging
 from datetime import datetime, timedelta
 from html import escape
 
-from aiogram.types import (
-    ForceReply, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo,
-)
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
-from shop.config import canonical_public_url
+from shop.links import app_link
 from shop.entities import STATUS_LABELS, Order, OrderStatus
 from shop.repo.base import Repository
 from shop.services.status_messages import is_permanent_delivery_error
@@ -58,21 +56,17 @@ def _header(order_id: int) -> str:
     return f"💬 <b>Замовлення №{order_id}</b>"
 
 
-def chat_keyboard(order_id: int) -> InlineKeyboardMarkup | None:
-    """Кнопка, що відкриває вітрину одразу на чаті цього замовлення.
+def chat_keyboard(order_id: int) -> InlineKeyboardMarkup:
+    """Відкриває Named Mini App одразу на чаті цього замовлення.
 
-    Без адреси сайту кнопку не побудувати — тоді клієнт просто відповідає
-    в чаті з ботом, і це теж робочий шлях.
+    ``startapp=chat_<id>`` Telegram передає як ``start_param`` разом із
+    валідним initData, тому кнопка більше не залежить від PUBLIC_URL і не
+    створює анонімний WebView при старому/закешованому домені.
     """
-    from shop.services.shop_settings import current
-
-    public_url = canonical_public_url(current().public_url)
-    if not public_url.startswith("https://"):
-        return None
     return InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(
             text="💬 Відкрити чат",
-            web_app=WebAppInfo(url=f"{public_url}/app/?chat={order_id}"),
+            url=app_link(f"chat_{order_id}"),
         )
     ]])
 
@@ -158,12 +152,9 @@ async def send_to_client(
 
     signature = f"\n\n<i>{esc(author)}</i>" if author else ""
     try:
-        # Кнопка вітрини корисніша за ForceReply: у ній видно всю історію
-        # саме цього замовлення. ForceReply лишається запасним шляхом, коли
-        # адреса сайту не налаштована.
-        markup = chat_keyboard(order.id) or ForceReply(
-            input_field_placeholder=f"Відповідь щодо №{order.id}"
-        )
+        # У Mini App видно всю історію саме цього замовлення; Named Mini App
+        # не залежить від PUBLIC_URL, тому запасний ForceReply більше не потрібен.
+        markup = chat_keyboard(order.id)
         sent = await bot.send_message(
             user.tg_id,
             f"{_header(order.id)}\n\n{esc(text)}{signature}",
@@ -352,26 +343,17 @@ def contact_options_keyboard(
 ) -> InlineKeyboardMarkup:
     """Кнопки для явного вибору: чат замовлення або загальна підтримка.
 
-    Для замовлення кнопка відкриває Mini App одразу на потрібній стрічці.
-    Це і є «посилання на чат конкретного замовлення»: клієнт не має
-    спочатку обирати контекст у боті, а потім здогадуватись, де історія.
-    Якщо PUBLIC_URL ще не налаштований, падаємо назад на вибір контексту
-    в самому боті — функція не стає тупиком.
+    Кожне замовлення відкривається через Named Mini App зі ``startapp`` —
+    один стабільний шлях для приватних чатів, груп і різних Telegram-клієнтів.
     """
-    from shop.services.shop_settings import current
-
-    public_url = canonical_public_url(current().public_url)
     rows = []
     for order in orders[:8]:
         label = STATUS_LABELS.get(order.status, order.status)
         text = f"💬 Замовлення №{order.id} · {label}"
-        if public_url.startswith("https://"):
-            rows.append([InlineKeyboardButton(
-                text=text,
-                web_app=WebAppInfo(url=f"{public_url}/app/?chat={order.id}"),
-            )])
-        else:
-            rows.append([InlineKeyboardButton(text=text, callback_data=f"chat:{order.id}")])
+        rows.append([InlineKeyboardButton(
+            text=text,
+            url=app_link(f"chat_{order.id}"),
+        )])
 
     if include_support:
         rows.append([InlineKeyboardButton(

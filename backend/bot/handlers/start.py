@@ -15,20 +15,13 @@ router = Router()
 
 
 async def _offer_shop(message: Message) -> None:
-    """Друга кнопка вітрини — під повідомленням.
+    """Канонічна кнопка Named Mini App під повідомленням.
 
-    Кнопка з web_app у клавіатурі під полем вводу на частині клієнтів не
-    спрацьовує: натискання є, застосунок не відкривається. Синя кнопка
-    «Магазин» біля поля вводу при цьому працює, тож справа не в адресі й
-    не в домені. Вбудована кнопка під повідомленням підтримується скрізь,
-    де Mini App узагалі є, і не змушує людину шукати вхід збоку.
+    Вона веде на ``https://t.me/elfarshop_bot/elfar``: Telegram сам створює
+    WebApp-контекст і передає initData, тому кнопка не залежить від PUBLIC_URL
+    та кешу старого домену.
     """
-    shop_button = kb.open_shop()
-    if not shop_button:
-        # Без PUBLIC_URL вітрини не існує — окремого повідомлення про це
-        # не робимо, у меню вже є текстовий запасний варіант.
-        return
-    await message.answer(texts.OPEN_SHOP_HINT, reply_markup=shop_button)
+    await message.answer(texts.OPEN_SHOP_HINT, reply_markup=kb.open_shop())
 
 
 @router.message(CommandStart(deep_link=True))

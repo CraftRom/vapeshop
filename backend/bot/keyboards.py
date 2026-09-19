@@ -2,120 +2,62 @@ from __future__ import annotations
 
 from aiogram.types import (
     InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup,
-    WebAppInfo,
 )
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from shop.links import chat_link, share_link
-from shop.config import canonical_public_url
+from shop.links import app_link, share_link
 from shop.entities import OrderStatus
 from shop.services.shop_service import route_for
-from shop.services.shop_settings import current
 from shop.models import CartItem, Category, Product
 
 # ------------------------------------------------------------------ головне меню
 
-def _shop_url() -> str | None:
-    """Адреса вітрини. Без PUBLIC_URL кнопку показати не можна.
-
-    Зі слешем на кінці навмисно: Telegram на Android кешує WebView міні-аппа
-    за адресою, і при відновленні процесу перезавантажує вже обрізану версію
-    посилання — без підпису користувача. Зміна адреси змушує клієнт відкрити
-    сторінку з нуля. Обидві форми, /app і /app/, ведуть в одне місце.
-    """
-    public_url = canonical_public_url(current().public_url)
-    if not public_url:
-        return None
-    return public_url.rstrip("/") + "/app/"
-
-
 def to_private_chat() -> InlineKeyboardMarkup:
-    """Кнопка з групи/каналу в особистий чат.
-
-    Веде на deep link бота: у приватному чаті одразу спрацює /start.
-    Кнопка з web_app тут не годиться — Telegram дозволяє її лише в приватних
-    чатах, у групі повідомлення просто не надішлеться.
-    """
-    # Пряме посилання на вітрину, якщо застосунок зареєстровано;
-    # інакше — просто в особистий чат
-    url = chat_link("group")
-    if not url:
-        return InlineKeyboardMarkup(inline_keyboard=[])
+    """Кнопка з групи/каналу прямо в канонічний Named Mini App."""
     return InlineKeyboardMarkup(
-        inline_keyboard=[[InlineKeyboardButton(text="🛍 Відкрити магазин", url=url)]]
+        inline_keyboard=[[InlineKeyboardButton(
+            text="🛍 Відкрити магазин", url=app_link(),
+        )]]
     )
 
 
-def faq_reply(with_shop: bool = True) -> InlineKeyboardMarkup | None:
+def faq_reply(with_shop: bool = True) -> InlineKeyboardMarkup:
     """Кнопки під автоматичною відповіддю.
 
-    «Питання менеджеру» обовʼязкова: автовідповідь не має ставати глухим
-    кутом, якщо клієнт питав не те, що ми зрозуміли.
+    Магазин відкриваємо через Named Mini App, а не прямий ``/app/`` URL:
+    Telegram сам створює коректний launch context з initData.
     """
     rows = []
-    url = _shop_url()
-    if with_shop and url:
-        rows.append([InlineKeyboardButton(text="🛍 Відкрити магазин", web_app=WebAppInfo(url=url))])
+    if with_shop:
+        rows.append([InlineKeyboardButton(text="🛍 Відкрити магазин", url=app_link())])
     rows.append([InlineKeyboardButton(text="💬 Питання менеджеру", callback_data="faq:human")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def open_shop() -> InlineKeyboardMarkup | None:
-    """Кнопка вітрини під самим повідомленням.
-
-    Другий вхід поруч із кнопкою в клавіатурі — і він потрібен, а не
-    надлишковий. Кнопка з web_app у клавіатурі під полем вводу на частині
-    клієнтів просто не спрацьовує: натискання є, застосунок не
-    відкривається. Синя кнопка «Магазин» біля поля вводу при цьому працює,
-    тобто справа не в адресі й не в домені бота.
-
-    Вбудована кнопка під повідомленням — найнадійніший із трьох входів:
-    її підтримують усі клієнти, які взагалі вміють Mini App. Тому вітальне
-    повідомлення тепер несе її з собою, і людині не треба знати, що є
-    якась синя кнопка збоку.
-    """
-    url = _shop_url()
-    if not url:
-        return None
+def open_shop() -> InlineKeyboardMarkup:
+    """Надійний вхід у магазин через Named Mini App Telegram."""
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🛍 Відкрити магазин", web_app=WebAppInfo(url=url))]
+        [InlineKeyboardButton(text="🛍 Відкрити магазин", url=app_link())]
     ])
 
 
 def main_menu() -> ReplyKeyboardMarkup:
-    """Головне меню.
+    """Компактне головне меню.
 
-    Коли вітрина налаштована, лишається одна кнопка — Mini App. Каталог,
-    кошик і профіль там уже є, і дублювати їх текстовими кнопками означало б
-    два різні шляхи до одного й того самого, які легко розійдуться.
-
-    «Довідка» лишається: її у вітрині немає.
-
-    Без PUBLIC_URL кнопку Mini App показати неможливо, тож меню повертається
-    до текстового вигляду — інакше в користувача не лишиться взагалі нічого.
+    Нижня кнопка лишається текстовою: ReplyKeyboard ``web_app`` у частині
+    клієнтів створює нестабільний Simple WebView. Handler надсилає окрему
+    URL-кнопку на канонічний Named Mini App.
     """
-    url = _shop_url()
-    if url:
-        return ReplyKeyboardMarkup(
-            keyboard=[
-                [KeyboardButton(text="🛍 Відкрити магазин")],
-                [KeyboardButton(text="🆘 Підтримка"), KeyboardButton(text="ℹ️ Довідка")],
-            ],
-            resize_keyboard=True,
-        )
-
     return ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="🛍 Каталог"), KeyboardButton(text="🛒 Кошик")],
-            [KeyboardButton(text="👤 Профіль"), KeyboardButton(text="🆘 Підтримка")],
-            [KeyboardButton(text="ℹ️ Довідка")],
+            [KeyboardButton(text="🛍 Відкрити магазин")],
+            [KeyboardButton(text="🆘 Підтримка"), KeyboardButton(text="ℹ️ Довідка")],
         ],
         resize_keyboard=True,
     )
 
 
-# Константа лишається для сумісності, але хендлери викликають main_menu():
-# у serverless модуль імпортується один раз, а PUBLIC_URL може зʼявитись пізніше
+# Константа лишається для сумісності; хендлери викликають main_menu().
 MAIN_MENU = main_menu()
 
 

@@ -120,6 +120,7 @@ run negative qa/qa_negative.py
 run security qa/qa_security.py
 run revoke qa/qa_revoke.py
 run headers qa/qa_headers.py
+run transport-sec qa/qa_transport_security.py
 run security-log qa/qa_security_log.py
 run database qa/qa_db.py
 run faq qa/qa_faq.py
@@ -145,8 +146,12 @@ run dialect qa/qa_dialect.py
 run orders_delete qa/qa_orders_delete.py
 run settings_save qa/qa_settings_save.py
 run novaposhta qa/qa_novaposhta.py
+run product-io qa/qa_product_io.py
 run e2e qa/qa_e2e.py
 run salesdrive qa/qa_salesdrive.py
+run sd-dicts qa/qa_salesdrive_dictionaries.py
+run sd-no-backfill qa/qa_salesdrive_no_backfill.py
+run sd-read-side qa/qa_salesdrive_read_side.py
 run salesdrive-source qa/qa_salesdrive_source_guard.py
 run wishlists qa/qa_wishlists.py
 run performance qa/qa_perf.py

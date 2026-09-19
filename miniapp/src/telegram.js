@@ -221,7 +221,7 @@ export function launchParamNames() {
 /** Звідки саме взялися дані — потрібно для екрана діагностики. */
 /** Параметр startapp: за ним відкриваємо потрібний екран одразу.
  *
- * Кнопка «Відкрити чат» у боті веде на /app/?chat=7, а пряме посилання
+ * Кнопка «Відкрити чат» у боті веде у Named Mini App зі startapp=chat_7,
  * Mini App передає те саме через tgWebAppStartParam. Перевіряємо обидва.
  */
 export function startTarget() {

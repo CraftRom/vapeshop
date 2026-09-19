@@ -2,61 +2,121 @@ import { getInitData } from './telegram'
 import { clientLog } from './logger'
 
 const BASE = '/api/shop'
+const REQUEST_TIMEOUT_MS = 12000
+const GET_RETRIES = 1
 
-async function request(path, { method = 'GET', body } = {}) {
-  const started = performance.now()
+function wait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function isTransientStatus(status) {
+  return status === 408 || status === 425 || status === 429 || status >= 500
+}
+
+async function fetchTimed(url, options) {
   const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), 12000)
-  const logPath = String(path).split('?')[0]
-  let res
+  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
   try {
-    res = await fetch(BASE + path, {
-      method,
-      signal: controller.signal,
-      headers: {
-        'Content-Type': 'application/json',
-        // Підписаний Telegram рядок — ним бекенд упізнає покупця.
-        'X-Telegram-Init-Data': getInitData(),
-      },
-      body: body ? JSON.stringify(body) : undefined,
-    })
-  } catch (err) {
-    clientLog('storefront.api.network_error', {
-      level: 'error',
-      message: err?.name === 'AbortError' ? 'API timeout' : (err?.message || 'network error'),
-      errorName: err?.name || '',
-      method, endpoint: logPath,
-      durationMs: Math.round(performance.now() - started),
-    })
-    throw err
+    return await fetch(url, { ...options, signal: controller.signal })
   } finally {
     clearTimeout(timeout)
   }
+}
 
-  if (!res.ok) {
-    let detail = `Помилка ${res.status}`
-    try {
-      const data = await res.json()
-      if (typeof data?.detail === 'string') {
-        detail = data.detail
-      } else if (Array.isArray(data?.detail)) {
-        detail = data.detail.map((i) => i.msg).filter(Boolean).join('; ') || detail
-      }
-    } catch {
-      /* тіло не JSON — лишаємо код статусу */
+async function responseDetail(res) {
+  let detail = `Помилка ${res.status}`
+  try {
+    const data = await res.clone().json()
+    if (typeof data?.detail === 'string') {
+      detail = data.detail
+    } else if (Array.isArray(data?.detail)) {
+      detail = data.detail.map((i) => i.msg).filter(Boolean).join('; ') || detail
     }
-    clientLog('storefront.api.http_error', {
-      level: res.status >= 500 ? 'error' : 'warning',
-      message: detail,
-      status: res.status,
-      method, endpoint: logPath,
-      durationMs: Math.round(performance.now() - started),
-    })
-    const error = new Error(detail)
-    error.status = res.status
-    throw error
+  } catch {
+    /* тіло не JSON — лишаємо код статусу */
   }
-  return res.status === 204 ? null : res.json()
+  return detail
+}
+
+async function request(path, { method = 'GET', body } = {}) {
+  const started = performance.now()
+  const logPath = String(path).split('?')[0]
+  const maxAttempts = method === 'GET' ? GET_RETRIES + 1 : 1
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    let res
+    try {
+      res = await fetchTimed(BASE + path, {
+        method,
+        headers: {
+          'Content-Type': 'application/json',
+          // Підписаний Telegram рядок — ним бекенд упізнає покупця.
+          'X-Telegram-Init-Data': getInitData(),
+        },
+        body: body ? JSON.stringify(body) : undefined,
+      })
+    } catch (err) {
+      const hidden = document.visibilityState === 'hidden'
+      const retry = !hidden && method === 'GET' && attempt < maxAttempts
+      if (retry) {
+        clientLog('storefront.api.retry', {
+          level: 'warning',
+          message: err?.name === 'AbortError' ? 'API timeout — повтор GET' : 'Мережева помилка — повтор GET',
+          errorName: err?.name || '', method, endpoint: logPath, attempt,
+          durationMs: Math.round(performance.now() - started),
+        })
+        await wait(350 * attempt)
+        continue
+      }
+
+      // При закритті/згортанні Telegram WebView браузер обриває всі fetch.
+      // Це не серверна аварія, тому не засмічуємо журнал шістьма однаковими
+      // error-подіями від паралельного refresh().
+      if (!hidden) {
+        clientLog('storefront.api.network_error', {
+          level: 'error',
+          message: err?.name === 'AbortError' ? 'API timeout' : (err?.message || 'network error'),
+          errorName: err?.name || '', method, endpoint: logPath,
+          durationMs: Math.round(performance.now() - started),
+        })
+      }
+      if (err?.name === 'AbortError') {
+        const timeoutError = new Error('Сервер не відповідає. Спробуйте ще раз.')
+        timeoutError.name = 'TimeoutError'
+        throw timeoutError
+      }
+      throw err
+    }
+
+    if (!res.ok) {
+      const detail = await responseDetail(res)
+      const retry = method === 'GET' && attempt < maxAttempts && isTransientStatus(res.status)
+      if (retry) {
+        clientLog('storefront.api.retry', {
+          level: 'warning', message: `${detail} — повтор GET`, status: res.status,
+          method, endpoint: logPath, attempt,
+          durationMs: Math.round(performance.now() - started),
+        })
+        await wait(res.status === 429 ? 900 : 350 * attempt)
+        continue
+      }
+
+      clientLog('storefront.api.http_error', {
+        level: res.status >= 500 ? 'error' : 'warning',
+        message: detail,
+        status: res.status,
+        method, endpoint: logPath,
+        durationMs: Math.round(performance.now() - started),
+      })
+      const error = new Error(detail)
+      error.status = res.status
+      throw error
+    }
+
+    return res.status === 204 ? null : res.json()
+  }
+
+  throw new Error('Не вдалося виконати запит')
 }
 
 export const api = {
@@ -94,36 +154,67 @@ export const api = {
   chatFile: async (orderId, messageId) => {
     const started = performance.now()
     const endpoint = `/orders/${orderId}/chat/${messageId}/file`
-    let res
-    try {
-      res = await fetch(
-        `${BASE}${endpoint}`,
-        { headers: { 'X-Telegram-Init-Data': getInitData() } },
-      )
-    } catch (err) {
-      clientLog('storefront.api.network_error', {
-        level: 'error', message: err?.message || 'network error',
-        errorName: err?.name || '', method: 'GET', endpoint,
-        durationMs: Math.round(performance.now() - started),
-      })
-      throw err
+
+    for (let attempt = 1; attempt <= GET_RETRIES + 1; attempt += 1) {
+      let res
+      try {
+        res = await fetchTimed(`${BASE}${endpoint}`, {
+          headers: { 'X-Telegram-Init-Data': getInitData() },
+        })
+      } catch (err) {
+        const hidden = document.visibilityState === 'hidden'
+        if (!hidden && attempt <= GET_RETRIES) {
+          clientLog('storefront.api.retry', {
+            level: 'warning', message: 'Вкладення чату: повтор GET',
+            errorName: err?.name || '', method: 'GET', endpoint, attempt,
+            durationMs: Math.round(performance.now() - started),
+          })
+          await wait(350 * attempt)
+          continue
+        }
+        if (!hidden) {
+          clientLog('storefront.api.network_error', {
+            level: 'error', message: err?.name === 'AbortError' ? 'API timeout' : (err?.message || 'network error'),
+            errorName: err?.name || '', method: 'GET', endpoint,
+            durationMs: Math.round(performance.now() - started),
+          })
+        }
+        if (err?.name === 'AbortError') {
+          const timeoutError = new Error('Сервер не відповідає. Спробуйте ще раз.')
+          timeoutError.name = 'TimeoutError'
+          throw timeoutError
+        }
+        throw err
+      }
+
+      if (!res.ok && attempt <= GET_RETRIES && isTransientStatus(res.status)) {
+        clientLog('storefront.api.retry', {
+          level: 'warning', message: `Вкладення чату: HTTP ${res.status} — повтор GET`,
+          status: res.status, method: 'GET', endpoint, attempt,
+          durationMs: Math.round(performance.now() - started),
+        })
+        await wait(res.status === 429 ? 900 : 350 * attempt)
+        continue
+      }
+      if (!res.ok) {
+        clientLog('storefront.api.http_error', {
+          level: res.status >= 500 ? 'error' : 'warning',
+          message: `Вкладення чату: HTTP ${res.status}`,
+          status: res.status, method: 'GET', endpoint,
+          durationMs: Math.round(performance.now() - started),
+        })
+        const error = new Error(
+          res.status === 410
+            ? 'Вкладення видалене за строком зберігання'
+            : 'Не вдалося завантажити вкладення',
+        )
+        error.status = res.status
+        throw error
+      }
+      return URL.createObjectURL(await res.blob())
     }
-    if (!res.ok) {
-      clientLog('storefront.api.http_error', {
-        level: res.status >= 500 ? 'error' : 'warning',
-        message: `Вкладення чату: HTTP ${res.status}`,
-        status: res.status, method: 'GET', endpoint,
-        durationMs: Math.round(performance.now() - started),
-      })
-      const error = new Error(
-        res.status === 410
-          ? 'Вкладення видалене за строком зберігання'
-          : 'Не вдалося завантажити вкладення',
-      )
-      error.status = res.status
-      throw error
-    }
-    return URL.createObjectURL(await res.blob())
+
+    throw new Error('Не вдалося завантажити вкладення')
   },
 
   chatPhoto: async (orderId, file) => {
