@@ -993,6 +993,9 @@ a.info-strong:hover { color: var(--violet); }
 .orders-attention-item strong { color: var(--text); font-size: 12px; }
 .orders-attention-item small { color: var(--muted); font-size: 10.5px; }
 
+.orders-attention-item.new-orders { background: rgba(242,179,71,.025); }
+.orders-attention-item.unread-messages { background: rgba(101,168,255,.025); }
+
 .orders-attention-dot {
   width: 9px;
   height: 9px;
@@ -2374,6 +2377,47 @@ a.info-strong:hover { color: var(--violet); }
   border-color: rgba(139, 123, 240, 0.25);
   border-radius: 13px 13px 4px 13px;
   background: rgba(139, 123, 240, 0.14);
+}
+
+/* Службове оформлення бачить тільки dashboard. У Telegram клієнту
+   is_automatic взагалі не рендериться. */
+.support-bubble.automatic {
+  border-color: rgba(79, 216, 165, 0.28);
+  background: rgba(79, 216, 165, 0.07);
+}
+
+.support-message-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.support-message-author {
+  color: var(--text);
+  font-weight: 650;
+}
+
+.support-message-time {
+  color: var(--faint);
+  font-weight: 400;
+}
+
+.support-message-time:not(:empty)::before { content: '· '; }
+
+.support-auto-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+  padding: 2px 7px;
+  border: 1px solid rgba(79, 216, 165, 0.28);
+  border-radius: 999px;
+  color: var(--mint);
+  background: rgba(79, 216, 165, 0.08);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .01em;
+  white-space: nowrap;
 }
 
 .support-no-messages { margin: auto; }
@@ -4316,3 +4360,7 @@ button.support-stat:hover { border-color: rgba(139, 123, 240, 0.38); }
     flex: 0 0 auto;
   }
 }
+
+
+/* 1.40.0 — FAQ-автовідповіді в підтримці мають окрему службову
+   ідентичність у панелі: автор «Бот» + бейдж «Автовідповідь». */

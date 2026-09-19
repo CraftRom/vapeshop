@@ -252,19 +252,31 @@ function Conversation({ thread, messages, onBack, onRefresh, onStatus, onDelete 
       <div className="support-chat-log">
         {messages.length === 0 ? (
           <div className="support-no-messages faint">Повідомлень ще немає.</div>
-        ) : messages.map((message) => (
-          <div
-            key={message.id}
-            className={`support-bubble ${message.direction === 'out' ? 'mine' : ''}`}
-          >
-            <div className="bubble-head faint">
-              {message.direction === 'out' ? message.author || 'Менеджер' : message.author || 'Клієнт'}
-              {' · '}{message.created_at ? dateTime(message.created_at) : ''}
+        ) : messages.map((message) => {
+          const automatic = message.direction === 'out' && message.is_automatic
+          return (
+            <div
+              key={message.id}
+              className={`support-bubble ${message.direction === 'out' ? 'mine' : ''} ${automatic ? 'automatic' : ''}`}
+            >
+              <div className="bubble-head faint support-message-head">
+                <span className="support-message-author">
+                  {automatic ? 'Бот' : (message.direction === 'out' ? message.author || 'Менеджер' : message.author || 'Клієнт')}
+                </span>
+                {automatic && (
+                  <span className="support-auto-badge" title="Відповідь сформована автоматично системою FAQ">
+                    Автовідповідь
+                  </span>
+                )}
+                <span className="support-message-time">
+                  {message.created_at ? dateTime(message.created_at) : ''}
+                </span>
+              </div>
+              {message.text && <div className="bubble-text">{message.text}</div>}
+              {message.file_kind && <Attachment threadId={thread.id} message={message} />}
             </div>
-            {message.text && <div className="bubble-text">{message.text}</div>}
-            {message.file_kind && <Attachment threadId={thread.id} message={message} />}
-          </div>
-        ))}
+          )
+        })}
         <div ref={bottom} />
       </div>
 

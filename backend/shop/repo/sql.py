@@ -1728,7 +1728,8 @@ def _support_message(row) -> SupportMessage:
         direction=row.direction, author=row.author or "", text=row.text,
         tg_message_id=row.tg_message_id, file_id=row.file_id,
         file_kind=row.file_kind, file_name=row.file_name,
-        is_read=row.is_read, created_at=row.created_at,
+        is_read=row.is_read, is_automatic=bool(getattr(row, "is_automatic", False)),
+        created_at=row.created_at,
     )
 
 

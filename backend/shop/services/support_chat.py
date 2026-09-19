@@ -153,6 +153,30 @@ async def save_incoming(
     return saved
 
 
+async def save_automatic_reply(
+    repo: Repository,
+    user,
+    thread_id: int,
+    text: str,
+):
+    """Фіксує FAQ-відповідь усередині активної сесії підтримки.
+
+    ``is_automatic`` та автор «Бот» є суто внутрішніми метаданими панелі.
+    Telegram-клієнту надсилається тільки сам текст FAQ-відповіді, без бейджа,
+    підпису або фрази «сформовано автоматично».
+    """
+    return await repo.add_support_message_if_open({
+        "thread_id": int(thread_id),
+        "user_id": user.id,
+        "direction": "out",
+        "author": "Бот",
+        "text": text,
+        "tg_message_id": None,
+        "is_read": True,
+        "is_automatic": True,
+    })
+
+
 async def _notify_staff(bot, repo: Repository, thread_id: int, user, text: str) -> None:
     from shop.services.notifications import topic_kwargs
     from shop.services.shop_settings import get_shop_settings

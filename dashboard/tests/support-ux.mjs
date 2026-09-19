@@ -41,6 +41,8 @@ check(page.includes('api.support.setStatus') && page.includes('api.support.remov
 check(page.includes('window.confirm'), 'закриття та остаточне видалення захищені підтвердженням')
 check(page.includes('Ця сесія завершена') && page.includes('closeDescription'), 'закрита сесія є read-only та показує хто/коли її закрив')
 check(page.includes('support-mobile-back'), 'на телефоні є повернення зі чату до списку')
+check(page.includes('message.is_automatic') && page.includes('Автовідповідь') && page.includes("automatic ? 'Бот'"), 'автоматична відповідь має службовий бейдж і автора Бот')
+check(css.includes('.support-bubble.automatic') && css.includes('.support-auto-badge'), 'автовідповідь візуально відрізняється лише в dashboard')
 check(css.includes('.support-client-group') && css.includes('.support-session'), 'desktop inbox має групи клієнтів і окремі сесії')
 check(css.includes('@media (max-width: 760px)') && css.includes('.support-chat-actions'), 'керування адаптоване для мобільного')
 check(atLeast(version, '1.32.1'), 'версія панелі не нижча за 1.32.1')

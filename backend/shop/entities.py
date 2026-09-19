@@ -364,6 +364,9 @@ class SupportMessage:
     file_kind: str | None = None
     file_name: str | None = None
     is_read: bool = False
+    # True лише для відповіді, яку сформувала FAQ-система. Автор при цьому
+    # зберігається як «Бот»; клієнт цю службову ознаку не бачить.
+    is_automatic: bool = False
     created_at: datetime | None = None
 
     @property

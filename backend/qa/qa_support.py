@@ -246,6 +246,14 @@ async def scenario():
     second, second_created = await support_chat.start(repo, repo.user.id)
     r.check(second_created and second.id != first.id and second.status == "open",
             "наступний /ask створює нову окрему сесію")
+
+    automatic = await support_chat.save_automatic_reply(
+        repo, repo.user, second.id, "Автоматична відповідь FAQ"
+    )
+    r.check(automatic is not None and automatic.direction == "out"
+            and automatic.author == "Бот" and automatic.is_automatic is True,
+            "FAQ-відповідь у підтримці зберігається як вихідна від Бота з is_automatic")
+
     old = await repo.get_support_thread(first.id)
     r.check(old.status == "closed", "старий чат лишається закритою історією")
     r.check(sum(t.status == "open" for t in repo.threads) == 1,
@@ -329,6 +337,8 @@ def static_contracts():
     api = (root / "api/routers/support.py").read_text()
     migration = (root / "alembic/versions/4b8f0c2d91aa_support_lifecycle.py").read_text()
     dashboard = (root.parent / "dashboard/src/pages/Support.jsx").read_text()
+    schema = (root / "api/schemas.py").read_text()
+    models = (root / "shop/models.py").read_text()
 
     r.check('@router.message(Command("ask"))' in handler, "/ask зареєстрована")
     r.check('add_support_message_if_open' in service and 'ensure_support_thread(user.id)' not in service,
@@ -341,6 +351,13 @@ def static_contracts():
             "API не має неявного reopen")
     r.check('Відкрити знову' not in dashboard and 'Ця сесія завершена' in dashboard,
             "панель не пропонує перевідкриття закритої історії")
+    r.check('support.save_automatic_reply' in handler and 'rule = faq.match(text, shop)' in handler
+            and 'faq.render(rule, shop)' in handler and handler.count('_support_auto_reply(') >= 3,
+            "текст і підписи вкладень у /ask використовують ту саму FAQ match/render систему")
+    r.check('is_automatic: bool = False' in schema and 'is_automatic' in models,
+            "API і модель мають явну службову ознаку автоматичної відповіді")
+    r.check('Автовідповідь' in dashboard and "automatic ? 'Бот'" in dashboard,
+            "dashboard показує бейдж автовідповіді та автора Бот")
 
 
 static_contracts()

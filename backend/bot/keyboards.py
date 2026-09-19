@@ -34,6 +34,19 @@ def faq_reply(with_shop: bool = True) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
+def faq_support_reply(with_shop: bool = True) -> InlineKeyboardMarkup | None:
+    """Кнопки під FAQ-відповіддю всередині активної підтримки.
+
+    Кнопка «Питання менеджеру» тут зайва: клієнт уже знаходиться в /ask і
+    початкове повідомлення вже бачить команда в панелі.
+    """
+    if not with_shop:
+        return None
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🛍 Відкрити магазин", url=app_link())]
+    ])
+
+
 def open_shop() -> InlineKeyboardMarkup:
     """Надійний вхід у магазин через Named Mini App Telegram."""
     return InlineKeyboardMarkup(inline_keyboard=[

@@ -427,6 +427,9 @@ class SupportMessage(Base):
     file_kind: Mapped[str | None] = mapped_column(String(16))
     file_name: Mapped[str | None] = mapped_column(String(255))
     is_read: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Службова ознака лише для панелі. Клієнту її ніколи не рендеримо: вона
+    # потрібна менеджеру, щоб відрізняти відповідь людини від FAQ-автоматики.
+    is_automatic: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
 
     thread: Mapped[SupportThread] = relationship(back_populates="messages")

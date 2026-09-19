@@ -160,6 +160,37 @@ async def _deliver(repo, user, text, order_id, bot=None, attachment=None) -> str
     return f"Передали менеджеру{who} щодо замовлення №{order.id}. Відповідь надійде сюди."
 
 
+async def _support_auto_reply(message: Message, repo: Repository, user: User, saved, text: str) -> bool:
+    """Виконує приватну FAQ-автоматику всередині активного /ask.
+
+    Вхідне повідомлення вже має бути збережене в support history. Вихідна
+    репліка записується як ``author=Бот`` + ``is_automatic=True`` лише для
+    панелі, а Telegram отримує чистий FAQ-текст без службової позначки.
+    """
+    if faq.payment_claim(text):
+        # Бот не бачить рахунку й не має автоматично трактувати повідомлення
+        # «оплатив» як звичайне питання про способи оплати.
+        return False
+
+    shop = await get_shop_settings(repo)
+    rule = faq.match(text, shop)
+    if not rule:
+        return False
+
+    answer = faq.render(rule, shop)
+    automatic = await support.save_automatic_reply(
+        repo, user, saved.thread_id, answer
+    )
+    if automatic is None:
+        return False
+
+    await message.answer(
+        answer,
+        reply_markup=kb.faq_support_reply(with_shop=rule.with_shop),
+    )
+    return True
+
+
 @router.message(F.photo | F.document | F.video | F.voice)
 async def incoming_file(
     message: Message, repo: Repository, user: User, state: FSMContext
@@ -182,6 +213,8 @@ async def incoming_file(
                 "Якщо потрібна допомога — відкрийте нове звернення через /ask.",
                 reply_markup=kb.main_menu(),
             )
+            return
+        if await _support_auto_reply(message, repo, user, saved, caption):
             return
         await message.answer("Передали в підтримку. Менеджер відповість у цьому чаті.")
         return
@@ -240,6 +273,10 @@ async def incoming(
     # повідомлення не повинні випадково піти в FAQ або в останнє замовлення.
     # Інакше клієнт думає, що пише техпідтримці, а текст опиняється не там.
     if await support.is_active(repo, user.id):
+        # У /ask повідомлення ЗАВЖДИ лишається в історії підтримки. Після
+        # цього запускаємо ту саму приватну FAQ-систему, що й у звичайному
+        # чаті з ботом. Автоматика не ховає звернення від менеджера — вона
+        # лише дає клієнту миттєву відповідь на типове питання.
         saved = await support.save_incoming(repo, user, text, bot=message.bot)
         if saved is None:
             await message.answer(
@@ -248,6 +285,10 @@ async def incoming(
                 reply_markup=kb.main_menu(),
             )
             return
+
+        if await _support_auto_reply(message, repo, user, saved, text):
+            return
+
         await message.answer("Передали в підтримку. Менеджер відповість у цьому чаті.")
         return
 

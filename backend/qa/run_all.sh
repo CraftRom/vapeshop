@@ -95,6 +95,7 @@ run_node text-input tests/text-input.mjs
 run_node design tests/storefront-design.mjs
 run_node crm-status-ui tests/crm-status-source.mjs dashboard
 run_node filters tests/filters.mjs dashboard
+run_node new-markers tests/new-order-message-markers.mjs dashboard
 run_node catalog-ux tests/catalog-ux.mjs dashboard
 run_node support-ux tests/support-ux.mjs dashboard
 run_node notifications tests/notifications.mjs dashboard
