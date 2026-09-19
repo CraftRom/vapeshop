@@ -844,28 +844,82 @@ def token_matches(shop, token: str) -> bool:
     return bool(expected) and hmac.compare_digest(expected.encode(), (token or "").encode())
 
 
+def _delivery_rows(data: dict) -> list[dict]:
+    """Нормалізує актуальний ``ord_delivery_data`` SalesDrive до списку.
+
+    У старих webhook/акаунтах деталі перевізника приходять окремими
+    ``ord_novaposhta`` / ``ord_ukrposhta``. Поточний ``/api/order/list/``
+    також може повертати універсальний масив ``ord_delivery_data`` з
+    ``provider``, ``trackingNumber`` і ``trackingNumberRef``. Не зводимо
+    масив до dict: в одній заявці може бути більше однієї накладної.
+    """
+    raw = data.get("ord_delivery_data")
+    if isinstance(raw, dict):
+        return [raw]
+    if isinstance(raw, list):
+        return [row for row in raw if isinstance(row, dict)]
+    return []
+
+
+def _provider_delivery_row(data: dict, provider: str) -> dict:
+    wanted = str(provider or "").strip().casefold()
+    for row in _delivery_rows(data):
+        value = str(row.get("provider") or "").strip().casefold()
+        if value == wanted:
+            return row
+    return {}
+
+
+def _tracking_cost(block: dict, data: dict, *, allow_order_fallback: bool = False) -> Decimal | None:
+    raw = block.get("cost")
+    if raw in (None, "") and allow_order_fallback:
+        # ``shipping_costs`` — фактичні витрати на доставку на рівні заявки.
+        # Використовуємо їх як fallback тільки коли є одна накладна: при
+        # кількох відправленнях ділити загальну суму між ТТН було б вгадуванням.
+        raw = data.get("shipping_costs")
+    try:
+        return Decimal(str(raw)) if raw not in (None, "") else None
+    except (ArithmeticError, ValueError):
+        return None
+
+
 def _tracking_from(data: dict) -> tuple[str, str | None, Decimal | None]:
-    """Номер, ref та вартість накладної з документованих CRM-полів."""
+    """Номер, ref та вартість накладної з усіх актуальних CRM-форматів."""
+    rows = _delivery_rows(data)
+    single = len(rows) == 1
+
     np_block = data.get("ord_novaposhta") if isinstance(data.get("ord_novaposhta"), dict) else {}
     number = str(np_block.get("EN") or "").strip()
     if number:
-        cost = None
-        try:
-            if np_block.get("cost") not in (None, ""):
-                cost = Decimal(str(np_block.get("cost")))
-        except (ArithmeticError, ValueError):
-            cost = None
-        return number, (str(np_block.get("ENref") or "").strip() or None), cost
+        return (number, str(np_block.get("ENref") or "").strip() or None,
+                _tracking_cost(np_block, data, allow_order_fallback=single))
+
+    np_delivery = _provider_delivery_row(data, "novaposhta")
+    number = str(np_delivery.get("trackingNumber") or "").strip()
+    if number:
+        return (number, str(np_delivery.get("trackingNumberRef") or "").strip() or None,
+                _tracking_cost(np_delivery, data, allow_order_fallback=single))
 
     up_block = data.get("ord_ukrposhta") if isinstance(data.get("ord_ukrposhta"), dict) else {}
     number = str(up_block.get("barcode") or "").strip()
-    cost = None
-    try:
-        if up_block.get("cost") not in (None, ""):
-            cost = Decimal(str(up_block.get("cost")))
-    except (ArithmeticError, ValueError):
-        cost = None
-    return number, (str(up_block.get("barcodeUuid") or "").strip() or None), cost
+    if number:
+        return (number, str(up_block.get("barcodeUuid") or "").strip() or None,
+                _tracking_cost(up_block, data, allow_order_fallback=single))
+
+    up_delivery = _provider_delivery_row(data, "ukrposhta")
+    number = str(up_delivery.get("trackingNumber") or "").strip()
+    if number:
+        return (number, str(up_delivery.get("trackingNumberRef") or "").strip() or None,
+                _tracking_cost(up_delivery, data, allow_order_fallback=single))
+
+    # Невідомого перевізника не приписуємо Новій пошті/Укрпошті, але сам
+    # номер не втрачаємо. Це дозволяє показати ТТН без хибного tracking URL.
+    for row in rows:
+        number = str(row.get("trackingNumber") or "").strip()
+        if number:
+            return (number, str(row.get("trackingNumberRef") or "").strip() or None,
+                    _tracking_cost(row, data, allow_order_fallback=single))
+    return "", None, None
 
 
 def _tracking_explicitly_present(data: dict) -> bool:
@@ -879,7 +933,9 @@ def _tracking_explicitly_present(data: dict) -> bool:
     if isinstance(np_block, dict) and "EN" in np_block:
         return True
     up_block = data.get("ord_ukrposhta")
-    return isinstance(up_block, dict) and "barcode" in up_block
+    if isinstance(up_block, dict) and "barcode" in up_block:
+        return True
+    return any("trackingNumber" in row for row in _delivery_rows(data))
 
 
 async def handle_webhook(repo, payload: dict, *, bot=None) -> dict:
@@ -1012,6 +1068,76 @@ def _order_list_rows(body) -> list[dict]:
     return []
 
 
+def _canonical_delivery_item(row: dict) -> dict:
+    """Безпечний read-model одного елемента ``ord_delivery_data``."""
+    return {
+        "senderId": row.get("senderId"), "idEntity": row.get("idEntity"),
+        "provider": str(row.get("provider") or ""), "type": str(row.get("type") or ""),
+        "parentTrackingNumber": row.get("parentTrackingNumber"),
+        "trackingNumber": str(row.get("trackingNumber") or ""),
+        "trackingNumberRef": str(row.get("trackingNumberRef") or ""),
+        "status": str(row.get("status") or row.get("statusName") or row.get("deliveryStatus") or ""),
+        "statusCode": row.get("statusCode"), "dateStatusUpdate": row.get("dateStatusUpdate"),
+        "deliveryDateAndTime": row.get("deliveryDateAndTime"),
+        "recipientDateTime": row.get("recipientDateTime"),
+        "areaName": str(row.get("areaName") or ""), "regionName": str(row.get("regionName") or ""),
+        "cityName": str(row.get("cityName") or ""), "cityType": str(row.get("cityType") or ""),
+        "cityRef": str(row.get("cityRef") or ""), "settlementRef": str(row.get("settlementRef") or ""),
+        "branchNumber": row.get("branchNumber"), "branchRef": str(row.get("branchRef") or ""),
+        "streetName": str(row.get("streetName") or ""), "house": str(row.get("house") or ""),
+        "flat": str(row.get("flat") or ""), "address": str(row.get("address") or ""),
+        "payer": str(row.get("payer") or ""), "hasPostpay": row.get("hasPostpay"),
+        "postpaySum": row.get("postpaySum"), "postpayPayer": str(row.get("postpayPayer") or ""),
+        "paymentMethod": str(row.get("paymentMethod") or ""), "cargoType": str(row.get("cargoType") or ""),
+        "ukrposhtaType": str(row.get("ukrposhtaType") or ""), "cost": row.get("cost"),
+    }
+
+
+def _merge_generic_carrier(legacy: dict, row: dict, *, provider: str) -> dict:
+    """Доповнює legacy carrier-block актуальним ``ord_delivery_data``.
+
+    Значення спеціалізованого ``ord_novaposhta``/``ord_ukrposhta`` мають
+    пріоритет, а універсальний блок закриває поля, яких у ``order/list`` уже
+    може не бути.
+    """
+    out = dict(legacy or {})
+    if not row:
+        return out
+    canonical = _canonical_delivery_item(row)
+    if provider == "novaposhta":
+        mapping = {
+            "delivery": "type", "settlementRef": "settlementRef", "cityRef": "cityRef",
+            "branch": "branchRef", "branchNumber": "branchNumber", "streetName": "streetName",
+            "house": "house", "flat": "flat", "cargoType": "cargoType", "payer": "payer",
+            "paymentMethod": "paymentMethod", "EN": "trackingNumber", "ENref": "trackingNumberRef",
+            "postpayPayer": "postpayPayer", "postpaySum": "postpaySum", "status": "status",
+            "statusCode": "statusCode", "dateStatusUpdate": "dateStatusUpdate",
+            "deliveryDateAndTime": "deliveryDateAndTime", "recipientDateTime": "recipientDateTime",
+            "idEntity": "idEntity", "cost": "cost",
+        }
+    else:
+        mapping = {
+            "delivery": "type", "regionName": "areaName", "districtName": "regionName",
+            "cityName": "cityName", "branchName": "address", "streetName": "streetName",
+            "house": "house", "flat": "flat", "payer": "payer", "typeUkrPoshta": "ukrposhtaType",
+            "barcode": "trackingNumber", "barcodeUuid": "trackingNumberRef",
+            "postpaySum": "postpaySum", "postpayPayer": "postpayPayer",
+            "status": "status", "statusCode": "statusCode", "dateStatusUpdate": "dateStatusUpdate",
+            "deliveryDateAndTime": "deliveryDateAndTime", "idEntity": "idEntity", "cost": "cost",
+        }
+    for target, source_key in mapping.items():
+        if out.get(target) in (None, "") and canonical.get(source_key) not in (None, ""):
+            out[target] = canonical[source_key]
+    # Людиночитані адресні поля універсального блоку зберігаємо окремо,
+    # бо legacy ``city/branch/street`` часто містять Ref, а не назву.
+    for key in ("provider", "areaName", "regionName", "cityName", "cityType", "cityRef",
+                "settlementRef", "branchRef", "streetName", "address", "hasPostpay",
+                "parentTrackingNumber", "senderId"):
+        if out.get(key) in (None, "") and canonical.get(key) not in (None, ""):
+            out[key] = canonical[key]
+    return out
+
+
 def _snapshot(data: dict, statuses: dict[str, str] | None = None, *,
               payments: list[dict] | None = None, deliveries: list[dict] | None = None,
               body=None, source: str = "api") -> dict:
@@ -1023,12 +1149,20 @@ def _snapshot(data: dict, statuses: dict[str, str] | None = None, *,
     ``56``/``57`` замість способу оплати або доставки.
     """
     contacts = data.get("contacts") if isinstance(data.get("contacts"), list) else []
-    contact = contacts[0] if contacts and isinstance(contacts[0], dict) else {}
+    primary_contact = data.get("primaryContact") if isinstance(data.get("primaryContact"), dict) else {}
+    contact = (contacts[0] if contacts and isinstance(contacts[0], dict) else primary_contact) or {}
     counterparty = contact.get("counterparty") if isinstance(contact.get("counterparty"), dict) else {}
     products = data.get("products") if isinstance(data.get("products"), list) else []
-    np = data.get("ord_novaposhta") if isinstance(data.get("ord_novaposhta"), dict) else {}
-    up = data.get("ord_ukrposhta") if isinstance(data.get("ord_ukrposhta"), dict) else {}
-    delivery_data = data.get("ord_delivery_data") if isinstance(data.get("ord_delivery_data"), dict) else {}
+
+    delivery_rows = _delivery_rows(data)
+    normalized_deliveries = [_canonical_delivery_item(row) for row in delivery_rows]
+    np_row = _provider_delivery_row(data, "novaposhta")
+    up_row = _provider_delivery_row(data, "ukrposhta")
+    np_legacy = data.get("ord_novaposhta") if isinstance(data.get("ord_novaposhta"), dict) else {}
+    up_legacy = data.get("ord_ukrposhta") if isinstance(data.get("ord_ukrposhta"), dict) else {}
+    np = _merge_generic_carrier(np_legacy, np_row, provider="novaposhta")
+    up = _merge_generic_carrier(up_legacy, up_row, provider="ukrposhta")
+    delivery_data = normalized_deliveries[0] if normalized_deliveries else {}
 
     sid = str(data.get("statusId") or "").strip()
     status_name = str(data.get("statusName") or data.get("status_name") or "").strip()
@@ -1059,7 +1193,9 @@ def _snapshot(data: dict, statuses: dict[str, str] | None = None, *,
             continue
         product_rows.append({
             "id": x.get("id"), "productId": x.get("productId"), "parameter": x.get("parameter"),
-            "name": x.get("name") or "", "sku": x.get("sku") or "", "barcode": x.get("barcode") or "",
+            "name": x.get("name") or x.get("nameTranslate") or x.get("text") or x.get("documentName") or "",
+            "text": x.get("text") or "", "nameTranslate": x.get("nameTranslate") or "",
+            "documentName": x.get("documentName") or "", "sku": x.get("sku") or "", "barcode": x.get("barcode") or "",
             "amount": x.get("amount"), "price": x.get("price"), "costPrice": x.get("costPrice"),
             "discount": x.get("discount"), "percentDiscount": x.get("percentDiscount"),
             "commission": x.get("commission"), "percentCommission": x.get("percentCommission"),
@@ -1084,19 +1220,26 @@ def _snapshot(data: dict, statuses: dict[str, str] | None = None, *,
         "shippingMethodId": shipping_id, "shippingMethod": shipping_name,
         "shippingMethodRaw": str(shipping_raw or ""),
         "paymentAmount": data.get("paymentAmount"), "commissionAmount": data.get("commissionAmount"),
+        "shippingCosts": data.get("shipping_costs"), "shippingAddress": data.get("shipping_address") or "",
+        "discountAmount": data.get("discountAmount"), "organizationId": data.get("organizationId"),
         "costPriceAmount": data.get("costPriceAmount"), "expensesAmount": data.get("expensesAmount"),
         "profitAmount": data.get("profitAmount"), "payedAmount": data.get("payedAmount"),
         "restPay": data.get("restPay"), "paymentDate": data.get("paymentDate"),
         "managerId": data.get("userId"), "managerName": manager,
         "comment": data.get("comment") or "", "orderTime": data.get("orderTime"),
-        "timeEntryOrder": data.get("timeEntryOrder"), "holderTime": data.get("holderTime"),
+        "updateAt": data.get("updateAt"), "timeEntryOrder": data.get("timeEntryOrder"), "holderTime": data.get("holderTime"),
         "delivery": data.get("ord_delivery"),
-        # У order-list з 2025 SalesDrive окремо повертає додаткові параметри
-        # доставки. Зберігаємо тільки документовані поля; решта лишається у CRM.
+        # Універсальний read-model доставки. Зберігаємо первинний елемент для
+        # сумісності старого UI і весь нормалізований список для кількох ТТН.
         "deliveryData": {
+            "provider": delivery_data.get("provider") or "",
+            "type": delivery_data.get("type") or "",
+            "trackingNumber": delivery_data.get("trackingNumber") or "",
+            "trackingNumberRef": delivery_data.get("trackingNumberRef") or "",
             "paymentMethod": delivery_data.get("paymentMethod") or "",
             "postpayPayer": delivery_data.get("postpayPayer") or "",
             "cargoType": delivery_data.get("cargoType") or "",
+            "items": normalized_deliveries,
         },
         "utm": {
             "page": data.get("utmPage") or "", "medium": data.get("utmMedium") or "",
@@ -1107,34 +1250,46 @@ def _snapshot(data: dict, statuses: dict[str, str] | None = None, *,
             "id": contact.get("id"), "formId": contact.get("formId"), "version": contact.get("version"),
             "createTime": contact.get("createTime"), "fName": contact.get("fName") or "",
             "lName": contact.get("lName") or "", "mName": contact.get("mName") or "",
-            "phone": contact.get("phone") or "", "email": contact.get("email") or "",
-            "company": contact.get("company") or "", "comment": contact.get("comment") or "",
+            "phone": (contact.get("phone") or [""])[0] if isinstance(contact.get("phone"), list) else (contact.get("phone") or ""),
+            "email": (contact.get("email") or [""])[0] if isinstance(contact.get("email"), list) else (contact.get("email") or ""),
+            "telegram": contact.get("telegram") or "", "instagramNick": contact.get("instagramNick") or "",
+            "dateOfBirth": contact.get("dateOfBirth"), "company": contact.get("company") or "", "comment": contact.get("comment") or "",
             "userId": contact.get("userId"), "leadsCount": contact.get("leadsCount"),
             "leadsSalesCount": contact.get("leadsSalesCount"), "leadsSalesAmount": contact.get("leadsSalesAmount"),
-            "counterparty": {"id": counterparty.get("id"), "name": counterparty.get("name") or "",
+            "counterpartyId": contact.get("counterpartyId") or counterparty.get("id"),
+            "counterparty": {"id": counterparty.get("id") or contact.get("counterpartyId"), "name": counterparty.get("name") or "",
                              "code": counterparty.get("code") or ""},
         },
         "products": product_rows,
         "novaposhta": {
+            "provider": np.get("provider") or ("novaposhta" if np else ""),
             "delivery": np.get("delivery") or "", "settlementRef": np.get("settlementRef") or "",
-            "city": np.get("city") or "", "branch": np.get("branch") or "", "branchNumber": np.get("branchNumber") or "",
-            "street": np.get("street") or "", "house": np.get("house") or "", "flat": np.get("flat") or "",
+            "city": np.get("city") or "", "cityRef": np.get("cityRef") or "", "cityName": np.get("cityName") or "",
+            "cityType": np.get("cityType") or "", "areaName": np.get("areaName") or "", "regionName": np.get("regionName") or "",
+            "branch": np.get("branch") or "", "branchRef": np.get("branchRef") or np.get("branch") or "",
+            "branchNumber": np.get("branchNumber") or "", "address": np.get("address") or "",
+            "street": np.get("street") or "", "streetName": np.get("streetName") or "",
+            "house": np.get("house") or "", "flat": np.get("flat") or "",
             "note": np.get("note") or "", "cargoType": np.get("cargoType") or "", "payer": np.get("payer") or "",
             "paymentMethod": np.get("paymentMethod") or "", "ttn": np.get("EN") or "", "ref": np.get("ENref") or "",
             "backDelivery": np.get("backDelivery") or "", "postpayPayer": np.get("postpayPayer") or "",
             "postpaySum": np.get("postpaySum"), "status": np.get("status") or "", "statusCode": np.get("statusCode"),
             "dateStatusUpdate": np.get("dateStatusUpdate"), "deliveryDateAndTime": np.get("deliveryDateAndTime"),
             "recipientDateTime": np.get("recipientDateTime"), "manual": np.get("manual"), "idEntity": np.get("idEntity"),
-            "cost": np.get("cost"), "legal": np.get("legal"), "companyName": np.get("companyName") or "",
+            "cost": np.get("cost") if np.get("cost") not in (None, "") else (data.get("shipping_costs") if len(delivery_rows) == 1 else None),
+            "hasPostpay": np.get("hasPostpay"), "parentTrackingNumber": np.get("parentTrackingNumber"),
+            "senderId": np.get("senderId"), "legal": np.get("legal"), "companyName": np.get("companyName") or "",
             "egrpou": np.get("egrpou") or "", "ownershipFormId": np.get("ownershipFormId"), "packing": np.get("packing") or "",
         },
         "ukrposhta": {
+            "provider": up.get("provider") or ("ukrposhta" if up else ""),
             "delivery": up.get("delivery") or "", "region": up.get("region"), "district": up.get("district"),
             "city": up.get("city"), "branch": up.get("branch"), "street": up.get("street"), "house": up.get("house") or "",
             "flat": up.get("flat") or "", "payer": up.get("payer") or "", "typeUkrPoshta": up.get("typeUkrPoshta") or "",
             "ttn": up.get("barcode") or "", "ref": up.get("barcodeUuid") or "", "postpaySum": up.get("postpaySum"),
             "status": up.get("status") or "", "statusCode": up.get("statusCode"), "dateStatusUpdate": up.get("dateStatusUpdate"),
-            "deliveryDateAndTime": up.get("deliveryDateAndTime"), "manual": up.get("manual"), "cost": up.get("cost"),
+            "deliveryDateAndTime": up.get("deliveryDateAndTime"), "manual": up.get("manual"),
+            "cost": up.get("cost") if up.get("cost") not in (None, "") else (data.get("shipping_costs") if len(delivery_rows) == 1 else None),
             "sum": up.get("sum"), "mass": up.get("mass"), "length": up.get("length"), "description": up.get("description") or "",
             "cityName": up.get("cityName") or "", "branchName": up.get("branchName") or "", "streetName": up.get("streetName") or "",
         },
@@ -1159,10 +1314,12 @@ def _merge_webhook_snapshot(previous: dict | None, incoming: dict, raw: dict) ->
         "id": "id", "externalId": "externalId", "version": "version", "formId": "formId",
         "typeId": "typeId", "rejectionReason": "rejectionReason",
         "paymentAmount": "paymentAmount", "commissionAmount": "commissionAmount",
+        "shippingCosts": "shipping_costs", "shippingAddress": "shipping_address",
+        "discountAmount": "discountAmount", "organizationId": "organizationId",
         "costPriceAmount": "costPriceAmount", "expensesAmount": "expensesAmount",
         "profitAmount": "profitAmount", "payedAmount": "payedAmount", "restPay": "restPay",
         "paymentDate": "paymentDate", "comment": "comment", "orderTime": "orderTime",
-        "timeEntryOrder": "timeEntryOrder", "holderTime": "holderTime", "delivery": "ord_delivery",
+        "updateAt": "updateAt", "timeEntryOrder": "timeEntryOrder", "holderTime": "holderTime", "delivery": "ord_delivery",
     }
     for target, source_key in scalar_sources.items():
         if source_key in raw:
@@ -1181,7 +1338,7 @@ def _merge_webhook_snapshot(previous: dict | None, incoming: dict, raw: dict) ->
     if any(k in raw for k in ("userId", "userName", "managerName", "responsibleName", "user", "manager", "responsible")):
         merged["managerId"] = incoming.get("managerId")
         merged["managerName"] = incoming.get("managerName", "")
-    if "contacts" in raw:
+    if "contacts" in raw or "primaryContact" in raw:
         merged["contact"] = incoming.get("contact", {})
     if "products" in raw:
         merged["products"] = incoming.get("products", [])
@@ -1191,6 +1348,13 @@ def _merge_webhook_snapshot(previous: dict | None, incoming: dict, raw: dict) ->
         merged["ukrposhta"] = incoming.get("ukrposhta", {})
     if "ord_delivery_data" in raw:
         merged["deliveryData"] = incoming.get("deliveryData", {})
+        # Сучасний order/list може містити ТТН тільки у універсальному
+        # ord_delivery_data. Snapshot уже розклав його по перевізниках —
+        # webhook merge має оновити ті самі блоки, а не лише службовий масив.
+        if (incoming.get("novaposhta") or {}).get("ttn") or _provider_delivery_row(raw, "novaposhta"):
+            merged["novaposhta"] = incoming.get("novaposhta", {})
+        if (incoming.get("ukrposhta") or {}).get("ttn") or _provider_delivery_row(raw, "ukrposhta"):
+            merged["ukrposhta"] = incoming.get("ukrposhta", {})
 
     utm_sources = {
         "page": "utmPage", "medium": "utmMedium", "campaignId": "campaignId",

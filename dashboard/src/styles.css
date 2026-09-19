@@ -4556,7 +4556,7 @@ button.support-stat:hover { border-color: rgba(139, 123, 240, 0.38); }
   .crm-section-head{flex-direction:column;gap:4px}
 }
 
-/* 1.43.0 — послідовність CRM, live-оновлення і ТТН із SalesDrive. */
+/* 1.44.0 — адаптивні етапи CRM і актуальний ord_delivery_data SalesDrive. */
 .crm-status-progress-wrap {
   margin: 0 0 14px;
   padding: 10px 11px;
@@ -4576,32 +4576,27 @@ button.support-stat:hover { border-color: rgba(139, 123, 240, 0.38); }
 }
 .crm-status-progress-head > span { font-weight: 750; color: var(--text); }
 .crm-status-progress {
-  display: flex;
-  align-items: flex-start;
-  gap: 0;
-  overflow-x: auto;
-  padding: 1px 2px 4px;
-  scrollbar-width: thin;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
+  align-items: stretch;
+  gap: 6px;
+  overflow: visible;
+  padding: 1px 0 0;
 }
 .crm-status-step {
   position: relative;
   display: grid;
-  grid-template-columns: 18px minmax(70px, auto);
+  grid-template-columns: 18px minmax(0, 1fr);
   align-items: start;
-  gap: 6px;
-  min-width: max-content;
-  padding-right: 22px;
+  gap: 7px;
+  min-width: 0;
+  padding: 7px 8px;
   color: var(--muted);
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  background: rgba(255,255,255,.012);
 }
-.crm-status-step:not(:last-child)::after {
-  content: '';
-  position: absolute;
-  top: 8px;
-  left: 18px;
-  right: 4px;
-  height: 1px;
-  background: var(--line);
-}
+.crm-status-step:not(:last-child)::after { display: none; }
 .crm-status-step-dot {
   position: relative;
   z-index: 1;
@@ -4624,14 +4619,21 @@ button.support-stat:hover { border-color: rgba(139, 123, 240, 0.38); }
   line-height: 1.25;
   white-space: normal;
 }
-.crm-status-step.passed { color: var(--mint); }
+.crm-status-step.passed {
+  color: var(--mint);
+  border-color: rgba(75,211,163,.24);
+  background: rgba(75,211,163,.045);
+}
 .crm-status-step.passed .crm-status-step-dot {
   border-color: rgba(75,211,163,.40);
   background: rgba(75,211,163,.12);
   color: var(--mint);
 }
-.crm-status-step.passed:not(:last-child)::after { background: rgba(75,211,163,.32); }
-.crm-status-step.current { color: #d8d2ff; }
+.crm-status-step.current {
+  color: #d8d2ff;
+  border-color: rgba(139,123,240,.40);
+  background: rgba(139,123,240,.075);
+}
 .crm-status-step.current .crm-status-step-dot {
   border-color: rgba(139,123,240,.62);
   background: rgba(139,123,240,.22);
@@ -4645,6 +4647,10 @@ button.support-stat:hover { border-color: rgba(139, 123, 240, 0.38); }
   background: currentColor;
 }
 .crm-status-step.current .crm-status-step-label { font-weight: 780; color: var(--text); }
+
+@media (max-width: 460px) {
+  .crm-status-progress { grid-template-columns: 1fr; }
+}
 
 .waybill-current {
   display: flex;
@@ -4688,7 +4694,8 @@ button.support-stat:hover { border-color: rgba(139, 123, 240, 0.38); }
 
 @media (max-width: 760px) {
   .crm-status-progress-wrap { padding: 9px; }
-  .crm-status-step-label { max-width: 125px; }
+  .crm-status-progress { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .crm-status-step-label { max-width: none; }
   .waybill-current { flex-direction: column; }
   .waybill-actions { width: 100%; justify-content: flex-start; }
 }

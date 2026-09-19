@@ -16,6 +16,7 @@ const checks = [
   ['chat only follows bottom when manager is already there', page.includes('stickToBottomRef.current')],
   ['CRM previous statuses are marked passed', status.includes('const passed = index < currentIndex')],
   ['CRM progress has visual states', css.includes('.crm-status-step.passed') && css.includes('.crm-status-step.current')],
+  ['CRM stages adapt without horizontal scrolling', css.includes('grid-template-columns: repeat(auto-fit, minmax(118px, 1fr))') && !/\.crm-status-progress\s*\{[^}]*overflow-x:\s*auto/s.test(css)],
   ['SalesDrive TTN source is explicit', page.includes('сформована в SalesDrive') && page.includes('внесена вручну в SalesDrive')],
   ['CRM TTN delivery status is shown', page.includes('crmDeliveryStatus') && page.includes('Оновлено в CRM')],
 ]

@@ -387,7 +387,11 @@ function WaybillPanel({ order, busy, onChanged }) {
       : ''
   const crmWaybill = order.waybill_source === 'salesdrive'
   const crmManual = crmCarrier === 'Нова пошта' ? crmNp.manual : crmUp.manual
-  const crmDeliveryStatus = crmCarrier === 'Нова пошта' ? crmNp.status : crmUp.status
+  const crmDeliveryStatusRaw = crmCarrier === 'Нова пошта' ? crmNp.status : crmUp.status
+  const crmDeliveryStatusCode = crmCarrier === 'Нова пошта' ? crmNp.statusCode : crmUp.statusCode
+  const crmDeliveryStatus = crmDeliveryStatusRaw || (crmDeliveryStatusCode !== null && crmDeliveryStatusCode !== undefined && crmDeliveryStatusCode !== ''
+    ? `Статус перевізника · код ${crmDeliveryStatusCode}`
+    : '')
   const crmDeliveryUpdated = crmCarrier === 'Нова пошта' ? crmNp.dateStatusUpdate : crmUp.dateStatusUpdate
   const sourceLabel = crmWaybill
     ? crmManual === 0 || crmManual === '0'
@@ -418,7 +422,7 @@ function WaybillPanel({ order, busy, onChanged }) {
             <div className="waybill-meta-row">
               <span className={`chip${crmWaybill ? ' crm-waybill-chip' : ''}`}>ТТН {sourceLabel}</span>
               {order.waybill_ref && <span className="chip ok">Ref отримано</span>}
-              {order.waybill_cost ? <span className="chip">Доставка {Number(order.waybill_cost).toFixed(0)} грн</span> : null}
+              {order.waybill_cost ? <span className="chip">Доставка {Number(order.waybill_cost).toLocaleString('uk-UA', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} грн</span> : null}
             </div>
             {crmDeliveryStatus && (
               <div className="waybill-crm-status">
@@ -552,11 +556,16 @@ function CrmSnapshotPanel({ order, crmStatuses, refreshing, onRefresh }) {
   const up = snap?.ukrposhta || {}
   const utm = snap?.utm || {}
   const deliveryData = snap?.deliveryData || {}
+  const deliveryItems = Array.isArray(deliveryData.items) ? deliveryData.items : []
   const products = Array.isArray(snap?.products) ? snap.products : []
-  const ttn = np.ttn || up.ttn || ''
+  const ttn = np.ttn || up.ttn || deliveryData.trackingNumber || ''
   const deliveryStatus = np.status || up.status || ''
-  const deliveryCost = np.cost ?? up.cost
-  const deliveryCode = np.delivery || up.delivery || ''
+  const deliveryStatusCode = np.statusCode ?? up.statusCode
+  const deliveryStatusLabel = deliveryStatus || (deliveryStatusCode !== null && deliveryStatusCode !== undefined && deliveryStatusCode !== ''
+    ? `Код статусу ${deliveryStatusCode}`
+    : '')
+  const deliveryCost = np.cost ?? up.cost ?? snap?.shippingCosts
+  const deliveryCode = np.delivery || up.delivery || deliveryData.type || ''
   const total = Number(snap?.paymentAmount)
   const paid = Number(snap?.payedAmount)
   const rest = Number(snap?.restPay)
@@ -573,7 +582,9 @@ function CrmSnapshotPanel({ order, crmStatuses, refreshing, onRefresh }) {
   const shippingLabel = resolvedCrmOption(snap?.shippingMethod, snap?.shippingMethodRaw)
   const paymentUnresolved = /^ID \d+/.test(paymentLabel)
   const shippingUnresolved = /^ID \d+/.test(shippingLabel)
-  const crmAddress = [np.city, np.street, np.house, np.flat].filter(Boolean).join(', ')
+  const crmAddress = snap?.shippingAddress
+    || [np.cityName || np.city, np.address || [np.streetName || np.street, np.house, np.flat].filter(Boolean).join(', ')].filter(Boolean).join(', ')
+    || [up.cityName || up.city, up.branchName || up.branch, up.streetName || up.street, up.house, up.flat].filter(Boolean).join(', ')
   const localDestination = [order.delivery_city, order.delivery_address].filter(Boolean).join(', ')
   const cargoLabel = CRM_NP_CARGO[np.cargoType || deliveryData.cargoType] || np.cargoType || deliveryData.cargoType || ''
   const deliveryPaymentLabel = CRM_NP_PAYMENT[np.paymentMethod || deliveryData.paymentMethod] || np.paymentMethod || deliveryData.paymentMethod || ''
@@ -619,7 +630,7 @@ function CrmSnapshotPanel({ order, crmStatuses, refreshing, onRefresh }) {
               <div>
                 <span className="crm-primary-label">Спосіб доставки</span>
                 <strong className={shippingUnresolved ? 'crm-unresolved' : ''}>{shippingLabel}</strong>
-                <small>{CRM_DELIVERY[deliveryCode] || deliveryStatus || localDestination || 'Деталі служби доставки ще не заповнені'}</small>
+                <small>{CRM_DELIVERY[deliveryCode] || deliveryStatusLabel || crmAddress || localDestination || 'Деталі служби доставки ще не заповнені'}</small>
               </div>
             </div>
             <div className="crm-primary-card">
@@ -692,10 +703,16 @@ function CrmSnapshotPanel({ order, crmStatuses, refreshing, onRefresh }) {
               <div className="crm-section-head compact"><div><h3>Доставка</h3><p>ТТН і стан перевізника із SalesDrive</p></div></div>
               <div className="crm-detail-list">
                 <div><span>Тип</span><strong>{CRM_DELIVERY[deliveryCode] || shippingLabel}</strong></div>
+                <div><span>Перевізник</span><strong>{np.provider === 'novaposhta' ? 'Нова пошта' : up.provider === 'ukrposhta' ? 'Укрпошта' : deliveryData.provider || shippingLabel}</strong></div>
                 <div><span>ТТН</span><strong>{ttn || 'Ще не створена'}</strong></div>
-                <div><span>Статус</span><strong>{deliveryStatus || '—'}</strong></div>
+                {deliveryItems.length > 1 && <div><span>Відправлень у CRM</span><strong>{deliveryItems.length}</strong></div>}
+                <div><span>Статус</span><strong>{deliveryStatusLabel || '—'}</strong></div>
+                {deliveryCost !== null && deliveryCost !== undefined && deliveryCost !== '' && <div><span>Вартість доставки</span><strong>{crmAmount(deliveryCost)}</strong></div>}
+                {(np.ref || up.ref || deliveryData.trackingNumberRef) && <div className="crm-detail-wide"><span>Ref ТТН</span><strong className="crm-break">{np.ref || up.ref || deliveryData.trackingNumberRef}</strong></div>}
                 {localDestination && <div className="crm-detail-wide"><span>Адреса з ELFAR</span><strong>{localDestination}</strong></div>}
                 {crmAddress && <div className="crm-detail-wide"><span>Адреса/Ref у CRM</span><strong className="crm-break">{crmAddress}</strong></div>}
+                {(np.areaName || np.regionName) && <div><span>Область / район</span><strong>{[np.areaName, np.regionName].filter(Boolean).join(' · ')}</strong></div>}
+                {np.cityName && <div><span>Місто</span><strong>{[np.cityType, np.cityName].filter(Boolean).join(' ')}</strong></div>}
                 {np.branchNumber && <div><span>Відділення</span><strong>№{np.branchNumber}</strong></div>}
                 {!np.branchNumber && np.branch && <div className="crm-detail-wide"><span>Ref відділення</span><strong className="crm-break">{np.branch}</strong></div>}
                 {np.postpaySum !== null && np.postpaySum !== undefined && np.postpaySum !== '' && <div><span>Післяплата</span><strong>{crmAmount(np.postpaySum)}</strong></div>}

@@ -98,6 +98,58 @@ async def force_cache_check():
 
 checks["force refresh does not hide outage behind stale cache"] = asyncio.run(force_cache_check())
 
+
+modern_row = {
+    "id": 6387, "formId": 1, "version": 17, "statusId": 5,
+    "shipping_method": 1, "payment_method": "6",
+    "shipping_address": "м. Київ, відділення №71", "shipping_costs": 107.98,
+    "primaryContact": {
+        "lName": "Слюсар", "fName": "Ганна", "mName": "Петрівна",
+        "phone": ["380997243892"], "email": ["client@example.com"],
+        "counterpartyId": 56,
+    },
+    "products": [{
+        "productId": 1234, "text": "Вечернее платье синее S",
+        "nameTranslate": "Вечірня сукня синя S", "documentName": "Сукня синя S (FR5654)",
+        "sku": "FR5654", "amount": 1, "price": 5740,
+    }],
+    "ord_delivery_data": [{
+        "senderId": 1, "idEntity": 1, "provider": "novaposhta",
+        "type": "WarehouseWarehouse", "trackingNumber": "20451540075558",
+        "trackingNumberRef": "0a5ea215-9653-11f0-a1d5-48df37b921da",
+        "statusCode": 1, "deliveryDateAndTime": "2026-09-20 01:00:00",
+        "areaName": "Київська", "cityName": "Київ", "cityType": "м.",
+        "branchNumber": 71, "branchRef": "branch-ref",
+        "address": "Відділення №71", "payer": "Recipient",
+        "hasPostpay": 0, "paymentMethod": "Cash", "cargoType": "Parcel",
+    }],
+}
+modern = salesdrive._snapshot(modern_row, body={})
+modern_tracking = salesdrive._tracking_from(modern_row)
+checks.update({
+    "order-list ord_delivery_data list yields Nova Poshta TTN": (
+        modern["novaposhta"]["ttn"] == "20451540075558"
+        and modern["novaposhta"]["ref"].startswith("0a5ea215")
+    ),
+    "order-list generic delivery keeps route and address": (
+        modern["novaposhta"]["delivery"] == "WarehouseWarehouse"
+        and modern["novaposhta"]["branchNumber"] == 71
+        and modern["novaposhta"]["cityName"] == "Київ"
+        and modern["novaposhta"]["address"] == "Відділення №71"
+    ),
+    "shipping_costs enriches single CRM waybill cost": (
+        modern["shippingCosts"] == 107.98 and modern["novaposhta"]["cost"] == 107.98
+        and modern_tracking[2] == salesdrive.Decimal("107.98")
+    ),
+    "primaryContact fallback is normalized": (
+        modern["contact"]["phone"] == "380997243892"
+        and modern["contact"]["email"] == "client@example.com"
+        and modern["contact"]["counterpartyId"] == 56
+    ),
+    "current product name fields are normalized": modern["products"][0]["name"] == "Вечірня сукня синя S",
+    "generic tracking field is explicit for webhook sync": salesdrive._tracking_explicitly_present(modern_row),
+})
+
 for label, ok in checks.items():
     print(("✓" if ok else "✗"), label)
 assert all(checks.values())
