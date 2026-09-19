@@ -21,6 +21,8 @@ router = APIRouter(dependencies=[Depends(require_staff)])
 @router.get("", response_model=list[OrderOut])
 async def list_orders(
     status: OrderStatus | None = None,
+    crm_status_id: str | None = Query(None, max_length=32),
+    legacy_only: bool = False,
     search: str | None = None,
     # Дати у форматі YYYY-MM-DD, обидві межі включно
     date_from: str | None = Query(None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
@@ -30,9 +32,26 @@ async def list_orders(
     repo: Repository = Depends(get_repo),
 ):
     return await repo.list_orders(
-        status=status, search=search, date_from=date_from, date_to=date_to,
-        limit=limit, offset=offset,
+        status=status, crm_status_id=crm_status_id, legacy_only=legacy_only,
+        search=search, date_from=date_from, date_to=date_to, limit=limit, offset=offset,
     )
+
+
+@router.get("/salesdrive-statuses")
+async def salesdrive_statuses(repo: Repository = Depends(get_repo)):
+    """Поточний довідник статусів SalesDrive для робочих екранів панелі.
+
+    Це не налаштування інтеграції, тому доступ має весь staff: менеджеру
+    потрібні ті самі актуальні статуси, що й системному адміністратору.
+    """
+    from shop.services import salesdrive
+    from shop.services.shop_settings import get_shop_settings
+
+    shop = await get_shop_settings(repo)
+    try:
+        return {"statuses": await salesdrive.status_options(shop)}
+    except salesdrive.SalesDriveError as exc:
+        raise HTTPException(502, str(exc)) from exc
 
 
 @router.get("/{order_id}", response_model=OrderOut)
@@ -51,7 +70,10 @@ async def get_order(order_id: int, repo: Repository = Depends(get_repo)):
     if not order:
         raise HTTPException(404, "Замовлення не знайдено")
 
-    if order.status == OrderStatus.NEW:
+    # CRM-linked замовлення не змінюємо самим фактом відкриття картки.
+    # Їхній статус є авторитетним у SalesDrive; автоматичний local NEW→ACCEPTED
+    # раніше міг одразу поставити зворотну зміну в CRM і перетерти роботу менеджера.
+    if order.status == OrderStatus.NEW and not order.crm_id:
         await change_order_status(repo, order, OrderStatus.ACCEPTED)
         order = await repo.get_order(order_id)
         bot = _bot()

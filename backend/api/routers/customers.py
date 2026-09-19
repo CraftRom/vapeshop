@@ -75,6 +75,8 @@ async def customer_orders(customer_id: int, repo: Repository = Depends(get_repo)
     return [
         {
             "id": o.id, "status": o.status.value, "total": o.total,
+            "crm_id": o.crm_id, "crm_status_id": o.crm_status_id,
+            "crm_status_name": o.crm_status_name, "crm_fetched_at": o.crm_fetched_at,
             "created_at": o.created_at,
             "items": [{"name": ln.name, "qty": ln.qty, "price": ln.price} for ln in o.items],
         }

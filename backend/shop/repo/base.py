@@ -173,6 +173,7 @@ class Repository(ABC):
         self, status: OrderStatus | None = None, search: str | None = None,
         user_id: int | None = None, date_from: str | None = None,
         date_to: str | None = None, limit: int = 100, offset: int = 0,
+        crm_status_id: str | None = None, legacy_only: bool = False,
     ) -> list[Order]: ...
 
     @abstractmethod
@@ -191,6 +192,11 @@ class Repository(ABC):
 
     @abstractmethod
     async def status_breakdown(self) -> dict[str, int]: ...
+
+    @abstractmethod
+    async def display_status_breakdown(self) -> list[dict]:
+        """Статуси так, як їх бачить панель: SalesDrive для CRM-замовлень, local для legacy."""
+        ...
 
     # ----------------------------------------------------------- promos
 

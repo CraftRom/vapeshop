@@ -3985,3 +3985,88 @@ button.support-stat:hover { border-color: rgba(139, 123, 240, 0.38); }
 .crm-live-products>div span{color:var(--muted);font-size:12px;text-align:right}
 .crm-live-note{margin:10px 0 0}
 @media(max-width:720px){.crm-live-head{flex-direction:column}.crm-live-grid{grid-template-columns:1fr}.crm-live-products>div{flex-direction:column;gap:3px}.crm-live-products>div span{text-align:left}}
+
+/* 1.38.0 — один візуальний статус замовлення у всій панелі.
+   Для CRM-linked замовлень колір не кодує бізнес-етап: назви статусів у
+   SalesDrive довільні й можуть змінюватися без релізу панелі. */
+.order-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  max-width: 100%;
+  min-height: 28px;
+  padding: 4px 9px 4px 5px;
+  border: 1px solid rgba(139, 123, 240, .30);
+  border-radius: 9px;
+  background: rgba(139, 123, 240, .09);
+  color: var(--text);
+  line-height: 1.15;
+  vertical-align: middle;
+}
+.order-status-badge strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12.5px;
+  font-weight: 760;
+}
+.order-status-badge .order-status-source {
+  display: inline-flex;
+  align-items: center;
+  min-height: 18px;
+  padding: 2px 5px;
+  border-radius: 6px;
+  background: rgba(139, 123, 240, .16);
+  color: #c4bcff;
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: .055em;
+  text-transform: uppercase;
+  flex: 0 0 auto;
+}
+.order-status-badge.legacy {
+  border-style: dashed;
+  border-color: rgba(255, 255, 255, .14);
+  background: rgba(255, 255, 255, .025);
+  color: var(--muted);
+}
+.order-status-badge.legacy .order-status-source {
+  background: rgba(255, 255, 255, .055);
+  color: var(--muted);
+}
+.order-status-badge.compact {
+  min-height: 24px;
+  padding: 3px 7px 3px 4px;
+  gap: 5px;
+  border-radius: 7px;
+}
+.order-status-badge.compact strong { font-size: 11.5px; }
+.order-status-badge.compact .order-status-source { min-height: 16px; font-size: 8.5px; padding: 1px 4px; }
+
+.order-current-status {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 4px 0 12px;
+  padding: 11px 12px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: rgba(255,255,255,.018);
+}
+.order-current-status > div { display: grid; gap: 6px; min-width: 0; }
+.order-status-freshness { text-align: right; font-size: 11px; }
+.order-quick-status { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.status-breakdown-row { min-height: 30px; }
+.filter-status-warning { display: block; margin-top: 4px; max-width: 230px; color: var(--amber); font-size: 10.5px; line-height: 1.25; }
+.order-row.status-crm { border-left-color: rgba(139, 123, 240, .36); }
+.order-crm-status-select:disabled { opacity: .58; cursor: not-allowed; }
+
+@media (max-width: 760px) {
+  .order-current-status { align-items: flex-start; flex-direction: column; }
+  .order-status-freshness { text-align: left; }
+  .order-quick-status { align-items: flex-start; flex-direction: column; }
+  .order-status-badge { max-width: 100%; }
+}

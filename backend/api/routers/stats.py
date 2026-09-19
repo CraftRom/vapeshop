@@ -56,8 +56,24 @@ async def top_products(
 
 @router.get("/status-breakdown")
 async def status_breakdown(repo: Repository = Depends(get_repo)):
-    breakdown = await repo.status_breakdown()
-    return [{"status": status, "count": count} for status, count in breakdown.items()]
+    """Ті самі статуси, які бачить панель у замовленнях.
+
+    Для CRM-linked записів ID зберігається біля замовлення, а назва за
+    можливості звіряється з актуальним довідником SalesDrive. Якщо CRM
+    тимчасово недоступна, панель не падає й показує останню відому назву.
+    """
+    rows = await repo.display_status_breakdown()
+    from shop.services import salesdrive
+    from shop.services.shop_settings import get_shop_settings
+    shop = await get_shop_settings(repo)
+    try:
+        names = {x["id"]: x["name"] for x in await salesdrive.status_options(shop)}
+    except salesdrive.SalesDriveError:
+        names = {}
+    for row in rows:
+        if row.get("source") == "crm" and names.get(str(row.get("status") or "")):
+            row["name"] = names[str(row["status"])]
+    return rows
 
 
 @router.get("/insights")

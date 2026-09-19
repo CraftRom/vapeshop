@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 
 import { api } from '../api'
 import { useFilters } from '../components/useFilters'
-import { STATUS_LABELS } from '../components/StatusRail'
+import { OrderStatusBadge } from '../components/OrderStatus'
 import { Empty, ErrorBar, Field, Loading, Modal, date, money, useToast } from '../components/ui'
 
 function BonusForm({ customer, onClose, onSaved }) {
@@ -93,7 +93,7 @@ function CustomerOrders({ customer, onClose }) {
                   <td className="faint">{date(o.created_at)}</td>
                   <td className="faint">{o.items.map((i) => `${i.name} ×${i.qty}`).join(', ')}</td>
                   <td className="num">{money(o.total)}</td>
-                  <td className="muted">{STATUS_LABELS[o.status] || o.status}</td>
+                  <td><OrderStatusBadge order={o} compact /></td>
                 </tr>
               ))}
             </tbody>

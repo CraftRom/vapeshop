@@ -2,7 +2,8 @@ import { memo, useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 
 import { api, isSysadmin } from '../api'
-import StatusRail, { STATUS_LABELS, allowedFrom } from '../components/StatusRail'
+import { STATUS_LABELS, allowedFrom } from '../components/StatusRail'
+import { OrderStatusBadge, SalesDriveStatusSelect } from '../components/OrderStatus'
 import { Empty, ErrorBar, Field, Info, Loading, Modal, dateTime, money, useToast } from '../components/ui'
 import { useFilters } from '../components/useFilters'
 import { useVisiblePolling } from '../components/useVisiblePolling'
@@ -13,21 +14,16 @@ const DELIVERY_METHODS = {
   courier: 'Курʼєр',
 }
 
-const FILTERS = [
-  { value: '', label: 'Усі' },
-  { value: 'new', label: 'Нові' },
-  // «Прийняті», а не «Підтверджені»: крок підтвердження прибрано, і саме
-  // в «Прийнято» тепер стоїть більшість замовлень — його й треба вміти
-  // відібрати. Фільтра на прибраний крок немає навмисно: він показував би
-  // лише спадкові рядки, яких після міграції не лишилось.
-  { value: 'accepted', label: 'Прийняті' },
-  { value: 'paid', label: 'Оплачені' },
-  { value: 'shipped', label: 'Відправлені' },
-  { value: 'done', label: 'Виконані' },
-  { value: 'cancelled', label: 'Скасовані' },
+const LEGACY_FILTERS = [
+  { value: 'new', label: 'Нове' },
+  { value: 'accepted', label: 'Прийняте в роботу' },
+  { value: 'paid', label: 'Оплачене' },
+  { value: 'shipped', label: 'Відправлене' },
+  { value: 'done', label: 'Виконане' },
+  { value: 'cancelled', label: 'Скасоване' },
 ]
 
-function OrderDetails({ order, onClose, onSaved }) {
+function OrderDetails({ order, onClose, onSaved, crmStatuses = [] }) {
   const notify = useToast()
   const [note, setNote] = useState(order.admin_note || '')
   const [busy, setBusy] = useState(false)
@@ -63,6 +59,10 @@ function OrderDetails({ order, onClose, onSaved }) {
       }
     >
       <div className="stack">
+        <div className="order-quick-status">
+          <span className="faint">Актуальний статус</span>
+          <OrderStatusBadge order={order} crmStatuses={crmStatuses} />
+        </div>
         <div className="table-wrap">
           <table>
             <thead>
@@ -164,7 +164,6 @@ const OrderRow = memo(function OrderRow({
   order,
   unreadCount,
   canDelete,
-  onStatusChange,
   onQuickView,
   onCancel,
   onRemove,
@@ -175,7 +174,7 @@ const OrderRow = memo(function OrderRow({
   const itemQty = order.items.reduce((sum, item) => sum + Number(item.qty || 0), 0)
 
   return (
-    <article className={`order-row status-${order.status}${unreadCount > 0 ? ' has-unread-messages' : ''}`}>
+    <article className={`order-row ${order.crm_id ? 'status-crm' : `status-${order.status}`}${unreadCount > 0 ? ' has-unread-messages' : ''}`}>
       <div className="order-primary">
         <div className="order-id-line">
           <Link to={`/orders/${order.id}`} className="id-tag">#{order.id}</Link>
@@ -213,26 +212,19 @@ const OrderRow = memo(function OrderRow({
       <div className="order-workflow">
         <div className="order-status-title">
           <span className="faint">Поточний статус</span>
-          <strong>{order.crm_id ? (order.crm_status_name || crmStatuses.find((x) => String(x.id) === String(order.crm_status_id))?.name || 'SalesDrive') : (STATUS_LABELS[order.status] || order.status)}</strong>
+          <OrderStatusBadge order={order} crmStatuses={crmStatuses} />
           <span className="order-payment">
             {order.payment_method === 'card' ? 'Картка' : 'Накладений платіж'}
           </span>
         </div>
         {order.crm_id ? (
-          <select
-            className="order-crm-status-select"
-            value={order.crm_status_id || ''}
-            onChange={(e) => {
-              const option = crmStatuses.find((x) => String(x.id) === e.target.value)
-              if (option) onCrmStatusChange(order, option)
-            }}
-            aria-label={`Статус SalesDrive замовлення №${order.id}`}
-          >
-            {!order.crm_status_id && <option value="">Оберіть статус SalesDrive</option>}
-            {crmStatuses.map((item) => <option key={item.id} value={String(item.id)}>{item.name}</option>)}
-          </select>
+          <SalesDriveStatusSelect
+            order={order}
+            statuses={crmStatuses}
+            onChange={(option) => onCrmStatusChange(order, option)}
+          />
         ) : (
-          <div className="legacy-status-note">Legacy: {STATUS_LABELS[order.status] || order.status} · не синхронізується з CRM</div>
+          <div className="legacy-status-note">Історичне замовлення · статус ведеться локально і не синхронізується з CRM</div>
         )}
         <div className="orders-actions">
           <Link className="btn small order-open" to={`/orders/${order.id}`}>
@@ -283,12 +275,20 @@ export default function Orders() {
   // Клієнт відповідає в боті, тож панель має сама помічати нові повідомлення
   const [unread, setUnread] = useState({})
   const [crmStatuses, setCrmStatuses] = useState([])
+  const [crmStatusesError, setCrmStatusesError] = useState('')
 
   const load = useCallback(async () => {
     setError('')
     try {
+      const crmFilter = status.startsWith('crm:') ? status.slice(4) : ''
+      const legacyFilter = status.startsWith('legacy:')
+        ? status.slice(7)
+        : LEGACY_FILTERS.some((item) => item.value === status) ? status : ''
       setOrders(await api.orders.list({
-        status, search,
+        crm_status_id: crmFilter || undefined,
+        status: legacyFilter || undefined,
+        legacy_only: legacyFilter ? true : undefined,
+        search,
         // Порожнє поле не надсилаємо: бекенд перевіряє формат дати
         date_from: dateFrom || undefined,
         date_to: dateTo || undefined,
@@ -303,11 +303,21 @@ export default function Orders() {
     return () => clearTimeout(timer)
   }, [load, search])
 
-  useEffect(() => {
-    api.settings.salesdriveDictionaries()
-      .then((data) => setCrmStatuses(Array.isArray(data?.statuses) ? data.statuses : []))
-      .catch(() => setCrmStatuses([]))
+  const loadCrmStatuses = useCallback(async () => {
+    try {
+      const data = await api.orders.salesdriveStatuses()
+      setCrmStatuses(Array.isArray(data?.statuses) ? data.statuses : [])
+      setCrmStatusesError('')
+    } catch (err) {
+      // Не стираємо вже відомий довідник при короткому збої CRM: поточні
+      // order.crm_status_* лишаються видимими, а менеджер бачить попередження.
+      setCrmStatusesError(err.message || 'Не вдалося прочитати статуси SalesDrive')
+    }
   }, [])
+
+  useEffect(() => {
+    loadCrmStatuses()
+  }, [loadCrmStatuses])
 
   const loadUnread = useCallback(async () => {
     const next = await api.orders.unread()
@@ -320,6 +330,13 @@ export default function Orders() {
   // достатньо для індикатора у списку, а повернення на вкладку оновлює його
   // негайно через useVisiblePolling.
   useVisiblePolling(loadUnread, 45000, { immediate: true })
+  // Webhook оновлює crm_status_* у backend; список підтягує ці зміни без
+  // перезавантаження сторінки. На прихованій вкладці polling зупиняється.
+  useVisiblePolling(load, 60000)
+  // Назви/набір статусів теж належать CRM. Вони змінюються рідко, тому
+  // перечитуємо довідник окремо раз на 5 хвилин і одразу після повернення
+  // на вкладку, не збільшуючи частоту важчого order-list API.
+  useVisiblePolling(loadCrmStatuses, 300000)
 
   const changeStatus = useCallback(async (order, next) => {
     // Відправлення потребує накладної, а вікно для неї — на сторінці
@@ -351,7 +368,7 @@ export default function Orders() {
     const previousName = order.crm_status_name
     setOrders((list) => list?.map((o) => o.id === order.id ? { ...o, crm_status_id: String(option.id), crm_status_name: option.name } : o))
     try {
-      const updated = await api.orders.salesdriveStatus(order.id, option.id, option.name)
+      const updated = await api.orders.salesdriveStatus(order.id, option.id)
       setOrders((list) => list?.map((o) => o.id === order.id ? updated : o))
       notify(`Замовлення №${order.id}: ${option.name}`)
     } catch (err) {
@@ -419,7 +436,7 @@ export default function Orders() {
       <div className="page-head">
         <div>
           <h1>Замовлення</h1>
-          <p>Клік по етапу переводить замовлення далі — клієнт одразу отримає сповіщення</p>
+          <p>CRM-замовлення показують актуальний статус SalesDrive; legacy лишаються окремо</p>
         </div>
       </div>
 
@@ -427,11 +444,26 @@ export default function Orders() {
         <div className="orders-filters">
           <label className="filter-field filter-status">
             <span>Статус</span>
-            <select className="input" value={status} onChange={(e) => setStatus(e.target.value)}>
-              {FILTERS.map((f) => (
-                <option key={f.value} value={f.value}>{f.label}</option>
-              ))}
+            <select
+              className="input"
+              value={status && !status.includes(':') ? `legacy:${status}` : status}
+              onChange={(e) => setStatus(e.target.value)}
+            >
+              <option value="">Усі статуси</option>
+              {crmStatuses.length > 0 && (
+                <optgroup label="SalesDrive">
+                  {crmStatuses.map((item) => (
+                    <option key={item.id} value={`crm:${item.id}`}>{item.name}</option>
+                  ))}
+                </optgroup>
+              )}
+              <optgroup label="Legacy (старі замовлення)">
+                {LEGACY_FILTERS.map((item) => (
+                  <option key={item.value} value={`legacy:${item.value}`}>{item.label}</option>
+                ))}
+              </optgroup>
             </select>
+            {crmStatusesError && <small className="filter-status-warning">CRM недоступна: показуємо останні збережені статуси</small>}
           </label>
           <label className="filter-field filter-search">
             <span>Пошук</span>
@@ -473,7 +505,7 @@ export default function Orders() {
               Скинути дати
             </button>
           )}
-          <button className="btn ghost small" onClick={load}>Оновити</button>
+          <button className="btn ghost small" onClick={() => { load(); loadCrmStatuses() }}>Оновити</button>
           {isSysadmin() && (
             <button className="btn danger small" onClick={purgeAll}>
               Стерти всі
@@ -542,12 +574,11 @@ export default function Orders() {
                 order={order}
                 unreadCount={Number(unread[order.id] || 0)}
                 canDelete={canDelete}
-                onStatusChange={changeStatus}
                 onQuickView={setSelected}
                 onCancel={cancelOrder}
                 onRemove={removeOrder}
-              crmStatuses={crmStatuses}
-              onCrmStatusChange={changeCrmStatus}
+                crmStatuses={crmStatuses}
+                onCrmStatusChange={changeCrmStatus}
               />
             ))}
           </div>
@@ -561,6 +592,7 @@ export default function Orders() {
           onSaved={(updated) =>
             setOrders((list) => list.map((o) => (o.id === updated.id ? updated : o)))
           }
+          crmStatuses={crmStatuses}
         />
       )}
     </>

@@ -141,7 +141,9 @@ class OrderPatch(BaseModel):
 
 class SalesDriveStatusPatch(BaseModel):
     status_id: str = Field(..., min_length=1, max_length=32)
-    status_name: str = Field(..., min_length=1, max_length=128)
+    # Старі збірки панелі ще надсилають назву. Сервер її не довіряє:
+    # актуальний підпис завжди читається з довідника SalesDrive за status_id.
+    status_name: str | None = Field(None, max_length=128)
 
 
 class OrderMessageIn(BaseModel):

@@ -3,7 +3,8 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 
 import { api, getToken } from '../api'
 import { ErrorBar, Field, Info, Loading, Modal, money, useToast } from '../components/ui'
-import { allowedFrom, stagesFor } from '../components/StatusRail'
+import { STATUS_LABELS, allowedFrom } from '../components/StatusRail'
+import { OrderStatusBadge, SalesDriveStatusSelect } from '../components/OrderStatus'
 import { useVisiblePolling } from '../components/useVisiblePolling'
 
 // Спосіб доставки, обраний покупцем. Порожнє значення — замовлення з
@@ -13,15 +14,6 @@ const DELIVERY_METHODS = {
   courier: 'Курʼєр',
 }
 
-
-
-const STAGE_LABELS = {
-  new: 'Нове',
-  accepted: 'Прийнято',
-  paid: 'Оплачено',
-  shipped: 'Відправлено',
-  done: 'Виконано',
-}
 
 function timestamp(value) {
   if (!value) return ''
@@ -412,11 +404,18 @@ export default function OrderPage() {
     load()
   }, [load])
 
-  useEffect(() => {
-    api.settings.salesdriveDictionaries()
-      .then((data) => setCrmStatuses(Array.isArray(data?.statuses) ? data.statuses : []))
-      .catch(() => setCrmStatuses([]))
+  const loadCrmStatuses = useCallback(async () => {
+    try {
+      const data = await api.orders.salesdriveStatuses()
+      setCrmStatuses(Array.isArray(data?.statuses) ? data.statuses : [])
+    } catch {
+      // Коротка недоступність CRM не має прибирати вже завантажені назви.
+    }
   }, [])
+
+  useEffect(() => {
+    loadCrmStatuses()
+  }, [loadCrmStatuses])
 
   const refreshCrm = useCallback(async (quiet = false) => {
     if (!order?.crm_id || crmRefreshing) return
@@ -439,6 +438,12 @@ export default function OrderPage() {
       refreshCrm(true)
     }
   }, [order?.crm_id, crmAutoRefreshed, refreshCrm])
+
+  // Поки картка відкрита, періодично перечитуємо саме заявку SalesDrive.
+  // 120 с не перевантажує order-list API, але не залишає менеджеру старий
+  // статус після зміни в CRM з іншої вкладки/телефону.
+  useVisiblePolling(() => refreshCrm(true), 120000, { enabled: Boolean(order?.crm_id) })
+  useVisiblePolling(loadCrmStatuses, 300000, { enabled: Boolean(order?.crm_id) })
 
   // Прийшли зі списку по кнопці «Відпр.» — одразу питаємо накладну
   useEffect(() => {
@@ -565,32 +570,38 @@ export default function OrderPage() {
               </div>
             </section>
 
+            <div className="order-current-status">
+              <div>
+                <span className="faint">Актуальний статус замовлення</span>
+                <OrderStatusBadge order={order} crmStatuses={crmStatuses} />
+              </div>
+              {order.crm_id && (
+                <span className="faint order-status-freshness">
+                  {order.crm_fetched_at ? `Прочитано з CRM: ${timestamp(order.crm_fetched_at)}` : 'Очікує першого читання з CRM'}
+                </span>
+              )}
+            </div>
+
             {order.crm_id ? (
               <div className="order-status-actions">
-                <label className="faint" htmlFor="crm-order-status">Статус SalesDrive</label>
-                <select
-                  id="crm-order-status"
-                  className="order-crm-status-select"
-                  value={order.crm_status_id || ''}
+                <label className="faint" htmlFor="crm-order-status">Змінити статус у SalesDrive</label>
+                <SalesDriveStatusSelect
+                  order={order}
+                  statuses={crmStatuses}
                   disabled={busy}
-                  onChange={async (e) => {
-                    const option = crmStatuses.find((x) => String(x.id) === e.target.value)
-                    if (!option) return
+                  onChange={async (option) => {
                     setBusy(true)
                     try {
-                      const fresh = await api.orders.salesdriveStatus(order.id, option.id, option.name)
+                      const fresh = await api.orders.salesdriveStatus(order.id, option.id)
                       setOrder(fresh)
-                      notify(`Статус SalesDrive: ${option.name}`)
+                      notify(`Статус SalesDrive: ${fresh.crm_status_name || option.name}`)
                     } catch (err) { notify(err.message, 'bad') }
                     finally { setBusy(false) }
                   }}
-                >
-                  {!order.crm_status_id && <option value="">Оберіть статус</option>}
-                  {crmStatuses.map((item) => <option key={item.id} value={String(item.id)}>{item.name}</option>)}
-                </select>
+                />
               </div>
             ) : (
-              <div className="legacy-status-note">Legacy-статус: {STAGE_LABELS[order.status] || order.status}. Це старе замовлення не переноситься в CRM.</div>
+              <div className="legacy-status-note">Legacy-статус: {STATUS_LABELS[order.status] || order.status}. Це історичне замовлення без звʼязку із SalesDrive.</div>
             )}
 
             {order.crm_id && (
@@ -598,10 +609,10 @@ export default function OrderPage() {
                 <div className="crm-live-head">
                   <div>
                     <div className="order-payment-kicker">SalesDrive · заявка {order.crm_id}</div>
-                    <strong>{order.crm_status_name || 'Статус завантажується…'}</strong>
+                    <OrderStatusBadge order={order} crmStatuses={crmStatuses} compact />
                     <div className="faint">{order.crm_fetched_at ? `Прочитано з CRM: ${timestamp(order.crm_fetched_at)}` : 'Ще не читали стан заявки через API'}</div>
                   </div>
-                  <button className="btn ghost small" disabled={crmRefreshing} onClick={() => refreshCrm(false)}>
+                  <button className="btn ghost small" disabled={crmRefreshing} onClick={() => { refreshCrm(false); loadCrmStatuses() }}>
                     {crmRefreshing ? 'Оновлення…' : 'Оновити з CRM'}
                   </button>
                 </div>

@@ -93,6 +93,7 @@ run_node bridge-runtime tests/legacy-bridge-runtime.mjs
 run_node field-guard tests/field-guard.mjs
 run_node text-input tests/text-input.mjs
 run_node design tests/storefront-design.mjs
+run_node crm-status-ui tests/crm-status-source.mjs dashboard
 run_node filters tests/filters.mjs dashboard
 run_node catalog-ux tests/catalog-ux.mjs dashboard
 run_node support-ux tests/support-ux.mjs dashboard
@@ -152,6 +153,7 @@ run salesdrive qa/qa_salesdrive.py
 run sd-dicts qa/qa_salesdrive_dictionaries.py
 run sd-no-backfill qa/qa_salesdrive_no_backfill.py
 run sd-read-side qa/qa_salesdrive_read_side.py
+run crm-status qa/qa_crm_status_authority.py
 run salesdrive-source qa/qa_salesdrive_source_guard.py
 run wishlists qa/qa_wishlists.py
 run performance qa/qa_perf.py

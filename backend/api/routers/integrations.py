@@ -86,24 +86,9 @@ async def _sd_get(client, shop, path: str):
 
 
 def _dictionary_items(payload) -> list[dict]:
-    """Нормалізує різні версії відповідей довідникових endpoint SalesDrive."""
-    if isinstance(payload, list):
-        rows = payload
-    elif isinstance(payload, dict):
-        rows = next((payload[k] for k in ("data", "items", "list", "results")
-                     if isinstance(payload.get(k), list)), [])
-    else:
-        rows = []
-    result = []
-    for row in rows:
-        if not isinstance(row, dict):
-            continue
-        ident = row.get("id", row.get("value", row.get("statusId")))
-        name = row.get("name", row.get("label", row.get("title")))
-        if ident is None or name is None:
-            continue
-        result.append({"id": str(ident), "name": str(name).strip()})
-    return result
+    # Backwards-compatible wrapper: єдині правила нормалізації живуть у service.
+    from shop.services import salesdrive
+    return salesdrive.dictionary_items(payload)
 
 
 @router.get("/salesdrive/dictionaries")

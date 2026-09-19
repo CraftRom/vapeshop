@@ -308,6 +308,83 @@ def _headers(shop) -> dict:
     return headers
 
 
+def _read_headers(shop) -> dict:
+    """Авторизація read API SalesDrive.
+
+    SalesDrive у поточній документації приймає X-Api-Key; старі акаунти й
+    частина endpoint також працюють з Form-Api-Key. Відправляємо обидва з
+    тим самим read-key — це сумісно з обома варіантами й уже використовується
+    в інших read-side запитах проєкту.
+    """
+    key = str(getattr(shop, "salesdrive_api_key", "") or "").strip()
+    return {"Accept": "application/json", "Form-Api-Key": key, "X-Api-Key": key}
+
+
+def dictionary_items(payload) -> list[dict]:
+    """Нормалізований довідник SalesDrive ``[{id, name}]``.
+
+    У різних версіях API список приходив напряму або під data/items/list/results.
+    Панель і backend користуються одним нормалізатором, щоб назва статусу не
+    визначалася окремо в двох місцях.
+    """
+    if isinstance(payload, list):
+        rows = payload
+    elif isinstance(payload, dict):
+        rows = next((payload[k] for k in ("data", "items", "list", "results")
+                     if isinstance(payload.get(k), list)), [])
+    else:
+        rows = []
+    result = []
+    seen = set()
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        ident = row.get("id", row.get("value", row.get("statusId")))
+        name = row.get("name", row.get("label", row.get("title")))
+        sid = str(ident or "").strip()
+        title = str(name or "").strip()
+        if not sid or not title or sid in seen:
+            continue
+        seen.add(sid)
+        result.append({"id": sid, "name": title})
+    return result
+
+
+async def _get_json(shop, path: str, *, params: dict | None = None):
+    if not (getattr(shop, "salesdrive_domain", "") or "").strip():
+        raise SalesDriveError("Не задано домен SalesDrive", temporary=False)
+    if not getattr(shop, "salesdrive_api_connected", False):
+        raise SalesDriveError("Не задано API-ключ SalesDrive", temporary=False)
+    try:
+        async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT, follow_redirects=False) as client:
+            response = await client.get(base_url(shop) + path, params=params, headers=_read_headers(shop))
+    except httpx.TimeoutException as exc:
+        raise SalesDriveError("SalesDrive не відповів вчасно") from exc
+    except httpx.HTTPError as exc:
+        raise SalesDriveError(f"SalesDrive недоступний: {type(exc).__name__}") from exc
+    if response.status_code in (401, 403):
+        raise SalesDriveError("SalesDrive відхилив API-ключ", temporary=False)
+    if response.status_code == 429 or response.status_code >= 500:
+        raise SalesDriveError(f"SalesDrive тимчасово відмовив ({response.status_code})")
+    if response.status_code >= 400:
+        raise SalesDriveError(f"SalesDrive відповів {response.status_code} для {path}", temporary=False)
+    try:
+        return response.json()
+    except ValueError as exc:
+        raise SalesDriveError("SalesDrive повернув некоректну відповідь", temporary=False) from exc
+
+
+async def status_options(shop) -> list[dict]:
+    """Поточний довідник статусів прямо з CRM."""
+    return dictionary_items(await _get_json(shop, "/api/statuses/"))
+
+
+def status_name_from_options(status_id, options: list[dict]) -> str:
+    wanted = str(status_id or "").strip()
+    return next((str(x.get("name") or "").strip() for x in options
+                 if str(x.get("id") or "") == wanted), "")
+
+
 async def _send(shop, path: str, payload: dict) -> dict:
     if telegram_form_id(shop) <= 0:
         raise SalesDriveError("Не вказано ID форми SalesDrive «ELFAR — Telegram Bot»; запис заблоковано", temporary=False)
@@ -560,15 +637,32 @@ async def handle_webhook(repo, payload: dict, *, bot=None) -> dict:
         order = await repo.get_order(order.id) or order
         applied.append("tracking")
 
-    webhook_snapshot = _snapshot(data)
-    await repo.update_order(order.id, {"crm_snapshot": webhook_snapshot, "crm_fetched_at": datetime.now(timezone.utc)})
-
     incoming_status_id = str(data.get("statusId") or "").strip()
     incoming_status_name = str(data.get("statusName") or data.get("status_name") or "").strip()
+
+    # Webhook SalesDrive гарантовано дає нам statusId, а назва залежить від
+    # конфігурації webhook. Тут навмисно НЕ робимо другий HTTP-запит у CRM:
+    # webhook має швидко підтвердити приймання, інакше SalesDrive повторить
+    # доставку. Актуальну назву панель бере з /api/statuses/, а картка заявки
+    # — під час прямого refresh. Якщо ID змінився без назви, стару назву
+    # очищаємо нижче, щоб UI ніколи не підписав новий ID старим текстом.
+    status_names = ({incoming_status_id: incoming_status_name}
+                    if incoming_status_id and incoming_status_name else {})
+
+    webhook_snapshot = _snapshot(data, status_names)
+    if incoming_status_name and not webhook_snapshot.get("statusName"):
+        webhook_snapshot["statusName"] = incoming_status_name
+    await repo.update_order(order.id, {
+        "crm_snapshot": webhook_snapshot, "crm_fetched_at": datetime.now(timezone.utc),
+    })
+
     if incoming_status_id:
-        patch = {"crm_status_id": incoming_status_id}
-        if incoming_status_name:
-            patch["crm_status_name"] = incoming_status_name
+        patch = {
+            "crm_status_id": incoming_status_id,
+            # None важливий: не лишаємо назву попереднього statusId, якщо
+            # webhook надіслав тільки новий ID.
+            "crm_status_name": incoming_status_name or None,
+        }
         await repo.update_order(order.id, patch)
         order = await repo.get_order(order.id) or order
 
@@ -642,35 +736,32 @@ async def pull_order(repo, order_id: int, shop=None) -> Order:
         raise SalesDriveError("Legacy-замовлення не читається із SalesDrive", temporary=False)
     if not shop.salesdrive_api_connected:
         raise SalesDriveError("Не задано API-ключ SalesDrive", temporary=False)
-    params = {"page": 1, "limit": 100, "filter[statusId]": "__ALL__", "filter[id]": str(order.crm_id)}
-    headers = {"Accept": "application/json", "Form-Api-Key": shop.salesdrive_api_key, "X-Api-Key": shop.salesdrive_api_key}
-    try:
-        async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT, follow_redirects=False) as client:
-            response = await client.get(base_url(shop) + "/api/order/list/", params=params, headers=headers)
-    except httpx.HTTPError as exc:
-        raise SalesDriveError(f"SalesDrive недоступний: {type(exc).__name__}") from exc
-    if response.status_code in (401, 403):
-        raise SalesDriveError("SalesDrive відхилив API-ключ", temporary=False)
-    if response.status_code >= 400:
-        raise SalesDriveError(f"SalesDrive не віддав заявку ({response.status_code})")
-    try:
-        body = response.json()
-    except ValueError as exc:
-        raise SalesDriveError("SalesDrive повернув некоректну відповідь") from exc
+    # У SalesDrive фільтр за ID задається діапазоном id[from]/id[to].
+    # Старий filter[id] API ігнорував, тому ми могли взяти першу сторінку
+    # заявок і вирішити, що потрібної заявки в CRM немає.
+    params = {
+        "page": 1, "limit": 100, "filter[statusId]": "__ALL__",
+        "filter[id][from]": str(order.crm_id), "filter[id][to]": str(order.crm_id),
+    }
+    body = await _get_json(shop, "/api/order/list/", params=params)
     rows = _order_list_rows(body)
     row = next((x for x in rows if str(x.get("id") or "") == str(order.crm_id)), None)
     if row is None:
         raise SalesDriveError("Пов'язану заявку не знайдено у відповіді SalesDrive", temporary=False)
-    # Довідник статусів потрібен лише для назви, якщо order-list повернув тільки ID.
+    expected_form = telegram_form_id(shop)
+    try:
+        row_form = int(row.get("formId")) if row.get("formId") not in (None, "") else 0
+    except (TypeError, ValueError):
+        row_form = 0
+    if expected_form > 0 and row_form > 0 and row_form != expected_form:
+        raise SalesDriveError("Заявка належить іншій базі SalesDrive", temporary=False)
+    # order-list повертає statusId, а людина має бачити актуальну назву
+    # саме з довідника CRM. Якщо довідник тимчасово недоступний, ID все одно
+    # зберігаємо — стару назву не вигадуємо.
     status_names = {}
     try:
-        async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT, follow_redirects=False) as client:
-            sr = await client.get(base_url(shop) + "/api/statuses/", headers=headers)
-            if sr.status_code < 400:
-                raw = sr.json()
-                candidates = raw if isinstance(raw, list) else next((raw.get(k) for k in ("data","items","list","results") if isinstance(raw.get(k), list)), []) if isinstance(raw, dict) else []
-                status_names = {str(x.get("id", x.get("statusId", ""))): str(x.get("name", x.get("title", ""))) for x in candidates if isinstance(x, dict)}
-    except Exception:
+        status_names = {x["id"]: x["name"] for x in await status_options(shop)}
+    except SalesDriveError:
         pass
     snap = _snapshot(row, status_names)
     now = datetime.now(timezone.utc)
@@ -686,23 +777,44 @@ async def pull_order(repo, order_id: int, shop=None) -> Order:
     await repo.update_order(order.id, patch)
     return await repo.get_order(order.id) or order
 
-async def set_crm_status(repo, order: Order, status_id: str, status_name: str, shop=None) -> Order:
-    """Змінює авторитетний статус SalesDrive без ручного local→CRM mapping.
+async def set_crm_status(repo, order: Order, status_id: str, status_name: str | None = None, shop=None) -> Order:
+    """Змінює авторитетний статус прямо в SalesDrive.
 
-    Дозволено тільки вже створеним у CRM замовленням. Історичні ELFAR
-    замовлення не створюються і не потрапляють у SalesDrive.
+    ``status_name`` лишено тільки для сумісності зі старими клієнтами й
+    навмисно НЕ довіряємо йому. ID перевіряється за актуальним довідником
+    CRM, а назву сервер бере звідти ж. Так браузер не може записати
+    неіснуючий/застарілий підпис статусу.
     """
     from shop.services.shop_settings import get_shop_settings
     shop = shop or await get_shop_settings(repo)
     if not order.crm_id:
         raise SalesDriveError("Замовлення не пов’язане із SalesDrive", temporary=False)
     sid = str(status_id or "").strip()
-    name = str(status_name or "").strip()
-    if not sid or not name:
+    if not sid:
         raise SalesDriveError("Некоректний статус SalesDrive", temporary=False)
-    await _send(shop, "/api/order/update/", {"form": shop.salesdrive_form_key, "id": order.crm_id, "data": {"statusId": sid}})
-    await repo.update_order(order.id, {"crm_status_id": sid, "crm_status_name": name,
-                                       "crm_state": STATE_SYNCED, "crm_error": None,
-                                       "crm_synced_at": datetime.now(timezone.utc)})
-    return await repo.get_order(order.id) or order
 
+    options = await status_options(shop)
+    name = status_name_from_options(sid, options)
+    if not name:
+        raise SalesDriveError("Статус більше не існує в SalesDrive — оновіть список статусів", temporary=False)
+
+    await _send(shop, "/api/order/update/", {
+        "form": shop.salesdrive_form_key,
+        "id": order.crm_id,
+        "data": {"statusId": sid},
+    })
+
+    now = datetime.now(timezone.utc)
+    patch = {
+        "crm_status_id": sid, "crm_status_name": name,
+        "crm_state": STATE_SYNCED, "crm_error": None, "crm_synced_at": now,
+    }
+    # Не залишаємо в read-model стару назву до наступного pull/webhook.
+    if isinstance(order.crm_snapshot, dict):
+        snapshot = dict(order.crm_snapshot)
+        snapshot["statusId"] = sid
+        snapshot["statusName"] = name
+        patch["crm_snapshot"] = snapshot
+        patch["crm_fetched_at"] = now
+    await repo.update_order(order.id, patch)
+    return await repo.get_order(order.id) or order

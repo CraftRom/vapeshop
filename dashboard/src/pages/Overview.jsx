@@ -2,6 +2,7 @@ import { Suspense, lazy, useEffect, useState } from 'react'
 
 import { api } from '../api'
 import { STATUS_LABELS } from '../components/StatusRail'
+import { StatusBadge } from '../components/OrderStatus'
 import { ErrorBar, Loading, money } from '../components/ui'
 
 const RevenueChart = lazy(() => import('../components/RevenueChart'))
@@ -258,8 +259,15 @@ export default function Overview() {
               <h2>Замовлення за статусами</h2>
               <div className="stack" style={{ marginTop: 14, gap: 10 }}>
                 {data.breakdown.map((row) => (
-                  <div className="row" key={row.status}>
-                    <span style={{ flex: 1 }}>{STATUS_LABELS[row.status] || row.status}</span>
+                  <div className="row status-breakdown-row" key={`${row.source || 'legacy'}:${row.status}`}>
+                    <span style={{ flex: 1 }}>
+                      <StatusBadge
+                        source={row.source || 'legacy'}
+                        id={row.status}
+                        name={row.source === 'crm' ? (row.name || `Статус CRM #${row.status}`) : (STATUS_LABELS[row.status] || row.status)}
+                        compact
+                      />
+                    </span>
                     <span className="mono">{row.count}</span>
                   </div>
                 ))}

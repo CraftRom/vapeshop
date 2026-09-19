@@ -478,7 +478,8 @@ class SqlRepository(Repository):
         return _order(row, with_user=True)
 
     async def list_orders(self, status=None, search=None, user_id=None,
-                          date_from=None, date_to=None, limit=100, offset=0):
+                          date_from=None, date_to=None, limit=100, offset=0,
+                          crm_status_id=None, legacy_only=False):
         query = (
             select(m.Order)
             .options(selectinload(m.Order.items), selectinload(m.Order.user))
@@ -486,6 +487,10 @@ class SqlRepository(Repository):
         )
         if status:
             query = query.where(m.Order.status == status)
+        if crm_status_id is not None:
+            query = query.where(m.Order.crm_id.is_not(None), m.Order.crm_status_id == str(crm_status_id))
+        if legacy_only:
+            query = query.where(m.Order.crm_id.is_(None))
         if user_id:
             query = query.where(m.Order.user_id == user_id)
         if search:
@@ -548,6 +553,38 @@ class SqlRepository(Repository):
             select(m.Order.status, func.count(m.Order.id)).group_by(m.Order.status)
         )
         return {status.value: count for status, count in rows}
+
+    async def display_status_breakdown(self) -> list[dict]:
+        """Групування для панелі без змішування local status із SalesDrive.
+
+        CRM-linked замовлення групуються за statusId/statusName, legacy — за
+        старим локальним status. Завдяки цьому аналітика показує те саме, що
+        список і картка замовлення.
+        """
+        crm_rows = await self.s.execute(
+            select(m.Order.crm_status_id, func.max(m.Order.crm_status_name), func.count(m.Order.id))
+            .where(m.Order.crm_id.is_not(None))
+            .group_by(m.Order.crm_status_id)
+        )
+        legacy_rows = await self.s.execute(
+            select(m.Order.status, func.count(m.Order.id))
+            .where(m.Order.crm_id.is_(None))
+            .group_by(m.Order.status)
+        )
+        result = [
+            {
+                "source": "crm",
+                "status": str(status_id or ""),
+                "name": str(status_name or "").strip(),
+                "count": int(count),
+            }
+            for status_id, status_name, count in crm_rows
+        ]
+        result.extend(
+            {"source": "legacy", "status": status.value, "name": "", "count": int(count)}
+            for status, count in legacy_rows
+        )
+        return result
 
     # ----------------------------------------------------------- promos
 

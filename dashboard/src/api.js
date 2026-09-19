@@ -183,7 +183,10 @@ export const api = {
     // PDF тягне сервер: адреса кабінету Нової пошти містить ключ API
     waybillLabelUrl: (id) => `${BASE}/orders/${id}/waybill/label`,
     crmSync: (id) => request(`/orders/${id}/crm-sync`, { method: 'POST' }),
-    salesdriveStatus: (id, statusId, statusName) => request(`/orders/${id}/salesdrive-status`, { method: 'PATCH', body: { status_id: String(statusId), status_name: statusName } }),
+    // Робочий довідник доступний всім staff і читається напряму з CRM.
+    salesdriveStatuses: () => request('/orders/salesdrive-statuses'),
+    // Назву статусу браузер не надсилає: backend сам звіряє ID з SalesDrive.
+    salesdriveStatus: (id, statusId) => request(`/orders/${id}/salesdrive-status`, { method: 'PATCH', body: { status_id: String(statusId) } }),
     salesdriveRefresh: (id) => request(`/orders/${id}/salesdrive-refresh`, { method: 'POST' }),
     // Вкладення тягнеться через бекенд, а не напряму з Telegram:
     // пряме посилання містило б токен бота у відкритому вигляді
