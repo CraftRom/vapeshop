@@ -194,8 +194,10 @@ class Repository(ABC):
     async def status_breakdown(self) -> dict[str, int]: ...
 
     @abstractmethod
-    async def display_status_breakdown(self) -> list[dict]:
-        """Статуси так, як їх бачить панель: SalesDrive для CRM-замовлень, local для legacy."""
+    async def display_status_breakdown(
+        self, *, since: datetime | None = None, until: datetime | None = None,
+    ) -> list[dict]:
+        """Статуси так, як їх бачить панель; за потреби — лише в межах періоду."""
         ...
 
     # ----------------------------------------------------------- promos
@@ -271,16 +273,25 @@ class Repository(ABC):
     # ------------------------------------------------------------ stats
 
     @abstractmethod
-    async def stats_summary(self, days: int) -> Stats: ...
+    async def stats_summary(
+        self, days: int, *, since: datetime | None = None, until: datetime | None = None,
+    ) -> Stats: ...
 
     @abstractmethod
-    async def stats_series(self, days: int) -> list[dict]:
-        """[{date: 'YYYY-MM-DD', revenue: Decimal, orders: int}, ...]"""
+    async def stats_series(
+        self, days: int, *, since: datetime | None = None, until: datetime | None = None, tz=None,
+    ) -> list[dict]:
+        """[{date, revenue(received), confirmed, expected, orders, shipped}, ...]."""
 
     @abstractmethod
-    async def stats_top_products(self, days: int, limit: int) -> list[dict]: ...
+    async def stats_top_products(
+        self, days: int, limit: int, *, since: datetime | None = None, until: datetime | None = None,
+    ) -> list[dict]: ...
 
-    async def stats_insights(self, days: int) -> dict:
+    async def stats_insights(
+        self, days: int, *, since: datetime | None = None, until: datetime | None = None,
+        previous_since: datetime | None = None, tz=None,
+    ) -> dict:
         """Показники, які міняють рішення, а не просто описують минуле.
 
         Зведення відповідає на «скільки», але не на «краще чи гірше»,
@@ -292,7 +303,9 @@ class Repository(ABC):
         ...
 
     @abstractmethod
-    async def stats_by_operator(self, days: int) -> list[dict]:
+    async def stats_by_operator(
+        self, days: int, *, since: datetime | None = None, until: datetime | None = None,
+    ) -> list[dict]:
         """Виторг у розрізі менеджерів: {operator_name, orders, revenue, avg_check}.
 
         Рахуються замовлення, які менеджер узяв у роботу. Замовлення без

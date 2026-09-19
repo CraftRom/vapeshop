@@ -455,20 +455,40 @@ class BroadcastOut(ORMModel):
 class StatsOut(BaseModel):
     revenue_total: Decimal
     revenue_period: Decimal
+    confirmed_total: Decimal = Decimal(0)
+    confirmed_period: Decimal = Decimal(0)
+    shipped_total: Decimal = Decimal(0)
+    shipped_period: Decimal = Decimal(0)
+    expected_total: Decimal = Decimal(0)
+    expected_period: Decimal = Decimal(0)
+    actual_received_total: Decimal = Decimal(0)
+    actual_received_period: Decimal = Decimal(0)
+    calculated_received_total: Decimal = Decimal(0)
+    calculated_received_period: Decimal = Decimal(0)
     orders_total: int
     orders_new: int
     customers_total: int
     customers_period: int
+    active_users_period: int = 0
+    active_users_24h: int = 0
+    buyers_period: int = 0
     avg_check: Decimal
     avg_check_period: Decimal = Decimal(0)
     orders_period: int = 0
+    confirmed_orders_period: int = 0
+    shipped_orders_period: int = 0
     low_stock: int
 
 
 class SeriesPoint(BaseModel):
     date: str
+    # revenue = уже отримано; confirmed = підтверджений оборот; expected =
+    # частина обороту, яка ще має надійти (переважно накладений платіж).
     revenue: Decimal
+    confirmed: Decimal = Decimal(0)
+    expected: Decimal = Decimal(0)
     orders: int
+    shipped: int = 0
 
 
 class TopProduct(BaseModel):

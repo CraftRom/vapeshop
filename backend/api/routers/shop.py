@@ -214,7 +214,7 @@ class ProfileOut(BaseModel):
 
 
 class CheckoutIn(BaseModel):
-    contact_surname: str | None = Field(None, max_length=64)
+    contact_surname: str = Field(..., min_length=1, max_length=64)
     contact_name: str = Field(..., min_length=1, max_length=128)
     contact_patronymic: str | None = Field(None, max_length=64)
     contact_phone: str = Field(..., min_length=5, max_length=32)
@@ -230,6 +230,21 @@ class CheckoutIn(BaseModel):
     comment: str | None = Field(None, max_length=500)
     promo_code: str | None = Field(None, max_length=64)
     use_bonus: bool = False
+
+    @field_validator("contact_surname", "contact_name", "contact_phone", "city", "address")
+    @classmethod
+    def _required_checkout_text(cls, value: str) -> str:
+        """Обовʼязкові поля не можуть складатися лише з пробілів.
+
+        Frontend робить ту саму перевірку для швидкого UX, але API не має
+        довіряти клієнту: Mini App можна викликати напряму або старою версією.
+        Повертаємо вже обрізане значення, щоб у CRM не накопичувався зайвий
+        whitespace у ПІБ, місті та адресі.
+        """
+        clean = str(value or "").strip()
+        if not clean:
+            raise ValueError("Поле обовʼязкове")
+        return clean
 
 
 class CheckoutOut(BaseModel):

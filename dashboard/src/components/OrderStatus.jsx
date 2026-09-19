@@ -51,6 +51,32 @@ export function isNewOrderStatus(order, crmStatuses = []) {
   return status.isCrm ? isNewStatusName(status.name) : status.id === 'new'
 }
 
+/**
+ * Бізнес-правило для карткової оплати: якщо CRM уже дійшла до етапу
+ * «Відправлений/Відправлено» або будь-якого наступного статусу, відправку
+ * вважаємо підтвердженою. Порядок беремо саме з довідника SalesDrive,
+ * а не з локальних ID, бо ID статусів у кожному кабінеті налаштовувані.
+ */
+export function isShippedOrLaterCrmStatus(order, statuses = []) {
+  const current = orderDisplayStatus(order, statuses)
+  if (!current.isCrm) return false
+
+  const normalize = (value) => String(value || '').trim().toLocaleLowerCase('uk-UA')
+  const isShippedName = (value) => {
+    const name = normalize(value)
+    return name.startsWith('відправлен') || name === 'shipped' || name === 'sent'
+  }
+
+  // Якщо довідник тимчасово недоступний, все одно розпізнаємо сам поточний
+  // статус. Для «наступних» етапів потрібен порядок із SalesDrive.
+  if (isShippedName(current.name)) return true
+  if (!Array.isArray(statuses) || statuses.length < 2) return false
+
+  const currentIndex = statuses.findIndex((item) => String(item.id) === current.id)
+  const shippedIndex = statuses.findIndex((item) => isShippedName(item.name))
+  return currentIndex >= 0 && shippedIndex >= 0 && currentIndex >= shippedIndex
+}
+
 export function StatusBadge({ source = 'crm', name, id = '', compact = false, title = '' }) {
   const label = String(name || (id ? `Статус #${id}` : '—'))
   const isNew = isNewStatusName(label)

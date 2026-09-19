@@ -93,9 +93,11 @@ run_node bridge-runtime tests/legacy-bridge-runtime.mjs
 run_node field-guard tests/field-guard.mjs
 run_node text-input tests/text-input.mjs
 run_node design tests/storefront-design.mjs
+run_node checkout-required tests/checkout-required-fields.mjs
 run_node crm-status-ui tests/crm-status-source.mjs dashboard
 run_node crm-api-rich tests/crm-api-richness.mjs dashboard
 run_node crm-order-update tests/crm-order-update.mjs dashboard
+run_node crm-card-payment-rule tests/crm-card-payment-rule.mjs dashboard
 run_node order-live-sync tests/order-live-sync.mjs dashboard
 run_node filters tests/filters.mjs dashboard
 run_node new-markers tests/new-order-message-markers.mjs dashboard
@@ -107,6 +109,7 @@ run_node notifications tests/notifications.mjs dashboard
 run_node payment-ux tests/order-payment-ux.mjs dashboard
 run_node volume tests/notification-volume.mjs dashboard
 run_node performance tests/performance.mjs dashboard
+run_node stats-business-ui tests/stats-business.mjs dashboard
 
 echo
 echo "Контракти й дані"
@@ -144,6 +147,7 @@ run storefront-log qa/qa_storefront_logging.py
 run logs-api qa/qa_logs_api.py
 run backups-api qa/qa_backups_api.py
 run status-flow qa/qa_status_flow.py
+run stats-business qa/qa_stats_business.py
 run auto-accept qa/qa_auto_accept.py
 run recon qa/qa_recon.py
 run alerts qa/qa_alerts.py

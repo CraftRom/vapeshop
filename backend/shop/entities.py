@@ -226,17 +226,36 @@ class Broadcast:
 
 @dataclass
 class Stats:
+    # ``revenue`` лишається сумою коштів, які вже можна вважати отриманими.
+    # Окремо тримаємо оборот і очікувані гроші, щоб накладений платіж не
+    # виглядав як гроші на рахунку лише через те, що посилка вже поїхала.
     revenue_total: Decimal = Decimal(0)
     revenue_period: Decimal = Decimal(0)
+    confirmed_total: Decimal = Decimal(0)
+    confirmed_period: Decimal = Decimal(0)
+    shipped_total: Decimal = Decimal(0)
+    shipped_period: Decimal = Decimal(0)
+    expected_total: Decimal = Decimal(0)
+    expected_period: Decimal = Decimal(0)
+    actual_received_total: Decimal = Decimal(0)
+    actual_received_period: Decimal = Decimal(0)
+    calculated_received_total: Decimal = Decimal(0)
+    calculated_received_period: Decimal = Decimal(0)
+
     orders_total: int = 0
     orders_new: int = 0
     customers_total: int = 0
     customers_period: int = 0
-    # avg_check рахується за весь час, avg_check_period — за обраний період.
-    # Різниця важлива: власник дивиться, чи росте чек, а не яким він був колись.
+    active_users_period: int = 0
+    active_users_24h: int = 0
+    buyers_period: int = 0
+    # Середній чек рахуємо з підтвердженого обороту, а не лише з платежів:
+    # інакше COD занижував би чек до моменту, коли перевізник перерахує гроші.
     avg_check: Decimal = Decimal(0)
     avg_check_period: Decimal = Decimal(0)
     orders_period: int = 0
+    confirmed_orders_period: int = 0
+    shipped_orders_period: int = 0
     low_stock: int = 0
 
 

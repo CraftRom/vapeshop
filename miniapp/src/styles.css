@@ -2150,3 +2150,19 @@ input, textarea, select {
   .tab { font-size: 14px; }
   .bar button { min-width: 120px; padding: 0 var(--s4); }
 }
+
+/* 2.14.0 — checkout: обовʼязкові/необовʼязкові поля видно до помилки. */
+.checkout-required-legend{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:8px}
+.field-requirement{display:inline-flex;align-items:center;gap:3px;width:max-content;white-space:nowrap;padding:2px 6px;border:1px solid var(--line);border-radius:999px;font-size:10px;font-weight:600;line-height:1.3;letter-spacing:.01em;text-transform:none}
+.field-requirement.required{color:var(--accent);border-color:color-mix(in srgb,var(--accent) 35%,var(--line));background:color-mix(in srgb,var(--accent) 8%,transparent)}
+.field-requirement.required>span{font-size:13px;line-height:10px}
+.field-requirement.optional{color:var(--tg-hint);background:var(--well)}
+.form-section-title{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.form-section-title .field-requirement{font-size:9px;font-weight:600}
+.form-section .field>label{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.form-section .field>label>span:first-child{min-width:0}
+@media (max-width:420px){
+  .field-requirement{font-size:9px;padding:2px 5px}
+  .form-section-title .field-requirement{display:none}
+}
+.checkout-head{padding-bottom:var(--s2)}

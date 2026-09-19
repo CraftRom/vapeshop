@@ -4741,3 +4741,43 @@ button.support-stat:hover { border-color: rgba(139, 123, 240, 0.38); }
   .crm-editor-actions{align-items:stretch;flex-direction:column}
   .crm-editor-actions .btn{width:100%}
 }
+
+
+/* 1.46.0 — розрахункова карткова оплата після підтвердженої відправки CRM. */
+.crm-payment-head-meta{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap}
+.crm-finance-rule-chip{display:inline-flex;align-items:center;min-height:22px;padding:3px 8px;border:1px solid rgba(62,201,142,.28);border-radius:999px;background:rgba(62,201,142,.08);color:#7fe0b8;font-size:10px;font-weight:750;white-space:nowrap}
+@media (max-width:700px){
+  .crm-payment-head-meta{justify-content:flex-start;width:100%}
+}
+
+/* 1.47.0 — статистика: оборот, отримані/очікувані кошти й активність. */
+.stats-primary-metrics .metric{min-height:112px}
+.stats-finance-legend{padding:16px 18px}
+.stats-finance-head,.stats-section-title{display:flex;align-items:flex-start;justify-content:space-between;gap:14px}
+.stats-finance-head h2,.stats-section-title h2{margin:0 0 4px}
+.stats-finance-head p,.stats-section-title p{margin:0}
+.stats-finance-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:14px}
+.stats-finance-grid>div{display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--line-soft);border-radius:9px;background:rgba(255,255,255,.012);min-width:0}
+.stats-finance-grid div>div{display:flex;flex-direction:column;gap:2px;min-width:0}
+.stats-finance-grid b{font-size:12px}
+.stats-finance-grid small{color:var(--muted);font-size:12px;overflow-wrap:anywhere}
+.stats-finance-dot{width:9px;height:9px;border-radius:50%;flex:none;background:var(--muted)}
+.stats-finance-dot.actual{background:var(--mint)}
+.stats-finance-dot.calculated{background:var(--accent)}
+.stats-finance-dot.expected{background:var(--amber)}
+.stats-finance-note{margin:10px 0 0;line-height:1.45}
+.stats-activity-card{padding:16px 18px}
+.stats-activity-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;margin-top:14px}
+.stats-activity-grid>div{display:flex;flex-direction:column;gap:4px;padding:10px 12px;border:1px solid var(--line-soft);border-radius:9px;background:rgba(255,255,255,.012)}
+.stats-activity-grid span{font-size:11px;color:var(--muted)}
+.stats-activity-grid strong{font-size:18px}
+.stats-periods{flex-wrap:wrap;justify-content:flex-end}
+@media (max-width:1000px){
+  .stats-activity-grid{grid-template-columns:repeat(3,minmax(0,1fr))}
+}
+@media (max-width:720px){
+  .stats-finance-grid{grid-template-columns:1fr}
+  .stats-activity-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .stats-finance-head,.stats-section-title{align-items:flex-start;flex-direction:column}
+  .stats-periods{justify-content:flex-start}
+}

@@ -166,6 +166,12 @@ const EMPTY_FORM = {
   use_bonus: false,
 }
 
+function Requirement({ optional = false }) {
+  return optional
+    ? <span className="field-requirement optional">Необовʼязково</span>
+    : <span className="field-requirement required"><span aria-hidden="true">*</span> Обовʼязково</span>
+}
+
 export function Checkout({ config, cart, profile, onDone, onLegal }) {
   const [form, setForm] = useState(EMPTY_FORM)
   const [promo, setPromo] = useState(null)
@@ -489,9 +495,13 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
 
   return (
     <>
-      <div className="head">
+      <div className="head checkout-head">
         <h1>Оформлення</h1>
         <p>Куди доставити й на кого оформити</p>
+        <div className="checkout-required-legend" aria-label="Позначення полів">
+          <Requirement />
+          <span className="faint">Інші поля можна пропустити</span>
+        </div>
       </div>
 
       {error && <div className="banner warn">{error}</div>}
@@ -500,35 +510,35 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
           покупець: хто отримує, куди везти, як платити. Суцільна стрічка з
           дванадцяти полів читалась як анкета, і пропущене поле губилось. */}
       <section className="form-section" aria-labelledby="sec-recipient">
-        <h2 className="form-section-title" id="sec-recipient">Отримувач</h2>
+        <h2 className="form-section-title" id="sec-recipient"><span>Отримувач</span><Requirement /></h2>
 
       {/* Перевізники вимагають повне ПІБ, тож питаємо трьома полями:
           одним рядком люди вписують його в довільному порядку */}
       <div className="field">
-        <label htmlFor="surname">Прізвище</label>
-        <Field id="surname" className={cls('contact_surname')}
+        <label htmlFor="surname"><span>Прізвище</span><Requirement /></label>
+        <Field id="surname" className={cls('contact_surname')} required aria-required="true"
                value={form.contact_surname}
                onChange={set('contact_surname')} autoComplete="family-name" />
         {hint('contact_surname')}
       </div>
 
       <div className="field">
-        <label htmlFor="name">Імʼя</label>
-        <Field id="name" className={cls('contact_name')} value={form.contact_name}
+        <label htmlFor="name"><span>Імʼя</span><Requirement /></label>
+        <Field id="name" className={cls('contact_name')} required aria-required="true" value={form.contact_name}
                onChange={set('contact_name')} autoComplete="given-name" />
         {hint('contact_name')}
       </div>
 
       <div className="field">
         <label htmlFor="patronymic">
-          По батькові <span className="faint">— не обовʼязково</span>
+          <span>По батькові</span><Requirement optional />
         </label>
         <Field id="patronymic" value={form.contact_patronymic}
                onChange={set('contact_patronymic')} autoComplete="additional-name" />
       </div>
 
       <div className="field">
-        <label htmlFor="phone">Телефон</label>
+        <label htmlFor="phone"><span>Телефон</span><Requirement /></label>
         {/* Єдине поле, яке Telegram уміє заповнити сам. Кнопку ставимо
             перед полем: набирати тринадцять цифр із помилкою в одній —
             найдорожча дія у формі, а тут вона зводиться до підтвердження
@@ -546,6 +556,8 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
             && (blank('contact_phone') || phoneError(form.contact_phone)) ? 'bad' : ''
           }`}
           type="tel"
+          required
+          aria-required="true"
           inputMode="tel"
           placeholder="+380XXXXXXXXX"
           value={form.contact_phone}
@@ -568,7 +580,7 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
       </section>
 
       <section className="form-section" aria-labelledby="sec-delivery">
-        <h2 className="form-section-title" id="sec-delivery">Доставка</h2>
+        <h2 className="form-section-title" id="sec-delivery"><span>Доставка</span><Requirement /></h2>
 
       {courier && (
         <>
@@ -590,9 +602,11 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
       )}
 
       <div className="field combo">
-        <label htmlFor="city">Населений пункт</label>
+        <label htmlFor="city"><span>Населений пункт</span><Requirement /></label>
         <Field
           id="city"
+          required
+          aria-required="true"
           className={cls('city')}
           value={form.city}
           onChange={(e) => changeCity(e.target.value)}
@@ -628,10 +642,12 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
 
       <div className="field combo">
         <label htmlFor="address">
-          {toWarehouse ? 'Відділення або поштомат' : 'Адреса доставки'}
+          <span>{toWarehouse ? 'Відділення або поштомат' : 'Адреса доставки'}</span><Requirement />
         </label>
         <Field
           id="address"
+          required
+          aria-required="true"
           className={cls('address')}
           value={form.address}
           onChange={(e) => changeAddress(e.target.value)}
@@ -682,7 +698,7 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
       </section>
 
       <section className="form-section" aria-labelledby="sec-payment">
-        <h2 className="form-section-title" id="sec-payment">Оплата</h2>
+        <h2 className="form-section-title" id="sec-payment"><span>Оплата</span><Requirement /></h2>
 
       <div className="choice" role="group" aria-label="Спосіб оплати">
         <button
@@ -700,7 +716,7 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
       </div>
 
       <div className="field">
-        <label htmlFor="promo">Промокод</label>
+        <label htmlFor="promo"><span>Промокод</span><Requirement optional /></label>
         <div className="inline-field">
           <Field
             id="promo"
@@ -742,7 +758,7 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
       <section className="form-section">
       <div className="field">
         <label htmlFor="comment">
-          Коментар <span className="faint">— не обовʼязково</span>
+          <span>Коментар</span><Requirement optional />
         </label>
         <Field
           multiline

@@ -5,7 +5,7 @@ import { api, getToken } from '../api'
 import { ErrorBar, Field, Info, Loading, Modal, money, useToast } from '../components/ui'
 import { STATUS_LABELS, allowedFrom } from '../components/StatusRail'
 import {
-  OrderStatusBadge, SalesDriveStatusProgress, SalesDriveStatusSelect, isNewOrderStatus,
+  OrderStatusBadge, SalesDriveStatusProgress, SalesDriveStatusSelect, isNewOrderStatus, isShippedOrLaterCrmStatus,
 } from '../components/OrderStatus'
 import { useVisiblePolling } from '../components/useVisiblePolling'
 
@@ -778,10 +778,20 @@ function CrmSnapshotPanel({ order, crmStatuses, refreshing, onRefresh, onUpdate 
   const deliveryCost = np.cost ?? up.cost ?? snap?.shippingCosts
   const deliveryCode = np.delivery || up.delivery || deliveryData.type || ''
   const total = Number(snap?.paymentAmount)
-  const paid = Number(snap?.payedAmount)
-  const rest = Number(snap?.restPay)
-  const progress = Number.isFinite(total) && total > 0 && Number.isFinite(paid)
-    ? Math.max(0, Math.min(100, Math.round((paid / total) * 100)))
+  const crmPaidNumber = Number(snap?.payedAmount)
+  const crmRestNumber = Number(snap?.restPay)
+  const crmPaymentText = `${snap?.paymentMethod || ''} ${snap?.paymentMethodRaw || ''}`.trim().toLocaleLowerCase('uk-UA')
+  const cardPayment = order.payment_method === 'card' || crmPaymentText.includes('карт')
+  const cardShippedOrLater = cardPayment && isShippedOrLaterCrmStatus(order, crmStatuses)
+  const crmAlreadyFullyPaid = Number.isFinite(total) && total > 0
+    && Number.isFinite(crmPaidNumber) && crmPaidNumber >= total
+    && (!Number.isFinite(crmRestNumber) || crmRestNumber <= 0)
+  const calculatedCardPayment = cardShippedOrLater && Number.isFinite(total) && total > 0 && !crmAlreadyFullyPaid
+  const paid = cardShippedOrLater && Number.isFinite(total) && total > 0 ? total : snap?.payedAmount
+  const rest = cardShippedOrLater && Number.isFinite(total) && total > 0 ? 0 : snap?.restPay
+  const paidNumber = Number(paid)
+  const progress = Number.isFinite(total) && total > 0 && Number.isFinite(paidNumber)
+    ? Math.max(0, Math.min(100, Math.round((paidNumber / total) * 100)))
     : null
   const customerName = [contact.lName, contact.fName, contact.mName].filter(Boolean).join(' ')
   const hasFinanceDetails = [snap?.commissionAmount, snap?.costPriceAmount, snap?.expensesAmount, snap?.profitAmount]
@@ -833,7 +843,12 @@ function CrmSnapshotPanel({ order, crmStatuses, refreshing, onRefresh, onUpdate 
               <div>
                 <span className="crm-primary-label">Спосіб оплати</span>
                 <strong className={paymentUnresolved ? 'crm-unresolved' : ''}>{paymentLabel}</strong>
-                <small>{snap.paymentDate ? `Продаж/оплата: ${crmDate(snap.paymentDate)}` : `${crmAmount(snap.payedAmount)} оплачено · ${crmAmount(snap.restPay)} залишок`}</small>
+                <small>{calculatedCardPayment
+                  ? `Розрахунково оплачено ${crmAmount(paid)} · залишок ${crmAmount(rest)}`
+                  : snap.paymentDate
+                    ? `Продаж/оплата: ${crmDate(snap.paymentDate)}`
+                    : `${crmAmount(paid)} оплачено · ${crmAmount(rest)} залишок`}
+                </small>
               </div>
             </div>
             <div className="crm-primary-card">
@@ -867,9 +882,19 @@ function CrmSnapshotPanel({ order, crmStatuses, refreshing, onRefresh, onUpdate 
             <div className="crm-section-head">
               <div>
                 <h3>Розрахунки</h3>
-                <p>Фактичні суми із заявки SalesDrive</p>
+                <p>{calculatedCardPayment ? 'CRM-суми з розрахунковим правилом карткової оплати' : 'Фактичні суми із заявки SalesDrive'}</p>
               </div>
-              {progress !== null && <span className={`crm-payment-progress-label ${progress >= 100 ? 'done' : ''}`}>{progress}% оплачено</span>}
+              <div className="crm-payment-head-meta">
+                {calculatedCardPayment && (
+                  <span
+                    className="crm-finance-rule-chip"
+                    title="Карткова оплата вважається отриманою, коли статус SalesDrive — «Відправлений» або наступний етап. Дані платежу в CRM не переписуються."
+                  >
+                    ✓ Розрахунково оплачено
+                  </span>
+                )}
+                {progress !== null && <span className={`crm-payment-progress-label ${progress >= 100 ? 'done' : ''}`}>{progress}% оплачено</span>}
+              </div>
             </div>
             {progress !== null && (
               <div className="crm-payment-progress" aria-label={`Оплачено ${progress}%`}>
@@ -878,8 +903,8 @@ function CrmSnapshotPanel({ order, crmStatuses, refreshing, onRefresh, onUpdate 
             )}
             <div className="crm-metrics-grid">
               <CrmMetric label="Сума CRM" value={crmAmount(snap.paymentAmount)} strong />
-              <CrmMetric label="Оплачено" value={crmAmount(snap.payedAmount)} tone={Number(paid) > 0 ? 'ok' : ''} />
-              <CrmMetric label="Залишок" value={crmAmount(snap.restPay)} tone={Number(rest) > 0 ? 'warn' : 'ok'} />
+              <CrmMetric label={calculatedCardPayment ? 'Оплачено · розрахунок' : 'Оплачено'} value={crmAmount(paid)} tone={Number(paid) > 0 ? 'ok' : ''} />
+              <CrmMetric label="Залишок" value={crmAmount(rest)} tone={Number(rest) > 0 ? 'warn' : 'ok'} />
               {deliveryCost !== null && deliveryCost !== undefined && deliveryCost !== '' && (
                 <CrmMetric label="Вартість доставки" value={crmAmount(deliveryCost)} />
               )}

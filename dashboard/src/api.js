@@ -140,12 +140,14 @@ export const api = {
 
   stats: {
     badges: () => request('/stats/badges'),
-    byOperator: (days) => request('/stats/by-operator', { params: { days } }),
-    summary: (days = 30) => request('/stats/summary', { params: { days } }),
-    series: (days = 30) => request('/stats/series', { params: { days } }),
-    topProducts: (days = 30) => request('/stats/top-products', { params: { days } }),
-    breakdown: () => request('/stats/status-breakdown'),
-    insights: (days = 30) => request('/stats/insights', { params: { days } }),
+    // period — календарний ключ, а не «N * 24 годин». Так «Сьогодні»
+    // починається опівночі в часовій зоні магазину, а «Цей місяць» — 1 числа.
+    byOperator: (period = 'month') => request('/stats/by-operator', { params: { period } }),
+    summary: (period = 'month') => request('/stats/summary', { params: { period } }),
+    series: (period = 'month') => request('/stats/series', { params: { period } }),
+    topProducts: (period = 'month') => request('/stats/top-products', { params: { period } }),
+    breakdown: (period = 'month') => request('/stats/status-breakdown', { params: { period } }),
+    insights: (period = 'month') => request('/stats/insights', { params: { period } }),
   },
 
   categories: {
