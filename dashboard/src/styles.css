@@ -288,12 +288,21 @@ td.num, th.num { text-align: right; font-family: var(--mono); }
 
 button, input, select, textarea { font-family: inherit; font-size: 14px; }
 
+:root {
+  --control-height: 44px;
+  --control-height-compact: 40px;
+  --control-padding-x: 12px;
+  --control-radius: var(--r);
+  --field-label-min-height: 16px;
+}
+
 .btn {
   background: var(--violet);
   color: #fff;
   border: none;
   border-radius: var(--r);
   padding: 9px 16px;
+  min-height: var(--control-height);
   font-weight: 600;
   cursor: pointer;
   transition: filter 0.15s;
@@ -305,29 +314,82 @@ button, input, select, textarea { font-family: inherit; font-size: 14px; }
 .btn.ghost { background: var(--panel-2); color: var(--text); border: 1px solid var(--line); }
 .btn.ghost:hover { border-color: var(--violet-dim); filter: none; }
 .btn.danger { background: transparent; color: var(--rose); border: 1px solid rgba(242, 96, 126, 0.35); }
-.btn.small { padding: 6px 11px; font-size: 13px; }
+.btn.small { min-height: 34px; padding: 6px 11px; font-size: 13px; }
 
 .input, select.input, textarea.input {
   width: 100%;
+  display: block;
   background: var(--ink);
   border: 1px solid var(--line);
-  border-radius: var(--r);
+  border-radius: var(--control-radius);
   color: var(--text);
-  padding: 9px 11px;
-  transition: border-color 0.15s;
+  min-height: var(--control-height);
+  height: var(--control-height);
+  padding: 0 var(--control-padding-x);
+  line-height: 1.25;
+  transition: border-color 0.15s, background .15s;
+  box-sizing: border-box;
+  -webkit-appearance: none;
+  appearance: none;
 }
 
 .input:focus { border-color: var(--violet); outline: none; }
-textarea.input { resize: vertical; min-height: 88px; }
 
-.field { display: flex; flex-direction: column; gap: 6px; }
+input.input[type='date'],
+input.input[type='datetime-local'],
+input.input[type='time'],
+input.input[type='number'],
+input.input[type='email'],
+input.input[type='tel'],
+input.input[type='url'],
+input.input[type='password'],
+input.input[type='search'],
+input.input[type='text'] {
+  line-height: normal;
+}
+
+select.input {
+  padding-right: 38px;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--muted) 50%),
+    linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+  background-position:
+    calc(100% - 18px) calc(50% - 2px),
+    calc(100% - 12px) calc(50% - 2px);
+  background-size: 6px 6px, 6px 6px;
+  background-repeat: no-repeat;
+}
+
+textarea.input {
+  resize: vertical;
+  min-height: 96px;
+  height: auto;
+  padding: 10px var(--control-padding-x);
+  line-height: 1.45;
+}
+
+.field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 /* Сусідні поля поза .stack: підказка під одним полем налягала на підпис
    наступного, і було неясно, до якого поля вона стосується. Так виглядали
    всі групи налаштувань і поля накладної й нотатки в замовленні. */
 .field + .field { margin-top: 16px; }
 .stack > .field + .field { margin-top: 0; }
-.field > label { font-size: 12px; font-weight: 600; color: var(--muted); }
-.field .hint { font-size: 12px; color: var(--faint); }
+.field > label {
+  display: flex;
+  align-items: flex-end;
+  min-height: var(--field-label-min-height);
+  font-size: 12px;
+  line-height: 1.25;
+  font-weight: 600;
+  color: var(--muted);
+}
+.field .hint {
+  display: block;
+  min-height: 16px;
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--faint);
+}
 
 .toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 16px; }
 .toolbar .input { width: auto; min-width: 200px; }
@@ -808,7 +870,8 @@ a.info-strong:hover { color: var(--violet); }
 
 .filter-field .input {
   min-width: 0;
-  height: 40px;
+  min-height: var(--control-height-compact);
+  height: var(--control-height-compact);
 }
 
 .orders-toolbar-actions {
@@ -1622,6 +1685,7 @@ a.info-strong:hover { color: var(--violet); }
 
 .catalog-filter .input,
 .catalog-sort .input {
+  min-height: 42px;
   height: 42px;
   min-width: 0;
 }
@@ -4731,6 +4795,11 @@ button.support-stat:hover { border-color: rgba(139, 123, 240, 0.38); }
 .crm-editor-tracking{grid-template-columns:minmax(170px,.7fr) minmax(220px,1.3fr)}
 .crm-editor-warning{margin:9px 0 0;font-size:10px;line-height:1.45}
 .crm-editor-actions{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.crm-editor-grid{align-items:start}
+.crm-editor-grid>.field,.crm-editor-section>.field{min-width:0}
+.crm-editor-grid .input{min-height:46px;height:46px}
+.crm-editor-grid textarea.input,.crm-editor-section textarea.input{min-height:112px;height:auto}
+.crm-editor-grid .field>.label,.crm-editor-grid .field>label{min-height:16px}
 @media (max-width:1100px){
   .crm-editor-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
 }
@@ -4781,3 +4850,7 @@ button.support-stat:hover { border-color: rgba(139, 123, 240, 0.38); }
   .stats-finance-head,.stats-section-title{align-items:flex-start;flex-direction:column}
   .stats-periods{justify-content:flex-start}
 }
+
+
+/* 1.48.0 — уніфікація висот і ритму форм у панелі. */
+.form-normalized .input{min-height:var(--control-height);height:var(--control-height)}
