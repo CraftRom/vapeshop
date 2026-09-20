@@ -18,7 +18,7 @@ const tests = [
   ['chart separates sales turnover and received', chart.includes('dataKey="sales"') && chart.includes('dataKey="revenue"')],
   ['chart normalizes Decimal JSON to numbers', chart.includes('sales: Number(row?.sales ?? row?.confirmed ?? 0)') && chart.includes('revenue: Number(row?.revenue ?? 0)')],
   ['chart uses linear calendar segments', chart.includes('type="linear"') && !chart.includes('type="monotone"')],
-  ['refusal metric uses commercial outcome', overview.includes('data.insights?.refusals?.orders') && overview.includes('Відмови / скасування')],
+  ['refusal metric uses commercial outcome', overview.includes('data.insights?.refusals?.orders') && overview.includes('Відмови / повернення / видалення')],
   ['manager table separates received and expected', overview.includes('money(o.received)') && overview.includes('money(o.expected)')],
 ]
 

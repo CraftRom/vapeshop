@@ -163,8 +163,10 @@ checks = {
     "long chats load newest messages instead of oldest 200": (
         "rows.reverse()" in repo_source and ".limit(cap)" in repo_source
     ),
-    "CRM status progression is visible": (
-        "<SalesDriveStatusProgress" in page and ".crm-status-step.passed" in styles
+    "CRM current status is visible without invented history": (
+        "<SalesDriveStatusProgress" in page
+        and ".crm-status-step.current" in styles
+        and ".crm-status-step.passed" not in styles
     ),
     "CRM waybill origin is visible": (
         "сформована в SalesDrive" in page and "внесена вручну в SalesDrive" in page

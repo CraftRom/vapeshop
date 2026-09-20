@@ -5,8 +5,8 @@
 питання «чи це вже продаж». Для CRM-пов'язаних замовлень комерційний результат
 визначає авторитетний статус SalesDrive:
 
-* ``Продаж``  -> sale;
-* ``Відмова`` -> refusal;
+* ``Продаж`` -> sale;
+* ``Відмова`` / ``Повернення`` / ``Видалений`` -> refusal;
 * будь-який інший відомий CRM-статус -> pending.
 
 Для старих замовлень, які ніколи не були пов'язані з CRM, лишається вузький
@@ -25,7 +25,22 @@ BUSINESS_REFUSAL = "refusal"
 BUSINESS_STATES = frozenset({BUSINESS_PENDING, BUSINESS_SALE, BUSINESS_REFUSAL})
 
 CRM_SALE_STATUS_NAME = "Продаж"
-CRM_REFUSAL_STATUS_NAME = "Відмова"
+
+# Фінальні негативні результати SalesDrive. Це НЕ послідовні кроки після
+# «Продаж», а взаємовиключні результати заявки. Тому всі вони мають один
+# business_state=refusal і ніколи не повинні потрапляти в продажі/оборот.
+CRM_REFUSAL_STATUS_NAMES = frozenset({
+    "відмова",
+    "повернення",
+    "повернено",
+    "видалений",
+    "видалено",
+    # Безпечні compatibility-аліаси для кабінетів з англійськими назвами.
+    "refusal",
+    "return",
+    "returned",
+    "deleted",
+})
 
 
 def normalize_crm_status_name(value) -> str:
@@ -37,7 +52,8 @@ def state_from_crm_status_name(value) -> str | None:
     """Повертає бізнес-стан для *відомої* назви CRM.
 
     ``None`` означає, що назви взагалі немає і робити висновок не можна.
-    Відома назва, яка не є «Продаж»/«Відмова», є ``pending``.
+    «Продаж» є єдиним sale. «Відмова», «Повернення» та «Видалений» є
+    негативним завершенням ``refusal``. Інші відомі CRM-статуси — ``pending``.
     """
     raw = " ".join(str(value or "").split())
     if not raw:
@@ -45,7 +61,7 @@ def state_from_crm_status_name(value) -> str | None:
     normalized = raw.casefold()
     if normalized == CRM_SALE_STATUS_NAME.casefold():
         return BUSINESS_SALE
-    if normalized == CRM_REFUSAL_STATUS_NAME.casefold():
+    if normalized in CRM_REFUSAL_STATUS_NAMES:
         return BUSINESS_REFUSAL
     return BUSINESS_PENDING
 

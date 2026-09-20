@@ -4714,16 +4714,6 @@ button.support-stat:hover { border-color: rgba(139, 123, 240, 0.38); }
   line-height: 1.25;
   white-space: normal;
 }
-.crm-status-step.passed {
-  color: var(--mint);
-  border-color: rgba(75,211,163,.24);
-  background: rgba(75,211,163,.045);
-}
-.crm-status-step.passed .crm-status-step-dot {
-  border-color: rgba(75,211,163,.40);
-  background: rgba(75,211,163,.12);
-  color: var(--mint);
-}
 .crm-status-step.current {
   color: #d8d2ff;
   border-color: rgba(139,123,240,.40);
@@ -4907,3 +4897,17 @@ button.support-stat:hover { border-color: rgba(139, 123, 240, 0.38); }
   .stats-chart-legend { justify-content:flex-start; gap:10px; }
   .stats-revenue-chart { height: 238px; }
 }
+
+/* CRM status dictionary: negative outcomes are alternatives, not completed steps. */
+.crm-status-step.terminal-negative { border-style: dashed; }
+.crm-status-step.current.negative {
+  color: var(--danger, #f08a91);
+  border-color: rgba(240,138,145,.42);
+  background: rgba(240,138,145,.07);
+}
+.crm-status-step.current.negative .crm-status-step-dot {
+  border-color: rgba(240,138,145,.58);
+  background: rgba(240,138,145,.14);
+  color: var(--danger, #f08a91);
+}
+.crm-status-progress-note { margin: 8px 0 0; font-size: 11px; line-height: 1.35; }

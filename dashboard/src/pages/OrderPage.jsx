@@ -5,7 +5,8 @@ import { api, authorizedFetch } from '../api'
 import { ErrorBar, Field, Info, Loading, Modal, money, useToast } from '../components/ui'
 import { STATUS_LABELS, allowedFrom } from '../components/StatusRail'
 import {
-  OrderStatusBadge, SalesDriveStatusProgress, SalesDriveStatusSelect, isNewOrderStatus, isShippedOrLaterCrmStatus,
+  OrderStatusBadge, SalesDriveStatusProgress, SalesDriveStatusSelect, crmBusinessOutcome,
+  isNegativeCrmOutcome, isNewOrderStatus, isShippedOrLaterCrmStatus,
 } from '../components/OrderStatus'
 import { useVisiblePolling } from '../components/useVisiblePolling'
 
@@ -878,7 +879,7 @@ function CrmSnapshotPanel({ order, crmStatuses, refreshing, onRefresh, onUpdate 
                 <small>{calculatedCardPayment
                   ? `Розрахунково оплачено ${crmAmount(paid)} · залишок ${crmAmount(rest)}`
                   : snap.paymentDate
-                    ? `Продаж/оплата: ${crmDate(snap.paymentDate)}`
+                    ? `Дата оплати CRM: ${crmDate(snap.paymentDate)}`
                     : `${crmAmount(paid)} оплачено · ${crmAmount(rest)} залишок`}
                 </small>
               </div>
@@ -920,7 +921,7 @@ function CrmSnapshotPanel({ order, crmStatuses, refreshing, onRefresh, onUpdate 
                 {calculatedCardPayment && (
                   <span
                     className="crm-finance-rule-chip"
-                    title="Карткова оплата вважається отриманою, коли статус SalesDrive — «Відправлений» або наступний етап. Дані платежу в CRM не переписуються."
+                    title="Карткова оплата розрахунково вважається отриманою лише для CRM-статусів «Відправлений» або «Продаж». «Відмова», «Повернення» та «Видалений» це правило не запускають. Дані платежу в CRM не переписуються."
                   >
                     ✓ Розрахунково оплачено
                   </span>
@@ -1368,19 +1369,25 @@ export default function OrderPage() {
     .filter(Boolean).join(' ')
 
   const paymentMethod = order.payment_method === 'cod' ? 'cod' : 'card'
-  const paymentIsConfirmed = paymentMethod === 'card'
-    && ['paid', 'shipped', 'done'].includes(order.status)
-  const paymentIsCancelled = order.status === 'cancelled'
+  const crmOutcome = order.crm_id ? crmBusinessOutcome(order, crmStatuses) : 'pending'
+  const paymentIsCancelled = order.crm_id
+    ? isNegativeCrmOutcome(order, crmStatuses)
+    : order.status === 'cancelled'
+  const paymentIsConfirmed = paymentMethod === 'card' && !paymentIsCancelled && (
+    order.crm_id
+      ? isShippedOrLaterCrmStatus(order, crmStatuses)
+      : ['paid', 'shipped', 'done'].includes(order.status)
+  )
   const paymentTitle = paymentMethod === 'cod' ? 'Накладений платіж' : 'Переказ на картку'
   const paymentState = paymentIsCancelled
-    ? 'Замовлення скасовано'
+    ? (order.crm_id ? 'Негативний результат CRM' : 'Замовлення скасовано')
     : paymentMethod === 'cod'
       ? 'Оплата при отриманні'
       : paymentIsConfirmed
         ? 'Оплату підтверджено'
         : 'Очікує підтвердження оплати'
   const paymentHint = paymentIsCancelled
-    ? 'Спосіб оплати збережено для історії замовлення. Додаткових дій з оплатою не потрібно.'
+    ? (order.crm_id ? 'CRM має статус відмови, повернення або видалення. Він не підтверджує оплату й не рахується продажем.' : 'Спосіб оплати збережено для історії замовлення. Додаткових дій з оплатою не потрібно.')
     : paymentMethod === 'cod'
       ? 'Клієнт сплачує при отриманні. Етап «Оплачено» для цього замовлення не використовується.'
       : paymentIsConfirmed
@@ -1420,7 +1427,7 @@ export default function OrderPage() {
             <h2 style={{ marginTop: 0 }}>Статус</h2>
 
             <section
-              className={`order-payment-summary ${paymentMethod} ${paymentIsConfirmed ? 'confirmed' : ''} ${paymentIsCancelled ? 'cancelled' : ''}`}
+              className={`order-payment-summary ${paymentMethod} ${paymentIsConfirmed ? 'confirmed' : ''} ${paymentIsCancelled ? 'cancelled' : ''} crm-${crmOutcome}`}
               aria-label={`Спосіб оплати: ${paymentTitle}`}
             >
               <div className="order-payment-icon" aria-hidden="true">

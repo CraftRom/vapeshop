@@ -246,7 +246,7 @@ export default function Overview() {
               tone={(data.insights?.repeat?.share ?? 0) >= 30 ? 'accent' : ''}
             />
             <Metric
-              label="Відмови / скасування"
+              label="Відмови / повернення / видалення"
               value={`${data.insights?.refusals?.orders ?? 0}`}
               sub={`${data.insights?.refusals?.share ?? 0}% завершених результатів · потенційна сума ${money(data.insights?.refusals?.lost ?? 0)}`}
               tone={(data.insights?.refusals?.share ?? 0) >= 15 ? 'warn' : ''}

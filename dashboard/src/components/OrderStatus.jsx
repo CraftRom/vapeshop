@@ -1,26 +1,20 @@
 import { STATUS_LABELS } from './StatusRail'
+import {
+  crmBusinessOutcomeName, crmStatusAllowsCalculatedCardPayment,
+} from '../crmStatus'
+
+export { crmBusinessOutcomeName, normalizeCrmStatusName } from '../crmStatus'
 
 /**
  * Бізнес-ознака «нового» замовлення без прив'язки до ID статусу SalesDrive.
- *
- * ID статусів у CRM налаштовувані, тому конкретний числовий statusId тут не фіксуємо.
- * Для CRM спершу будуємо той самий display-model, що показує інтерфейс, і
- * вже його назву використовуємо для маркування. Legacy має стабільний
- * технічний код `new`.
+ * ID статусів у CRM налаштовувані, тому порівнюємо семантичні назви.
  */
 export function isNewStatusName(value) {
   const name = String(value || '').trim().toLocaleLowerCase('uk-UA')
   return ['новий', 'нове', 'new'].includes(name)
 }
 
-/**
- * Один display-model статусу для всієї панелі.
- *
- * CRM-linked замовлення ніколи не підписуємо через local order.status:
- * statusId/statusName приходять із SalesDrive. Локальний workflow лишається
- * технічним дзеркалом для сповіщень/складу й використовується у UI тільки для
- * історичних замовлень, яких немає в CRM.
- */
+/** Один display-model статусу для всієї панелі. */
 export function orderDisplayStatus(order, crmStatuses = []) {
   if (!order) return { source: 'legacy', id: '', name: '—', isCrm: false }
 
@@ -38,10 +32,7 @@ export function orderDisplayStatus(order, crmStatuses = []) {
 
   const id = String(order.status || '').trim()
   return {
-    source: 'legacy',
-    id,
-    name: STATUS_LABELS[id] || id || '—',
-    isCrm: false,
+    source: 'legacy', id, name: STATUS_LABELS[id] || id || '—', isCrm: false,
   }
 }
 
@@ -51,30 +42,30 @@ export function isNewOrderStatus(order, crmStatuses = []) {
   return status.isCrm ? isNewStatusName(status.name) : status.id === 'new'
 }
 
+export function crmBusinessOutcome(order, statuses = []) {
+  const current = orderDisplayStatus(order, statuses)
+  return current.isCrm ? crmBusinessOutcomeName(current.name) : 'pending'
+}
+
+export function isNegativeCrmOutcome(order, statuses = []) {
+  return crmBusinessOutcome(order, statuses) === 'refusal'
+}
+
 /**
- * Бізнес-правило для карткової оплати: якщо CRM уже дійшла до етапу
- * «Відправлений/Відправлено» або будь-якого наступного статусу, відправку
- * вважаємо підтвердженою. Порядок беремо саме з довідника SalesDrive,
- * а не з локальних ID, бо ID статусів у кожному кабінеті налаштовувані.
+ * Правило розрахункової карткової оплати.
+ *
+ * Раніше UI вважав будь-який статус, розташований у довіднику ПІСЛЯ
+ * «Відправлений», таким що «пройшов відправку». Це помилково: довідник
+ * SalesDrive — список можливих статусів, а не журнал переходів. Через це
+ * «Відмова», «Повернення» та «Видалений» штучно ставали 100% оплаченими.
+ *
+ * Тепер розрахункову оплату дозволяють лише фактичні позитивні стани:
+ * «Відправлений» (чинне правило магазину) або «Продаж». Негативні результати
+ * завжди повертають false. Невідомий/custom статус теж нічого не вигадує.
  */
 export function isShippedOrLaterCrmStatus(order, statuses = []) {
   const current = orderDisplayStatus(order, statuses)
-  if (!current.isCrm) return false
-
-  const normalize = (value) => String(value || '').trim().toLocaleLowerCase('uk-UA')
-  const isShippedName = (value) => {
-    const name = normalize(value)
-    return name.startsWith('відправлен') || name === 'shipped' || name === 'sent'
-  }
-
-  // Якщо довідник тимчасово недоступний, все одно розпізнаємо сам поточний
-  // статус. Для «наступних» етапів потрібен порядок із SalesDrive.
-  if (isShippedName(current.name)) return true
-  if (!Array.isArray(statuses) || statuses.length < 2) return false
-
-  const currentIndex = statuses.findIndex((item) => String(item.id) === current.id)
-  const shippedIndex = statuses.findIndex((item) => isShippedName(item.name))
-  return currentIndex >= 0 && shippedIndex >= 0 && currentIndex >= shippedIndex
+  return current.isCrm && crmStatusAllowsCalculatedCardPayment(current.name)
 }
 
 export function StatusBadge({ source = 'crm', name, id = '', compact = false, title = '' }) {
@@ -107,11 +98,7 @@ export function OrderStatusBadge({ order, crmStatuses = [], compact = false }) {
   )
 }
 
-/**
- * Dropdown статусів CRM. Поточний statusId не зникає, навіть якщо довідник
- * щойно змінився: показуємо stored value окремою option, але змінювати можна
- * тільки на статуси, які SalesDrive віддає зараз.
- */
+/** Dropdown статусів CRM. */
 export function SalesDriveStatusSelect({ order, statuses = [], disabled = false, onChange }) {
   const current = orderDisplayStatus(order, statuses)
   const currentId = current.isCrm ? current.id : ''
@@ -132,20 +119,17 @@ export function SalesDriveStatusSelect({ order, statuses = [], disabled = false,
     >
       {!currentId && <option value="">Очікує статус із CRM</option>}
       {currentId && !hasCurrent && <option value={currentId}>{current.name}</option>}
-      {statuses.map((item) => (
-        <option key={item.id} value={String(item.id)}>{item.name}</option>
-      ))}
+      {statuses.map((item) => <option key={item.id} value={String(item.id)}>{item.name}</option>)}
     </select>
   )
 }
 
 /**
- * Послідовність статусів так, як її повертає SalesDrive.
+ * Довідник статусів SalesDrive з виділенням поточного значення.
  *
- * Для робочої картки діє проста модель: якщо поточний статус знаходиться
- * далі у CRM-списку, усі етапи ліворуч уже пройдено. Це лише візуальна
- * історія процесу; фінансові/складські побічні ефекти як і раніше виконує
- * backend через свій workflow, а не браузер.
+ * Не малюємо вигадану «історію» галочками. /api/statuses/ повертає довідник
+ * можливих значень, а не журнал переходів конкретної заявки. Отже з позиції
+ * «Видалений» не можна робити висновок, що заявка проходила «Продаж».
  */
 export function SalesDriveStatusProgress({ order, statuses = [] }) {
   const current = orderDisplayStatus(order, statuses)
@@ -153,31 +137,33 @@ export function SalesDriveStatusProgress({ order, statuses = [] }) {
 
   const currentIndex = statuses.findIndex((item) => String(item.id) === current.id)
   if (currentIndex < 0) return null
+  const outcome = crmBusinessOutcomeName(current.name)
 
   return (
     <div className="crm-status-progress-wrap">
       <div className="crm-status-progress-head">
-        <span>Етапи CRM</span>
-        <small>{currentIndex + 1} з {statuses.length}</small>
+        <span>Статуси CRM</span>
+        <small>поточний: {current.name}</small>
       </div>
-      <div className="crm-status-progress" role="list" aria-label="Послідовність статусів SalesDrive">
+      <div className="crm-status-progress" role="list" aria-label="Статуси SalesDrive; виділено поточний">
         {statuses.map((item, index) => {
-          const passed = index < currentIndex
           const active = index === currentIndex
+          const itemOutcome = crmBusinessOutcomeName(item.name)
           return (
             <div
               key={item.id}
               role="listitem"
-              aria-current={active ? 'step' : undefined}
-              className={`crm-status-step${passed ? ' passed' : ''}${active ? ' current' : ''}`}
-              title={passed ? 'Етап уже пройдено' : active ? 'Поточний статус' : 'Наступний етап'}
+              aria-current={active ? 'true' : undefined}
+              className={`crm-status-step${active ? ' current' : ''}${active && outcome === 'refusal' ? ' negative' : ''}${itemOutcome === 'refusal' ? ' terminal-negative' : ''}`}
+              title={active ? 'Поточний статус заявки' : 'Доступний статус CRM — не означає, що заявка його проходила'}
             >
-              <span className="crm-status-step-dot" aria-hidden="true">{passed ? '✓' : ''}</span>
+              <span className="crm-status-step-dot" aria-hidden="true" />
               <span className="crm-status-step-label">{item.name}</span>
             </div>
           )
         })}
       </div>
+      <p className="faint crm-status-progress-note">Показано довідник статусів. Галочки проходження не будуються, бо SalesDrive не передає тут історію переходів заявки.</p>
     </div>
   )
 }

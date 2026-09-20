@@ -25,6 +25,11 @@ def check(name, condition, detail=""):
 check("CRM Продаж -> sale", business.state_from_crm_status_name("Продаж") == business.BUSINESS_SALE)
 check("CRM Продаж tolerates spaces/case", business.state_from_crm_status_name("  ПРОДАЖ  ") == business.BUSINESS_SALE)
 check("CRM Відмова -> refusal", business.state_from_crm_status_name("Відмова") == business.BUSINESS_REFUSAL)
+for negative in ("Повернення", "Повернено", "Видалений", "Видалено", "RETURNED", "deleted"):
+    check(
+        f"CRM {negative} -> refusal",
+        business.state_from_crm_status_name(negative) == business.BUSINESS_REFUSAL,
+    )
 check("other known CRM status stays pending", business.state_from_crm_status_name("Відправлено") == business.BUSINESS_PENDING)
 check("missing CRM name is unknown", business.state_from_crm_status_name("") is None)
 
@@ -101,6 +106,7 @@ repo_source = (root / "shop/repo/sql.py").read_text()
 users_source = (root / "shop/services/users.py").read_text()
 segments_source = (root / "shop/services/segments.py").read_text()
 migration_source = (root / "alembic/versions/c2f51b8d9e40_business_sale_state.py").read_text()
+negative_migration_source = (root / "alembic/versions/e3f7a91c2d64_merge_heads_and_negative_crm_outcomes.py").read_text()
 shop_source = (root / "shop/services/shop_service.py").read_text()
 
 check("stats no longer has CONFIRMED_SQL", "CONFIRMED_SQL" not in repo_source)
@@ -111,6 +117,8 @@ check("broadcast/customer segments use sale state", 'Order.business_state == "sa
 check("migration rebuilds customer totals", "SET orders_count = COALESCE" in migration_source and "business_state = 'sale'" in migration_source)
 check("queued CRM rows are not legacy sales", "COALESCE(crm_state, '') = '' AND status = 'DONE'" in migration_source)
 check("repository CRM patch synchronizes business state", 'if "crm_status_name" in data:' in repo_source and "_apply_business_state_row" in repo_source)
+check("negative CRM outcomes are backfilled", all(name in negative_migration_source for name in ("Відмова", "Повернення", "Видалений", "business_state = 'sale'")))
+check("migration merges both current heads", '("9c2f1b7e4d31", "d8b6f20a1c44")' in negative_migration_source)
 
 # Behavioral activity is deliberately keyed by order creation, not sale time.
 check(
