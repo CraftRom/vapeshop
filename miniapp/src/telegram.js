@@ -456,24 +456,36 @@ export function requestContact() {
 
     let settled = false
     let timer = null
+    let callbackGrace = null
     const finish = (value) => {
       if (settled) return
       settled = true
       if (timer) clearTimeout(timer)
+      if (callbackGrace) clearTimeout(callbackGrace)
       try { app.offEvent?.('contactRequested', onEvent) } catch { /* noop */ }
       resolve(Boolean(value))
     }
-    const onEvent = (event) => finish(event?.status === 'sent')
+    const onEvent = (event) => {
+      if (event?.status === 'sent') finish(true)
+      else if (event?.status === 'cancelled') finish(false)
+    }
 
     try { app.onEvent?.('contactRequested', onEvent) } catch { /* callback still works */ }
-    // Деякі Telegram-клієнти не викликають JS callback після закриття
-    // системного popup. Не залишаємо кнопку у вічному pending-стані.
-    timer = setTimeout(() => finish(false), 15000)
+    // Деякі клієнти Telegram викликають callback і подію не синхронно.
+    // Даємо події достатньо часу, але не тримаємо кнопку вічно.
+    timer = setTimeout(() => finish(false), 20000)
 
     try {
-      // За офіційним API callback отримує ЛИШЕ boolean. Сам номер
-      // надсилається боту як contact-повідомлення і читається з /profile.
-      app.requestContact((granted) => finish(granted))
+      app.requestContact((granted) => {
+        if (granted === true) {
+          finish(true)
+          return
+        }
+        // Не завершуємо false миттєво: на частині клієнтів callback може
+        // прийти раніше за contactRequested:sent. Коротке вікно прибирає
+        // цю гонку без помітної затримки при реальній відмові.
+        callbackGrace = setTimeout(() => finish(false), 1200)
+      })
     } catch {
       finish(false)
     }

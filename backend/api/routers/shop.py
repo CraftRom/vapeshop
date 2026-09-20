@@ -572,8 +572,12 @@ async def _profile_payload(repo: Repository, shop, user: User) -> ProfileOut:
 
 @router.get("/profile", response_model=ProfileOut)
 async def profile(
+    response: Response,
     user: User = Depends(require_webapp_user), repo: Repository = Depends(get_repo)
 ):
+    # Профіль живий: телефон може змінитися окремим Telegram update між
+    # двома GET. Не дозволяємо WebView/CDN повертати старий phone=None.
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
     return await _profile_payload(repo, await get_shop_settings(repo), user)
 
 
@@ -582,14 +586,20 @@ class ContactPhoneOut(BaseModel):
 
 
 @router.get("/contact-phone", response_model=ContactPhoneOut)
-async def contact_phone(user: User = Depends(require_webapp_user)):
+async def contact_phone(
+    response: Response,
+    user: User = Depends(require_webapp_user), repo: Repository = Depends(get_repo),
+):
     """Легке опитування після Telegram.WebApp.requestContact().
 
-    requestContact надсилає контакт боту окремим Telegram update, тому Mini
-    App кілька секунд чекає, поки middleware збереже номер. Не тягнемо для
-    цього повний /profile з кошиком, бонусами й налаштуваннями.
+    Контакт приходить окремим Telegram update і може бути записаний іншою
+    сесією/процесом уже ПІСЛЯ того, як поточний WebApp-запит авторизував
+    користувача. Тому перечитуємо рядок із БД прямо тут, а не довіряємо
+    об'єкту dependency. Відповідь ніколи не кешується.
     """
-    return ContactPhoneOut(phone=user.phone)
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+    fresh = await repo.get_user(user.id) or user
+    return ContactPhoneOut(phone=fresh.phone)
 
 
 # ------------------------------------------------------- списки бажаного

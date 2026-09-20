@@ -48,6 +48,10 @@ async function request(path, { method = 'GET', body } = {}) {
     try {
       res = await fetchTimed(BASE + path, {
         method,
+        // Дані вітрини персональні й змінюються у фоні (чат, профіль,
+        // статуси, телефон). Telegram WebView не повинен віддавати старий
+        // GET із власного HTTP cache.
+        cache: 'no-store',
         headers: {
           'Content-Type': 'application/json',
           // Підписаний Telegram рядок — ним бекенд упізнає покупця.
@@ -170,7 +174,7 @@ export const api = {
 
   checkPromo: (code) => request('/promo/check', { method: 'POST', body: { code } }),
   profile: () => request('/profile'),
-  contactPhone: () => request('/contact-phone'),
+  contactPhone: () => request(`/contact-phone?_=${Date.now()}`),
   orders: () => request('/orders'),
   checkout: (data) => request('/checkout', { method: 'POST', body: data }),
 

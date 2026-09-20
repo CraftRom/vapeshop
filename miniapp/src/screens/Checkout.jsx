@@ -34,6 +34,7 @@ export function phoneError(value) {
 import { useEffect, useRef, useState } from 'react'
 
 import { api } from '../api'
+import { clientLog } from '../logger'
 import { Field } from '../fields'
 import {
   alert, canRequestContact, close, confirm, haptic, notify, requestContact,
@@ -320,29 +321,49 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
     haptic('light')
     setPhoneBusy(true)
     setError('')
+    clientLog('storefront.contact.request.started', { message: 'Запит номера Telegram' })
     try {
       const granted = await requestContact()
-      if (!granted) return
+      clientLog(
+        granted ? 'storefront.contact.request.granted' : 'storefront.contact.request.not_granted',
+        { message: granted ? 'Telegram підтвердив передачу номера' : 'Telegram не підтвердив передачу номера' },
+      )
 
-      // requestContact повертає лише факт дозволу. Telegram надсилає номер
-      // як contact-повідомлення боту; middleware зберігає його в профілі.
-      // Коротко опитуємо свій API, поки bot update доїде до backend.
-      for (let attempt = 0; attempt < 20; attempt += 1) {
+      // Навіть якщо callback повернув false, кілька разів перевіряємо сервер:
+      // деякі клієнти надсилають contact update раніше/пізніше JS callback.
+      // Після підтвердженого sent чекаємо довше — update проходить окремим
+      // маршрутом через Bot API і при навантаженні може доїхати не миттєво.
+      const attempts = granted ? 60 : 10
+      for (let attempt = 0; attempt < attempts; attempt += 1) {
         try {
           const fresh = await api.contactPhone()
           const phone = normalizePhone(fresh?.phone || '')
           if (phone && !phoneError(phone)) {
             setForm((f) => ({ ...f, contact_phone: phone }))
             setTouched((t) => ({ ...t, contact_phone: true }))
+            clientLog('storefront.contact.synced', {
+              message: 'Номер Telegram синхронізовано з профілем',
+              attempt: attempt + 1,
+            })
             notify('success')
             return
           }
         } catch {
-          // Наступна спроба: контакт міг бути ще в черзі Telegram.
+          // Наступна спроба: контакт міг бути ще в черзі Telegram/Bot API.
         }
-        await new Promise((resolve) => setTimeout(resolve, 350))
+        const pause = attempt < 10 ? 350 : attempt < 30 ? 500 : 750
+        await new Promise((resolve) => setTimeout(resolve, pause))
       }
-      setError('Telegram прийняв номер, але він ще не синхронізувався. Введіть номер вручну або повторіть через кілька секунд.')
+
+      if (!granted) {
+        // Користувач міг просто скасувати popup — це не помилка checkout.
+        return
+      }
+      clientLog('storefront.contact.sync_timeout', {
+        level: 'warning',
+        message: 'Telegram підтвердив номер, але backend не побачив contact update вчасно',
+      })
+      setError('Telegram прийняв номер, але бот ще не передав його вітрині. Спробуйте ще раз або введіть номер вручну.')
     } finally {
       setPhoneBusy(false)
     }

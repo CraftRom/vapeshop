@@ -58,8 +58,13 @@ def build_dispatcher() -> Dispatcher:
     for observer in (dp.message, dp.callback_query):
         # PrivateOnlyMiddleware — найпершим: у публічному чаті апдейт не має
         # доходити ні до бази, ні до хендлерів
-        observer.middleware(PrivateOnlyMiddleware())
-        observer.middleware(RepositoryMiddleware())
+        # Ці два middleware мають працювати ДО фільтрів. requestContact()
+        # надсилає contact-повідомлення, для якого поза FSM може не бути
+        # жодного handler-а; inner middleware у такому разі взагалі не
+        # запускається і номер губиться.
+        observer.outer_middleware(PrivateOnlyMiddleware())
+        observer.outer_middleware(RepositoryMiddleware())
+        # Ці перевірки потрібні лише для подій, які реально підуть у handler.
         observer.middleware(BlockedUserMiddleware())
         observer.middleware(AgeGateMiddleware())
 

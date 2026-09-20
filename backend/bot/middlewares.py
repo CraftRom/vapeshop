@@ -33,7 +33,7 @@ class RepositoryMiddleware(BaseMiddleware):
         event: TelegramObject,
         data: dict[str, Any],
     ) -> Any:
-        tg_user = data.get("event_from_user")
+        tg_user = data.get("event_from_user") or getattr(event, "from_user", None)
         async with open_repo() as repo:
             data["repo"] = repo
             if tg_user and not tg_user.is_bot:
@@ -70,6 +70,33 @@ class RepositoryMiddleware(BaseMiddleware):
                             set_phone = getattr(repo, "set_user_phone", None)
                             saved = await set_phone(user.id, saved_phone) if callable(set_phone) else None
                             user.phone = saved.phone if saved else saved_phone
+                            log.info(
+                                "Telegram-контакт збережено для користувача %s", user.id,
+                                extra={
+                                    "event": "telegram.contact.saved",
+                                    "userId": user.id,
+                                    "tgId": tg_user.id,
+                                },
+                            )
+                        else:
+                            log.warning(
+                                "Telegram надіслав контакт із некоректним форматом номера",
+                                extra={
+                                    "event": "telegram.contact.invalid",
+                                    "userId": user.id,
+                                    "tgId": tg_user.id,
+                                    "digitsLength": len(digits),
+                                },
+                            )
+                    else:
+                        log.warning(
+                            "Відхилено чужий Telegram-контакт",
+                            extra={
+                                "event": "telegram.contact.foreign",
+                                "tgId": tg_user.id,
+                                "contactUserId": contact_user_id or 0,
+                            },
+                        )
                 data["user"] = user
                 data["is_new_user"] = is_new
             return await handler(event, data)
@@ -111,12 +138,16 @@ class PrivateOnlyMiddleware(BaseMiddleware):
         data: dict[str, Any],
     ) -> Any:
         chat = data.get("event_chat")
+        if chat is None:
+            chat = getattr(event, "chat", None)
+        if chat is None and isinstance(event, CallbackQuery):
+            chat = getattr(getattr(event, "message", None), "chat", None)
         if chat is None or chat.type == "private":
             return await handler(event, data)
 
         # current() — синхронний знімок кешу: репозиторій тут ще не відкрито
         admin_chat_id = current().admin_chat_id
-        tg_user = data.get("event_from_user")
+        tg_user = data.get("event_from_user") or getattr(event, "from_user", None)
         is_staff = bool(tg_user and tg_user.id in current().admin_id_list)
         in_admin_chat = bool(admin_chat_id and chat.id == admin_chat_id)
 
