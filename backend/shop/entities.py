@@ -151,6 +151,12 @@ class Order:
     promo_code_id: int | None = None
     promo_code: str | None = None
     payment_method: str | None = None
+    # Ідемпотентний ключ оформлення з Mini App. Повтор того самого POST
+    # повертає вже створене замовлення замість дублювання.
+    checkout_key: str | None = None
+    # Внутрішня ознака: цей Order повернуто як ідемпотентний replay,
+    # а не створено поточним запитом. У БД не зберігається.
+    checkout_replayed: bool = False
     receipt_file_id: str | None = None
     contact_name: str | None = None
     contact_surname: str | None = None

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { api } from '../api'
 import { confirm, haptic, notify, openLink } from '../telegram'
@@ -20,6 +20,7 @@ export function Profile({ config, profile }) {
   // кількома замовленнями на екрані треба знати, на якій саме кнопці
   // показувати очікування.
   const [cancelling, setCancelling] = useState(null)
+  const cancellingRef = useRef(null)
   const [cancelError, setCancelError] = useState('')
 
   useEffect(() => {
@@ -27,18 +28,22 @@ export function Profile({ config, profile }) {
   }, [])
 
   const cancel = async (order) => {
-    // Питаємо підтвердження нативним вікном Telegram: скасування
-    // повертає товар на склад і бонуси на рахунок, відкотити його
-    // назад покупець уже не зможе.
-    const sure = await confirm(
-      `Скасувати замовлення №${order.id}? Повернути його потім не вийде — `
-      + 'доведеться оформити наново.',
-    )
-    if (!sure) return
-
+    // Ref ставимо ДО confirm(): два дуже швидкі тапи інакше відкривають
+    // два нативні діалоги ще до того, як React встигне перемалювати disabled.
+    if (cancellingRef.current !== null) return
+    cancellingRef.current = order.id
     setCancelling(order.id)
-    setCancelError('')
     try {
+      // Питаємо підтвердження нативним вікном Telegram: скасування
+      // повертає товар на склад і бонуси на рахунок, відкотити його
+      // назад покупець уже не зможе.
+      const sure = await confirm(
+        `Скасувати замовлення №${order.id}? Повернути його потім не вийде — `
+        + 'доведеться оформити наново.',
+      )
+      if (!sure) return
+
+      setCancelError('')
       const data = await api.cancelOrder(order.id)
       setOrders(data.orders)
       notify('success')
@@ -48,6 +53,7 @@ export function Profile({ config, profile }) {
       setCancelError(err.message)
       notify('error')
     } finally {
+      cancellingRef.current = null
       setCancelling(null)
     }
   }

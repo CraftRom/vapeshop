@@ -53,6 +53,39 @@ class ApiError extends Error {
   }
 }
 
+const REQUEST_TIMEOUT_MS = 20000
+
+/** Єдина transport-функція панелі.
+ *
+ * До цього JSON-запити, вкладення, бекапи й файли мали чотири різні
+ * fetch-реалізації: частина не обробляла 401, жодна не мала timeout. При
+ * завислому nginx кнопка могла лишитись у стані «Завантаження…» назавжди.
+ */
+export async function authorizedFetch(url, options = {}, timeoutMs = REQUEST_TIMEOUT_MS) {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  const headers = new Headers(options.headers || {})
+  const token = getToken()
+  if (token && !headers.has('Authorization')) headers.set('Authorization', `Bearer ${token}`)
+
+  try {
+    const response = await fetch(url, { ...options, headers, signal: controller.signal })
+    if (response.status === 401) {
+      clearToken()
+      window.location.href = '/login'
+      throw new ApiError('Сесія завершилась', 401)
+    }
+    return response
+  } catch (err) {
+    if (err?.name === 'AbortError') {
+      throw new ApiError('Сервер не відповідає. Спробуйте ще раз.', 0)
+    }
+    throw err
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 async function request(path, { method = 'GET', body, params } = {}) {
   const url = new URL(`${BASE}${path}`, window.location.origin)
   if (params) {
@@ -61,21 +94,11 @@ async function request(path, { method = 'GET', body, params } = {}) {
     })
   }
 
-  const headers = { 'Content-Type': 'application/json' }
-  const token = getToken()
-  if (token) headers.Authorization = `Bearer ${token}`
-
-  const response = await fetch(url, {
+  const response = await authorizedFetch(url, {
     method,
-    headers,
+    headers: { 'Content-Type': 'application/json' },
     body: body === undefined ? undefined : JSON.stringify(body),
   })
-
-  if (response.status === 401) {
-    clearToken()
-    window.location.href = '/login'
-    throw new ApiError('Сесія завершилась', 401)
-  }
 
   if (!response.ok) {
     let detail = ''
@@ -120,14 +143,18 @@ async function request(path, { method = 'GET', body, params } = {}) {
 
 
 async function upload(path, formData) {
-  const headers = {}; const token = getToken(); if (token) headers.Authorization = `Bearer ${token}`
-  const response = await fetch(new URL(`${BASE}${path}`, window.location.origin), { method: 'POST', headers, body: formData })
+  const response = await authorizedFetch(
+    new URL(`${BASE}${path}`, window.location.origin),
+    { method: 'POST', body: formData },
+    120000,
+  )
   if (!response.ok) { let d; try { d=(await response.json()).detail } catch {} throw new ApiError(typeof d === 'string' ? d : `Помилка ${response.status}`, response.status) }
   return response.json()
 }
 async function download(path, filename) {
-  const headers = {}; const token = getToken(); if (token) headers.Authorization = `Bearer ${token}`
-  const response = await fetch(new URL(`${BASE}${path}`, window.location.origin), { headers })
+  const response = await authorizedFetch(
+    new URL(`${BASE}${path}`, window.location.origin), {}, 120000,
+  )
   if (!response.ok) throw new ApiError(`Помилка ${response.status}`, response.status)
   const blob=await response.blob(); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download=filename; a.click(); URL.revokeObjectURL(url)
 }
@@ -163,6 +190,7 @@ export const api = {
     create: (data) => request('/catalog/products', { method: 'POST', body: data }),
     update: (id, data) => request(`/catalog/products/${id}`, { method: 'PUT', body: data }),
     setStock: (id, stock) => request(`/catalog/products/${id}/stock`, { method: 'PATCH', body: { stock } }),
+    adjustStock: (id, delta) => request(`/catalog/products/${id}/stock-delta`, { method: 'PATCH', body: { delta } }),
     remove: (id) => request(`/catalog/products/${id}`, { method: 'DELETE' }),
     purge: (id) => request(`/catalog/products/${id}/purge`, { method: 'DELETE' }),
     importXlsx: (form) => upload('/catalog/product-transfer/import', form),
@@ -255,9 +283,9 @@ export const api = {
     // лише з токеном, а тег <a> заголовків не надсилає. Тому забираємо
     // тіло в blob і віддаємо його браузеру вже локальним посиланням.
     download: async (name) => {
-      const response = await fetch(`${BASE}/backups/${encodeURIComponent(name)}/download`, {
-        headers: { Authorization: `Bearer ${getToken()}` },
-      })
+      const response = await authorizedFetch(
+        `${BASE}/backups/${encodeURIComponent(name)}/download`, {}, 120000,
+      )
       if (!response.ok) throw new Error(`Не вдалося скачати: ${response.status}`)
       const blob = await response.blob()
       const url = URL.createObjectURL(blob)
@@ -273,11 +301,9 @@ export const api = {
     upload: async (file) => {
       const body = new FormData()
       body.append('file', file)
-      const response = await fetch(`${BASE}/backups/upload`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${getToken()}` },
-        body,
-      })
+      const response = await authorizedFetch(
+        `${BASE}/backups/upload`, { method: 'POST', body }, 120000,
+      )
       if (!response.ok) {
         let message = `Помилка ${response.status}`
         try { message = (await response.json()).detail || message } catch { /* не JSON */ }
@@ -289,11 +315,9 @@ export const api = {
     restore: async (name, confirm) => {
       const body = new FormData()
       body.append('confirm', confirm)
-      const response = await fetch(`${BASE}/backups/${encodeURIComponent(name)}/restore`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${getToken()}` },
-        body,
-      })
+      const response = await authorizedFetch(
+        `${BASE}/backups/${encodeURIComponent(name)}/restore`, { method: 'POST', body }, 120000,
+      )
       if (!response.ok) {
         let message = `Помилка ${response.status}`
         try { message = (await response.json()).detail || message } catch { /* не JSON */ }
@@ -312,11 +336,9 @@ export const api = {
       // без якого сервер не розбере тіло запиту.
       const body = new FormData()
       body.append('file', file)
-      const response = await fetch(`${BASE}/media`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${getToken()}` },
-        body,
-      })
+      const response = await authorizedFetch(
+        `${BASE}/media`, { method: 'POST', body }, 120000,
+      )
       if (!response.ok) {
         let message = `Помилка ${response.status}`
         try {
@@ -356,9 +378,8 @@ export const api = {
         if (since) params.set('since', since)
         if (until) params.set('until', until)
       }
-      const response = await fetch(
-        `${BASE}/logs/${encodeURIComponent(service)}/download?${params}`,
-        { headers: { Authorization: `Bearer ${getToken()}` } },
+      const response = await authorizedFetch(
+        `${BASE}/logs/${encodeURIComponent(service)}/download?${params}`, {}, 120000,
       )
       if (!response.ok) throw new Error(`Не вдалося скачати: ${response.status}`)
       const blob = await response.blob()

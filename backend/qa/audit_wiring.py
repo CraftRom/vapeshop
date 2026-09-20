@@ -847,7 +847,7 @@ _cos = _svc[_svc.index("async def change_order_status"):_svc.index("_COUNTED =")
 check(re.search(r'if origin != "salesdrive" and crm_linked:\s*\n\s*patch\["crm_state"\] = "pending"', _cos)
       and not re.search(r'^\s{4}patch\["crm_state"\] = "pending"', _cos, re.M),
       "черга CRM ставиться тим самим записом, що й статус, лише для вже звʼязаних CRM-замовлень")
-check('"crm_state": "pending"' in _svc[_svc.index("repo.create_order(draft"):],
+check('crm_state="pending" if shop.salesdrive_ready else ""' in _svc,
       "нове замовлення одразу стає в чергу CRM")
 _upd = _sd[_sd.index("def update_payload"):_sd.index("def _json_number")]
 check('"comment"' not in _upd and "shipping_address" not in _upd,

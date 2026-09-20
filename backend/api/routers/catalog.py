@@ -5,7 +5,7 @@ from urllib.parse import quote_plus
 from fastapi import APIRouter, Depends, HTTPException
 
 from api.auth import Principal, require_staff
-from api.schemas import CategoryIn, CategoryOut, ProductIn, ProductOut, StockIn
+from api.schemas import CategoryIn, CategoryOut, ProductIn, ProductOut, StockDeltaIn, StockIn
 from shop.repo.base import Repository
 from shop.repo.factory import get_repo
 from shop.services.product_io import normalize_sku
@@ -142,6 +142,19 @@ async def update_product(
 async def set_stock(product_id: int, data: StockIn, repo: Repository = Depends(get_repo)):
     product = await repo.set_stock(product_id, data.stock)
     if not product:
+        raise HTTPException(404, "Товар не знайдено")
+    return product
+
+
+@router.patch("/products/{product_id}/stock-delta", response_model=ProductOut)
+async def adjust_stock(product_id: int, data: StockDeltaIn, repo: Repository = Depends(get_repo)):
+    if data.delta == 0:
+        product = await repo.get_product(product_id)
+    else:
+        product = await repo.adjust_stock(product_id, data.delta)
+    if not product:
+        if data.delta < 0:
+            raise HTTPException(409, "Залишок уже змінився — оновіть товар")
         raise HTTPException(404, "Товар не знайдено")
     return product
 

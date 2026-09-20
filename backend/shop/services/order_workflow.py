@@ -25,7 +25,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 
 from shop.entities import STATUS_LABELS, Order, OrderStatus
-from shop.services.shop_service import change_order_status, stages_for, transition_error
+from shop.services.shop_service import OrderStateConflict, change_order_status, stages_for, transition_error
 
 log = logging.getLogger(__name__)
 
@@ -142,7 +142,10 @@ async def apply_status(
     if problem:
         raise WorkflowError(problem, 409)
 
-    reward = await change_order_status(repo, order, status, origin=origin)
+    try:
+        reward = await change_order_status(repo, order, status, origin=origin)
+    except OrderStateConflict as exc:
+        raise WorkflowError(str(exc), 409) from exc
     fresh = await repo.get_order(order.id) or order
     if on_saved:
         await on_saved(fresh)

@@ -94,6 +94,7 @@ run_node field-guard tests/field-guard.mjs
 run_node text-input tests/text-input.mjs
 run_node design tests/storefront-design.mjs
 run_node checkout-required tests/checkout-required-fields.mjs
+run_node deep-actions tests/deep-actions.mjs
 run_node crm-status-ui tests/crm-status-source.mjs dashboard
 run_node crm-api-rich tests/crm-api-richness.mjs dashboard
 run_node crm-order-update tests/crm-order-update.mjs dashboard
@@ -111,9 +112,12 @@ run_node volume tests/notification-volume.mjs dashboard
 run_node performance tests/performance.mjs dashboard
 run_node stats-business-ui tests/stats-business.mjs dashboard
 run_node form-chart tests/form-chart-normalization.mjs dashboard
+run_node deep-actions-ui tests/deep-actions.mjs dashboard
 
 echo
 echo "Контракти й дані"
+run checkout-integrity qa/qa_checkout_integrity.py
+run deep-integrity qa/qa_deep_integrity.py
 run contracts tests_contracts.py
 run repo tests_repo.py
 # Наскрізні сценарії бота. Існували, але в зведення не входили — і

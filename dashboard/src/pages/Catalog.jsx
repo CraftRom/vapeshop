@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import ImageField from '../components/ImageField'
 
 import { api } from '../api'
@@ -125,6 +125,7 @@ function CategoryForm({ category, onClose, onSaved }) {
     is_active: category?.is_active ?? true,
   })
   const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
 
   const set = (key) => (e) => {
     const value = e.target.type === 'checkbox' ? e.target.checked : e.target.value
@@ -132,6 +133,9 @@ function CategoryForm({ category, onClose, onSaved }) {
   }
 
   const save = async () => {
+    if (busy) return
+    setBusy(true)
+    setError('')
     const payload = {
       name: form.name.trim(),
       sort_order: Number(form.sort_order) || 0,
@@ -146,6 +150,8 @@ function CategoryForm({ category, onClose, onSaved }) {
       onClose()
     } catch (err) {
       setError(err.message)
+    } finally {
+      setBusy(false)
     }
   }
 
@@ -156,8 +162,8 @@ function CategoryForm({ category, onClose, onSaved }) {
       footer={
         <>
           <button className="btn ghost" onClick={onClose}>Скасувати</button>
-          <button className="btn" onClick={save} disabled={!form.name.trim()}>
-            {editing ? 'Зберегти' : 'Створити'}
+          <button className="btn" onClick={save} disabled={busy || !form.name.trim()}>
+            {busy ? 'Зберігаємо…' : editing ? 'Зберегти' : 'Створити'}
           </button>
         </>
       }
@@ -443,6 +449,7 @@ export default function Catalog() {
   const [selected, setSelected] = useState(() => new Set())
   const [bulkAction, setBulkAction] = useState('')
   const [bulkBusy, setBulkBusy] = useState(false)
+  const stockQueueRef = useRef(new Map())
 
   const load = useCallback(async () => {
     setError('')
@@ -468,13 +475,26 @@ export default function Catalog() {
     setSelected(new Set())
   }, [filter, search, sort, pageSize])
 
-  const updateStock = async (product, stock) => {
-    try {
-      const updated = await api.products.setStock(product.id, Math.max(0, stock))
-      setProducts((list) => list.map((p) => (p.id === updated.id ? updated : p)))
-    } catch (err) {
-      notify(err.message, 'bad')
-    }
+  const updateStock = (product, delta) => {
+    // Кожен товар має власну Promise-чергу. Серверний delta атомарний, а
+    // черга гарантує порядок відповідей: без неї два швидкі "+" могли
+    // завершитись n+2, а потім запізніла відповідь n+1 відмалювала старий
+    // залишок, хоча в БД уже все правильно.
+    const previous = stockQueueRef.current.get(product.id) || Promise.resolve()
+    const current = previous.catch(() => null).then(async () => {
+      try {
+        const updated = await api.products.adjustStock(product.id, delta)
+        setProducts((list) => list.map((p) => (p.id === updated.id ? updated : p)))
+      } catch (err) {
+        notify(err.message, 'bad')
+        await load()
+      }
+    })
+    stockQueueRef.current.set(product.id, current)
+    current.finally(() => {
+      if (stockQueueRef.current.get(product.id) === current) stockQueueRef.current.delete(product.id)
+    })
+    return current
   }
 
   const purgeProduct = async (product) => {
@@ -717,7 +737,7 @@ export default function Catalog() {
                 <div className="catalog-stock" aria-label={`Залишок ${p.stock}`}>
                   <button
                     className="catalog-stepper"
-                    onClick={() => updateStock(p, p.stock - 1)}
+                    onClick={() => updateStock(p, -1)}
                     disabled={p.stock <= 0}
                     aria-label={`Зменшити залишок ${p.name}`}
                   >
@@ -726,7 +746,7 @@ export default function Catalog() {
                   <span className="mono">{p.stock}</span>
                   <button
                     className="catalog-stepper"
-                    onClick={() => updateStock(p, p.stock + 1)}
+                    onClick={() => updateStock(p, 1)}
                     aria-label={`Збільшити залишок ${p.name}`}
                   >
                     +

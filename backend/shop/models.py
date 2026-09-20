@@ -170,6 +170,7 @@ class Order(Base):
         Index("ix_orders_status_created", "status", "created_at"),
         Index("ix_orders_user_created", "user_id", "created_at"),
         Index("ix_orders_search", "search_key"),
+        Index("ux_orders_checkout_key", "checkout_key", unique=True),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -183,6 +184,7 @@ class Order(Base):
 
     promo_code_id: Mapped[int | None] = mapped_column(ForeignKey("promo_codes.id"))
     payment_method: Mapped[str | None] = mapped_column(String(32))   # card | cod
+    checkout_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
     receipt_file_id: Mapped[str | None] = mapped_column(String(255))
 
     # contact_name лишається повним ПІБ одним рядком — на нього спираються

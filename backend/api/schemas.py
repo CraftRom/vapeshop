@@ -72,6 +72,10 @@ class StockIn(BaseModel):
     stock: int = Field(ge=0)
 
 
+class StockDeltaIn(BaseModel):
+    delta: int = Field(ge=-10000, le=10000)
+
+
 # ------------------------------------------------------------------ замовлення
 
 class OrderItemOut(ORMModel):

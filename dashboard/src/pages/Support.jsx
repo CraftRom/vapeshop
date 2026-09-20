@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { api, getToken } from '../api'
+import { api, authorizedFetch } from '../api'
 import { Empty, ErrorBar, Loading, dateTime, useToast } from '../components/ui'
 import { useVisiblePolling } from '../components/useVisiblePolling'
 
@@ -52,9 +52,7 @@ function Attachment({ threadId, message }) {
   useEffect(() => {
     let revoked = null
     let cancelled = false
-    fetch(api.support.fileUrl(threadId, message.id), {
-      headers: { Authorization: `Bearer ${getToken()}` },
-    })
+    authorizedFetch(api.support.fileUrl(threadId, message.id))
       .then((r) => (r.ok ? r.blob() : Promise.reject(new Error(String(r.status)))))
       .then((blob) => {
         if (cancelled) return
@@ -144,6 +142,7 @@ function Conversation({ thread, messages, onBack, onRefresh, onStatus, onDelete 
   const notify = useToast()
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
+  const actionRef = useRef(false)
   const bottom = useRef(null)
 
   useEffect(() => {
@@ -152,7 +151,8 @@ function Conversation({ thread, messages, onBack, onRefresh, onStatus, onDelete 
 
   const send = async () => {
     const body = text.trim()
-    if (!body || !thread) return
+    if (!body || !thread || actionRef.current) return
+    actionRef.current = true
     setBusy(true)
     try {
       const result = await api.support.send(thread.id, body)
@@ -162,16 +162,18 @@ function Conversation({ thread, messages, onBack, onRefresh, onStatus, onDelete 
     } catch (err) {
       notify(err.message, 'bad')
     } finally {
+      actionRef.current = false
       setBusy(false)
     }
   }
 
   const closeSession = async () => {
-    if (!thread || thread.status !== 'open') return
+    if (!thread || thread.status !== 'open' || actionRef.current) return
     const yes = window.confirm(
       `Закрити звернення #${thread.id}?\n\nСесію буде завершено для клієнта й менеджера. Історія залишиться незмінною. Для наступного питання клієнт створить нове звернення через /ask.`
     )
     if (!yes) return
+    actionRef.current = true
     setBusy(true)
     try {
       const updated = await api.support.setStatus(thread.id, 'closed')
@@ -184,16 +186,18 @@ function Conversation({ thread, messages, onBack, onRefresh, onStatus, onDelete 
     } catch (err) {
       notify(err.message, 'bad')
     } finally {
+      actionRef.current = false
       setBusy(false)
     }
   }
 
   const remove = async () => {
-    if (!thread || thread.status !== 'closed') return
+    if (!thread || thread.status !== 'closed' || actionRef.current) return
     const yes = window.confirm(
       `Видалити звернення #${thread.id} назавжди?\n\nБуде стерто всю історію цього конкретного чату. Інші звернення клієнта залишаться.`
     )
     if (!yes) return
+    actionRef.current = true
     setBusy(true)
     try {
       await api.support.remove(thread.id)
@@ -202,6 +206,7 @@ function Conversation({ thread, messages, onBack, onRefresh, onStatus, onDelete 
     } catch (err) {
       notify(err.message, 'bad')
     } finally {
+      actionRef.current = false
       setBusy(false)
     }
   }

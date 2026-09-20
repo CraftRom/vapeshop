@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import secrets
 from decimal import Decimal
 
 from aiogram import F, Router
@@ -18,22 +19,39 @@ from shop.services import shop_service as svc
 
 router = Router()
 
-PHONE_RE = re.compile(r"^\+?\d{10,15}$")
 
 
 def normalize_phone(raw: str) -> str | None:
-    digits = re.sub(r"[^\d+]", "", raw or "")
-    if digits.startswith("0") and len(digits) == 10:
-        digits = "+38" + digits
-    elif digits.startswith("38") and len(digits) == 12:
-        digits = "+" + digits
-    return digits if PHONE_RE.match(digits) else None
+    """Той самий український формат, що приймає Mini App API.
+
+    Старий бот пропускав будь-які 10–15 цифр, зокрема номер без коду
+    країни, який потім не приймали CRM/перевізник.
+    """
+    digits = re.sub(r"\D", "", raw or "")
+    if digits.startswith("380"):
+        body = digits[3:]
+    elif digits.startswith("80") and len(digits) == 11:
+        body = digits[2:]
+    elif digits.startswith("0") and len(digits) == 10:
+        body = digits[1:]
+    else:
+        body = digits
+    if len(body) != 9 or not body or body[0] not in "3456789":
+        return None
+    return "+380" + body
 
 
 @router.callback_query(F.data == "checkout")
 async def start_checkout(
     callback: CallbackQuery, repo: Repository, user: User, state: FSMContext
 ) -> None:
+    # Старе inline-повідомлення з кнопкою може лишатися в чаті. Подвійний
+    # tap або повтор по старій кнопці не повинен запускати другу FSM-форму
+    # і перезаписувати checkout_key активної спроби.
+    if await state.get_state():
+        await callback.answer("Оформлення вже розпочато", show_alert=True)
+        return
+
     problems = await svc.validate_cart(repo, user.id)
     if problems:
         await callback.answer("Змінилася наявність, перевірте кошик", show_alert=True)
@@ -42,6 +60,10 @@ async def start_checkout(
         await callback.answer("Кошик порожній", show_alert=True)
         return
 
+    # Один ключ на одну спробу оформлення. Якщо Telegram доставить два
+    # callback-и від швидкого подвійного натискання «Підтвердити», обидва
+    # потраплять у той самий idempotent checkout замість двох замовлень.
+    await state.update_data(checkout_key=f"bot_{user.id}_{secrets.token_urlsafe(16)}")
     await state.set_state(Checkout.name)
     await callback.message.answer(texts.CHECKOUT_NAME, reply_markup=ReplyKeyboardRemove())
     await callback.answer()
@@ -60,7 +82,14 @@ async def step_name(message: Message, state: FSMContext) -> None:
 
 @router.message(Checkout.phone, F.contact)
 async def step_phone_contact(message: Message, state: FSMContext) -> None:
-    await state.update_data(phone=message.contact.phone_number)
+    phone = normalize_phone(message.contact.phone_number)
+    if not phone:
+        await message.answer(
+            "Не вдалося розпізнати український номер. Введіть його текстом, наприклад 0671234567.",
+            reply_markup=ReplyKeyboardRemove(),
+        )
+        return
+    await state.update_data(phone=phone)
     await state.set_state(Checkout.city)
     await message.answer(texts.CHECKOUT_CITY, reply_markup=ReplyKeyboardRemove())
 
@@ -212,12 +241,20 @@ async def confirm_order(
         comment=data.get("comment"),
         promo_code=data.get("promo"),
         use_bonus=bool(data.get("use_bonus")),
+        checkout_key=data.get("checkout_key"),
     )
 
     if error:
         await state.clear()
         await callback.message.edit_text(f"Не вдалося оформити замовлення.\n\n{error}")
         await callback.answer()
+        return
+
+    # Два callback-и можуть увійти в handler майже одночасно ще до зміни
+    # FSM state. Другий отримає той самий Order за checkout_key; не шлемо
+    # повторно PAYMENT_INFO і сповіщення менеджеру.
+    if getattr(order, "checkout_replayed", False):
+        await callback.answer("Замовлення вже оформлено")
         return
 
     shop = await get_shop_settings(repo)
@@ -238,7 +275,15 @@ async def confirm_order(
         await state.clear()
         await callback.message.answer(texts.MENU_HINT, reply_markup=kb.main_menu())
 
-    await notify_new_order(callback.bot, repo, order, user)
+    try:
+        await notify_new_order(callback.bot, repo, order, user)
+    except Exception:
+        # Замовлення вже записане. Збій Telegram-сповіщення менеджеру не
+        # повинен залишати клієнту нескінченний spinner і провокувати повтор.
+        import logging
+        logging.getLogger(__name__).exception(
+            "Замовлення №%s створено, але менеджер не отримав сповіщення", order.id
+        )
     await callback.answer()
 
 

@@ -16,6 +16,13 @@ const STATUS = {
 
 const OPEN = ['new', 'confirmed', 'accepted', 'paid', 'shipped']
 
+function mergeMessages(current, incoming) {
+  const map = new Map()
+  for (const item of current || []) map.set(item.id, item)
+  for (const item of incoming || []) map.set(item.id, item)
+  return [...map.values()].sort((a, b) => Number(a.id) - Number(b.id))
+}
+
 function clock(value) {
   if (!value) return ''
   return new Date(value).toLocaleString('uk-UA', {
@@ -120,12 +127,14 @@ export function ChatRoom({ config, order, onBack }) {
   const [viewing, setViewing] = useState(null)
   const [error, setError] = useState('')
   const bottom = useRef(null)
+  const sendingRef = useRef(false)
+  const uploadingRef = useRef(false)
 
   const load = useCallback(
     (silent = false) => {
       api.chat
         .list(order.id)
-        .then(setMessages)
+        .then((incoming) => setMessages((current) => current === null ? incoming : mergeMessages(current, incoming)))
         .catch((err) => !silent && setError(err.message))
     },
     [order.id],
@@ -154,35 +163,39 @@ export function ChatRoom({ config, order, onBack }) {
     // Скидаємо одразу: інакше повторний вибір того самого файлу не
     // викличе подію, і людині здасться, що кнопка зламалась.
     event.target.value = ''
-    if (!file) return
+    if (!file || uploadingRef.current) return
 
+    uploadingRef.current = true
     setUploading(true)
     setSendError('')
     try {
       const data = await api.chatPhoto(order.id, file)
-      setMessages(data.messages)
+      setMessages((current) => mergeMessages(current, data.messages))
       notify('success')
     } catch (err) {
       setSendError(err.message)
       notify('error')
     } finally {
+      uploadingRef.current = false
       setUploading(false)
     }
   }
 
   const send = async () => {
     const body = text.trim()
-    if (!body) return
+    if (!body || sendingRef.current) return
+    sendingRef.current = true
     setBusy(true)
     setError('')
     try {
       const sent = await api.chat.send(order.id, body)
-      setMessages((prev) => [...(prev || []), sent])
+      setMessages((prev) => mergeMessages(prev, [sent]))
       setText('')
       haptic('light')
     } catch (err) {
       setError(err.message)
     } finally {
+      sendingRef.current = false
       setBusy(false)
     }
   }

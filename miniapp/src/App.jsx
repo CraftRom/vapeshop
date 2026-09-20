@@ -44,6 +44,10 @@ export default function App() {
   // таймер, і перемальовування тут ні до чого.
   const pendingRef = useRef({})
   const flushTimer = useRef(null)
+  // Серіалізує flush кошика. Якщо debounce уже почав POST, кнопка
+  // «Оформити» має дочекатися саме його, а не побачити порожній pendingRef
+  // і відкрити checkout зі старим серверним кошиком.
+  const flushInFlight = useRef(Promise.resolve())
 
   useEffect(() => {
     ready()
@@ -168,13 +172,17 @@ export default function App() {
 
   // Системна кнопка «назад» веде з оформлення до кошика, а не закриває вікно
   useEffect(() => {
-    if (checkingOut) return backButton(() => setCheckingOut(false))
+    // Найверхніший overlay/екран закривається першим. Legal може бути
+    // відкритий поверх checkout, SavePicker — поверх товару: старий порядок
+    // закривав батьківський екран і кнопка «Назад» виглядала зламаною.
     if (legal) return backButton(() => setLegal(null))
+    if (saving) return backButton(() => setSaving(null))
+    if (checkingOut) return backButton(() => setCheckingOut(false))
     if (openProduct) return backButton(() => setOpenProduct(null))
     if (openListId) return backButton(() => setOpenListId(null))
     if (chatOrder) return backButton(() => setChatOrder(null))
     return backButton(null)
-  }, [checkingOut, chatOrder, openProduct, openListId, legal])
+  }, [checkingOut, chatOrder, openProduct, openListId, legal, saving])
 
   useEffect(() => hideMainButton, [])
 
@@ -209,51 +217,66 @@ export default function App() {
    * одна зміна замість трьох.
    */
   const flushCart = useCallback(async () => {
-    const batch = pendingRef.current
-    pendingRef.current = {}
-    const ids = Object.keys(batch)
-    if (!ids.length) return
+    const run = async () => {
+      const batch = pendingRef.current
+      pendingRef.current = {}
+      const ids = Object.keys(batch)
+      if (!ids.length) return cart
 
-    try {
-      let next = null
-      for (const id of ids) {
-        if (!batch[id]) continue
-        next = await api.changeCart(Number(id), batch[id])
-      }
-      if (next) setCart(next)
-      setCartError('')
-    } catch (err) {
-      // Мовчазна відмова тут найгірша: людина бачить товар у кошику,
-      // якого там немає, і дізнається про це аж на оформленні.
-      setCartError(err.message || 'Не вдалося змінити кошик')
-      notify('error')
       try {
-        setCart(await api.cart())
-      } catch {
-        // Якщо і перечитати не вдалося — лишаємо як є: наступна дія
-        // однаково піде на сервер і принесе правду.
+        let next = null
+        for (const id of ids) {
+          if (!batch[id]) continue
+          next = await api.changeCart(Number(id), batch[id])
+        }
+        if (next) setCart(next)
+        setCartError('')
+        return next
+      } catch (err) {
+        setCartError(err.message || 'Не вдалося змінити кошик')
+        notify('error')
+        try {
+          const fresh = await api.cart()
+          setCart(fresh)
+          return fresh
+        } catch {
+          return null
+        }
+      } finally {
+        setPendingQty((prev) => {
+          const rest = { ...prev }
+          for (const id of ids) delete rest[id]
+          return rest
+        })
       }
-    } finally {
-      // Очікуване прибираємо лише після відповіді, інакше лічильник
-      // блимне на старе значення й повернеться.
-      setPendingQty((prev) => {
-        const rest = { ...prev }
-        for (const id of ids) delete rest[id]
-        return rest
-      })
     }
-  }, [])
+
+    // Якщо попередній debounce уже в мережі, наступний batch піде після
+    // нього. Це також робить await flushCart() справжнім барʼєром перед
+    // checkout, а не лише читанням поточного pendingRef.
+    const queued = flushInFlight.current.catch(() => null).then(run)
+    flushInFlight.current = queued
+    return queued
+  }, [cart])
 
   const changeCart = useCallback(
     async (productId, delta, opts = {}) => {
       if (opts.clear) {
+        // Очищення теж стає в ту саму чергу, що й +/- . Інакше сценарій
+        // «натиснув + і відразу очистити» запускав POST /cart та DELETE
+        // паралельно: повільний POST міг завершитись останнім і повернути
+        // вже очищений товар назад у кошик.
+        clearTimeout(flushTimer.current)
+        pendingRef.current = {}
+        setPendingQty({})
+        const clearRun = flushInFlight.current.catch(() => null).then(() => api.clearCart())
+        flushInFlight.current = clearRun
         try {
-          setCart(await api.clearCart())
-          setPendingQty({})
-          pendingRef.current = {}
+          setCart(await clearRun)
           setCartError('')
         } catch (err) {
           setCartError(err.message || 'Не вдалося очистити кошик')
+          try { setCart(await api.cart()) } catch { /* наступна дія перечитає */ }
         }
         return
       }
@@ -389,29 +412,6 @@ initData: ${getInitData() ? `${getInitData().length} символів` : 'пор
   // повертаємось у профіль, а не показуємо порожній екран.
   const openedList = (wishlists || []).find((w) => w.id === openListId)
 
-  if (openListId && openedList) {
-    return (
-      <div className="app">
-        {/* Назад — над списком, як на сторінці товару. Під списком кнопку
-            треба було шукати, догортаючи до кінця. */}
-        <div className="page-back">
-          <button className="back" onClick={() => setOpenListId(null)}>
-            До збереженого
-          </button>
-        </div>
-        <WishlistPage
-          config={config}
-          list={openedList}
-          cart={shownCart}
-          onChanged={onWishlistChanged}
-          onOpenProduct={setOpenProduct}
-          onCartChange={(product, delta) => changeCart(product.id, delta)}
-        />
-        <Footer onLegal={() => setLegal(true)} />
-      </div>
-    )
-  }
-
   if (openProduct) {
     return (
       <div className="app">
@@ -432,6 +432,29 @@ initData: ${getInitData() ? `${getInitData().length} символів` : 'пор
             onChanged={onWishlistChanged}
           />
         )}
+        <Footer onLegal={() => setLegal(true)} />
+      </div>
+    )
+  }
+
+  if (openListId && openedList) {
+    return (
+      <div className="app">
+        {/* Назад — над списком, як на сторінці товару. Під списком кнопку
+            треба було шукати, догортаючи до кінця. */}
+        <div className="page-back">
+          <button className="back" onClick={() => setOpenListId(null)}>
+            До збереженого
+          </button>
+        </div>
+        <WishlistPage
+          config={config}
+          list={openedList}
+          cart={shownCart}
+          onChanged={onWishlistChanged}
+          onOpenProduct={setOpenProduct}
+          onCartChange={(product, delta) => changeCart(product.id, delta)}
+        />
         <Footer onLegal={() => setLegal(true)} />
       </div>
     )

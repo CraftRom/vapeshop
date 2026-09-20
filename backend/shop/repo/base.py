@@ -165,8 +165,23 @@ class Repository(ABC):
     @abstractmethod
     async def create_order(self, order: Order, lines: list[OrderLine]) -> Order: ...
 
+    async def create_checkout_order_atomic(
+        self, order: Order, lines: list[OrderLine], *, promo_id: int | None = None,
+        bonus_used=0,
+    ):
+        """Опційний атомарний checkout для SQL-сховищ.
+
+        ``None`` означає, що реалізація не підтримує цю оптимізацію й
+        сервіс має використати сумісний поетапний fallback.
+        """
+        return None
+
     @abstractmethod
     async def get_order(self, order_id: int) -> Order | None: ...
+
+    async def get_order_by_checkout_key(self, checkout_key: str) -> Order | None:
+        """Повтор checkout. Старі/тестові репозиторії можуть не підтримувати."""
+        return None
 
     @abstractmethod
     async def list_orders(
@@ -178,6 +193,16 @@ class Repository(ABC):
 
     @abstractmethod
     async def update_order(self, order_id: int, data: dict) -> Order | None: ...
+
+    async def cancel_order_atomic(
+        self, order_id: int, expected_status: OrderStatus, *, mark_crm_pending: bool = False,
+    ):
+        """Опційне атомарне скасування для SQL-сховищ.
+
+        Повертає ``(order, previous_status, changed)`` або ``None``, якщо
+        repository не підтримує транзакційний шлях.
+        """
+        return None
 
     @abstractmethod
     async def find_order_by_crm_id(self, crm_id: str) -> Order | None:

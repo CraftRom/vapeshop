@@ -9,8 +9,12 @@ function BonusForm({ customer, onClose, onSaved }) {
   const notify = useToast()
   const [amount, setAmount] = useState('')
   const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
 
   const save = async () => {
+    if (busy) return
+    setBusy(true)
+    setError('')
     try {
       const updated = await api.customers.patch(customer.id, {
         bonus_delta: Number(amount),
@@ -21,6 +25,8 @@ function BonusForm({ customer, onClose, onSaved }) {
       onClose()
     } catch (err) {
       setError(err.message)
+    } finally {
+      setBusy(false)
     }
   }
 
@@ -31,8 +37,8 @@ function BonusForm({ customer, onClose, onSaved }) {
       footer={
         <>
           <button className="btn ghost" onClick={onClose}>Скасувати</button>
-          <button className="btn" onClick={save} disabled={!amount || Number(amount) === 0}>
-            Застосувати
+          <button className="btn" onClick={save} disabled={busy || !amount || Number(amount) === 0}>
+            {busy ? 'Застосовуємо…' : 'Застосувати'}
           </button>
         </>
       }

@@ -21,6 +21,10 @@ from shop.repo.base import Repository
 log = logging.getLogger(__name__)
 
 
+class OrderStateConflict(RuntimeError):
+    """Замовлення змінилось між читанням і транзакційною дією."""
+
+
 # ---------------------------------------------------------------- користувачі
 
 async def get_or_create_user(
@@ -89,6 +93,12 @@ async def check_promo(
 # ---------------------------------------------------------------------- кошик
 
 async def add_to_cart(repo: Repository, user_id: int, product_id: int, delta: int):
+    atomic = getattr(repo, "change_cart_qty_atomic", None)
+    if callable(atomic):
+        result = await atomic(user_id, product_id, delta)
+        return result or None
+
+    # Сумісний fallback для тестових/несQL repository.
     product = await repo.get_product(product_id)
     if not product or not product.is_active:
         return None
@@ -143,7 +153,7 @@ async def create_order(
     promo_code: str | None = None, use_bonus: bool = False,
     contact_surname: str | None = None, contact_patronymic: str | None = None,
     delivery_method: str | None = None, delivery_city_ref: str | None = None,
-    delivery_warehouse_ref: str | None = None,
+    delivery_warehouse_ref: str | None = None, checkout_key: str | None = None,
 ) -> tuple[Order | None, str | None]:
     lines = await repo.get_cart(user.id)
     if not lines:
@@ -192,7 +202,12 @@ async def create_order(
     draft = Order(
         id=0, user_id=user.id, subtotal=subtotal, discount=discount,
         bonus_used=bonus_used, total=total, promo_code_id=promo_id,
-        payment_method=payment_method, contact_name=full_name,
+        payment_method=payment_method, checkout_key=(checkout_key or "").strip() or None,
+        # CRM queue-state записується разом із самим замовленням. Інакше
+        # crash після COMMIT order, але до окремого UPDATE crm_state лишав
+        # валідне замовлення назавжди поза синхронізацією.
+        crm_state="pending" if shop.salesdrive_ready else "",
+        contact_name=full_name,
         contact_surname=(contact_surname or "").strip() or None,
         contact_patronymic=(contact_patronymic or "").strip() or None,
         contact_phone=contact_phone, delivery_city=city,
@@ -209,25 +224,85 @@ async def create_order(
                   price=line.product.price, qty=line.qty)
         for line in lines
     ]
-    order = await repo.create_order(draft, order_lines)
+
+    # SQL-репозиторій проводить reserve + order + promo + bonus + clear cart
+    # одним commit. Це прибирає crash-window між окремими операціями.
+    atomic = getattr(repo, "create_checkout_order_atomic", None)
+    atomic_result = (
+        await atomic(draft, order_lines, promo_id=promo_id, bonus_used=bonus_used)
+        if callable(atomic) else None
+    )
+
+    if atomic_result is not None:
+        order, atomic_status = atomic_result
+        if atomic_status == "stock":
+            return None, "Змінилася наявність: товар уже забрав інший покупець"
+        if atomic_status == "cart":
+            return None, "Кошик змінився в іншій вкладці. Перевірте його й повторіть оформлення"
+        if atomic_status == "promo":
+            return None, "Промокод уже недоступний або вичерпав ліміт"
+        if atomic_status == "bonus":
+            return None, "Бонусний баланс змінився. Оновіть оформлення й спробуйте ще раз"
+        if atomic_status == "duplicate_conflict":
+            return None, "Ключ оформлення вже використано"
+        if not order:
+            return None, "Не вдалося створити замовлення"
+        order.checkout_replayed = atomic_status == "duplicate"
+        if atomic_status == "created" and bonus_used > 0:
+            user.bonus_balance -= bonus_used
+    else:
+        # Сумісний fallback для тестових/несQL репозиторіїв.
+        # Резервуємо залишки ДО створення замовлення. validate_cart() — лише
+        # моментальний знімок; між ним і записом інший покупець міг забрати
+        # останню одиницю. SQL-репозиторій робить умовний UPDATE stock >= qty,
+        # тому тільки один із конкурентних checkout отримає товар.
+        reserved: list[tuple[int, int]] = []
+        for line in lines:
+            updated = await repo.adjust_stock(line.product_id, -line.qty)
+            if updated is None:
+                for product_id, qty in reversed(reserved):
+                    await repo.adjust_stock(product_id, qty)
+                fresh_problems = await validate_cart(repo, user.id)
+                detail = "\n• ".join(fresh_problems) if fresh_problems else "товар уже забрав інший покупець"
+                return None, "Змінилася наявність:\n• " + detail
+            reserved.append((line.product_id, line.qty))
+
+        try:
+            order = await repo.create_order(draft, order_lines)
+        except Exception:
+            for product_id, qty in reversed(reserved):
+                try:
+                    await repo.adjust_stock(product_id, qty)
+                except Exception:
+                    log.exception("Не вдалося повернути резерв товару %s", product_id)
+
+            if checkout_key:
+                try:
+                    existing = await repo.get_order_by_checkout_key(checkout_key)
+                except Exception:
+                    existing = None
+                if existing and existing.user_id == user.id:
+                    existing.checkout_replayed = True
+                    return existing, None
+            raise
+        order.checkout_replayed = False
+
+        if promo_id:
+            await repo.register_promo_use(promo_id, user.id, order.id)
+        if bonus_used > 0:
+            await repo.add_bonus(user.id, -bonus_used, "spend", order.id)
+            user.bonus_balance -= bonus_used
+        await repo.clear_cart(user.id)
+
     # У SalesDrive потрапляють ЛИШЕ замовлення, створені коли інтеграція вже
     # активна. Старі замовлення навмисно залишаються з порожнім crm_state:
     # увімкнення/переналаштування CRM ніколи не робить історичний backfill.
-    if shop.salesdrive_ready:
-        await repo.update_order(order.id, {"crm_state": "pending"})
-        order.crm_state = "pending"
+    if shop.salesdrive_ready and not getattr(order, "checkout_replayed", False):
+        # pending уже лежить у тому самому COMMIT, що й order. Тут лише
+        # прискорюємо доставку; навіть якщо процес упаде, scheduler підхопить
+        # pending із БД і замовлення не загубиться для CRM.
         _push_to_crm_soon(order.id)
 
-    for line in lines:
-        await repo.adjust_stock(line.product_id, -line.qty)
-
-    if promo_id:
-        await repo.register_promo_use(promo_id, user.id, order.id)
-    if bonus_used > 0:
-        await repo.add_bonus(user.id, -bonus_used, "spend", order.id)
-        user.bonus_balance -= bonus_used
-
-    await repo.clear_cart(user.id)
     return order, None
 
 
@@ -356,6 +431,31 @@ async def change_order_status(
     previous = order.status
     if previous == status:
         return None
+
+    # Скасування має побічні зміни (склад, бонуси, денормалізовані totals).
+    # У SQL вони проходять однією транзакцією під order lock; інакше два
+    # одночасні cancel могли двічі повернути залишок/бонуси, а crash між
+    # commit статусу і refund лишав дані напіввідкоченими.
+    if status == OrderStatus.CANCELLED:
+        atomic_cancel = getattr(repo, "cancel_order_atomic", None)
+        if callable(atomic_cancel):
+            result = await atomic_cancel(
+                order.id, previous, mark_crm_pending=(origin != "salesdrive"),
+            )
+            if result is not None:
+                fresh, actual_previous, changed = result
+                if fresh is not None:
+                    order.status = fresh.status
+                    order.crm_state = fresh.crm_state
+                if not changed:
+                    if fresh is not None and fresh.status == OrderStatus.CANCELLED:
+                        return None
+                    raise OrderStateConflict(
+                        "Статус замовлення вже змінився. Оновіть дані й повторіть дію."
+                    )
+                if origin != "salesdrive" and fresh and (fresh.crm_id or fresh.crm_state):
+                    _push_to_crm_soon(order.id)
+                return None
 
     patch: dict = {"status": status}
     # Локальна зміна синхронізується лише для замовлення, яке вже було

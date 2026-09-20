@@ -8,7 +8,7 @@ sd = (root/'backend/shop/services/salesdrive.py').read_text()
 router = (root/'backend/api/routers/orders.py').read_text()
 
 checks = {
-    'new orders queue only when SalesDrive ready': 'if shop.salesdrive_ready:' in shop and 'crm_state": "pending"' in shop,
+    'new orders queue only when SalesDrive ready': 'crm_state="pending" if shop.salesdrive_ready else ""' in shop,
     'status changes only queue linked orders': 'crm_linked = bool(order.crm_id or order.crm_state)' in shop,
     'tracking changes do not queue historical orders': '_crm_pending_patch(order)' in flow and 'if (order.crm_id or order.crm_state) else {}' in flow,
     'webhook cannot attach historical order by externalId': 'candidate and (candidate.crm_id or candidate.crm_state)' in sd,

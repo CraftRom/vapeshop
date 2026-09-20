@@ -126,6 +126,35 @@ export const api = {
   confirmAge: () => request('/age-confirm', { method: 'POST' }),
 
   categories: () => request('/categories'),
+  productPhoto: async (productId) => {
+    const endpoint = `/products/${productId}/photo`
+    for (let attempt = 1; attempt <= GET_RETRIES + 1; attempt += 1) {
+      let res
+      try {
+        res = await fetchTimed(`${BASE}${endpoint}`, {
+          headers: { 'X-Telegram-Init-Data': getInitData() },
+        })
+      } catch (err) {
+        const hidden = document.visibilityState === 'hidden'
+        if (!hidden && attempt <= GET_RETRIES) {
+          await wait(350 * attempt)
+          continue
+        }
+        throw err
+      }
+      if (!res.ok && attempt <= GET_RETRIES && isTransientStatus(res.status)) {
+        await wait(res.status === 429 ? 900 : 350 * attempt)
+        continue
+      }
+      if (!res.ok) {
+        const error = new Error(`Не вдалося завантажити фото (${res.status})`)
+        error.status = res.status
+        throw error
+      }
+      return URL.createObjectURL(await res.blob())
+    }
+    throw new Error('Не вдалося завантажити фото')
+  },
   products: ({ categoryId, search } = {}) => {
     const q = new URLSearchParams()
     if (categoryId) q.set('category_id', categoryId)
@@ -224,17 +253,22 @@ export const api = {
     const endpoint = `/orders/${orderId}/chat/photo`
     let res
     try {
-      res = await fetch(`${BASE}${endpoint}`, {
+      res = await fetchTimed(`${BASE}${endpoint}`, {
         method: 'POST',
         headers: { 'X-Telegram-Init-Data': getInitData() },
         body,
       })
     } catch (err) {
       clientLog('storefront.api.network_error', {
-        level: 'error', message: err?.message || 'network error',
+        level: 'error', message: err?.name === 'AbortError' ? 'API timeout' : (err?.message || 'network error'),
         errorName: err?.name || '', method: 'POST', endpoint,
         durationMs: Math.round(performance.now() - started),
       })
+      if (err?.name === 'AbortError') {
+        const timeoutError = new Error('Фото не завантажилось вчасно. Спробуйте ще раз.')
+        timeoutError.name = 'TimeoutError'
+        throw timeoutError
+      }
       throw err
     }
     if (!res.ok) {

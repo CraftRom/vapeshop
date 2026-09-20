@@ -501,6 +501,16 @@ export function confirm(message) {
 }
 
 export function alert(message) {
-  if (webApp()?.showAlert) webApp().showAlert(message)
-  else window.alert(message)
+  return new Promise((resolve) => {
+    if (webApp()?.showAlert) {
+      try {
+        webApp().showAlert(message, resolve)
+      } catch {
+        resolve()
+      }
+      return
+    }
+    window.alert(message)
+    resolve()
+  })
 }

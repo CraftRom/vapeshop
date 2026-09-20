@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 
-import { api, getToken } from '../api'
+import { api, authorizedFetch } from '../api'
 import { ErrorBar, Field, Info, Loading, Modal, money, useToast } from '../components/ui'
 import { STATUS_LABELS, allowedFrom } from '../components/StatusRail'
 import {
@@ -57,9 +57,7 @@ function Attachment({ orderId, message }) {
   useEffect(() => {
     let revoked = null
     let cancelled = false
-    fetch(api.orders.fileUrl(orderId, message.id), {
-      headers: { Authorization: `Bearer ${getToken()}` },
-    })
+    authorizedFetch(api.orders.fileUrl(orderId, message.id))
       .then((r) => (r.ok ? r.blob() : Promise.reject(new Error(String(r.status)))))
       .then((blob) => {
         if (cancelled) return
@@ -119,11 +117,18 @@ function Attachment({ orderId, message }) {
 function TrackingModal({ initial, onCancel, onConfirm }) {
   const [value, setValue] = useState(initial || '')
   const [busy, setBusy] = useState(false)
+  const busyRef = useRef(false)
 
   const confirm = async () => {
+    if (busyRef.current || !value.trim()) return
+    busyRef.current = true
     setBusy(true)
-    await onConfirm(value.trim())
-    setBusy(false)
+    try {
+      await onConfirm(value.trim())
+    } finally {
+      busyRef.current = false
+      setBusy(false)
+    }
   }
 
   return (
@@ -160,6 +165,7 @@ function Chat({ orderId, messages, newMessageIds, onSent }) {
   const notify = useToast()
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
+  const sendingRef = useRef(false)
   const logRef = useRef(null)
   const stickToBottomRef = useRef(true)
   const initializedRef = useRef(false)
@@ -186,7 +192,8 @@ function Chat({ orderId, messages, newMessageIds, onSent }) {
 
   const send = async () => {
     const body = text.trim()
-    if (!body) return
+    if (!body || sendingRef.current) return
+    sendingRef.current = true
     setBusy(true)
     try {
       const result = await api.orders.sendMessage(orderId, body)
@@ -202,6 +209,7 @@ function Chat({ orderId, messages, newMessageIds, onSent }) {
     } catch (err) {
       notify(err.message, 'bad')
     } finally {
+      sendingRef.current = false
       setBusy(false)
     }
   }
@@ -326,6 +334,7 @@ function WaybillPanel({ order, busy, onChanged }) {
   const notify = useToast()
   const [readiness, setReadiness] = useState(null)
   const [working, setWorking] = useState(false)
+  const workingRef = useRef(false)
 
   useEffect(() => {
     let cancelled = false
@@ -340,6 +349,8 @@ function WaybillPanel({ order, busy, onChanged }) {
   }, [order.id, order.tracking_number, order.status])
 
   const run = async (action, okText) => {
+    if (workingRef.current) return
+    workingRef.current = true
     setWorking(true)
     try {
       const fresh = await action()
@@ -348,25 +359,42 @@ function WaybillPanel({ order, busy, onChanged }) {
     } catch (err) {
       notify(err.message, 'bad')
     } finally {
+      workingRef.current = false
       setWorking(false)
     }
   }
 
   const printLabel = async () => {
+    if (workingRef.current) return
+    workingRef.current = true
+    // Вікно треба створити прямо в click-handler. Якщо викликати window.open
+    // уже після await fetch, Safari/Chrome можуть вважати це popup і
+    // заблокувати — кнопка «Маркування» тоді ніби нічого не робить.
+    const preview = window.open('', '_blank')
+    if (preview) preview.opener = null
     setWorking(true)
     try {
-      const response = await fetch(api.orders.waybillLabelUrl(order.id), {
-        headers: { Authorization: `Bearer ${getToken()}` },
-      })
+      const response = await authorizedFetch(api.orders.waybillLabelUrl(order.id), {}, 60000)
       if (!response.ok) {
         let detail = 'Не вдалося отримати маркування'
         try { detail = (await response.json()).detail || detail } catch { /* не JSON */ }
         throw new Error(detail)
       }
       const url = URL.createObjectURL(await response.blob())
-      window.open(url, '_blank', 'noopener')
+      if (preview) {
+        preview.location.href = url
+      } else {
+        const link = document.createElement('a')
+        link.href = url
+        link.target = '_blank'
+        link.rel = 'noopener'
+        document.body.appendChild(link)
+        link.click()
+        link.remove()
+      }
       setTimeout(() => URL.revokeObjectURL(url), 60000)
     } catch (err) {
+      preview?.close()
       notify(err.message, 'bad')
     } finally {
       setWorking(false)
@@ -608,7 +636,8 @@ function CrmEditPanel({ order, onSave }) {
   const changed = Object.keys(form).filter((key) => String(form[key] ?? '') !== String(initialRef.current[key] ?? ''))
 
   const submit = async () => {
-    if (!changed.length) return
+    if (!changed.length || busyRef.current) return
+    busyRef.current = true
     const payload = {}
     for (const key of changed) {
       const value = form[key]
@@ -634,6 +663,7 @@ function CrmEditPanel({ order, onSave }) {
     } catch {
       // Повідомлення про помилку показує батьківський екран через toast.
     } finally {
+      busyRef.current = false
       setBusy(false)
     }
   }
@@ -1076,6 +1106,7 @@ export default function OrderPage() {
   const trackingDirtyRef = useRef(false)
   const noteDirtyRef = useRef(false)
   const crmRefreshInFlightRef = useRef(false)
+  const mutationInFlightRef = useRef(false)
 
   useEffect(() => {
     messagesRef.current = messages
@@ -1287,6 +1318,8 @@ export default function OrderPage() {
   }, [])
 
   const patch = async (payload, okText) => {
+    if (mutationInFlightRef.current) return false
+    mutationInFlightRef.current = true
     setBusy(true)
     try {
       const fresh = await api.orders.patch(id, payload)
@@ -1294,9 +1327,12 @@ export default function OrderPage() {
       if (Object.prototype.hasOwnProperty.call(payload, 'admin_note')) noteDirtyRef.current = false
       applyFreshOrder(fresh)
       notify(okText)
+      return true
     } catch (err) {
       notify(err.message, 'bad')
+      return false
     } finally {
+      mutationInFlightRef.current = false
       setBusy(false)
     }
   }
@@ -1313,11 +1349,11 @@ export default function OrderPage() {
   const confirmShipping = async (value) => {
     trackingDirtyRef.current = false
     setTracking(value)
-    await patch(
+    const saved = await patch(
       { status: 'shipped', tracking_number: value },
       'Відправлено, ТТН надіслано клієнту',
     )
-    setAskTracking(false)
+    if (saved) setAskTracking(false)
   }
 
   if (error && !order) return <ErrorBar error={error} />

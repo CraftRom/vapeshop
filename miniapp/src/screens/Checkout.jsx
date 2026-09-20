@@ -31,7 +31,7 @@ export function phoneError(value) {
   return ''
 }
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { api } from '../api'
 import { Field } from '../fields'
@@ -173,6 +173,11 @@ function Requirement({ optional = false }) {
 }
 
 export function Checkout({ config, cart, profile, onDone, onLegal }) {
+  const submittingRef = useRef(false)
+  const checkoutKey = useRef(
+    globalThis.crypto?.randomUUID?.().replace(/-/g, '')
+      || `${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`,
+  )
   const [form, setForm] = useState(EMPTY_FORM)
   const [promo, setPromo] = useState(null)
   const [checking, setChecking] = useState(false)
@@ -396,9 +401,14 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
       : 0
   const discount = Math.max(promoDiscount, volumeDiscount)
   const byVolume = volumeDiscount > promoDiscount
+  // Ліміт бонусів backend рахує ПІСЛЯ найбільшої знижки. Старий UI
+  // брав profile.max_bonus_now, який порахований від subtotal ДО промокоду,
+  // і міг показати меншу суму до сплати, ніж реально створював сервер.
+  const afterDiscount = Math.max(0, subtotal - discount)
+  const bonusCap = afterDiscount * Number(config.bonus_max_percent || 0) / 100
   const bonus = config.bonus_enabled && form.use_bonus
-    ? Number(profile?.max_bonus_now || 0) : 0
-  const total = Math.max(0, subtotal - discount - bonus)
+    ? Math.max(0, Math.min(Number(profile?.bonus_balance || 0), bonusCap)) : 0
+  const total = Math.max(0, afterDiscount - bonus)
 
   // Порядок збігається з порядком полів на екрані: за ним ведемо людину
   // до першого незаповненого, а не до випадкового.
@@ -413,6 +423,10 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
   const filled = missing.length === 0
 
   const submit = async () => {
+    // disabled оновлюється після render, тому два дуже швидкі click можуть
+    // потрапити сюди до того, як кнопка стане неактивною. Сервер має
+    // ідемпотентність, але локальний guard прибирає зайвий запит зовсім.
+    if (submittingRef.current) return
     if (!filled) {
       // Раніше тут був один банер з переліком усіх пʼяти полів, а
       // підсвічувався лише телефон. Людина читала речення й сама шукала
@@ -450,11 +464,15 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
                + 'відділення або оплату на картку.')
       return
     }
+    // Ref ставимо синхронно: state busy оновиться тільки після render і
+    // не блокує другий click у тому самому кадрі.
+    submittingRef.current = true
     setBusy(true)
     setError('')
     try {
       const order = await api.checkout({
         ...form,
+        checkout_key: checkoutKey.current,
         // Курʼєра могли вимкнути, поки вкладка була відкрита. Шлемо те,
         // що покупець реально бачив на екрані, інакше замовлення
         // відхилиться з приводу, якого людина не розуміє.
@@ -470,7 +488,7 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
         order.payment_method === 'card'
           ? '\n\nМенеджер надішле реквізити для оплати вам у чат.'
           : ''
-      alert(
+      await alert(
         `Замовлення №${order.order_id} прийнято.\nДо сплати ${Number(order.total).toFixed(
           0,
         )} ${config.currency}.${payment}\n\nДеталі надійдуть у чат з ботом.`,
@@ -478,6 +496,7 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
       onDone()
       close()
     } catch (err) {
+      submittingRef.current = false
       notify('error')
       setError(err.message)
       setBusy(false)

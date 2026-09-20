@@ -207,6 +207,7 @@ def _order(row, with_user: bool = False) -> Order | None:
         subtotal=_dec(row.subtotal), discount=_dec(row.discount),
         bonus_used=_dec(row.bonus_used), total=_dec(row.total),
         promo_code_id=row.promo_code_id, payment_method=row.payment_method,
+        checkout_key=row.checkout_key,
         receipt_file_id=row.receipt_file_id, contact_name=row.contact_name,
         contact_surname=row.contact_surname, contact_patronymic=row.contact_patronymic,
         contact_phone=row.contact_phone, delivery_city=row.delivery_city,
@@ -504,14 +505,18 @@ class SqlRepository(Repository):
         return _product(row)
 
     async def adjust_stock(self, product_id, delta: int) -> Product | None:
-        # Атомарний зсув: без цього два паралельні замовлення могли вигребти
-        # той самий залишок і вивести його в мінус.
-        await self.s.execute(
-            update(m.Product)
-            .where(m.Product.id == product_id)
-            .values(stock=_not_below_zero(m.Product.stock + delta))
-        )
+        # Відʼємний зсув — це резерв товару, а не просто «не піти в мінус».
+        # Старий CASE(stock + delta, 0) дозволяв двом одночасним checkout
+        # обом пройти перевірку залишку: другий теж створював замовлення,
+        # а склад просто затискався в нуль. Тепер UPDATE виконується лише
+        # якщо потрібна кількість реально ще є.
+        query = update(m.Product).where(m.Product.id == product_id)
+        if delta < 0:
+            query = query.where(m.Product.stock >= -delta)
+        result = await self.s.execute(query.values(stock=_not_below_zero(m.Product.stock + delta)))
         await self._commit()
+        if not result.rowcount:
+            return None
         return _product(await self.s.get(m.Product, product_id))
 
     async def set_stock(self, product_id, stock: int) -> Product | None:
@@ -538,26 +543,95 @@ class SqlRepository(Repository):
         return [CartLine(product_id=r.product_id, qty=r.qty, product=_product(r.product))
                 for r in rows]
 
-    async def set_cart_qty(self, user_id, product_id, qty: int) -> None:
-        row = await self.s.scalar(
-            select(m.CartItem).where(
-                m.CartItem.user_id == user_id, m.CartItem.product_id == product_id
+    async def change_cart_qty_atomic(self, user_id: int, product_id: int, delta: int):
+        """Змінює кількість у кошику під row-lock користувача.
+
+        Lock саме User серіалізує також перше додавання, коли CartItem ще
+        не існує й його нема чим ``FOR UPDATE`` заблокувати. Це прибирає
+        lost-update між двома вкладками/клієнтами одного Telegram акаунта.
+        """
+        try:
+            user_row = await self.s.scalar(
+                select(m.User).where(m.User.id == user_id).with_for_update()
             )
-        )
-        if qty <= 0:
-            if row:
-                await self.s.delete(row)
-                await self.s.commit()
-            return
-        if row:
-            row.qty = qty
-        else:
-            self.s.add(m.CartItem(user_id=user_id, product_id=product_id, qty=qty))
-        await self.s.commit()
+            if not user_row:
+                await self.s.rollback()
+                return None
+            product = await self.s.scalar(
+                select(m.Product).where(m.Product.id == product_id).with_for_update()
+            )
+            if not product or not product.is_active:
+                await self.s.rollback()
+                return None
+            row = await self.s.scalar(
+                select(m.CartItem).where(
+                    m.CartItem.user_id == user_id, m.CartItem.product_id == product_id
+                ).with_for_update()
+            )
+            current = int(row.qty) if row else 0
+            new_qty = min(max(current + int(delta), 0), int(product.stock or 0))
+            if new_qty <= 0:
+                if row:
+                    await self.s.delete(row)
+            elif row:
+                row.qty = new_qty
+            else:
+                self.s.add(m.CartItem(user_id=user_id, product_id=product_id, qty=new_qty))
+            await self.s.commit()
+            return new_qty
+        except Exception:
+            await self.s.rollback()
+            raise
+
+    async def set_cart_qty(self, user_id, product_id, qty: int) -> None:
+        """Встановлює абсолютну кількість, серіалізуючись з checkout.
+
+        Цей шлях досі використовує Telegram-бот. Lock користувача тут
+        обов'язковий: atomic checkout і Mini App +/- беруть той самий lock,
+        тому жоден із трьох каналів не може непомітно перетерти кошик іншого.
+        """
+        try:
+            user_row = await self.s.scalar(
+                select(m.User).where(m.User.id == user_id).with_for_update()
+            )
+            if not user_row:
+                await self.s.rollback()
+                return
+            product = await self.s.scalar(
+                select(m.Product).where(m.Product.id == product_id).with_for_update()
+            )
+            row = await self.s.scalar(
+                select(m.CartItem).where(
+                    m.CartItem.user_id == user_id, m.CartItem.product_id == product_id
+                ).with_for_update()
+            )
+            capped = min(max(int(qty), 0), int(product.stock or 0)) if product and product.is_active else 0
+            if capped <= 0:
+                if row:
+                    await self.s.delete(row)
+            elif row:
+                row.qty = capped
+            else:
+                self.s.add(m.CartItem(user_id=user_id, product_id=product_id, qty=capped))
+            await self.s.commit()
+        except Exception:
+            await self.s.rollback()
+            raise
 
     async def clear_cart(self, user_id) -> None:
-        await self.s.execute(delete(m.CartItem).where(m.CartItem.user_id == user_id))
-        await self._commit()
+        """Очищає кошик під тим самим user-lock, що й checkout/+/- qty."""
+        try:
+            user_row = await self.s.scalar(
+                select(m.User).where(m.User.id == user_id).with_for_update()
+            )
+            if not user_row:
+                await self.s.rollback()
+                return
+            await self.s.execute(delete(m.CartItem).where(m.CartItem.user_id == user_id))
+            await self.s.commit()
+        except Exception:
+            await self.s.rollback()
+            raise
 
     # ----------------------------------------------------------- orders
 
@@ -566,7 +640,9 @@ class SqlRepository(Repository):
             user_id=order.user_id, subtotal=order.subtotal, discount=order.discount,
             bonus_used=order.bonus_used, total=order.total,
             promo_code_id=order.promo_code_id, payment_method=order.payment_method,
-            contact_name=order.contact_name, contact_phone=order.contact_phone,
+            checkout_key=order.checkout_key, crm_state=order.crm_state,
+            contact_name=order.contact_name, contact_surname=order.contact_surname,
+            contact_patronymic=order.contact_patronymic, contact_phone=order.contact_phone,
             delivery_city=order.delivery_city, delivery_address=order.delivery_address,
             delivery_method=order.delivery_method,
             delivery_city_ref=order.delivery_city_ref,
@@ -575,21 +651,215 @@ class SqlRepository(Repository):
             search_key=f"{order.contact_name or ''} {order.contact_phone or ''}".lower(),
         )
         self.s.add(row)
-        await self.s.flush()
-        for line in lines:
-            self.s.add(m.OrderItem(
-                order_id=row.id, product_id=line.product_id,
-                name=line.name, price=line.price, qty=line.qty,
-            ))
-        await self.s.commit()
+        try:
+            await self.s.flush()
+            for line in lines:
+                self.s.add(m.OrderItem(
+                    order_id=row.id, product_id=line.product_id,
+                    name=line.name, price=line.price, qty=line.qty,
+                ))
+            await self.s.commit()
+        except Exception:
+            # Після IntegrityError (найчастіше одночасний повтор того самого
+            # checkout_key) SQLAlchemy блокує сесію до rollback. Без цього
+            # сервіс не міг ані повернути резерв складу, ані прочитати вже
+            # створене першим запитом замовлення.
+            await self.s.rollback()
+            raise
         loaded = await self.s.scalar(
             select(m.Order).where(m.Order.id == row.id).options(selectinload(m.Order.items))
         )
         return _order(loaded)
 
+    async def create_checkout_order_atomic(
+        self, order: Order, lines: list[OrderLine], *, promo_id: int | None = None,
+        bonus_used=Decimal(0),
+    ):
+        """Створює checkout одним SQL-транзакційним комітом.
+
+        Раніше reserve stock, insert order, promo usage, bonus spend і clear
+        cart комітились окремо. Падіння процесу між ними залишало або
+        «зниклий» товар без замовлення, або замовлення без списаних бонусів.
+        Тут усі критичні зміни або проходять разом, або rollback-яться разом.
+
+        Повертає ``(order, status)`` де status: created / duplicate / stock /
+        promo / bonus.
+        """
+        bonus_used = Decimal(str(bonus_used or 0))
+        try:
+            # Один user-lock серіалізує checkout із cart +/- і з другим
+            # checkout того самого покупця. Після lock ще раз звіряємо кошик:
+            # snapshot, який сервіс порахував до транзакції, не можна мовчки
+            # оформити, якщо інша вкладка встигла його змінити.
+            user_row = await self.s.scalar(
+                select(m.User).where(m.User.id == order.user_id).with_for_update()
+            )
+            if not user_row:
+                await self.s.rollback()
+                return None, "cart"
+
+            # Після очікування user-lock перший конкурентний checkout уже
+            # міг завершитися й очистити кошик. У такому випадку спершу
+            # перевіряємо idempotency key, інакше другий той самий POST
+            # помилково отримав би «кошик змінився» замість існуючого order.
+            if order.checkout_key:
+                existing_row = await self.s.scalar(
+                    select(m.Order).where(m.Order.checkout_key == order.checkout_key)
+                    .options(selectinload(m.Order.items), selectinload(m.Order.user))
+                )
+                if existing_row:
+                    existing = _order(existing_row, with_user=True)
+                    await self.s.rollback()
+                    if existing.user_id == order.user_id:
+                        return existing, "duplicate"
+                    # Чужий ключ не розкриваємо через доменний checkout path.
+                    return None, "duplicate_conflict"
+
+            current_cart_rows = list((await self.s.execute(
+                select(m.CartItem.product_id, m.CartItem.qty)
+                .where(m.CartItem.user_id == order.user_id)
+                .order_by(m.CartItem.product_id)
+            )).all())
+            expected_cart = sorted((int(line.product_id), int(line.qty)) for line in lines)
+            current_cart = sorted((int(product_id), int(qty)) for product_id, qty in current_cart_rows)
+            if current_cart != expected_cart:
+                await self.s.rollback()
+                return None, "cart"
+
+            # Серіалізуємо перевірку промокоду: загальний max_uses і
+            # per-user limit не можуть бути перевищені двома checkout одночасно.
+            if promo_id:
+                promo = await self.s.scalar(
+                    select(m.PromoCode).where(m.PromoCode.id == promo_id).with_for_update()
+                )
+                if not promo or not promo.is_active:
+                    await self.s.rollback()
+                    return None, "promo"
+                now = datetime.now(timezone.utc)
+                expires = promo.expires_at
+                if expires and expires.tzinfo is None:
+                    expires = expires.replace(tzinfo=timezone.utc)
+                if expires and expires < now:
+                    await self.s.rollback()
+                    return None, "promo"
+                if promo.max_uses is not None and promo.used_count >= promo.max_uses:
+                    await self.s.rollback()
+                    return None, "promo"
+                if Decimal(str(order.subtotal or 0)) < Decimal(str(promo.min_order or 0)):
+                    await self.s.rollback()
+                    return None, "promo"
+                if promo.type == m.PromoType.PERCENT:
+                    live_discount = (
+                        Decimal(str(order.subtotal or 0)) * Decimal(str(promo.value or 0)) / Decimal(100)
+                    ).quantize(Decimal("0.01"))
+                else:
+                    live_discount = Decimal(str(promo.value or 0))
+                live_discount = min(live_discount, Decimal(str(order.subtotal or 0)))
+                if live_discount != Decimal(str(order.discount or 0)):
+                    # Промокод відредагували між preview та checkout.
+                    # Не оформлюємо за старою ціною — клієнт має побачити
+                    # новий розрахунок і свідомо підтвердити його.
+                    await self.s.rollback()
+                    return None, "promo"
+                used_by_user = await self.s.scalar(
+                    select(func.count(m.PromoUsage.id)).where(
+                        m.PromoUsage.promo_id == promo_id,
+                        m.PromoUsage.user_id == order.user_id,
+                    )
+                ) or 0
+                if used_by_user >= promo.per_user_limit:
+                    await self.s.rollback()
+                    return None, "promo"
+
+            # Баланс перевіряємо під тим самим user-lock: два checkout
+            # не можуть витратити ті самі бонуси.
+            if bonus_used > 0:
+                if Decimal(str(user_row.bonus_balance or 0)) < bonus_used:
+                    await self.s.rollback()
+                    return None, "bonus"
+
+            # Товари блокуємо у стабільному порядку ID: два checkout із
+            # однаковими товарами, доданими в різному порядку, інакше могли
+            # отримати взаємний deadlock. Під lock повторно звіряємо active,
+            # stock і ціну — validate_cart() був лише попереднім snapshot.
+            for line in sorted(lines, key=lambda item: int(item.product_id)):
+                product = await self.s.scalar(
+                    select(m.Product).where(m.Product.id == line.product_id).with_for_update()
+                )
+                if not product or not product.is_active or int(product.stock or 0) < int(line.qty):
+                    await self.s.rollback()
+                    return None, "stock"
+                if Decimal(str(product.price)) != Decimal(str(line.price)):
+                    await self.s.rollback()
+                    return None, "cart"
+                product.stock = int(product.stock or 0) - int(line.qty)
+
+            row = m.Order(
+                user_id=order.user_id, subtotal=order.subtotal, discount=order.discount,
+                bonus_used=order.bonus_used, total=order.total,
+                promo_code_id=order.promo_code_id, payment_method=order.payment_method,
+                checkout_key=order.checkout_key, crm_state=order.crm_state,
+                contact_name=order.contact_name, contact_surname=order.contact_surname,
+                contact_patronymic=order.contact_patronymic, contact_phone=order.contact_phone,
+                delivery_city=order.delivery_city, delivery_address=order.delivery_address,
+                delivery_method=order.delivery_method, delivery_city_ref=order.delivery_city_ref,
+                delivery_warehouse_ref=order.delivery_warehouse_ref, comment=order.comment,
+                search_key=f"{order.contact_name or ''} {order.contact_phone or ''}".lower(),
+            )
+            self.s.add(row)
+            await self.s.flush()
+            for line in lines:
+                self.s.add(m.OrderItem(
+                    order_id=row.id, product_id=line.product_id, name=line.name,
+                    price=line.price, qty=line.qty,
+                ))
+
+            if promo_id:
+                self.s.add(m.PromoUsage(
+                    promo_id=promo_id, user_id=order.user_id, order_id=row.id,
+                ))
+                promo.used_count += 1
+
+            if bonus_used > 0:
+                self.s.add(m.BonusTx(
+                    user_id=order.user_id, amount=-bonus_used, reason="spend", order_id=row.id,
+                ))
+                user_row.bonus_balance = Decimal(str(user_row.bonus_balance or 0)) - bonus_used
+
+            await self.s.execute(delete(m.CartItem).where(m.CartItem.user_id == order.user_id))
+            await self.s.commit()
+        except IntegrityError:
+            # Найімовірніше — конкурентний insert того самого checkout_key.
+            # Rollback повертає і резерв складу, і promo/bonus зміни.
+            await self.s.rollback()
+            if order.checkout_key:
+                existing = await self.get_order_by_checkout_key(order.checkout_key)
+                if existing and existing.user_id == order.user_id:
+                    return existing, "duplicate"
+            raise
+        except Exception:
+            await self.s.rollback()
+            raise
+
+        loaded = await self.s.scalar(
+            select(m.Order).where(m.Order.id == row.id)
+            .options(selectinload(m.Order.items), selectinload(m.Order.user))
+        )
+        return _order(loaded, with_user=True), "created"
+
     async def get_order(self, order_id) -> Order | None:
         row = await self.s.scalar(
             select(m.Order).where(m.Order.id == order_id)
+            .options(selectinload(m.Order.items), selectinload(m.Order.user))
+        )
+        return _order(row, with_user=True)
+
+    async def get_order_by_checkout_key(self, checkout_key: str) -> Order | None:
+        key = str(checkout_key or "").strip()
+        if not key:
+            return None
+        row = await self.s.scalar(
+            select(m.Order).where(m.Order.checkout_key == key)
             .options(selectinload(m.Order.items), selectinload(m.Order.user))
         )
         return _order(row, with_user=True)
@@ -631,6 +901,79 @@ class SqlRepository(Repository):
             setattr(row, key, value)
         await self.s.commit()
         return _order(row, with_user=True)
+
+    async def cancel_order_atomic(
+        self, order_id: int, expected_status: OrderStatus, *, mark_crm_pending: bool = False,
+    ):
+        """Скасовує замовлення й повертає склад/бонуси одним COMMIT.
+
+        Order row-lock робить операцію exactly-once для БД: два одночасні
+        cancel не можуть двічі повернути той самий товар або бонуси.
+        ``expected_status`` захищає від stale UI — якщо інший процес уже
+        пересунув замовлення, цей запит нічого не відкотить.
+        """
+        try:
+            row = await self.s.scalar(
+                select(m.Order).where(m.Order.id == order_id).with_for_update()
+                .options(selectinload(m.Order.items), selectinload(m.Order.user))
+            )
+            if not row:
+                await self.s.rollback()
+                return None, expected_status, False
+
+            current = OrderStatus(row.status.value)
+            if current != expected_status:
+                fresh = _order(row, with_user=True)
+                await self.s.rollback()
+                return fresh, current, False
+            if current == OrderStatus.CANCELLED:
+                fresh = _order(row, with_user=True)
+                await self.s.rollback()
+                return fresh, current, False
+
+            # Lock-order узгоджений із checkout/cart: спочатку User, потім
+            # Product. Якби cancellation тримав Product і лише потім чекав
+            # User, паралельний cart (User → Product) утворював би deadlock.
+            user_row = await self.s.scalar(
+                select(m.User).where(m.User.id == row.user_id).with_for_update()
+            )
+
+            # Products у стабільному порядку: скасування двох різних
+            # замовлень із перетином товарів не створює lock inversion.
+            for item in sorted(row.items, key=lambda x: int(x.product_id or 0)):
+                if not item.product_id:
+                    continue
+                product = await self.s.scalar(
+                    select(m.Product).where(m.Product.id == item.product_id).with_for_update()
+                )
+                if product:
+                    product.stock = int(product.stock or 0) + int(item.qty or 0)
+
+            if user_row:
+                if current.value in CARD_RECEIVED_VALUES:
+                    user_row.orders_count = max(0, int(user_row.orders_count or 0) - 1)
+                    user_row.total_spent = max(
+                        Decimal(0), Decimal(str(user_row.total_spent or 0)) - Decimal(str(row.total or 0))
+                    )
+                bonus = Decimal(str(row.bonus_used or 0))
+                if bonus > 0:
+                    self.s.add(m.BonusTx(
+                        user_id=row.user_id, amount=bonus, reason="refund", order_id=row.id,
+                    ))
+                    user_row.bonus_balance = Decimal(str(user_row.bonus_balance or 0)) + bonus
+
+            row.status = m.OrderStatus.CANCELLED
+            if mark_crm_pending and (row.crm_id or row.crm_state):
+                row.crm_state = "pending"
+            await self.s.commit()
+            loaded = await self.s.scalar(
+                select(m.Order).where(m.Order.id == order_id)
+                .options(selectinload(m.Order.items), selectinload(m.Order.user))
+            )
+            return _order(loaded, with_user=True), current, True
+        except Exception:
+            await self.s.rollback()
+            raise
 
     async def find_order_by_crm_id(self, crm_id: str) -> Order | None:
         row = await self.s.scalar(

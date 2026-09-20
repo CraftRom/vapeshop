@@ -23,6 +23,7 @@ function PromoForm({ promo, onClose, onSaved }) {
     max_uses: promo?.max_uses ?? '',
   })
   const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
 
   const set = (key) => (e) => {
     const value = e.target.type === 'checkbox' ? e.target.checked : e.target.value
@@ -30,6 +31,8 @@ function PromoForm({ promo, onClose, onSaved }) {
   }
 
   const save = async () => {
+    if (busy) return
+    setBusy(true)
     setError('')
     const payload = {
       code: form.code.trim().toUpperCase(),
@@ -48,6 +51,8 @@ function PromoForm({ promo, onClose, onSaved }) {
       onClose()
     } catch (err) {
       setError(err.message)
+    } finally {
+      setBusy(false)
     }
   }
 
@@ -58,8 +63,8 @@ function PromoForm({ promo, onClose, onSaved }) {
       footer={
         <>
           <button className="btn ghost" onClick={onClose}>Скасувати</button>
-          <button className="btn" onClick={save} disabled={!form.code.trim() || !(Number(form.value) > 0)}>
-            Зберегти
+          <button className="btn" onClick={save} disabled={busy || !form.code.trim() || !(Number(form.value) > 0)}>
+            {busy ? 'Зберігаємо…' : 'Зберегти'}
           </button>
         </>
       }

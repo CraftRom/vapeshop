@@ -214,6 +214,10 @@ class ProfileOut(BaseModel):
 
 
 class CheckoutIn(BaseModel):
+    # Ключ генерує Mini App один раз на відкриття checkout. Він не є
+    # секретом; потрібен лише для ідемпотентності повторного POST після
+    # timeout/поганого звʼязку.
+    checkout_key: str | None = Field(None, min_length=12, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")
     contact_surname: str = Field(..., min_length=1, max_length=64)
     contact_name: str = Field(..., min_length=1, max_length=128)
     contact_patronymic: str | None = Field(None, max_length=64)
@@ -231,7 +235,7 @@ class CheckoutIn(BaseModel):
     promo_code: str | None = Field(None, max_length=64)
     use_bonus: bool = False
 
-    @field_validator("contact_surname", "contact_name", "contact_phone", "city", "address")
+    @field_validator("contact_surname", "contact_name", "city", "address")
     @classmethod
     def _required_checkout_text(cls, value: str) -> str:
         """Обовʼязкові поля не можуть складатися лише з пробілів.
@@ -245,6 +249,28 @@ class CheckoutIn(BaseModel):
         if not clean:
             raise ValueError("Поле обовʼязкове")
         return clean
+
+    @field_validator("contact_phone")
+    @classmethod
+    def _normalize_checkout_phone(cls, value: str) -> str:
+        """Український номер у канонічному +380XXXXXXXXX.
+
+        Frontend нормалізує для UX, але API не довіряє клієнту: старий
+        Mini App або прямий запит інакше записував довільні 5 символів,
+        після чого CRM/Нова пошта отримували недійсний номер.
+        """
+        digits = "".join(ch for ch in str(value or "") if ch.isdigit())
+        if digits.startswith("380"):
+            body = digits[3:]
+        elif digits.startswith("80") and len(digits) == 11:
+            body = digits[2:]
+        elif digits.startswith("0") and len(digits) == 10:
+            body = digits[1:]
+        else:
+            body = digits
+        if len(body) != 9 or not body or body[0] not in "3456789":
+            raise ValueError("Вкажіть коректний український номер телефону")
+        return "+380" + body
 
 
 class CheckoutOut(BaseModel):
@@ -675,6 +701,17 @@ PHOTO_TYPES = {"image/jpeg", "image/png", "image/webp"}
 PHOTO_LIMIT = 8 * 1024 * 1024
 
 
+def _photo_mime(blob: bytes) -> str | None:
+    """Визначає підтримуване фото за сигнатурою, а не Content-Type клієнта."""
+    if blob.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if blob.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if len(blob) >= 12 and blob[:4] == b"RIFF" and blob[8:12] == b"WEBP":
+        return "image/webp"
+    return None
+
+
 @router.get("/orders/{order_id}/chat/{message_id}/file")
 async def order_chat_file(
     order_id: int,
@@ -750,6 +787,9 @@ async def order_chat_photo(
         raise HTTPException(413, "Файл завеликий — до 8 МБ")
     if not blob:
         raise HTTPException(422, "Порожній файл")
+    actual_mime = _photo_mime(blob)
+    if actual_mime not in PHOTO_TYPES:
+        raise HTTPException(422, "Файл не є підтримуваним фото JPEG, PNG або WebP")
 
     bot = None
     try:
@@ -759,34 +799,36 @@ async def order_chat_photo(
     except Exception:
         log.warning("Бот недоступний — фото не дійде в чат команди", exc_info=True)
 
-    attachment = None
-    if bot is not None:
-        from aiogram.types import BufferedInputFile
+    if bot is None:
+        raise HTTPException(503, "Бот тимчасово недоступний — фото не збережено")
 
-        from shop.services.shop_settings import get_shop_settings
+    from aiogram.types import BufferedInputFile
+    from shop.services.shop_settings import get_shop_settings
+    from shop.services.notifications import topic_kwargs
 
-        shop = await get_shop_settings(repo)
-        if shop.admin_chat_id:
-            from shop.services.notifications import topic_kwargs
+    shop = await get_shop_settings(repo)
+    if not shop.admin_chat_id:
+        raise HTTPException(503, "Чат команди не налаштований — фото не збережено")
+    try:
+        sent = await bot.send_photo(
+            shop.admin_chat_id,
+            BufferedInputFile(blob, filename=file.filename or "screenshot.jpg"),
+            caption=f"📎 Вкладення до замовлення №{order.id}",
+            **topic_kwargs(shop.chat_topic_id or shop.admin_topic_id),
+        )
+    except Exception as exc:
+        log.warning("Не вдалося переслати фото в чат команди", exc_info=True)
+        raise HTTPException(502, "Telegram не прийняв фото — спробуйте ще раз") from exc
 
-            try:
-                sent = await bot.send_photo(
-                    shop.admin_chat_id,
-                    BufferedInputFile(blob, filename=file.filename or "screenshot.jpg"),
-                    caption=f"📎 Вкладення до замовлення №{order.id}",
-                    **topic_kwargs(shop.chat_topic_id or shop.admin_topic_id),
-                )
-                # Зберігаємо file_id, а не сам файл: у Telegram він уже
-                # лежить, і панель тягне його звідти, коли менеджер
-                # відкриває стрічку. Другої копії на диску не потрібно.
-                attachment = {
-                    "file_id": sent.photo[-1].file_id if sent.photo else None,
-                    "file_kind": "photo",
-                    "file_name": file.filename or "screenshot.jpg",
-                }
-            except Exception:
-                log.warning("Не вдалося переслати фото в чат команди", exc_info=True)
-
+    file_id = sent.photo[-1].file_id if sent.photo else None
+    if not file_id:
+        raise HTTPException(502, "Telegram не повернув ідентифікатор фото")
+    # Зберігаємо file_id, а не сам файл: у Telegram він уже лежить, і панель
+    # тягне його звідти, коли менеджер відкриває стрічку.
+    attachment = {
+        "file_id": file_id, "file_kind": "photo",
+        "file_name": (file.filename or "screenshot.jpg")[:255],
+    }
     await svc_chat.save_incoming(
         repo, order, user, "Надіслав вкладення", bot=None, attachment=attachment,
     )
@@ -895,7 +937,13 @@ async def cancel_my_order(
             "Напишіть у чат замовлення, і менеджер усе владнає.",
         )
 
-    await svc.change_order_status(repo, order, OrderStatus.CANCELLED)
+    try:
+        await svc.change_order_status(repo, order, OrderStatus.CANCELLED)
+    except svc.OrderStateConflict as exc:
+        fresh = await repo.get_order(order_id)
+        if fresh and fresh.status == OrderStatus.CANCELLED:
+            return {"orders": await _orders_payload(repo, user.id)}
+        raise HTTPException(409, str(exc)) from exc
     await _tell_managers_cancelled(repo, order, user)
     return {"orders": await _orders_payload(repo, user.id)}
 
@@ -1084,6 +1132,24 @@ async def checkout(
     repo: Repository = Depends(get_repo),
 ):
     _require_age(user)
+
+    # Повтор після timeout не має створювати друге замовлення. Перевіряємо
+    # ключ до читання кошика: перший успішний checkout уже очистив кошик,
+    # але повтор усе одно повинен повернути той самий order_id, а не 400.
+    if data.checkout_key:
+        existing = await repo.get_order_by_checkout_key(data.checkout_key)
+        if existing:
+            if existing.user_id != user.id:
+                # Ключ не секретний, але повторно використати чужий не можна:
+                # інакше unique index дав би внутрішню помилку замість чіткого
+                # конфлікту клієнтського запиту.
+                raise HTTPException(409, "Ключ оформлення вже використано")
+            return CheckoutOut(
+                order_id=existing.id, total=existing.total,
+                payment_method=existing.payment_method or data.payment_method,
+                card_number=None, card_holder=None,
+            )
+
     shop_now = await get_shop_settings(repo)
     if data.delivery_method == "courier" and not shop_now.delivery_courier_enabled:
         # Вітрина такого не покаже, але запит міг лишитись у відкритій
@@ -1102,20 +1168,37 @@ async def checkout(
         delivery_city_ref=data.delivery_city_ref,
         delivery_warehouse_ref=data.delivery_warehouse_ref,
         comment=data.comment, promo_code=data.promo_code, use_bonus=data.use_bonus,
+        checkout_key=data.checkout_key,
     )
     if error or not order:
         raise HTTPException(400, error or "Не вдалося створити замовлення")
 
+    # При одночасному double-submit unique checkout_key повертає той самий
+    # Order другому запиту. Бізнес-дані ідемпотентні, але Telegram/panel
+    # сповіщення — ні: без цієї перевірки менеджер отримував два однакових
+    # повідомлення про одне замовлення.
+    replayed = bool(getattr(order, "checkout_replayed", False))
+
+    # Отримуємо bot один раз, але не покладаємось на присвоєння всередині
+    # іншого try: якщо _instances() впаде, наступний блок не повинен ловити
+    # UnboundLocalError замість реальної причини недоступності Telegram.
+    bot = None
+    if not replayed:
+        try:
+            from api.routers.telegram import _instances
+            bot, _ = _instances()
+        except Exception:
+            log.warning("Замовлення №%s створено, але Telegram bot недоступний",
+                        order.id, exc_info=True)
+
     # Менеджер має побачити замовлення з вітрини так само, як із чату.
     # Помилка тут не скасовує замовлення: воно вже в базі й видиме в панелі.
-    try:
-        from api.routers.telegram import _instances
-
-        bot, _ = _instances()
-        await notify_new_order(bot, repo, order, user)
-    except Exception:
-        log.warning("Замовлення №%s створено, але сповіщення не пішло",
-                    order.id, exc_info=True)
+    if not replayed and bot is not None:
+        try:
+            await notify_new_order(bot, repo, order, user)
+        except Exception:
+            log.warning("Замовлення №%s створено, але сповіщення не пішло",
+                        order.id, exc_info=True)
 
     shop = await get_shop_settings(repo)
 
@@ -1127,41 +1210,44 @@ async def checkout(
     #
     # У чаті картка йде тегом <code>: Telegram копіює такий текст одним
     # дотиком. Те саме, що вже роблять замовлення, оформлені в боті.
-    try:
-        from bot import texts
+    if not replayed:
+        try:
+            from bot import texts
 
-        confirmation = texts.ORDER_DONE.format(
-            id=order.id, total=f"{order.total:.0f}", currency=shop.currency,
-        )
-        if order.payment_method == "card":
-            confirmation += "\n\n" + texts.PAYMENT_INFO.format(
-                total=f"{order.total:.0f}", currency=shop.currency,
+            confirmation = texts.ORDER_DONE.format(
+                id=order.id, total=f"{order.total:.0f}", currency=shop.currency,
             )
+            if order.payment_method == "card":
+                confirmation += "\n\n" + texts.PAYMENT_INFO.format(
+                    total=f"{order.total:.0f}", currency=shop.currency,
+                )
 
-        if user.bot_reachable is False:
-            log.info(
-                "Підтвердження №%s не надсилається: чат клієнта недоступний",
-                order.id,
-                extra={"event": "order.confirmation.skipped_unreachable",
-                       "orderId": order.id, "clientId": user.tg_id},
-            )
-        else:
-            await bot.send_message(user.tg_id, confirmation)
-            await repo.set_bot_reachable(user.tg_id, True)
-    except Exception as exc:
-        # Замовлення вже прийнято, і провал сповіщення його не скасовує.
-        # Але покупець лишився без реквізитів, тож це попередження, а не
-        # мовчазний пропуск.
-        from shop.services.status_messages import is_permanent_delivery_error
-
-        if is_permanent_delivery_error(exc):
-            await repo.set_bot_reachable(user.tg_id, False)
-        log.warning("Замовлення №%s: покупець не отримав підтвердження",
+            if user.bot_reachable is False:
+                log.info(
+                    "Підтвердження №%s не надсилається: чат клієнта недоступний",
                     order.id,
-                    extra={"event": "order.confirmation.failed",
-                           "orderId": order.id, "clientId": user.tg_id,
-                           "permanent": is_permanent_delivery_error(exc)},
-                    exc_info=True)
+                    extra={"event": "order.confirmation.skipped_unreachable",
+                           "orderId": order.id, "clientId": user.tg_id},
+                )
+            elif bot is None:
+                raise RuntimeError("Telegram bot недоступний")
+            else:
+                await bot.send_message(user.tg_id, confirmation)
+                await repo.set_bot_reachable(user.tg_id, True)
+        except Exception as exc:
+            # Замовлення вже прийнято, і провал сповіщення його не скасовує.
+            # Але покупець лишився без реквізитів, тож це попередження, а не
+            # мовчазний пропуск.
+            from shop.services.status_messages import is_permanent_delivery_error
+
+            if is_permanent_delivery_error(exc):
+                await repo.set_bot_reachable(user.tg_id, False)
+            log.warning("Замовлення №%s: покупець не отримав підтвердження",
+                        order.id,
+                        extra={"event": "order.confirmation.failed",
+                               "orderId": order.id, "clientId": user.tg_id,
+                               "permanent": is_permanent_delivery_error(exc)},
+                        exc_info=True)
     return CheckoutOut(
         order_id=order.id, total=order.total, payment_method=order.payment_method,
         # Реквізити вітрині більше не віддаються: їх надсилає менеджер у

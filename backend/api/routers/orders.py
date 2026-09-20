@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
@@ -483,7 +484,10 @@ async def order_file(order_id: int, message_id: int, repo: Repository = Depends(
     return Response(
         content=content.read(),
         media_type=media.get(target.file_kind, "application/octet-stream"),
-        headers={"Content-Disposition": f'inline; filename="{target.file_name or "file"}"'},
+        headers={
+            "Content-Disposition":
+                f"inline; filename*=UTF-8''{quote((target.file_name or 'file')[:255], safe='')}"
+        },
     )
 
 

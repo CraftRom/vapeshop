@@ -7,7 +7,7 @@
  */
 import { useEffect, useState } from 'react'
 
-import { getInitData } from './telegram'
+import { api } from './api'
 import { clientLog } from './logger'
 
 export function Photo({ product, className = 'product-photo' }) {
@@ -21,13 +21,13 @@ export function Photo({ product, className = 'product-photo' }) {
     let revoked = null
     let cancelled = false
 
-    fetch(`/api/shop/products/${product.id}/photo`, {
-      headers: { 'X-Telegram-Init-Data': getInitData() },
-    })
-      .then((r) => (r.ok ? r.blob() : Promise.reject(new Error(String(r.status)))))
-      .then((blob) => {
-        if (cancelled) return
-        revoked = URL.createObjectURL(blob)
+    api.productPhoto(product.id)
+      .then((url) => {
+        if (cancelled) {
+          URL.revokeObjectURL(url)
+          return
+        }
+        revoked = url
         setBlobUrl(revoked)
       })
       .catch((err) => {
@@ -37,7 +37,7 @@ export function Photo({ product, className = 'product-photo' }) {
           level: 'warning',
           message: 'Не вдалося завантажити фото товару',
           productId: product.id,
-          status: /^\d+$/.test(err?.message || '') ? Number(err.message) : null,
+          status: Number.isFinite(Number(err?.status)) ? Number(err.status) : null,
           errorName: err?.name || '',
           once: `photo-${product.id}`,
         })

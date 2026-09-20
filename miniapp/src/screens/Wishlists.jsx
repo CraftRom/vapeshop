@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { api } from '../api'
 import { alert, confirm, haptic, notify} from '../telegram'
@@ -19,8 +19,11 @@ export function SavePicker({ product, wishlists, onClose, onChanged }) {
   const [creating, setCreating] = useState(false)
   const [name, setName] = useState('')
   const [error, setError] = useState('')
+  const actionRef = useRef(false)
 
   const toggle = async (list) => {
+    if (actionRef.current) return
+    actionRef.current = true
     setBusy(list.id)
     setError('')
     haptic('light')
@@ -39,13 +42,15 @@ export function SavePicker({ product, wishlists, onClose, onChanged }) {
     } catch (err) {
       setError(err.message)
     } finally {
+      actionRef.current = false
       setBusy(0)
     }
   }
 
   const create = async () => {
     const value = name.trim()
-    if (!value) return
+    if (!value || actionRef.current) return
+    actionRef.current = true
     setBusy(-1)
     setError('')
     try {
@@ -73,6 +78,7 @@ export function SavePicker({ product, wishlists, onClose, onChanged }) {
     } catch (err) {
       setError(err.message)
     } finally {
+      actionRef.current = false
       setBusy(0)
     }
   }
@@ -134,6 +140,7 @@ export function Wishlists({ wishlists, onChanged, onOpenList }) {
   const [renaming, setRenaming] = useState(null)
   const [name, setName] = useState('')
   const [error, setError] = useState('')
+  const actionRef = useRef(false)
 
   // Повідомлення про помилку зникає, щойно перелік змінився: інакше воно
   // висить на екрані після успішної дії й виглядає так, ніби нічого не
@@ -143,22 +150,30 @@ export function Wishlists({ wishlists, onChanged, onOpenList }) {
   const rename = async (list) => {
     const value = name.trim()
     if (!value || value === list.name) return setRenaming(null)
+    if (actionRef.current) return
+    actionRef.current = true
     try {
       onChanged(await api.wishlists.rename(list.id, value))
       setRenaming(null)
     } catch (err) {
       setError(err.message)
+    } finally {
+      actionRef.current = false
     }
   }
 
   const remove = async (list) => {
+    if (actionRef.current) return
     if (!(await confirm(`Видалити список «${list.name}»? Товари залишаться в каталозі.`))) return
+    actionRef.current = true
     try {
       await api.wishlists.remove(list.id)
       onChanged()
     } catch (err) {
       // Останній список видалити не можна — бекенд це стереже
-      alert(err.message)
+      await alert(err.message)
+    } finally {
+      actionRef.current = false
     }
   }
 
@@ -175,6 +190,8 @@ export function Wishlists({ wishlists, onChanged, onOpenList }) {
   }
 
   const create = async () => {
+    if (actionRef.current) return
+    actionRef.current = true
     setError('')
     try {
       onChanged(await api.wishlists.create(`Список ${freeNumber(wishlists)}`))
@@ -182,13 +199,18 @@ export function Wishlists({ wishlists, onChanged, onOpenList }) {
       // Перелік у пропсі міг застаріти: список створили в іншому місці
       // застосунку, а сюди оновлення ще не дійшло. Перепитуємо сервер і
       // пробуємо ще раз — це рівно та відповідь, яку людина й очікує.
-      if (err.status !== 409) return setError(err.message)
+      if (err.status !== 409) {
+        setError(err.message)
+        return
+      }
       try {
         const fresh = await api.wishlists.list()
         onChanged(await api.wishlists.create(`Список ${freeNumber(fresh)}`))
       } catch (retry) {
         setError(retry.message)
       }
+    } finally {
+      actionRef.current = false
     }
   }
 
@@ -267,17 +289,22 @@ export function Wishlists({ wishlists, onChanged, onOpenList }) {
  */
 export function WishlistPage({ config, list, cart, onChanged, onOpenProduct, onCartChange }) {
   const [error, setError] = useState('')
+  const droppingRef = useRef(new Set())
 
   useEffect(() => { setError('') }, [list])
 
   const qtyOf = (id) => cart?.lines?.find((l) => l.product_id === id)?.qty || 0
 
   const drop = async (product) => {
+    if (droppingRef.current.has(product.id)) return
+    droppingRef.current.add(product.id)
     haptic('light')
     try {
       onChanged(await api.wishlists.toggle(list.id, product.id))
     } catch (err) {
       setError(err.message)
+    } finally {
+      droppingRef.current.delete(product.id)
     }
   }
 
