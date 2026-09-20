@@ -236,75 +236,59 @@ async def sync_salesdrive() -> dict:
 async def refresh_salesdrive_orders() -> dict:
     """Тихо перечитує пов'язані SalesDrive-заявки без відкриття картки.
 
-    Це read-side частина синхронізації. Webhook лишається найшвидшим шляхом,
-    але більше не є єдиним: якщо webhook загубився або НП змінила statusCode
-    між подіями, максимум через refresh interval snapshot буде перечитаний і
-    ті самі правила 9→«Продаж», 102/103→«Відмова» відпрацюють автоматично.
+    Webhook залишається миттєвим каналом CRM → Elfar. Фоновий read-worker —
+    страховка на випадок загубленого webhook/statusCode Нової пошти.
+    ``/api/order/list/`` має жорсткі квоти, тому тут завжди максимум один
+    пакетний read-запит за scheduler tick замість одного GET на кожну заявку.
 
-    Кожен pull має власну DB session; одна AsyncSession не є concurrency-safe.
-    Невеликий semaphore не штурмує SalesDrive, але й не дозволяє одному
-    повільному HTTP-запиту заблокувати всю порцію.
+    Мінімум 120 секунд залишає запас добової квоти для ручних refresh та
+    діагностики навіть якщо старий production env досі містить значення 60.
     """
     from shop.services import salesdrive
 
-    interval = max(15, int(settings.salesdrive_background_refresh_seconds))
+    interval = max(120, int(settings.salesdrive_background_refresh_seconds))
     batch = max(1, min(int(settings.salesdrive_background_batch), 100))
     stale_before = datetime.now(timezone.utc) - timedelta(seconds=interval)
 
     async with open_repo() as repo:
         shop = await get_shop_settings(repo)
         if not shop.salesdrive_api_connected:
-            return {"checked": 0, "refreshed": 0, "failed": 0, "skipped": "api_disconnected"}
+            return {"checked": 0, "refreshed": 0, "failed": 0,
+                    "deferred": 0, "skipped": "api_disconnected"}
         candidates = await repo.list_crm_refresh_candidates(
             stale_before=stale_before, limit=batch,
         )
         order_ids = [order.id for order in candidates]
+        if not order_ids:
+            return {"checked": 0, "refreshed": 0, "failed": 0, "deferred": 0}
 
-    if not order_ids:
-        return {"checked": 0, "refreshed": 0, "failed": 0}
+        try:
+            result = await salesdrive.pull_orders_batch(
+                repo, order_ids, shop=shop, bot=None,
+            )
+        except salesdrive.SalesDriveError as exc:
+            result = {"checked": 0, "refreshed": 0, "failed": len(order_ids),
+                      "deferred": 0}
+            log.warning(
+                "SalesDrive background refresh не вдалося: %s", exc,
+                extra={"event": "salesdrive.background_refresh.failed",
+                       "temporary": exc.temporary, **result},
+            )
+            return result
 
-    gate = asyncio.Semaphore(4)
-
-    async def one(order_id: int) -> tuple[bool, bool]:
-        async with gate:
-            async with open_repo() as repo:
-                try:
-                    shop = await get_shop_settings(repo)
-                    await salesdrive.pull_order(repo, order_id, shop=shop, force=True, bot=None)
-                    return True, False
-                except salesdrive.SalesDriveError as exc:
-                    # pull_order уже записав crm_error у картку. Тут важливий
-                    # тільки агрегований scheduler log; один збій не зупиняє batch.
-                    log.warning(
-                        "Фонове читання SalesDrive замовлення %s не вдалося: %s",
-                        order_id, exc,
-                        extra={"event": "salesdrive.background_refresh.failed",
-                               "orderId": order_id, "temporary": exc.temporary},
-                    )
-                    return False, True
-                except Exception:
-                    log.exception(
-                        "Неочікувана помилка фонового SalesDrive refresh для %s", order_id,
-                        extra={"event": "salesdrive.background_refresh.crashed", "orderId": order_id},
-                    )
-                    return False, True
-
-    results = await asyncio.gather(*(one(order_id) for order_id in order_ids))
-    refreshed = sum(1 for ok, _ in results if ok)
-    failed = sum(1 for _, bad in results if bad)
-    result = {"checked": len(order_ids), "refreshed": refreshed, "failed": failed}
-    if failed:
+    if result.get("failed"):
         log.warning(
-            "SalesDrive background refresh: перевірено %s, оновлено %s, помилок %s",
-            len(order_ids), refreshed, failed,
+            "SalesDrive background refresh: перевірено %s, оновлено %s, "
+            "помилок %s, відкладено %s",
+            result.get("checked", 0), result.get("refreshed", 0),
+            result.get("failed", 0), result.get("deferred", 0),
             extra={"event": "salesdrive.background_refresh.pass", **result},
         )
     else:
-        # У штатному режимі цей цикл іде щохвилини. INFO на кожен успішний
-        # pass перетворив би журнал на телеметрію polling, а не журнал подій.
         log.debug(
-            "SalesDrive background refresh: перевірено %s, оновлено %s",
-            len(order_ids), refreshed,
+            "SalesDrive background refresh: перевірено %s, оновлено %s, відкладено %s",
+            result.get("checked", 0), result.get("refreshed", 0),
+            result.get("deferred", 0),
             extra={"event": "salesdrive.background_refresh.pass", **result},
         )
     return result

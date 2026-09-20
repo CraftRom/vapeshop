@@ -20,7 +20,7 @@ checks = [
     ("scheduler has read-side refresh", "async def refresh_salesdrive_orders" in tasks),
     ("scheduler calls read-side refresh", "await refresh_salesdrive_orders()" in main),
     ("SQL selects stale CRM candidates", "list_crm_refresh_candidates" in repo and "crm_fetched_at" in repo),
-    ("background pull forces authoritative read", "force=True" in tasks and "salesdrive.pull_order" in tasks),
+    ("background pull uses one SalesDrive batch", "salesdrive.pull_orders_batch" in tasks and "await salesdrive.pull_order(" not in tasks.split("async def refresh_salesdrive_orders", 1)[1]),
     ("manual-only duplicate business commits removed", "set_order_business_state(" not in sales),
     ("storefront chat uses delta polling", "afterId" in mini_chat and "5000" in mini_chat),
     ("storefront silently refreshes orders/profile", "backgroundSyncRef" in mini_app and "api.orders()" in mini_app and "api.profile()" in mini_app),

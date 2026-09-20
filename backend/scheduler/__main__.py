@@ -28,12 +28,16 @@ from scheduler.tasks import (
 setup_logging("scheduler")
 log = logging.getLogger("scheduler")
 
-# Старі production env можуть мати SCHEDULER_INTERVAL_SECONDS=3600.
-# Не змушуємо оператора вручну міняти його після деплою: CRM read-worker
-# автоматично робить загальний цикл не рідшим за власний refresh interval.
+# Старі production env можуть містити як SCHEDULER_INTERVAL_SECONDS=3600,
+# так і SALESDRIVE_BACKGROUND_REFRESH_SECONDS=60. Загальний scheduler може
+# тикати частіше для інших задач, але саме /api/order/list/ не викликаємо
+# частіше ніж раз на 120 с — це глобальний бюджет фонового read-side worker.
+SALESDRIVE_BACKGROUND_READ_SECONDS = max(
+    120, int(settings.salesdrive_background_refresh_seconds)
+)
 TICK_SECONDS = max(15, min(
     int(settings.scheduler_interval_seconds),
-    int(settings.salesdrive_background_refresh_seconds),
+    SALESDRIVE_BACKGROUND_READ_SECONDS,
 ))
 
 
@@ -55,11 +59,19 @@ async def tick(state: dict) -> None:
         log.exception("Помилка під час синхронізації з SalesDrive")
 
     # Зворотний напрямок CRM → Elfar. Не залежить від відкритої картки й
-    # страхує webhook: snapshot-и регулярно перечитуються у фоні.
-    try:
-        await refresh_salesdrive_orders()
-    except Exception:
-        log.exception("Помилка під час фонового читання SalesDrive")
+    # страхує webhook: snapshot-и регулярно перечитуються у фоні. Окремий
+    # глобальний gate важливий навіть при кількох відкладених ID-вікнах:
+    # інакше старий env із 60-секундним tick міг би знову витрачати квоту.
+    now_mono = time.monotonic()
+    last_crm_read = float(state.get("salesdrive_background_read_at", 0) or 0)
+    if now_mono - last_crm_read >= SALESDRIVE_BACKGROUND_READ_SECONDS:
+        # Бюджет резервуємо ДО HTTP: навіть 4xx/5xx не повинні запускати
+        # повторний background read уже на наступному короткому tick.
+        state["salesdrive_background_read_at"] = now_mono
+        try:
+            await refresh_salesdrive_orders()
+        except Exception:
+            log.exception("Помилка під час фонового читання SalesDrive")
 
     # Раз на добу, а не щотіку: запит проходить по всіх виконаних
     # замовленнях, а строк зберігання рахується днями — частіше просто

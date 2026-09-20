@@ -564,7 +564,17 @@ async def _get_json(shop, path: str, *, params: dict | None = None, client: http
     if response.status_code >= 500:
         raise SalesDriveError(f"SalesDrive тимчасово відмовив ({response.status_code})")
     if response.status_code >= 400:
-        raise SalesDriveError(f"SalesDrive відповів {response.status_code} для {path}", temporary=False)
+        # Не втрачаємо пояснення SalesDrive. У попередній реалізації будь-який
+        # 400 стискався до "SalesDrive відповів 400", через що неможливо було
+        # відрізнити помилку фільтра від квоти/прав доступу. Тіло обрізається
+        # через _reason і не містить наших секретних заголовків.
+        try:
+            error_body = response.json()
+        except ValueError:
+            error_body = {}
+        reason = _reason(error_body)
+        message = f"SalesDrive відповів {response.status_code} для {path}: {reason}"
+        raise SalesDriveError(message, temporary=False)
     try:
         return response.json()
     except ValueError as exc:
@@ -1530,7 +1540,120 @@ def _snapshot_age_seconds(order: Order) -> float | None:
     return max(0.0, (now - value).total_seconds())
 
 
-async def pull_order(repo, order_id: int, shop=None, *, force: bool = False, bot=None) -> Order:
+async def pull_orders_batch(repo, order_ids: list[int], shop=None, *, bot=None) -> dict:
+    """Один read-запит SalesDrive для порції локальних замовлень.
+
+    ``/api/order/list/`` має жорстку квоту (10/хв, 100/год, 1000/добу).
+    Старий worker робив по одному GET на кожну заявку, тому вже 11 локальних
+    замовлень гарантовано виходили за хвилинний ліміт. Тут один діапазон CRM
+    ID (не ширший за 100 можливих ID) читається одним GET, а далі той самий
+    ``pull_order`` застосовує snapshot до кожної нашої заявки без мережі.
+
+    Повертає ``checked/refreshed/failed/deferred``. Deferred означає лише,
+    що решта кандидатів перейде в наступний scheduler tick — не помилку.
+    """
+    from shop.services.shop_settings import get_shop_settings
+
+    shop = shop or await get_shop_settings(repo)
+    if not shop.salesdrive_api_connected:
+        raise SalesDriveError("Не задано API-ключ SalesDrive", temporary=False)
+
+    orders = []
+    seen = set()
+    for local_id in order_ids:
+        try:
+            local_id = int(local_id)
+        except (TypeError, ValueError):
+            continue
+        if local_id in seen:
+            continue
+        seen.add(local_id)
+        order = await repo.get_order(local_id)
+        if order and order.crm_id:
+            orders.append(order)
+    if not orders:
+        return {"checked": 0, "refreshed": 0, "failed": 0, "deferred": 0}
+
+    numeric = []
+    non_numeric = []
+    for order in orders:
+        raw = str(order.crm_id or "").strip()
+        if raw.isdigit():
+            numeric.append((int(raw), order))
+        else:
+            non_numeric.append(order)
+
+    # SalesDrive підтримує filter[id][from/to]. Щоб ``limit=100`` завжди
+    # фізично вміщав увесь діапазон, беремо максимум 100 можливих числових
+    # ID. Кандидати SQL відсортовані за найстарішим snapshot, а після
+    # успішного проходу залишають цю вибірку — тому наступний tick природно
+    # переходить до відкладеної частини без окремого курсора.
+    selected = []
+    if numeric:
+        numeric.sort(key=lambda item: item[0])
+        low = numeric[0][0]
+        high_limit = low + 99
+        selected = [order for crm_id, order in numeric if crm_id <= high_limit]
+        high = max(int(str(order.crm_id)) for order in selected)
+        params = {
+            "page": 1, "limit": 100, "filter[statusId]": "__ALL__",
+            "filter[id][from]": low, "filter[id][to]": high,
+        }
+    else:
+        # Нечисловий crm_id — compatibility для дуже старих інтеграцій.
+        # Він не може бути частиною документованого id-range, тому безпечно
+        # обробляємо лише один та не множимо запити у цьому tick.
+        selected = non_numeric[:1]
+        order = selected[0]
+        try:
+            await pull_order(repo, order.id, shop=shop, force=True, bot=bot)
+            return {"checked": 1, "refreshed": 1, "failed": 0,
+                    "deferred": max(0, len(orders) - 1)}
+        except SalesDriveError:
+            return {"checked": 1, "refreshed": 0, "failed": 1,
+                    "deferred": max(0, len(orders) - 1)}
+
+    deferred = max(0, len(orders) - len(selected))
+    try:
+        body = await _get_json(shop, "/api/order/list/", params=params)
+    except SalesDriveError as exc:
+        message = f"Не вдалося оновити дані SalesDrive: {exc}"[:500]
+        now = datetime.now(timezone.utc)
+        for order in selected:
+            # crm_fetched_at ставимо навіть на помилці лише коли upstream
+            # відповів детермінованим 4xx: це не дає scheduler-у спамити CRM
+            # тим самим невалідним запитом кожні 60 секунд. Тимчасові 5xx /
+            # network помилки залишаємо stale для наступної спроби.
+            patch = {"crm_error": message}
+            if not exc.temporary:
+                patch["crm_fetched_at"] = now
+            await repo.update_order(order.id, patch)
+        log.warning(
+            "SalesDrive batch refresh не вдався для %s заявок: %s",
+            len(selected), exc,
+            extra={"event": "salesdrive.background_batch.failed",
+                   "checked": len(selected), "deferred": deferred,
+                   "temporary": exc.temporary},
+        )
+        return {"checked": len(selected), "refreshed": 0,
+                "failed": len(selected), "deferred": deferred}
+
+    refreshed = 0
+    failed = 0
+    for order in selected:
+        try:
+            await pull_order(
+                repo, order.id, shop=shop, force=True, bot=bot,
+                _prefetched_body=body,
+            )
+            refreshed += 1
+        except SalesDriveError:
+            failed += 1
+    return {"checked": len(selected), "refreshed": refreshed,
+            "failed": failed, "deferred": deferred}
+
+
+async def pull_order(repo, order_id: int, shop=None, *, force: bool = False, bot=None, _prefetched_body=None) -> Order:
     """Читає фактичний стан вже пов'язаної заявки SalesDrive.
 
     ``force=False`` захищає ліміт ``/api/order/list/`` від фонового polling:
@@ -1558,20 +1681,23 @@ async def pull_order(repo, order_id: int, shop=None, *, force: bool = False, bot
         "page": 1, "limit": 1, "filter[statusId]": "__ALL__",
         "filter[id][from]": str(order.crm_id), "filter[id][to]": str(order.crm_id),
     }
-    try:
-        body = await _get_json(shop, "/api/order/list/", params=params)
-    except SalesDriveError as exc:
-        # Фоновий refresh у браузері тихий, тому причина має лишитися у
-        # самій картці замовлення. Успішне наступне читання очистить її.
-        await repo.update_order(order.id, {
-            "crm_error": f"Не вдалося оновити дані SalesDrive: {exc}"[:500],
-        })
-        log.warning(
-            "Не вдалося прочитати SalesDrive заявку %s: %s", order.crm_id, exc,
-            extra={"event": "salesdrive.pull.failed", "orderId": order.id,
-                   "crmId": order.crm_id, "temporary": exc.temporary},
-        )
-        raise
+    if _prefetched_body is not None:
+        body = _prefetched_body
+    else:
+        try:
+            body = await _get_json(shop, "/api/order/list/", params=params)
+        except SalesDriveError as exc:
+            # Фоновий refresh у браузері тихий, тому причина має лишитися у
+            # самій картці замовлення. Успішне наступне читання очистить її.
+            await repo.update_order(order.id, {
+                "crm_error": f"Не вдалося оновити дані SalesDrive: {exc}"[:500],
+            })
+            log.warning(
+                "Не вдалося прочитати SalesDrive заявку %s: %s", order.crm_id, exc,
+                extra={"event": "salesdrive.pull.failed", "orderId": order.id,
+                       "crmId": order.crm_id, "temporary": exc.temporary},
+            )
+            raise
     rows = _order_list_rows(body)
     row = next((x for x in rows if str(x.get("id") or "") == str(order.crm_id)), None)
     if row is None:

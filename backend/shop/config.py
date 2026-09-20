@@ -85,7 +85,7 @@ class Settings(BaseSettings):
     # коли webhook SalesDrive/Нової пошти загубився: scheduler перечитує
     # застарілі snapshot-и невеликими порціями й застосовує ті самі правила,
     # що ручний refresh картки.
-    salesdrive_background_refresh_seconds: int = 60
+    salesdrive_background_refresh_seconds: int = 120
     salesdrive_background_batch: int = 20
     # Курʼєр на адресу. За замовчуванням вимкнений: він доступний не в
     # кожному місті й не в кожного магазину налагоджений, а показана
