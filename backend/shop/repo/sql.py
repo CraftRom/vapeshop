@@ -9,7 +9,7 @@ from decimal import Decimal
 from sqlalchemy import case, delete, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import lazyload, selectinload
 
 from shop import models as m
 from shop.entities import (
@@ -564,9 +564,14 @@ class SqlRepository(Repository):
                 await self.s.rollback()
                 return None
             row = await self.s.scalar(
-                select(m.CartItem).where(
-                    m.CartItem.user_id == user_id, m.CartItem.product_id == product_id
-                ).with_for_update()
+                select(m.CartItem)
+                .where(m.CartItem.user_id == user_id, m.CartItem.product_id == product_id)
+                # CartItem.product має lazy=joined. Без явного lazyload SQLAlchemy
+                # додає LEFT OUTER JOIN products, а PostgreSQL забороняє
+                # FOR UPDATE на nullable-side outer join. Тут product уже
+                # заблокований окремим SELECT вище, тому лочимо тільки cart_items.
+                .options(lazyload(m.CartItem.product))
+                .with_for_update(of=m.CartItem)
             )
             current = int(row.qty) if row else 0
             new_qty = min(max(current + int(delta), 0), int(product.stock or 0))
@@ -601,9 +606,14 @@ class SqlRepository(Repository):
                 select(m.Product).where(m.Product.id == product_id).with_for_update()
             )
             row = await self.s.scalar(
-                select(m.CartItem).where(
-                    m.CartItem.user_id == user_id, m.CartItem.product_id == product_id
-                ).with_for_update()
+                select(m.CartItem)
+                .where(m.CartItem.user_id == user_id, m.CartItem.product_id == product_id)
+                # CartItem.product має lazy=joined. Без явного lazyload SQLAlchemy
+                # додає LEFT OUTER JOIN products, а PostgreSQL забороняє
+                # FOR UPDATE на nullable-side outer join. Тут product уже
+                # заблокований окремим SELECT вище, тому лочимо тільки cart_items.
+                .options(lazyload(m.CartItem.product))
+                .with_for_update(of=m.CartItem)
             )
             capped = min(max(int(qty), 0), int(product.stock or 0)) if product and product.is_active else 0
             if capped <= 0:

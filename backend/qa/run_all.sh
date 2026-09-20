@@ -117,6 +117,7 @@ run_node deep-actions-ui tests/deep-actions.mjs dashboard
 echo
 echo "Контракти й дані"
 run checkout-integrity qa/qa_checkout_integrity.py
+run cart-lock qa/qa_postgres_cart_lock.py
 run deep-integrity qa/qa_deep_integrity.py
 run contracts tests_contracts.py
 run repo tests_repo.py
@@ -178,3 +179,4 @@ run performance qa/qa_perf.py
 echo
 [ $fail -eq 0 ] && echo "Усі набори пройдено" || echo "Є провали — див. вище"
 exit $fail
+
