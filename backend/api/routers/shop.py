@@ -200,6 +200,7 @@ class PromoCheckOut(BaseModel):
 
 class ProfileOut(BaseModel):
     first_name: str | None
+    phone: str | None = None
     orders_count: int
     total_spent: Decimal
     bonus_balance: Decimal
@@ -526,6 +527,7 @@ async def _profile_payload(repo: Repository, shop, user: User) -> ProfileOut:
     subtotal = await svc.cart_subtotal(repo, user.id)
     return ProfileOut(
         first_name=fresh.first_name,
+        phone=fresh.phone,
         orders_count=fresh.orders_count,
         total_spent=fresh.total_spent,
         # Вимкнений модуль не має лишати по собі ні балансу, ні посилання
@@ -549,6 +551,21 @@ async def profile(
     user: User = Depends(require_webapp_user), repo: Repository = Depends(get_repo)
 ):
     return await _profile_payload(repo, await get_shop_settings(repo), user)
+
+
+class ContactPhoneOut(BaseModel):
+    phone: str | None = None
+
+
+@router.get("/contact-phone", response_model=ContactPhoneOut)
+async def contact_phone(user: User = Depends(require_webapp_user)):
+    """Легке опитування після Telegram.WebApp.requestContact().
+
+    requestContact надсилає контакт боту окремим Telegram update, тому Mini
+    App кілька секунд чекає, поки middleware збереже номер. Не тягнемо для
+    цього повний /profile з кошиком, бонусами й налаштуваннями.
+    """
+    return ContactPhoneOut(phone=user.phone)
 
 
 # ------------------------------------------------------- списки бажаного

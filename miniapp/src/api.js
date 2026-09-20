@@ -170,6 +170,7 @@ export const api = {
 
   checkPromo: (code) => request('/promo/check', { method: 'POST', body: { code } }),
   profile: () => request('/profile'),
+  contactPhone: () => request('/contact-phone'),
   orders: () => request('/orders'),
   checkout: (data) => request('/checkout', { method: 'POST', body: data }),
 

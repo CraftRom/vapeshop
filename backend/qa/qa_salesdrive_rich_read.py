@@ -152,7 +152,61 @@ checks.update({
     ),
     "current product name fields are normalized": modern["products"][0]["name"] == "Вечірня сукня синя S",
     "generic tracking field is explicit for webhook sync": salesdrive._tracking_explicitly_present(modern_row),
+    "Nova Poshta code 1 is decoded": (
+        modern["novaposhta"]["statusInfo"]["code"] == "1"
+        and modern["novaposhta"]["statusInfo"]["key"] == "created"
+        and modern["novaposhta"]["statusInfo"]["shortLabel"] == "ТТН створена"
+    ),
+    "Nova Poshta CRM rules are narrow": (
+        salesdrive.np_status.crm_status_name_for_nova_poshta(9) == "Продаж"
+        and salesdrive.np_status.crm_status_name_for_nova_poshta(102) == "Відмова"
+        and salesdrive.np_status.crm_status_name_for_nova_poshta(103) == "Відмова"
+        and salesdrive.np_status.crm_status_name_for_nova_poshta(10) is None
+    ),
 })
+
+
+async def delivery_automation_check():
+    original_options = salesdrive.status_options
+    original_set = salesdrive.set_crm_status
+    calls = []
+
+    async def fake_options(shop, *, force=False):
+        return [{"id": "50", "name": "Продаж"}, {"id": "60", "name": "Відмова"}]
+
+    async def fake_set(repo, order, status_id, status_name=None, shop=None, *, bot=None, verify_uncertain=True):
+        calls.append((status_id, verify_uncertain))
+        order.crm_status_id = str(status_id)
+        order.crm_status_name = "Продаж" if str(status_id) == "50" else "Відмова"
+        return order
+
+    class Repo:
+        async def update_order(self, order_id, patch):
+            return None
+        async def get_order(self, order_id):
+            return None
+
+    salesdrive.status_options = fake_options
+    salesdrive.set_crm_status = fake_set
+    try:
+        order = Order(id=99, user_id=1, crm_id="900", crm_status_id="4")
+        snap9 = {"novaposhta": {"statusCode": 9}}
+        order, matched9, changed9, problem9 = await salesdrive.apply_novaposhta_crm_automation(
+            Repo(), order, snap9, shop=shop
+        )
+        snap102 = {"deliveryData": {"items": [{"provider": "novaposhta", "statusCode": "102"}]}}
+        order.crm_status_id = "4"
+        order, matched102, changed102, problem102 = await salesdrive.apply_novaposhta_crm_automation(
+            Repo(), order, snap102, shop=shop
+        )
+        return (matched9 and changed9 and not problem9
+                and matched102 and changed102 and not problem102
+                and calls == [("50", False), ("60", False)])
+    finally:
+        salesdrive.status_options = original_options
+        salesdrive.set_crm_status = original_set
+
+checks["delivery status automation resolves CRM IDs by names"] = asyncio.run(delivery_automation_check())
 
 for label, ok in checks.items():
     print(("✓" if ok else "✗"), label)

@@ -417,7 +417,8 @@ function WaybillPanel({ order, busy, onChanged }) {
   const crmManual = crmCarrier === 'Нова пошта' ? crmNp.manual : crmUp.manual
   const crmDeliveryStatusRaw = crmCarrier === 'Нова пошта' ? crmNp.status : crmUp.status
   const crmDeliveryStatusCode = crmCarrier === 'Нова пошта' ? crmNp.statusCode : crmUp.statusCode
-  const crmDeliveryStatus = crmDeliveryStatusRaw || (crmDeliveryStatusCode !== null && crmDeliveryStatusCode !== undefined && crmDeliveryStatusCode !== ''
+  const crmDeliveryStatusDecoded = crmCarrier === 'Нова пошта' ? crmNp.statusInfo?.label : ''
+  const crmDeliveryStatus = crmDeliveryStatusRaw || crmDeliveryStatusDecoded || (crmDeliveryStatusCode !== null && crmDeliveryStatusCode !== undefined && crmDeliveryStatusCode !== ''
     ? `Статус перевізника · код ${crmDeliveryStatusCode}`
     : '')
   const crmDeliveryUpdated = crmCarrier === 'Нова пошта' ? crmNp.dateStatusUpdate : crmUp.dateStatusUpdate
@@ -802,7 +803,8 @@ function CrmSnapshotPanel({ order, crmStatuses, refreshing, onRefresh, onUpdate 
   const ttn = np.ttn || up.ttn || deliveryData.trackingNumber || ''
   const deliveryStatus = np.status || up.status || ''
   const deliveryStatusCode = np.statusCode ?? up.statusCode
-  const deliveryStatusLabel = deliveryStatus || (deliveryStatusCode !== null && deliveryStatusCode !== undefined && deliveryStatusCode !== ''
+  const deliveryStatusDecoded = np.statusInfo?.label || ''
+  const deliveryStatusLabel = deliveryStatus || deliveryStatusDecoded || (deliveryStatusCode !== null && deliveryStatusCode !== undefined && deliveryStatusCode !== ''
     ? `Код статусу ${deliveryStatusCode}`
     : '')
   const deliveryCost = np.cost ?? up.cost ?? snap?.shippingCosts

@@ -44,6 +44,14 @@ class Repository(ABC):
     async def touch_user(self, user: User, username: str | None, first_name: str | None) -> User:
         """Оновлює last_seen_at та профільні поля."""
 
+    async def set_user_phone(self, user_id: int, phone: str | None) -> User | None:
+        """Зберігає підтверджений контакт користувача.
+
+        Реалізації без профільного сховища можуть лишити дефолтний no-op;
+        SQL реалізація перевизначає метод.
+        """
+        return await self.get_user(user_id)
+
     @abstractmethod
     async def set_user_referrer(self, user: User, referrer_id: int) -> None: ...
 

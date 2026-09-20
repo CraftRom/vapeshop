@@ -47,7 +47,8 @@ check(src.includes('const clearRun = flushInFlight.current.catch(() => null).the
 check(src.includes('await flushCart()') && src.indexOf('await flushCart()') < src.indexOf('setCheckingOut(true)'), 'checkout чекає останні зміни кошика')
 check(checkout.includes('const submittingRef = useRef(false)') && checkout.includes('if (submittingRef.current) return'), 'double-click checkout блокується синхронним ref')
 check(checkout.includes('checkout_key: checkoutKey.current'), 'checkout має idempotency key')
-check(checkout.includes('await alert('), 'успішне підтвердження чекає закриття Telegram alert')
+const successBlock = checkout.slice(checkout.indexOf("const payment ="), checkout.indexOf('} catch (err)', checkout.indexOf("const payment =")))
+check(successBlock.indexOf('onDone()') >= 0 && successBlock.indexOf('onDone()') < successBlock.indexOf('await alert('), 'успішний checkout виходить із pending-стану до Telegram alert')
 check(checkout.includes('const afterDiscount = Math.max(0, subtotal - discount)') && !checkout.includes('? Number(profile?.max_bonus_now'), 'бонус у UI рахується після знижки як на backend')
 check(api.includes("const maxAttempts = method === 'GET' ? GET_RETRIES + 1 : 1"), 'POST checkout не ретраїться автоматично')
 
@@ -58,7 +59,7 @@ check(chat.includes('mergeMessages(current, incoming)'), 'poll чату не с�
 check(wish.includes('const actionRef = useRef(false)') && wish.includes('if (actionRef.current) return'), 'toggle списку бажаного захищений від подвійного натискання')
 check(wish.includes('droppingRef.current.has(product.id)'), '«Прибрати зі списку» не виконує toggle двічі')
 check(api.includes("res = await fetchTimed(`${BASE}${endpoint}`"), 'upload фото має timeout')
-check(telegram.includes('return new Promise((resolve) =>') && telegram.includes('webApp().showAlert(message, resolve)'), 'Telegram alert має завершуваний Promise')
+check(telegram.includes('app.showAlert(message, finish)') && telegram.includes('setTimeout(finish, 3500)'), 'Telegram alert має завершуваний Promise із timeout fallback')
 check(profile.includes('const cancellingRef = useRef(null)') && profile.includes('if (cancellingRef.current !== null) return'), 'скасування замовлення не відкриває два confirm і не дублює POST')
 
 console.log(`\nDEEP ACTIONS: ${failed ? `ПРОВАЛЕНО ${failed}` : 'усі перевірки пройдено'}`)

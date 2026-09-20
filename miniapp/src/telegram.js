@@ -438,44 +438,44 @@ export function notify(type = 'success') {
   webApp()?.HapticFeedback?.notificationOccurred?.(type)
 }
 
-/** Номер телефону з Telegram, без набору руками.
+/** Запит дозволу поділитися номером через Telegram.
  *
- * Єдине поле форми, яке Telegram уміє заповнити сам: людина підтверджує
- * доступ у власному вікні застосунку, і номер приходить готовим. Решту —
- * прізвище, адресу, коментар — Telegram увести не вміє, для них інтерфейсу
- * не існує, тож вони лишаються звичайними полями сторінки.
- *
- * Метод зʼявився в Bot API 6.9; у старіших клієнтах його просто немає,
- * тому відповідь може бути «не підтримується», і кнопку тоді не показуємо.
+ * Важливо: WebApp.requestContact() НЕ повертає номер у JavaScript. Callback
+ * повідомляє лише, чи користувач погодився. Сам контакт Telegram надсилає
+ * боту окремим update; backend зберігає його в профілі, а Mini App читає
+ * номер через власний API. У старих клієнтах методу немає — кнопку тоді
+ * не показуємо.
  */
 export function requestContact() {
   return new Promise((resolve) => {
-    if (typeof webApp()?.requestContact !== 'function') {
-      resolve(null)
+    const app = webApp()
+    if (typeof app?.requestContact !== 'function') {
+      resolve(false)
       return
     }
+
+    let settled = false
+    let timer = null
+    const finish = (value) => {
+      if (settled) return
+      settled = true
+      if (timer) clearTimeout(timer)
+      try { app.offEvent?.('contactRequested', onEvent) } catch { /* noop */ }
+      resolve(Boolean(value))
+    }
+    const onEvent = (event) => finish(event?.status === 'sent')
+
+    try { app.onEvent?.('contactRequested', onEvent) } catch { /* callback still works */ }
+    // Деякі Telegram-клієнти не викликають JS callback після закриття
+    // системного popup. Не залишаємо кнопку у вічному pending-стані.
+    timer = setTimeout(() => finish(false), 15000)
+
     try {
-      webApp().requestContact((granted, event) => {
-        if (!granted) {
-          resolve(null)
-          return
-        }
-        // Клієнти віддають результат по-різному: подією з розібраними
-        // полями або рядком запиту, як в initData.
-        const direct = event?.responseUnsafe?.contact?.phone_number
-        if (direct) {
-          resolve(String(direct))
-          return
-        }
-        try {
-          const raw = new URLSearchParams(event?.response || '').get('contact')
-          resolve(raw ? String(JSON.parse(raw).phone_number || '') || null : null)
-        } catch {
-          resolve(null)
-        }
-      })
+      // За офіційним API callback отримує ЛИШЕ boolean. Сам номер
+      // надсилається боту як contact-повідомлення і читається з /profile.
+      app.requestContact((granted) => finish(granted))
     } catch {
-      resolve(null)
+      finish(false)
     }
   })
 }
@@ -502,11 +502,22 @@ export function confirm(message) {
 
 export function alert(message) {
   return new Promise((resolve) => {
-    if (webApp()?.showAlert) {
-      try {
-        webApp().showAlert(message, resolve)
-      } catch {
+    const app = webApp()
+    if (app?.showAlert) {
+      let settled = false
+      const finish = () => {
+        if (settled) return
+        settled = true
+        clearTimeout(timer)
         resolve()
+      }
+      // У кількох клієнтах callback showAlert може не повернутися після
+      // успішного checkout. Діалог не має блокувати success-flow назавжди.
+      const timer = setTimeout(finish, 3500)
+      try {
+        app.showAlert(message, finish)
+      } catch {
+        finish()
       }
       return
     }

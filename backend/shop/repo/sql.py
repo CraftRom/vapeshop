@@ -344,6 +344,16 @@ class SqlRepository(Repository):
         user.first_name = first_name or user.first_name
         return user
 
+    async def set_user_phone(self, user_id: int, phone: str | None) -> User | None:
+        row = await self.s.get(m.User, user_id)
+        if not row:
+            return None
+        clean = (phone or "").strip() or None
+        row.phone = clean
+        row.search_key = user_search_key(row.username, row.first_name, clean)
+        await self._commit()
+        return _user(await self.s.get(m.User, user_id))
+
     async def set_user_referrer(self, user, referrer_id: int) -> None:
         await self.s.execute(
             update(m.User).where(m.User.id == user.id).values(referrer_id=referrer_id)

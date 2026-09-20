@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 
 from collections.abc import Awaitable, Callable
 from typing import Any
@@ -48,6 +49,27 @@ class RepositoryMiddleware(BaseMiddleware):
                 if chat is not None and chat.type == "private" and not user.bot_reachable:
                     await repo.set_bot_reachable(user.tg_id, True)
                     user.bot_reachable = True
+                # WebApp.requestContact() НЕ повертає номер у JavaScript.
+                # Telegram надсилає власний контакт користувача повідомленням
+                # боту; саме тут зберігаємо його у профілі, щоб Mini App міг
+                # забрати номер через /profile після підтвердження.
+                if isinstance(event, Message) and event.contact:
+                    contact_user_id = getattr(event.contact, "user_id", None)
+                    if contact_user_id == tg_user.id:
+                        digits = re.sub(r"\D", "", event.contact.phone_number or "")
+                        if digits.startswith("380"):
+                            body = digits[3:]
+                        elif digits.startswith("80") and len(digits) == 11:
+                            body = digits[2:]
+                        elif digits.startswith("0") and len(digits) == 10:
+                            body = digits[1:]
+                        else:
+                            body = digits
+                        if len(body) == 9 and body[0] in "3456789":
+                            saved_phone = "+380" + body
+                            set_phone = getattr(repo, "set_user_phone", None)
+                            saved = await set_phone(user.id, saved_phone) if callable(set_phone) else None
+                            user.phone = saved.phone if saved else saved_phone
                 data["user"] = user
                 data["is_new_user"] = is_new
             return await handler(event, data)

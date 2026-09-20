@@ -294,6 +294,18 @@ async def create_order(
             user.bonus_balance -= bonus_used
         await repo.clear_cart(user.id)
 
+    # Запамʼятовуємо номер із успішного checkout. Наступне оформлення
+    # підставить його одразу, навіть без повторного requestContact. Помилка
+    # профільного оновлення не скасовує вже створене замовлення.
+    try:
+        set_phone = getattr(repo, "set_user_phone", None)
+        saved_user = await set_phone(user.id, contact_phone) if callable(set_phone) else None
+        if saved_user:
+            user.phone = saved_user.phone
+    except Exception:
+        log.warning("Замовлення №%s створено, але телефон профілю не оновлено",
+                    order.id, exc_info=True)
+
     # У SalesDrive потрапляють ЛИШЕ замовлення, створені коли інтеграція вже
     # активна. Старі замовлення навмисно залишаються з порожнім crm_state:
     # увімкнення/переналаштування CRM ніколи не робить історичний backfill.

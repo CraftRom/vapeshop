@@ -182,6 +182,7 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
   const [promo, setPromo] = useState(null)
   const [checking, setChecking] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [phoneBusy, setPhoneBusy] = useState(false)
   // Помилку показуємо лише після того, як поле покинули: підсвічувати
   // порожній номер, поки людина його ще набирає, — це причіпка, а не поміч.
   const [touched, setTouched] = useState({})
@@ -213,8 +214,12 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
   const toWarehouse = form.delivery_method === 'warehouse' || !courier
 
   useEffect(() => {
-    if (profile?.first_name) {
-      setForm((f) => (f.contact_name ? f : { ...f, contact_name: profile.first_name }))
+    if (profile?.first_name || profile?.phone) {
+      setForm((f) => ({
+        ...f,
+        contact_name: f.contact_name || profile?.first_name || '',
+        contact_phone: f.contact_phone || normalizePhone(profile?.phone || ''),
+      }))
     }
   }, [profile])
 
@@ -311,16 +316,36 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
 
   /** Номер із Telegram замість набору руками. */
   const pullPhone = async () => {
+    if (phoneBusy) return
     haptic('light')
-    const phone = await requestContact()
-    if (!phone) {
-      // Відмовили або клієнт старий — мовчки лишаємо поле під набір.
-      // Пояснювати тут нічого: людина щойно сама натиснула «ні».
-      return
+    setPhoneBusy(true)
+    setError('')
+    try {
+      const granted = await requestContact()
+      if (!granted) return
+
+      // requestContact повертає лише факт дозволу. Telegram надсилає номер
+      // як contact-повідомлення боту; middleware зберігає його в профілі.
+      // Коротко опитуємо свій API, поки bot update доїде до backend.
+      for (let attempt = 0; attempt < 20; attempt += 1) {
+        try {
+          const fresh = await api.contactPhone()
+          const phone = normalizePhone(fresh?.phone || '')
+          if (phone && !phoneError(phone)) {
+            setForm((f) => ({ ...f, contact_phone: phone }))
+            setTouched((t) => ({ ...t, contact_phone: true }))
+            notify('success')
+            return
+          }
+        } catch {
+          // Наступна спроба: контакт міг бути ще в черзі Telegram.
+        }
+        await new Promise((resolve) => setTimeout(resolve, 350))
+      }
+      setError('Telegram прийняв номер, але він ще не синхронізувався. Введіть номер вручну або повторіть через кілька секунд.')
+    } finally {
+      setPhoneBusy(false)
     }
-    setForm((f) => ({ ...f, contact_phone: normalizePhone(phone) }))
-    setTouched((t) => ({ ...t, contact_phone: true }))
-    notify('success')
   }
 
   const set = (key) => (e) => {
@@ -488,12 +513,18 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
         order.payment_method === 'card'
           ? '\n\nМенеджер надішле реквізити для оплати вам у чат.'
           : ''
+      // Замовлення вже створене — одразу виводимо checkout із pending-
+      // стану. Нативний showAlert у частині Telegram-клієнтів не викликає
+      // callback, і раніше через await кнопка назавжди лишалась
+      // «Оформлюємо…», хоча order уже був у БД.
+      submittingRef.current = false
+      setBusy(false)
+      onDone()
       await alert(
         `Замовлення №${order.order_id} прийнято.\nДо сплати ${Number(order.total).toFixed(
           0,
         )} ${config.currency}.${payment}\n\nДеталі надійдуть у чат з ботом.`,
       )
-      onDone()
       close()
     } catch (err) {
       submittingRef.current = false
@@ -564,8 +595,8 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
             у вікні застосунку. Поле лишається поруч: у старих клієнтах
             методу немає, а хтось замовляє не на свій номер. */}
         {canRequestContact() && (
-          <button className="secondary phone-pull" onClick={pullPhone}>
-            Взяти номер із Telegram
+          <button className="secondary phone-pull" onClick={pullPhone} disabled={phoneBusy}>
+            {phoneBusy ? 'Отримуємо номер…' : 'Взяти номер із Telegram'}
           </button>
         )}
         <Field

@@ -42,6 +42,7 @@ import httpx
 
 from shop.entities import Order, OrderStatus
 from shop.services import shipment
+from shop.services import nova_poshta_statuses as np_status
 
 log = logging.getLogger(__name__)
 
@@ -643,6 +644,23 @@ def status_name_from_options(status_id, options: list[dict]) -> str:
                  if str(x.get("id") or "") == wanted), "")
 
 
+def status_id_from_options_name(status_name: str, options: list[dict]) -> str:
+    """ID статусу CRM за його реальною назвою в поточному довіднику.
+
+    Автоматизації доставки прив'язуємо до назви (``Продаж``/``Відмова``),
+    а не до ID: ID належать конкретному акаунту SalesDrive і можуть
+    відрізнятися між базами або після переналаштування CRM.
+    """
+    wanted = " ".join(str(status_name or "").split()).casefold()
+    if not wanted:
+        return ""
+    for item in options:
+        name = " ".join(str(item.get("name") or "").split()).casefold()
+        if name == wanted:
+            return str(item.get("id") or "").strip()
+    return ""
+
+
 def _pairs_from_options(value) -> dict[str, str]:
     """Нормалізує ``options`` із meta[fields] до ``id -> label``.
 
@@ -1134,7 +1152,8 @@ async def handle_webhook(repo, payload: dict, *, bot=None) -> dict:
     target = status_from_crm(shop, incoming_status_id)
     if target and target != order.status:
         try:
-            await flow.apply_crm_status_progression(repo, order, target, bot=bot)
+            result = await flow.apply_crm_status_progression(repo, order, target, bot=bot)
+            order = result.order
             applied.append("status")
         except flow.WorkflowError as exc:
             problems.append(str(exc))
@@ -1147,6 +1166,18 @@ async def handle_webhook(repo, payload: dict, *, bot=None) -> dict:
                         order.id, exc,
                         extra={"event": "salesdrive.webhook.rejected", "orderId": order.id,
                                "target": target.value, "current": order.status.value})
+
+    # Статус перевізника є окремою подією від statusId заявки. Після обробки
+    # webhook застосовуємо погоджене правило НП → CRM у тій самій точці для
+    # всіх джерел webhook, а не в UI/боті окремими копіями.
+    order = await repo.get_order(order.id) or order
+    order, automation_matched, automation_changed, automation_problem = await apply_novaposhta_crm_automation(
+        repo, order, webhook_snapshot, shop=shop, bot=bot,
+    )
+    if automation_changed and not automation_problem:
+        applied.append("delivery_status_automation")
+    elif automation_problem:
+        problems.append(automation_problem)
 
     return {"result": "applied" if applied else ("rejected" if problems else "unchanged"),
             "orderId": order.id, "applied": applied, "problems": problems}
@@ -1166,9 +1197,10 @@ def _order_list_rows(body) -> list[dict]:
 
 def _canonical_delivery_item(row: dict) -> dict:
     """Безпечний read-model одного елемента ``ord_delivery_data``."""
-    return {
+    provider = str(row.get("provider") or "")
+    item = {
         "senderId": row.get("senderId"), "idEntity": row.get("idEntity"),
-        "provider": str(row.get("provider") or ""), "type": str(row.get("type") or ""),
+        "provider": provider, "type": str(row.get("type") or ""),
         "parentTrackingNumber": row.get("parentTrackingNumber"),
         "trackingNumber": str(row.get("trackingNumber") or ""),
         "trackingNumberRef": str(row.get("trackingNumberRef") or ""),
@@ -1187,6 +1219,10 @@ def _canonical_delivery_item(row: dict) -> dict:
         "paymentMethod": str(row.get("paymentMethod") or ""), "cargoType": str(row.get("cargoType") or ""),
         "ukrposhtaType": str(row.get("ukrposhtaType") or ""), "cost": row.get("cost"),
     }
+    if (provider.strip().casefold() == "novaposhta"
+            and row.get("statusCode") not in (None, "")):
+        item["statusInfo"] = np_status.public_nova_poshta_status(row.get("statusCode"))
+    return item
 
 
 def _merge_generic_carrier(legacy: dict, row: dict, *, provider: str) -> dict:
@@ -1382,6 +1418,8 @@ def _snapshot(data: dict, statuses: dict[str, str] | None = None, *,
             "paymentMethod": np.get("paymentMethod") or "", "ttn": np.get("EN") or "", "ref": np.get("ENref") or "",
             "backDelivery": np.get("backDelivery") or "", "postpayPayer": np.get("postpayPayer") or "",
             "postpaySum": np.get("postpaySum"), "status": np.get("status") or "", "statusCode": np.get("statusCode"),
+            "statusInfo": (np_status.public_nova_poshta_status(np.get("statusCode"))
+                           if np.get("statusCode") not in (None, "") else None),
             "dateStatusUpdate": np.get("dateStatusUpdate"), "deliveryDateAndTime": np.get("deliveryDateAndTime"),
             "recipientDateTime": np.get("recipientDateTime"), "manual": np.get("manual"), "idEntity": np.get("idEntity"),
             "cost": np.get("cost") if np.get("cost") not in (None, "") else (data.get("shipping_costs") if len(delivery_rows) == 1 else None),
@@ -1625,19 +1663,30 @@ async def pull_order(repo, order_id: int, shop=None, *, force: bool = False, bot
         await flow.apply_tracking(repo, order, "", origin=flow.ORIGIN_SALESDRIVE, bot=None)
         order = await repo.get_order(order.id) or order
 
-    # Якщо webhook загубився, пряме читання заявки все одно наздожене
-    # локальний workflow. Пізніший CRM-статус означає, що попередні етапи
-    # вже пройдені; проміжні кроки застосовуються послідовно.
-    target = status_from_crm(shop, snap.get("statusId"))
-    if target and target != order.status:
-        try:
-            await flow.apply_crm_status_progression(repo, order, target, bot=bot)
-            order = await repo.get_order(order.id) or order
-        except flow.WorkflowError as exc:
-            await repo.update_order(order.id, {
-                "crm_error": f"Статус із SalesDrive прочитано, але локальний workflow не наздогнано: {exc}"[:500],
-            })
-            order = await repo.get_order(order.id) or order
+    # Автоматизацію за statusCode НП запускаємо і на прямому читанні. Так
+    # правило працює навіть якщо delivery webhook загубився або SalesDrive
+    # оновив стан перевізника між webhook-подіями.
+    order, automation_matched, _automation_changed, _automation_problem = await apply_novaposhta_crm_automation(
+        repo, order, snap, shop=shop, bot=bot,
+    )
+
+    # Якщо для НП спрацювало бізнес-правило, його CRM-статус має пріоритет над
+    # statusId зі snapshot, який був прочитаний до автоматичного POST.
+    # Інакше локальний workflow одразу ж наздоганяв би старий статус.
+    if not automation_matched:
+        # Якщо webhook загубився, пряме читання заявки все одно наздожене
+        # локальний workflow. Пізніший CRM-статус означає, що попередні етапи
+        # вже пройдені; проміжні кроки застосовуються послідовно.
+        target = status_from_crm(shop, snap.get("statusId"))
+        if target and target != order.status:
+            try:
+                await flow.apply_crm_status_progression(repo, order, target, bot=bot)
+                order = await repo.get_order(order.id) or order
+            except flow.WorkflowError as exc:
+                await repo.update_order(order.id, {
+                    "crm_error": f"Статус із SalesDrive прочитано, але локальний workflow не наздогнано: {exc}"[:500],
+                })
+                order = await repo.get_order(order.id) or order
     return order
 
 def _crm_date_compare(value) -> str:
@@ -1747,7 +1796,81 @@ async def update_crm_order(repo, order: Order, changes: dict, shop=None, *, bot=
     return await pull_order(repo, order.id, shop=shop, force=True, bot=bot)
 
 
-async def set_crm_status(repo, order: Order, status_id: str, status_name: str | None = None, shop=None, *, bot=None) -> Order:
+def _novaposhta_status_code_from_snapshot(snapshot: dict | None) -> str:
+    if not isinstance(snapshot, dict):
+        return ""
+    np_block = snapshot.get("novaposhta") if isinstance(snapshot.get("novaposhta"), dict) else {}
+    code = np_block.get("statusCode")
+    if code not in (None, ""):
+        return str(code).strip()
+    delivery = snapshot.get("deliveryData") if isinstance(snapshot.get("deliveryData"), dict) else {}
+    items = delivery.get("items") if isinstance(delivery.get("items"), list) else []
+    for row in items:
+        if not isinstance(row, dict):
+            continue
+        if str(row.get("provider") or "").strip().casefold() != "novaposhta":
+            continue
+        code = row.get("statusCode")
+        if code not in (None, ""):
+            return str(code).strip()
+    return ""
+
+
+async def apply_novaposhta_crm_automation(repo, order: Order, snapshot: dict | None, *,
+                                           shop=None, bot=None) -> tuple[Order, bool, bool, str]:
+    """Автоматично переводить CRM за погодженими кодами Нової пошти.
+
+    Повертає ``(order, matched, changed, problem)``. ``matched`` означає, що для коду
+    існує бізнес-правило навіть якщо потрібний CRM-статус уже стояв. Помилки
+    не валять webhook/read-side: вони фіксуються в ``crm_error`` і журналі,
+    а наступний webhook/pull повторить спробу.
+    """
+    from shop.services.shop_settings import get_shop_settings
+
+    code = _novaposhta_status_code_from_snapshot(snapshot)
+    target_name = np_status.crm_status_name_for_nova_poshta(code)
+    if not target_name:
+        return order, False, False, ""
+    shop = shop or await get_shop_settings(repo)
+    try:
+        options = await status_options(shop)
+        sid = status_id_from_options_name(target_name, options)
+        if not sid:
+            # Кеш довідника живе 10 хвилин. Якщо статус щойно створили або
+            # перейменували, один force-read не дає автоматизації чекати TTL.
+            options = await status_options(shop, force=True)
+            sid = status_id_from_options_name(target_name, options)
+        if not sid:
+            problem = f'Автоматизація Нової пошти: у SalesDrive не знайдено статус «{target_name}»'
+            await repo.update_order(order.id, {"crm_error": problem[:500]})
+            log.warning(problem, extra={"event": "salesdrive.delivery_automation.status_missing",
+                                        "orderId": order.id, "novaPoshtaStatusCode": code,
+                                        "targetStatus": target_name})
+            return await repo.get_order(order.id) or order, True, False, problem
+
+        # Якщо CRM уже підтвердила потрібний статус, повторного POST немає.
+        if str(order.crm_status_id or "") == sid:
+            return order, True, False, ""
+
+        fresh = await set_crm_status(repo, order, sid, shop=shop, bot=bot, verify_uncertain=False)
+        log.info(
+            "Нова пошта statusCode=%s автоматично змінила CRM-статус замовлення %s на %s",
+            code, order.id, target_name,
+            extra={"event": "salesdrive.delivery_automation.applied", "orderId": order.id,
+                   "novaPoshtaStatusCode": code, "targetStatusId": sid,
+                   "targetStatus": target_name},
+        )
+        return fresh, True, True, ""
+    except SalesDriveError as exc:
+        problem = f"Автоматизація Нової пошти → CRM не виконана: {exc}"
+        await repo.update_order(order.id, {"crm_error": problem[:500]})
+        log.warning(problem, extra={"event": "salesdrive.delivery_automation.failed",
+                                    "orderId": order.id, "novaPoshtaStatusCode": code,
+                                    "targetStatus": target_name})
+        return await repo.get_order(order.id) or order, True, False, problem
+
+
+async def set_crm_status(repo, order: Order, status_id: str, status_name: str | None = None, shop=None, *, bot=None, verify_uncertain: bool = True) -> Order:
     """Змінює авторитетний статус прямо в SalesDrive.
 
     ``status_name`` лишено тільки для сумісності зі старими клієнтами й
@@ -1773,6 +1896,11 @@ async def set_crm_status(repo, order: Order, status_id: str, status_name: str | 
         await _send(shop, "/api/order/update/", crm_update_payload(order, {"statusId": sid}))
     except SalesDriveError as exc:
         if not exc.uncertain:
+            raise
+        if not verify_uncertain:
+            # Автоматизація викликається також із pull_order. Read-after-timeout
+            # тут спричинив би рекурсію pull → automation → set → pull. Наступний
+            # webhook/pull безпечно підтвердить фактичний statusId.
             raise
         # Як і для інших partial update, timeout не повторюємо сліпо.
         # Перечитуємо заявку: якщо statusId уже змінився, POST виконався.
