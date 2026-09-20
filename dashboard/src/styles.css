@@ -142,6 +142,8 @@ a { color: var(--violet); text-decoration: none; }
 .grid.k4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .grid.k3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .grid.k2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.grid > .field { min-width: 0; align-self: start; }
+.grid > .field > .input, .grid > .field > select.input { width: 100%; }
 
 .metric .label {
   color: var(--muted);
@@ -368,12 +370,41 @@ textarea.input {
   line-height: 1.45;
 }
 
+input.input[type='file'] {
+  height: var(--control-height);
+  min-height: var(--control-height);
+  padding: 5px 7px;
+  line-height: 32px;
+}
+
+input.input[type='file']::file-selector-button {
+  height: 32px;
+  margin: 0 10px 0 0;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: calc(var(--control-radius) - 3px);
+  background: var(--panel-2);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+input.input::-webkit-calendar-picker-indicator {
+  opacity: .72;
+  cursor: pointer;
+}
+
 .field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 /* Сусідні поля поза .stack: підказка під одним полем налягала на підпис
    наступного, і було неясно, до якого поля вона стосується. Так виглядали
    всі групи налаштувань і поля накладної й нотатки в замовленні. */
-.field + .field { margin-top: 16px; }
-.stack > .field + .field { margin-top: 0; }
+.field + .field { margin-top: 14px; }
+.stack > .field + .field,
+.grid > .field + .field,
+.row > .field + .field,
+.toolbar > .field + .field,
+.crm-editor-grid > .field + .field { margin-top: 0; }
 .field > label {
   display: flex;
   align-items: flex-end;
@@ -4797,7 +4828,7 @@ button.support-stat:hover { border-color: rgba(139, 123, 240, 0.38); }
 .crm-editor-actions{display:flex;align-items:center;justify-content:space-between;gap:12px}
 .crm-editor-grid{align-items:start}
 .crm-editor-grid>.field,.crm-editor-section>.field{min-width:0}
-.crm-editor-grid .input{min-height:46px;height:46px}
+.crm-editor-grid .input{min-height:var(--control-height);height:var(--control-height)}
 .crm-editor-grid textarea.input,.crm-editor-section textarea.input{min-height:112px;height:auto}
 .crm-editor-grid .field>.label,.crm-editor-grid .field>label{min-height:16px}
 @media (max-width:1100px){
@@ -4854,3 +4885,25 @@ button.support-stat:hover { border-color: rgba(139, 123, 240, 0.38); }
 
 /* 1.48.0 — уніфікація висот і ритму форм у панелі. */
 .form-normalized .input{min-height:var(--control-height);height:var(--control-height)}
+
+
+/* 1.49.0 — єдина вертикальна сітка форм і стабільний контейнер графіків. */
+.form-row,
+.form-grid { align-items: start; }
+.form-row > .field,
+.form-grid > .field { min-width: 0; margin-top: 0; }
+.stats-revenue-chart-shell { margin-top: 14px; }
+.stats-chart-legend { display:flex; align-items:center; justify-content:flex-end; gap:14px; flex-wrap:wrap; min-height:24px; margin-bottom:6px; color:var(--muted); font-size:11px; }
+.stats-chart-legend span { display:inline-flex; align-items:center; gap:6px; }
+.stats-chart-legend i { width:18px; height:3px; border-radius:999px; display:inline-block; }
+.stats-chart-legend i.turnover { background:#8b7bf0; }
+.stats-chart-legend i.received { background:#66d9b8; }
+.stats-revenue-chart { height: 276px; overflow: hidden; }
+.stats-revenue-chart .recharts-wrapper,
+.stats-revenue-chart .recharts-surface { overflow: hidden; }
+@media (max-width: 760px) {
+  :root { --control-height: 46px; }
+  .stats-revenue-chart-shell { margin-top: 10px; }
+  .stats-chart-legend { justify-content:flex-start; gap:10px; }
+  .stats-revenue-chart { height: 238px; }
+}

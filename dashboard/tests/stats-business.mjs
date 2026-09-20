@@ -14,6 +14,8 @@ const tests = [
   ['status breakdown follows period', api.includes("breakdown: (period = 'month')")],
   ['all stats API calls use period', ['summary', 'series', 'topProducts', 'byOperator', 'insights'].every((x) => api.includes(`${x}: (period = 'month')`))],
   ['chart separates turnover and received', chart.includes('dataKey="confirmed"') && chart.includes('dataKey="revenue"')],
+  ['chart normalizes Decimal JSON to numbers', chart.includes('confirmed: Number(row?.confirmed ?? 0)') && chart.includes('revenue: Number(row?.revenue ?? 0)')],
+  ['chart uses linear calendar segments', chart.includes('type="linear"') && !chart.includes('type="monotone"')],
   ['manager table separates received and expected', overview.includes('money(o.received)') && overview.includes('money(o.expected)')],
 ]
 

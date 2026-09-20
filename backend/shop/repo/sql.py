@@ -1215,11 +1215,14 @@ class SqlRepository(Repository):
             )
         )).all())
         buckets: dict[str, dict] = {}
+        row_days = []
         for row in rows:
             moment = _aware(row.created_at)
             if tz is not None:
                 moment = moment.astimezone(tz)
-            key = moment.strftime("%Y-%m-%d")
+            row_day = moment.date()
+            row_days.append(row_day)
+            key = row_day.isoformat()
             bucket = buckets.setdefault(key, {
                 "date": key, "revenue": Decimal(0), "confirmed": Decimal(0),
                 "expected": Decimal(0), "orders": 0, "shipped": 0,
@@ -1233,7 +1236,38 @@ class SqlRepository(Repository):
             bucket["orders"] += 1
             if fin["shipped"]:
                 bucket["shipped"] += 1
-        return [buckets[k] for k in sorted(buckets)]
+
+        # Графік є календарним денним рядом, тому пропущений день — це
+        # нуль, а не «невідома точка». Раніше API повертав тільки дні з
+        # продажами, а Recharts будував spline безпосередньо між ними.
+        # Саме це створювало великі U-подібні дуги на кілька днів.
+        # Для period=all since може бути Unix epoch; у такому випадку
+        # починаємо з першого реального замовлення, а не генеруємо 20k днів.
+        if not row_days:
+            return []
+        local_until = period_until.astimezone(tz) if tz is not None else period_until
+        end_day = local_until.date()
+        local_since = period_since.astimezone(tz) if tz is not None else period_since
+        if local_since.year <= 1971:
+            start_day = min(row_days)
+        else:
+            start_day = local_since.date()
+
+        # Захист від пошкоджених меж API. За нормальних періодів тут 1–90
+        # точок; навіть «за весь час» починається з першого замовлення.
+        if start_day > end_day:
+            return []
+
+        dense = []
+        day = start_day
+        while day <= end_day:
+            key = day.isoformat()
+            dense.append(buckets.get(key, {
+                "date": key, "revenue": Decimal(0), "confirmed": Decimal(0),
+                "expected": Decimal(0), "orders": 0, "shipped": 0,
+            }))
+            day += timedelta(days=1)
+        return dense
 
     async def stats_top_products(
         self, days: int, limit: int, *, since: datetime | None = None, until: datetime | None = None,

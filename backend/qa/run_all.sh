@@ -110,6 +110,7 @@ run_node payment-ux tests/order-payment-ux.mjs dashboard
 run_node volume tests/notification-volume.mjs dashboard
 run_node performance tests/performance.mjs dashboard
 run_node stats-business-ui tests/stats-business.mjs dashboard
+run_node form-chart tests/form-chart-normalization.mjs dashboard
 
 echo
 echo "Контракти й дані"
