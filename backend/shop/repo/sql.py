@@ -1489,7 +1489,14 @@ class SqlRepository(Repository):
         self, days: int, *, since: datetime | None = None, until: datetime | None = None,
         previous_since: datetime | None = None, tz=None,
     ) -> dict:
-        """Порівняння й поведінка саме завершених продажів CRM «Продаж»."""
+        """Фінансові зрізи продажів + окрема активність створення замовлень.
+
+        Фінанси, повторні покупки, оплата й доставка використовують момент
+        фактичного CRM-продажу (``business_state_at``). Графіки «Коли
+        замовляють» принципово інші: вони показують попит і тому відбирають
+        *усі* оформлені замовлення за ``created_at`` у вибраному періоді,
+        незалежно від того, коли або чи взагалі замовлення стало «Продаж».
+        """
         now = datetime.now(timezone.utc)
         span = days if days > 0 else 3650
         period_until = until or now
@@ -1551,8 +1558,25 @@ class SqlRepository(Repository):
         orders = len(current_sales)
         was_orders = len(previous_sales)
 
+        # «Коли замовляють» — це поведінка оформлення, а не фінансовий
+        # результат. Відбираємо всі створені в цьому календарному періоді
+        # замовлення за created_at. Інакше замовлення середи, переведене CRM
+        # у «Продаж» у четвер, помилково потрапляло б у четвер/період продажу.
+        activity_rows = list((await self.s.execute(
+            select(m.Order.created_at).where(
+                m.Order.created_at >= period_since,
+                m.Order.created_at < period_until,
+            )
+        )).all())
         by_hour = [0] * 24
         by_weekday = [0] * 7
+        for activity_row in activity_rows:
+            when = _aware(activity_row.created_at)
+            if tz is not None:
+                when = when.astimezone(tz)
+            by_hour[when.hour] += 1
+            by_weekday[when.weekday()] += 1
+
         payment = {
             "card": {"orders": 0, "revenue": Decimal(0), "received": Decimal(0), "expected": Decimal(0)},
             "cod": {"orders": 0, "revenue": Decimal(0), "received": Decimal(0), "expected": Decimal(0)},
@@ -1563,14 +1587,6 @@ class SqlRepository(Repository):
         shipped_amount = Decimal(0)
 
         for row, fin in current_sales:
-            # Година/день відповідають часу оформлення замовлення; період
-            # відбору при цьому відповідає часу фактичного продажу.
-            when = _aware(row.created_at)
-            if tz is not None:
-                when = when.astimezone(tz)
-            by_hour[when.hour] += 1
-            by_weekday[when.weekday()] += 1
-
             method = _stats_payment_method(row, row.crm_snapshot or {})
             slot = payment.get(method)
             if slot is not None:

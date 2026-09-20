@@ -112,5 +112,19 @@ check("migration rebuilds customer totals", "SET orders_count = COALESCE" in mig
 check("queued CRM rows are not legacy sales", "COALESCE(crm_state, '') = '' AND status = 'DONE'" in migration_source)
 check("repository CRM patch synchronizes business state", 'if "crm_status_name" in data:' in repo_source and "_apply_business_state_row" in repo_source)
 
+# Behavioral activity is deliberately keyed by order creation, not sale time.
+check(
+    "order activity query is selected by created_at",
+    "m.Order.created_at >= period_since" in repo_source
+    and "m.Order.created_at < period_until" in repo_source
+    and "select(m.Order.created_at).where(" in repo_source,
+)
+check(
+    "order activity does not bucket current_sales",
+    "for activity_row in activity_rows:" in repo_source
+    and "by_hour[when.hour] += 1" in repo_source
+    and "for row, fin in current_sales:\n            # Година/день" not in repo_source,
+)
+
 print(f"STATS BUSINESS: {passed}/{passed + failed}")
 raise SystemExit(1 if failed else 0)

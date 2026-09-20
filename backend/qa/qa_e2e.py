@@ -193,8 +193,11 @@ r.check(ins["revenue"]["change"] is None,
         "як «без змін»", ins["revenue"]["change"])
 r.check(len(ins["by_hour"]) == 24 and len(ins["by_weekday"]) == 7,
         "розкладка по годинах і днях повна")
-r.check(sum(ins["by_hour"]) == ins["orders"]["value"],
-        "у розкладці по годинах ті самі замовлення, що в підсумку",
+r.check(sum(ins["by_hour"]) == sum(ins["by_weekday"]),
+        "години й дні рахують ту саму множину створених замовлень",
+        (sum(ins["by_hour"]), sum(ins["by_weekday"])))
+r.check(sum(ins["by_hour"]) >= ins["orders"]["value"],
+        "активність оформлення включає всі замовлення, не лише CRM-продажі",
         (sum(ins["by_hour"]), ins["orders"]["value"]))
 r.check(ins["payment"]["card"]["orders"] + ins["payment"]["cod"]["orders"]
         == ins["orders"]["value"], "розподіл оплати сходиться з підсумком")

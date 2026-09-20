@@ -12,6 +12,7 @@ const tests = [
   ['expected money metric', overview.includes('Очікуємо отримання') && overview.includes('expected_period')],
   ['shipped amount metric', overview.includes('shipped_period') && overview.includes('shipped_orders_period')],
   ['user activity block', overview.includes('Активність користувачів') && overview.includes('buyer_share')],
+  ['order-time activity is explicit', overview.includes('Усі оформлені замовлення за фактичним часом створення') && overview.includes('CRM-статус і час продажу на цей графік не впливають') && overview.includes('Усі оформлені замовлення за днем їх створення')],
   ['status breakdown follows period', api.includes("breakdown: (period = 'month')")],
   ['all stats API calls use period', ['summary', 'series', 'topProducts', 'byOperator', 'insights'].every((x) => api.includes(`${x}: (period = 'month')`))],
   ['chart separates sales turnover and received', chart.includes('dataKey="sales"') && chart.includes('dataKey="revenue"')],

@@ -171,7 +171,7 @@ async def insights(
     period: str | None = Query(None),
     repo: Repository = Depends(get_repo),
 ):
-    """Порівняння й зрізи фактичних продажів: CRM-статус «Продаж»."""
+    """Фінансові зрізи продажів; активність замовлень — за created_at."""
     window = await _stats_window(repo, period, days)
     return await repo.stats_insights(
         days,
