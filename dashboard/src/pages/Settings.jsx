@@ -22,7 +22,7 @@ const SYSADMIN_ONLY = new Set([
 // Статуси й способи — ключі відповідностей SalesDrive. Порядок і назви ті
 // самі, що бачить менеджер у замовленні.
 const STATUS_KEYS = [
-  ['new', 'Нове'], ['confirmed', 'Підтверджене'], ['accepted', 'Прийняте в роботу'],
+  ['new', 'Нове'], ['accepted', 'Прийняте в роботу'],
   ['paid', 'Оплачене'], ['shipped', 'Відправлене'], ['done', 'Виконане'],
   ['cancelled', 'Скасоване'],
 ]
@@ -590,7 +590,7 @@ export default function Settings() {
     const norm = (v) => String(v || '').toLowerCase().replace(/[ʼ'’]/g, '').replace(/[^a-zа-яіїєґ0-9]+/giu, ' ').trim()
     const find = (items, words) => items.find((item) => words.some((word) => norm(item.name).includes(norm(word))))
     const statusAliases = {
-      new: ['нов', 'new'], confirmed: ['підтвердж', 'подтверж', 'confirm'],
+      new: ['нов', 'new'],
       accepted: ['прийнят', 'в робот', 'в роботу', 'processing'], paid: ['оплачен', 'paid'],
       shipped: ['відправ', 'отправ', 'shipped'], done: ['виконан', 'заверш', 'успіш', 'done'],
       cancelled: ['скасован', 'отмен', 'cancel'],

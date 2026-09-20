@@ -394,7 +394,7 @@ export default function Support() {
     await loadThreads(true)
     if (selectedId) await loadConversation(false)
   }, [loadThreads, loadConversation, selectedId])
-  useVisiblePolling(pollSupport, 10000)
+  useVisiblePolling(pollSupport, 5000)
 
   const groups = useMemo(() => {
     const needle = query.trim().toLowerCase()

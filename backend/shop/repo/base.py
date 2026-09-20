@@ -74,6 +74,12 @@ class Repository(ABC):
         """Атомарно рухає денормалізовані лічильники покупок клієнта."""
 
     @abstractmethod
+    async def set_order_business_state(
+        self, order_id: int, state: str, *, changed_at: datetime | None = None
+    ) -> Order | None:
+        """Атомарно змінює комерційний стан і customer totals."""
+
+    @abstractmethod
     async def list_users(
         self, search: str | None = None, blocked: bool | None = None,
         limit: int = 100, offset: int = 0,
@@ -220,6 +226,29 @@ class Repository(ABC):
     async def orders_for_crm_sync(self, states, limit: int = 50) -> list[Order]:
         """Замовлення, які чекають відправки в CRM або впали на ній."""
 
+    async def list_crm_refresh_candidates(
+        self, *, stale_before: datetime, limit: int = 20,
+    ) -> list[Order]:
+        """Пов'язані CRM-заявки, read snapshot яких застарів.
+
+        Не abstract навмисно: тестові/legacy repository лишаються сумісними.
+        SQL реалізація має ефективний indexed query; fallback фільтрує невелику
+        порцію звичайного list_orders.
+        """
+        rows = await self.list_orders(limit=max(int(limit) * 5, 100))
+        picked = []
+        for order in rows:
+            if not getattr(order, "crm_id", None):
+                continue
+            fetched = getattr(order, "crm_fetched_at", None)
+            if fetched is not None and fetched.tzinfo is None and stale_before.tzinfo is not None:
+                fetched = fetched.replace(tzinfo=stale_before.tzinfo)
+            if fetched is None or fetched < stale_before:
+                picked.append(order)
+            if len(picked) >= limit:
+                break
+        return picked
+
     @abstractmethod
     async def count_orders(self, status: OrderStatus | None = None) -> int: ...
 
@@ -314,7 +343,7 @@ class Repository(ABC):
     async def stats_series(
         self, days: int, *, since: datetime | None = None, until: datetime | None = None, tz=None,
     ) -> list[dict]:
-        """[{date, revenue(received), confirmed, expected, orders, shipped}, ...]."""
+        """[{date, revenue(received), sales, expected, orders, shipped}, ...]."""
 
     @abstractmethod
     async def stats_top_products(
@@ -330,7 +359,7 @@ class Repository(ABC):
         Зведення відповідає на «скільки», але не на «краще чи гірше»,
         «хто саме купує» і «коли по нас приходять». Тут — порівняння з
         попереднім таким самим періодом, частка повторних покупців,
-        скасування, розподіл оплати й доставки та розкладка замовлень
+        відмови, розподіл оплати й доставки та розкладка продажів
         по годинах і днях тижня.
         """
         ...
@@ -339,11 +368,10 @@ class Repository(ABC):
     async def stats_by_operator(
         self, days: int, *, since: datetime | None = None, until: datetime | None = None,
     ) -> list[dict]:
-        """Виторг у розрізі менеджерів: {operator_name, orders, revenue, avg_check}.
+        """Продажі у розрізі менеджерів: тільки business_state=sale.
 
-        Рахуються замовлення, які менеджер узяв у роботу. Замовлення без
-        менеджера зводяться в окремий рядок — інакше сума розрізу не збіглася б
-        із загальним виторгом, і це виглядало б як помилка.
+        Замовлення без менеджера зводяться в окремий рядок, щоб сума розрізу
+        збігалася із загальним оборотом продажів.
         """
 
     # ---------------------------------------------------- списки бажаного

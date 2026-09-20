@@ -129,28 +129,66 @@ export function ChatRoom({ config, order, onBack }) {
   const bottom = useRef(null)
   const sendingRef = useRef(false)
   const uploadingRef = useRef(false)
+  const lastMessageIdRef = useRef(0)
+  const pollInFlightRef = useRef(false)
+  const pollCyclesRef = useRef(0)
+  const roomIdRef = useRef(order.id)
 
   const load = useCallback(
-    (silent = false) => {
-      api.chat
-        .list(order.id)
-        .then((incoming) => setMessages((current) => current === null ? incoming : mergeMessages(current, incoming)))
-        .catch((err) => !silent && setError(err.message))
+    async (silent = false, full = false) => {
+      if (pollInFlightRef.current) return
+      pollInFlightRef.current = true
+      try {
+        const requestedOrderId = order.id
+        // Зазвичай забираємо лише нові повідомлення. Раз на шість циклів
+        // робимо повний reconcile: це лікує рідкісний пропуск після reconnect
+        // і не ганяє всю історію кожні 5 секунд.
+        const afterId = full ? null : lastMessageIdRef.current
+        const incoming = await api.chat.list(requestedOrderId, afterId || null)
+        if (roomIdRef.current !== requestedOrderId) return
+        if (incoming?.length) {
+          lastMessageIdRef.current = Math.max(
+            lastMessageIdRef.current,
+            ...incoming.map((item) => Number(item.id) || 0),
+          )
+        }
+        setMessages((current) => (
+          current === null || full ? mergeMessages(current || [], incoming) : mergeMessages(current, incoming)
+        ))
+        setError('')
+      } catch (err) {
+        if (!silent) setError(err.message)
+      } finally {
+        pollInFlightRef.current = false
+      }
     },
     [order.id],
   )
 
-  useEffect(() => load(), [load])
-
-  // Менеджер відповідає з панелі, тож стрічку доводиться підтягувати самим
   useEffect(() => {
-    // Згорнутий Mini App не показує стрічку — не витрачаємо на нього запити
-    const poll = () => !document.hidden && load(true)
-    const timer = setInterval(poll, 12000)
-    document.addEventListener('visibilitychange', poll)
+    roomIdRef.current = order.id
+    lastMessageIdRef.current = 0
+    pollCyclesRef.current = 0
+    setMessages(null)
+    load(false, true)
+  }, [load])
+
+  // Тихе live-оновлення. Hidden/offline вкладка не робить запитів; після
+  // повернення/відновлення мережі синхронізуємося одразу.
+  useEffect(() => {
+    const poll = () => {
+      if (document.hidden || !navigator.onLine) return
+      pollCyclesRef.current += 1
+      load(true, pollCyclesRef.current % 6 === 0)
+    }
+    const timer = setInterval(poll, 5000)
+    const wake = () => poll()
+    document.addEventListener('visibilitychange', wake)
+    window.addEventListener('online', wake)
     return () => {
       clearInterval(timer)
-      document.removeEventListener('visibilitychange', poll)
+      document.removeEventListener('visibilitychange', wake)
+      window.removeEventListener('online', wake)
     }
   }, [load])
 

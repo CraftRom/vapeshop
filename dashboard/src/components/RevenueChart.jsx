@@ -12,7 +12,7 @@ function normalizeSeries(data) {
     // приводив такі значення сам: координата малювалась, але domain Y
     // обчислювався некоректно. Через це великі суми обрізались верхом,
     // а monotone-інтерполяція перетворювала лінію на великі дуги.
-    confirmed: Number(row?.confirmed ?? 0) || 0,
+    sales: Number(row?.sales ?? row?.confirmed ?? 0) || 0,
     revenue: Number(row?.revenue ?? 0) || 0,
     expected: Number(row?.expected ?? 0) || 0,
     orders: Number(row?.orders ?? 0) || 0,
@@ -37,8 +37,9 @@ function displayDate(value) {
 
 /**
  * Два фінансові шари на одному графіку:
- * confirmed — підтверджений оборот; revenue — кошти, які вже можна вважати
- * отриманими. Так COD після відправки не малюється як гроші на рахунку.
+ * sales — оборот лише замовлень із CRM-статусом «Продаж»; revenue — кошти,
+ * які вже можна вважати отриманими. Логістичний статус відправлення сам по
+ * собі не створює продаж і не малюється як гроші на рахунку.
  *
  * Лінія навмисно linear, а не monotone: календарні фінансові значення —
  * дискретні денні підсумки. Сплайн між нульовим днем і великим продажем
@@ -50,7 +51,7 @@ export default function RevenueChart({ data }) {
   return (
     <div className="stats-revenue-chart-shell">
       <div className="stats-chart-legend" aria-label="Легенда графіка">
-        <span><i className="turnover" />Підтверджений оборот</span>
+        <span><i className="turnover" />Оборот продажів</span>
         <span><i className="received" />Отримано</span>
       </div>
       <div className="stats-revenue-chart">
@@ -91,14 +92,14 @@ export default function RevenueChart({ data }) {
             }}
             labelFormatter={(value) => `Дата: ${displayDate(value)}`}
             formatter={(value, name) => {
-              if (name === 'confirmed') return [money(value), 'Підтверджений оборот']
+              if (name === 'sales') return [money(value), 'Оборот продажів']
               if (name === 'revenue') return [money(value), 'Отримано']
               return [value, name]
             }}
           />
           <Area
             type="linear"
-            dataKey="confirmed"
+            dataKey="sales"
             stroke="#8b7bf0"
             strokeWidth={2}
             fill="url(#turnover)"

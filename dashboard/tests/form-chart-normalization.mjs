@@ -9,7 +9,7 @@ const checks = [
   ['grid fields do not inherit sibling top margin', css.includes('.grid > .field + .field') && css.includes('.crm-editor-grid > .field + .field')],
   ['crm controls use global control height', css.includes('.crm-editor-grid .input{min-height:var(--control-height);height:var(--control-height)}')],
   ['file inputs normalized', css.includes("input.input[type='file']") && css.includes('::file-selector-button')],
-  ['chart coerces API decimals to numbers', chart.includes('confirmed: Number(row?.confirmed ?? 0)') && chart.includes('revenue: Number(row?.revenue ?? 0)')],
+  ['chart coerces API decimals to numbers', chart.includes('sales: Number(row?.sales ?? row?.confirmed ?? 0)') && chart.includes('revenue: Number(row?.revenue ?? 0)')],
   ['chart uses linear daily segments', chart.includes('type="linear"') && !chart.includes('type="monotone"')],
   ['chart pins y axis at zero', chart.includes("domain={[0, 'auto']}")],
   ['chart animation cannot produce stale spline frames', chart.includes('isAnimationActive={false}')],

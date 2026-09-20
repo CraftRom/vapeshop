@@ -125,12 +125,17 @@ async def scenario(repo) -> None:
     # --- статуси й лічильники
     await svc.change_order_status(repo, order, OrderStatus.PAID)
     buyer_now = await repo.get_user(buyer.id)
-    check("orders_count = 1 після оплати", buyer_now.orders_count == 1,
+    check("PAID ще не є продажем", buyer_now.orders_count == 0,
           f"{buyer_now.orders_count}")
-    check("total_spent = 945", buyer_now.total_spent == Decimal("945.00"),
+    check("PAID не збільшує total_spent", buyer_now.total_spent == Decimal("0.00"),
           f"{buyer_now.total_spent}")
 
     reward = await svc.change_order_status(repo, order, OrderStatus.DONE)
+    buyer_now = await repo.get_user(buyer.id)
+    check("legacy DONE = 1 продаж", buyer_now.orders_count == 1,
+          f"{buyer_now.orders_count}")
+    check("legacy DONE додає total_spent 945", buyer_now.total_spent == Decimal("945.00"),
+          f"{buyer_now.total_spent}")
     check("реферальна винагорода 47.25", reward == Decimal("47.25"), f"{reward}")
 
     referrer_now = await repo.get_user(referrer.id)
@@ -162,6 +167,7 @@ async def scenario(repo) -> None:
 
     # --- скасування
     await svc.change_order_status(repo, order2, OrderStatus.PAID)
+    check("друге PAID ще не покупка", (await repo.get_user(referrer.id)).orders_count == 0)
     await svc.change_order_status(repo, order2, OrderStatus.CANCELLED)
     check("залишок повернуто", (await repo.get_product(pod.id)).stock == 8,
           f"{(await repo.get_product(pod.id)).stock}")
@@ -217,7 +223,8 @@ async def scenario(repo) -> None:
 
     top = await repo.stats_top_products(30, 10)
     check("топ товарів заповнений", len(top) == 2, f"{len(top)}")
-    check("лідер — под на 800", top[0]["revenue"] == Decimal("800.00"), f"{top[0]}")
+    check("лідер — под: знижка врахована", top[0]["revenue"] == Decimal("720.00"), f"{top[0]}")
+    check("топ товарів сходиться з оборотом", sum((x["revenue"] for x in top), Decimal(0)) == Decimal("945.00"), str(top))
 
     # --- порожній кошик
     empty, empty_error = await svc.create_order(

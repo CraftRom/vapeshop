@@ -81,6 +81,12 @@ class Settings(BaseSettings):
     salesdrive_status_map: str = ""
     salesdrive_payment_map: str = ""
     salesdrive_shipping_map: str = ""
+    # Фонове читання вже пов'язаних заявок. Це read-side страховка на випадок,
+    # коли webhook SalesDrive/Нової пошти загубився: scheduler перечитує
+    # застарілі snapshot-и невеликими порціями й застосовує ті самі правила,
+    # що ручний refresh картки.
+    salesdrive_background_refresh_seconds: int = 60
+    salesdrive_background_batch: int = 20
     # Курʼєр на адресу. За замовчуванням вимкнений: він доступний не в
     # кожному місті й не в кожного магазину налагоджений, а показана
     # покупцеві й недоступна насправді опція коштує скасованого
@@ -117,8 +123,8 @@ class Settings(BaseSettings):
     quiet_hours_start: int = 22
     quiet_hours_end: int = 9
     broadcast_chunk: int = 100
-    # Як часто планувальник перевіряє чергу, у секундах. Година — компроміс
-    # між точністю запуску й навантаженням на базу.
+    # Базовий tick scheduler. Фактичний цикл може прокидатися частіше заради
+    # CRM read-side refresh; самі важкі задачі мають власні due-перевірки.
     scheduler_interval_seconds: int = 3600
 
     # --- Обслуговування сервера ---

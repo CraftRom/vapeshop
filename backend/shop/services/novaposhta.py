@@ -11,6 +11,7 @@
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from dataclasses import dataclass
@@ -24,6 +25,11 @@ API_URL = "https://api.novaposhta.ua/v2.0/json/"
 # Півдоби. Довідник оновлюється рідко, а помилитись тут дешево: найгірше,
 # що станеться, — щойно відкрите відділення зʼявиться в списку за 12 годин.
 CACHE_TTL_SECONDS = 12 * 3600
+# Під час короткого outage краще показати вчорашній довідник, ніж змусити
+# кожного покупця переходити на ручний ввід. Stale використовується тільки
+# якщо свіжий запит до провайдера справді впав.
+STALE_CACHE_SECONDS = 72 * 3600
+OUTAGE_COOLDOWN_SECONDS = 20
 # Скільки різних запитів тримаємо. Кожен набраний рядок — окремий ключ,
 # тож без межі кеш ріс би разом із фантазією покупців.
 CACHE_MAX_ENTRIES = 512
@@ -82,6 +88,8 @@ class Warehouse:
 # ------------------------------------------------------------------- кеш
 
 _cache: dict[str, tuple[float, list]] = {}
+_locks: dict[str, asyncio.Lock] = {}
+_provider_unavailable_until = 0.0
 
 
 def reset_cache() -> None:
@@ -91,18 +99,38 @@ def reset_cache() -> None:
     старим ключем, і людина, яка щойно вписала новий, вирішила б, що він
     не застосувався.
     """
+    global _provider_unavailable_until
     _cache.clear()
+    _locks.clear()
+    _provider_unavailable_until = 0.0
 
 
-def _cached(key: str):
+def _cached(key: str, *, allow_stale: bool = False):
     found = _cache.get(key)
     if not found:
         return None
     stamp, value = found
-    if time.monotonic() - stamp > CACHE_TTL_SECONDS:
+    age = time.monotonic() - stamp
+    if age <= CACHE_TTL_SECONDS:
+        return value
+    if allow_stale and age <= STALE_CACHE_SECONDS:
+        return value
+    if age > STALE_CACHE_SECONDS:
         _cache.pop(key, None)
-        return None
-    return value
+    return None
+
+
+def _key_lock(key: str) -> asyncio.Lock:
+    lock = _locks.get(key)
+    if lock is None:
+        # CACHE_MAX_ENTRIES одночасно обмежує практичну кількість ключів.
+        # При переповненні не потрібні lock-и теж можна скинути: вони лише
+        # оптимізація, а не частина коректності даних.
+        if len(_locks) >= CACHE_MAX_ENTRIES * 2:
+            _locks.clear()
+        lock = asyncio.Lock()
+        _locks[key] = lock
+    return lock
 
 
 def _store(key: str, value: list) -> None:
@@ -133,8 +161,11 @@ async def _post(payload: dict) -> dict:
 
 
 async def _call(api_key: str, model: str, method: str, properties: dict) -> list[dict]:
+    global _provider_unavailable_until
     if not api_key:
         raise NovaPoshtaError("Ключ API Нової пошти не заданий у налаштуваннях")
+    if time.monotonic() < _provider_unavailable_until:
+        raise NovaPoshtaError("Довідник Нової пошти тимчасово недоступний")
 
     payload = {
         "apiKey": api_key,
@@ -144,7 +175,9 @@ async def _call(api_key: str, model: str, method: str, properties: dict) -> list
     }
     try:
         data = await _post(payload)
+        _provider_unavailable_until = 0.0
     except httpx.HTTPError as exc:
+        _provider_unavailable_until = time.monotonic() + OUTAGE_COOLDOWN_SECONDS
         # Мережа лягла або перевізник віддав 5xx. Для покупця це не
         # відрізняється від «нічого не знайшлося», але в журналі має
         # лишитися саме причина, інакше шукатимемо помилку в себе.
@@ -197,39 +230,48 @@ async def search_settlements(api_key: str, query: str,
     if hit is not None:
         return hit
 
-    rows = await _call(api_key, "Address", "searchSettlements", {
-        "CityName": query, "Limit": str(limit), "Page": "1",
-    })
-    # Відповідь приходить обгорнутою: список із одного запису, всередині
-    # якого лежить сам перелік адрес.
-    addresses = []
-    for row in rows:
-        addresses += row.get("Addresses") or []
+    async with _key_lock(key):
+        # Інший coroutine міг уже завершити такий самий запит, поки ми
+        # чекали lock. Не дублюємо звернення до провайдера.
+        hit = _cached(key)
+        if hit is not None:
+            return hit
+        try:
+            rows = await _call(api_key, "Address", "searchSettlements", {
+                "CityName": query, "Limit": str(limit), "Page": "1",
+            })
+        except NovaPoshtaError:
+            stale = _cached(key, allow_stale=True)
+            if stale is not None:
+                log.info("novaposhta.stale_cache settlements:%s", query)
+                return stale
+            raise
+        # Відповідь приходить обгорнутою: список із одного запису, всередині
+        # якого лежить сам перелік адрес.
+        addresses = []
+        for row in rows:
+            addresses += row.get("Addresses") or []
 
-    found = []
-    for row in addresses:
-        count = _int(row.get("Warehouses"))
-        if count <= 0:
-            continue
-        name = (row.get("MainDescription") or "").strip()
-        area = (row.get("Area") or "").strip()
-        region = (row.get("Region") or "").strip()
-        found.append(Settlement(
-            ref=(row.get("DeliveryCity") or "").strip(),
-            settlement_ref=(row.get("Ref") or "").strip(),
-            name=name,
-            area=area,
-            region=region,
-            # Present від перевізника вже містить область і район —
-            # беремо його, а свій рядок складаємо лише якщо його немає.
-            label=(row.get("Present") or "").strip() or ", ".join(
-                p for p in (name, region and f"{region} р-н", area and f"{area} обл.") if p
-            ),
-            warehouses=count,
-        ))
+        found = []
+        for row in addresses:
+            count = _int(row.get("Warehouses"))
+            if count <= 0:
+                continue
+            name = (row.get("MainDescription") or "").strip()
+            area = (row.get("Area") or "").strip()
+            region = (row.get("Region") or "").strip()
+            found.append(Settlement(
+                ref=(row.get("DeliveryCity") or "").strip(),
+                settlement_ref=(row.get("Ref") or "").strip(),
+                name=name, area=area, region=region,
+                label=(row.get("Present") or "").strip() or ", ".join(
+                    p for p in (name, region and f"{region} р-н", area and f"{area} обл.") if p
+                ),
+                warehouses=count,
+            ))
 
-    _store(key, found)
-    return found
+        _store(key, found)
+        return found
 
 
 async def warehouses(api_key: str, city_ref: str, settlement_ref: str = "",
@@ -249,27 +291,33 @@ async def warehouses(api_key: str, city_ref: str, settlement_ref: str = "",
     key = f"warehouses:{city_ref or settlement_ref}"
     everything = _cached(key)
     if everything is None:
-        # CityRef — для міст, SettlementRef — для сіл, у яких свого
-        # CityRef немає. Питати обома одразу не можна: перевізник
-        # відповідає порожнім переліком.
-        props = {"CityRef": city_ref} if city_ref else {"SettlementRef": settlement_ref}
-        rows = await _call(api_key, "Address", "getWarehouses", props)
-
-        everything = []
-        for row in rows:
-            description = (row.get("Description") or "").strip()
-            category = (row.get("CategoryOfWarehouse") or "").strip()
-            everything.append(Warehouse(
-                ref=(row.get("Ref") or "").strip(),
-                number=_int(row.get("Number")),
-                label=description,
-                short=(row.get("ShortAddress") or "").strip(),
-                # Поштомат позначаємо окремо: у нього не приймають
-                # накладений платіж і не кладуть великі посилки.
-                is_postomat=category == "Postomat" or "оштомат" in description,
-            ))
-        everything.sort(key=lambda w: (w.number == 0, w.number, w.label))
-        _store(key, everything)
+        async with _key_lock(key):
+            everything = _cached(key)
+            if everything is None:
+                props = {"CityRef": city_ref} if city_ref else {"SettlementRef": settlement_ref}
+                try:
+                    rows = await _call(api_key, "Address", "getWarehouses", props)
+                except NovaPoshtaError:
+                    stale = _cached(key, allow_stale=True)
+                    if stale is not None:
+                        log.info("novaposhta.stale_cache warehouses:%s", city_ref or settlement_ref)
+                        everything = stale
+                    else:
+                        raise
+                if everything is None:
+                    everything = []
+                    for row in rows:
+                        description = (row.get("Description") or "").strip()
+                        category = (row.get("CategoryOfWarehouse") or "").strip()
+                        everything.append(Warehouse(
+                            ref=(row.get("Ref") or "").strip(),
+                            number=_int(row.get("Number")),
+                            label=description,
+                            short=(row.get("ShortAddress") or "").strip(),
+                            is_postomat=category == "Postomat" or "оштомат" in description,
+                        ))
+                    everything.sort(key=lambda w: (w.number == 0, w.number, w.label))
+                    _store(key, everything)
 
     needle = (query or "").strip().lower()
     if needle:

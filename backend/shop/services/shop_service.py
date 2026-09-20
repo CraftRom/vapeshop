@@ -13,6 +13,7 @@ from decimal import Decimal
 
 from shop.config import settings
 from shop.services.shop_settings import get_shop_settings
+from shop.services.identity import safe_telegram_first_name
 from shop.entities import (
     STATUS_LABELS, Order, OrderLine, OrderStatus, Promo, PromoType, User,
 )
@@ -30,6 +31,10 @@ class OrderStateConflict(RuntimeError):
 async def get_or_create_user(
     repo: Repository, tg_id: int, username=None, first_name=None, referral_code=None
 ) -> tuple[User, bool]:
+    # Telegram handle не є ім'ям. Старі payload-и/помилкові інтеграції могли
+    # передати @_username_ у first_name, після чого checkout формував
+    # «Прізвище @handle По батькові». Не даємо цьому значенню потрапити в БД.
+    first_name = safe_telegram_first_name(first_name, username)
     user = await repo.get_user_by_tg(tg_id)
     if user:
         await repo.touch_user(user, username, first_name)
@@ -473,19 +478,18 @@ async def change_order_status(
     # Локальна зміна синхронізується лише для замовлення, яке вже було
     # включене в SalesDrive при створенні. Порожній crm_state + crm_id —
     # історичне замовлення: його ніколи не створюємо в CRM заднім числом.
-    crm_linked = bool(order.crm_id or order.crm_state)
+    from shop.services import order_business as business_state_service
+    crm_linked = business_state_service.has_crm_authority(order)
     if origin != "salesdrive" and crm_linked:
         patch["crm_state"] = "pending"
+    if not crm_linked:
+        # Для legacy status і business_state комітяться разом. ACCEPTED,
+        # PAID і SHIPPED дадуть pending; тільки DONE є історичним sale.
+        from shop.services.order_business import state_from_legacy_status
+        patch["business_state"] = state_from_legacy_status(status)
+        patch["business_state_at"] = datetime.now(timezone.utc)
     await repo.update_order(order.id, patch)
     order.status = status
-
-    became_paid = previous not in _COUNTED and status in _COUNTED
-    left_paid = previous in _COUNTED and status not in _COUNTED
-
-    if became_paid:
-        await _bump_user_totals(repo, order, +1)
-    elif left_paid:
-        await _bump_user_totals(repo, order, -1)
 
     if origin != "salesdrive" and crm_linked:
         _push_to_crm_soon(order.id)
@@ -503,8 +507,6 @@ async def change_order_status(
     return None
 
 
-_COUNTED = (OrderStatus.PAID, OrderStatus.SHIPPED, OrderStatus.DONE)
-
 
 def _push_to_crm_soon(order_id: int) -> None:
     """Відправка в SalesDrive у фоні. Збій тут не має зачепити замовлення:
@@ -514,18 +516,6 @@ def _push_to_crm_soon(order_id: int) -> None:
         salesdrive.push_soon(order_id)
     except Exception:
         log.exception("Не вдалося запланувати синхронізацію замовлення %s", order_id)
-
-
-async def _bump_user_totals(repo: Repository, order: Order, sign: int) -> None:
-    """Тримає денормалізовані лічильники клієнта в актуальному стані."""
-    user = await repo.get_user(order.user_id)
-    if not user:
-        return
-    await repo.update_user_totals(
-        user.id,
-        orders_delta=sign,
-        spent_delta=order.total * sign,
-    )
 
 
 async def _pay_referral(repo: Repository, order: Order) -> Decimal | None:

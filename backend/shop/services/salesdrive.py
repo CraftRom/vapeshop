@@ -1124,10 +1124,11 @@ async def handle_webhook(repo, payload: dict, *, bot=None) -> dict:
     # доставку. Актуальну назву панель бере з /api/statuses/, а картка заявки
     # — під час прямого refresh. Якщо ID змінився без назви, стару назву
     # очищаємо нижче, щоб UI ніколи не підписав новий ID старим текстом.
-    status_names = ({incoming_status_id: incoming_status_name}
-                    if incoming_status_id and incoming_status_name else {})
-
     cached_bundle = cached_dictionary_bundle(shop)
+    status_names = _option_map(cached_bundle.get("statuses", []))
+    if incoming_status_id and incoming_status_name:
+        status_names[incoming_status_id] = incoming_status_name
+
     webhook_snapshot = _snapshot(
         data, status_names, payments=cached_bundle.get("payments", []),
         deliveries=cached_bundle.get("deliveries", []), body=payload, source="webhook",
@@ -1140,11 +1141,14 @@ async def handle_webhook(repo, payload: dict, *, bot=None) -> dict:
     })
 
     if incoming_status_id:
+        resolved_status_name = str(webhook_snapshot.get("statusName") or "").strip()
+        # update_order() атомарно синхронізує crm_status_* і business_state.
+        # Окремий другий commit тут створював crash-window та подвійний облік.
         patch = {
             "crm_status_id": incoming_status_id,
             # None важливий: не лишаємо назву попереднього statusId, якщо
-            # webhook надіслав тільки новий ID.
-            "crm_status_name": incoming_status_name or None,
+            # новий ID поки не вдалося розв'язати через довідник.
+            "crm_status_name": resolved_status_name or None,
         }
         await repo.update_order(order.id, patch)
         order = await repo.get_order(order.id) or order

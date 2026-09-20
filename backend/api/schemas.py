@@ -130,6 +130,8 @@ class OrderOut(ORMModel):
     crm_synced_at: datetime | None = None
     crm_snapshot: dict | None = None
     crm_fetched_at: datetime | None = None
+    business_state: str = "pending"
+    business_state_at: datetime | None = None
     operator_id: int | None = None
     operator_name: str = ""
     created_at: datetime | None = None
@@ -459,6 +461,9 @@ class BroadcastOut(ORMModel):
 class StatsOut(BaseModel):
     revenue_total: Decimal
     revenue_period: Decimal
+    sales_total: Decimal = Decimal(0)
+    sales_period: Decimal = Decimal(0)
+    # Deprecated aliases: дорівнюють sales_* і лишені для сумісності.
     confirmed_total: Decimal = Decimal(0)
     confirmed_period: Decimal = Decimal(0)
     shipped_total: Decimal = Decimal(0)
@@ -479,6 +484,7 @@ class StatsOut(BaseModel):
     avg_check: Decimal
     avg_check_period: Decimal = Decimal(0)
     orders_period: int = 0
+    sales_orders_period: int = 0
     confirmed_orders_period: int = 0
     shipped_orders_period: int = 0
     low_stock: int
@@ -486,9 +492,10 @@ class StatsOut(BaseModel):
 
 class SeriesPoint(BaseModel):
     date: str
-    # revenue = уже отримано; confirmed = підтверджений оборот; expected =
-    # частина обороту, яка ще має надійти (переважно накладений платіж).
+    # revenue = вже отримано; sales = оборот фактичних CRM «Продаж».
     revenue: Decimal
+    sales: Decimal = Decimal(0)
+    # Deprecated alias для старих клієнтів.
     confirmed: Decimal = Decimal(0)
     expected: Decimal = Decimal(0)
     orders: int

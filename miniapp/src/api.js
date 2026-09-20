@@ -321,7 +321,7 @@ export const api = {
   },
 
   chat: {
-    list: (orderId) => request(`/orders/${orderId}/chat`),
+    list: (orderId, afterId = null) => request(`/orders/${orderId}/chat${afterId != null ? `?after_id=${encodeURIComponent(afterId)}` : ''}`),
     send: (orderId, text) =>
       request(`/orders/${orderId}/chat`, { method: 'POST', body: { text } }),
   },

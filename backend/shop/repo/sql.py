@@ -18,22 +18,13 @@ from shop.entities import (
     OrderLine, OrderStatus, Product, Promo, Stats, User,
 )
 from shop.repo.base import Repository
+from shop.services import order_business as business
 
 ALPHABET = string.ascii_uppercase + string.digits
-# Для статистики продаж «підтвердженим» є замовлення, яке вже вийшло
-# зі стану NEW. CRM-синхронізація послідовно проєктує пізніші статуси
-# SalesDrive на локальний workflow, тому тут не треба дублювати таблицю
-# CRM-ID: локальний стан є технічним індексом пройденого етапу.
-CONFIRMED_SQL = [
-    OrderStatus.CONFIRMED, OrderStatus.ACCEPTED, OrderStatus.PAID,
-    OrderStatus.SHIPPED, OrderStatus.DONE,
-]
+# Local status описує workflow, а не факт продажу. Єдиним джерелом продажу
+# для статистики є persisted business_state (CRM «Продаж» -> sale).
 SHIPPED_SQL = [OrderStatus.SHIPPED, OrderStatus.DONE]
-CONFIRMED_VALUES = frozenset(status.value for status in CONFIRMED_SQL)
 SHIPPED_VALUES = frozenset(status.value for status in SHIPPED_SQL)
-CARD_RECEIVED_VALUES = frozenset({
-    OrderStatus.PAID.value, OrderStatus.SHIPPED.value, OrderStatus.DONE.value,
-})
 
 
 def _change(now: Decimal, before: Decimal) -> float | None:
@@ -86,28 +77,22 @@ def _stats_payment_method(row, snapshot: dict | None = None) -> str:
     return method or "unknown"
 
 
-def stats_finance_values(status, payment_method, total, snapshot=None) -> dict:
-    """Єдине фінансове правило статистики.
+def stats_finance_values(business_state, local_status, payment_method, total, snapshot=None) -> dict:
+    """Єдине фінансове правило статистики продажів.
 
-    ``confirmed`` — замовлення вже підтверджено/в роботі або пішло далі.
-    ``received`` — гроші, які можна вважати отриманими зараз:
-      * фактичний payedAmount/restPay із SalesDrive;
-      * карткова оплата після локального PAID/SHIPPED/DONE.
-        Для CRM це відповідає правилу «Відправлений або наступний етап»,
-        бо CRM progression переводить локальний стан у SHIPPED/DONE.
-    Накладений платіж без фактичного CRM-платежу лишається ``expected`` —
-    ми не називаємо грошима на рахунку те, що ще має прийти від перевізника.
-
-    Функція чиста й окремо тестується: сторінка замовлення та статистика не
-    повинні мати дві різні версії одного бізнес-правила.
+    Продаж існує тільки коли ``business_state == sale``. Local ACCEPTED,
+    PAID або SHIPPED більше не можуть самі створити оборот. Для картки після
+    продажу повну суму вважаємо отриманою; для COD беремо тільки фактичний
+    ``payedAmount`` SalesDrive, а решту показуємо як очікувану.
     """
     try:
-        status_value = status.value
+        local_value = local_status.value
     except AttributeError:
-        status_value = str(status or "")
-    confirmed = status_value in CONFIRMED_VALUES
-    shipped = status_value in SHIPPED_VALUES
+        local_value = str(local_status or "")
+    sold = str(business_state or "").strip().lower() == business.BUSINESS_SALE
+    shipped = local_value in SHIPPED_VALUES
     snap = snapshot if isinstance(snapshot, dict) else {}
+
     amount = _maybe_dec(snap.get("paymentAmount"))
     if amount is None or amount <= 0:
         amount = _dec(total)
@@ -119,27 +104,30 @@ def stats_finance_values(status, payment_method, total, snapshot=None) -> dict:
         paid = amount - rest
     actual = max(Decimal(0), min(amount, paid or Decimal(0)))
 
+    if not sold:
+        return {
+            "total": Decimal(0), "sold": False, "shipped": shipped,
+            "actual_received": Decimal(0), "calculated_received": Decimal(0),
+            "received": Decimal(0), "expected": Decimal(0),
+        }
+
     method = str(payment_method or "").lower()
-    card_stage_paid = method == "card" and status_value in CARD_RECEIVED_VALUES
-    received = amount if (confirmed and card_stage_paid and amount > 0) else actual
-    received = max(Decimal(0), min(amount, received)) if confirmed else Decimal(0)
-    calculated = max(Decimal(0), received - actual) if confirmed else Decimal(0)
-    expected = max(Decimal(0), amount - received) if confirmed else Decimal(0)
+    received = amount if method == "card" and amount > 0 else actual
+    received = max(Decimal(0), min(amount, received))
+    calculated = max(Decimal(0), received - actual)
+    expected = max(Decimal(0), amount - received)
 
     return {
-        "total": amount,
-        "confirmed": confirmed,
-        "shipped": shipped,
-        "actual_received": actual if confirmed else Decimal(0),
-        "calculated_received": calculated,
-        "received": received,
-        "expected": expected,
+        "total": amount, "sold": True, "shipped": shipped,
+        "actual_received": actual, "calculated_received": calculated,
+        "received": received, "expected": expected,
     }
 
 
 def _row_finance(row) -> dict:
     snap = _snapshot(row)
     return stats_finance_values(
+        getattr(row, "business_state", business.BUSINESS_PENDING),
         getattr(row, "status", None),
         _stats_payment_method(row, snap),
         getattr(row, "total", 0),
@@ -223,6 +211,7 @@ def _order(row, with_user: bool = False) -> Order | None:
         crm_state=row.crm_state or "", crm_error=row.crm_error,
         crm_attempts=row.crm_attempts or 0, crm_synced_at=row.crm_synced_at,
         crm_snapshot=row.crm_snapshot, crm_fetched_at=row.crm_fetched_at,
+        business_state=row.business_state or "pending", business_state_at=row.business_state_at,
         operator_id=row.operator_id, operator_name=row.operator_name or "",
         referral_paid=row.referral_paid,
         created_at=row.created_at, search_key=row.search_key or "",
@@ -396,6 +385,71 @@ class SqlRepository(Repository):
             )
         )
         await self._commit()
+
+    async def _apply_business_state_row(
+        self, row: m.Order, state: str, moment: datetime,
+    ) -> bool:
+        """Змінює persisted business state і customer totals без COMMIT.
+
+        Допоміжний метод навмисно спільний для CRM patch і прямого переходу:
+        статус SalesDrive, ``business_state`` та денормалізовані totals мають
+        потрапляти в одну транзакцію, а не лишати коротке вікно розсинхрону.
+        """
+        from shop.services.order_business import BUSINESS_SALE, BUSINESS_STATES
+
+        normalized = str(state or "").strip().lower()
+        if normalized not in BUSINESS_STATES:
+            raise ValueError(f"Невідомий business_state: {state}")
+        previous = str(row.business_state or "pending").strip().lower()
+        if previous == normalized:
+            if row.business_state_at is None:
+                row.business_state_at = moment
+            return False
+
+        user_row = await self.s.scalar(
+            select(m.User).where(m.User.id == row.user_id).with_for_update()
+        )
+        amount = Decimal(str(row.total or 0))
+        if user_row and previous == BUSINESS_SALE and normalized != BUSINESS_SALE:
+            user_row.orders_count = max(0, int(user_row.orders_count or 0) - 1)
+            user_row.total_spent = max(
+                Decimal(0), Decimal(str(user_row.total_spent or 0)) - amount,
+            )
+        elif user_row and previous != BUSINESS_SALE and normalized == BUSINESS_SALE:
+            user_row.orders_count = int(user_row.orders_count or 0) + 1
+            user_row.total_spent = Decimal(str(user_row.total_spent or 0)) + amount
+
+        row.business_state = normalized
+        row.business_state_at = moment
+        return True
+
+    async def set_order_business_state(
+        self, order_id: int, state: str, *, changed_at: datetime | None = None
+    ) -> Order | None:
+        """Атомарне джерело істини для sale/refusal і customer totals.
+
+        Лічильники клієнта рухаються лише при вході/виході зі ``sale``.
+        Повторний webhook або pull з тим самим станом є ідемпотентним.
+        """
+        moment = changed_at or datetime.now(timezone.utc)
+        try:
+            row = await self.s.scalar(
+                select(m.Order).where(m.Order.id == order_id).with_for_update()
+                .options(selectinload(m.Order.items), selectinload(m.Order.user))
+            )
+            if not row:
+                await self.s.rollback()
+                return None
+            await self._apply_business_state_row(row, state, moment)
+            await self.s.commit()
+            loaded = await self.s.scalar(
+                select(m.Order).where(m.Order.id == order_id)
+                .options(selectinload(m.Order.items), selectinload(m.Order.user))
+            )
+            return _order(loaded, with_user=True)
+        except Exception:
+            await self.s.rollback()
+            raise
 
     async def list_users(self, search=None, blocked=None, limit=100, offset=0) -> list[User]:
         query = select(m.User).order_by(m.User.created_at.desc()).limit(limit).offset(offset)
@@ -910,15 +964,63 @@ class SqlRepository(Repository):
             query = query.where(m.Order.created_at < _day_end(date_to))
         return [_order(r, with_user=True) for r in await self.s.scalars(query)]
 
+    async def list_crm_refresh_candidates(self, *, stale_before: datetime, limit: int = 20):
+        """Невелика справедлива порція заявок для фонового SalesDrive pull.
+
+        Pending бізнес-результати перевіряємо першими: саме серед них може
+        ховатися новий statusCode 9/102/103. Усередині групи беремо найстаріший
+        snapshot, щоб при великій базі жодне замовлення не голодувало.
+        """
+        query = (
+            select(m.Order)
+            .where(
+                m.Order.crm_id.is_not(None),
+                or_(m.Order.crm_fetched_at.is_(None), m.Order.crm_fetched_at < stale_before),
+            )
+            .options(selectinload(m.Order.items), selectinload(m.Order.user))
+            .order_by(
+                case((m.Order.business_state == business.BUSINESS_PENDING, 0), else_=1),
+                m.Order.crm_fetched_at.asc().nullsfirst(),
+                m.Order.id.asc(),
+            )
+            .limit(max(1, int(limit)))
+        )
+        return [_order(r, with_user=True) for r in await self.s.scalars(query)]
+
     async def update_order(self, order_id, data: dict) -> Order | None:
+        """Оновлює замовлення й комерційний state однією транзакцією.
+
+        ``business_state`` не можна ставити звичайним setattr: разом із ним
+        мусять синхронно змінитися customer totals. Тому як CRM transition,
+        так і legacy transition проходять через ``_apply_business_state_row``.
+        """
         row = await self.s.scalar(
-            select(m.Order).where(m.Order.id == order_id)
+            select(m.Order).where(m.Order.id == order_id).with_for_update()
             .options(selectinload(m.Order.items), selectinload(m.Order.user))
         )
         if not row:
             return None
+
+        previous_crm_status_id = str(row.crm_status_id or "")
+        requested_business_state = data.get("business_state") if "business_state" in data else None
+        requested_business_at = data.get("business_state_at") if "business_state_at" in data else None
         for key, value in data.items():
+            if key in {"business_state", "business_state_at"}:
+                continue
             setattr(row, key, value)
+
+        next_state = requested_business_state
+        if "crm_status_name" in data:
+            # CRM має пріоритет над будь-яким local-derived значенням.
+            next_state = business.state_from_crm_status_name(data.get("crm_status_name"))
+            incoming_id = str(data.get("crm_status_id") or row.crm_status_id or "")
+            if next_state is None and "crm_status_id" in data and incoming_id != previous_crm_status_id:
+                next_state = business.BUSINESS_PENDING
+
+        if next_state is not None:
+            moment = requested_business_at or datetime.now(timezone.utc)
+            await self._apply_business_state_row(row, next_state, moment)
+
         await self.s.commit()
         return _order(row, with_user=True)
 
@@ -969,8 +1071,12 @@ class SqlRepository(Repository):
                 if product:
                     product.stock = int(product.stock or 0) + int(item.qty or 0)
 
+            crm_linked = business.has_crm_authority(row)
             if user_row:
-                if current.value in CARD_RECEIVED_VALUES:
+                # Для CRM-пов'язаних замовлень комерційний результат змінює
+                # тільки авторитетний CRM-статус. Local cancel не має сам
+                # прибирати вже зафіксований продаж до підтвердження CRM.
+                if not crm_linked and str(row.business_state or "pending") == "sale":
                     user_row.orders_count = max(0, int(user_row.orders_count or 0) - 1)
                     user_row.total_spent = max(
                         Decimal(0), Decimal(str(user_row.total_spent or 0)) - Decimal(str(row.total or 0))
@@ -983,6 +1089,9 @@ class SqlRepository(Repository):
                     user_row.bonus_balance = Decimal(str(user_row.bonus_balance or 0)) + bonus
 
             row.status = m.OrderStatus.CANCELLED
+            if not crm_linked:
+                row.business_state = "refusal"
+                row.business_state_at = datetime.now(timezone.utc)
             if mark_crm_pending and (row.crm_id or row.crm_state):
                 row.crm_state = "pending"
             await self.s.commit()
@@ -1257,12 +1366,12 @@ class SqlRepository(Repository):
     async def stats_summary(
         self, days: int, *, since: datetime | None = None, until: datetime | None = None,
     ) -> Stats:
-        """Фінансове зведення з розділенням обороту, отриманих і очікуваних коштів.
+        """Фінанси за фактичними продажами, а не за local workflow.
 
-        ``created_at`` визначає, до якого періоду належить замовлення. Межі
-        календарних періодів (сьогодні/місяць) рахує router у часовій зоні
-        магазину і передає сюди UTC-моменти. Прямі виклики зі старих тестів
-        зберігають колишню поведінку rolling-N-days.
+        У період продаж потрапляє за ``business_state_at`` — моментом, коли
+        авторитетний CRM-статус став «Продаж». Це виправляє стару помилку,
+        коли замовлення, створене в одному місяці й продане в іншому,
+        приписувалось місяцю створення.
         """
         now = datetime.now(timezone.utc)
         period_since = since or (
@@ -1270,47 +1379,58 @@ class SqlRepository(Repository):
         )
         period_until = until or now
 
-        rows = list((await self.s.execute(
+        sale_rows = list((await self.s.execute(
             select(
-                m.Order.status, m.Order.payment_method, m.Order.total,
-                m.Order.crm_snapshot, m.Order.created_at, m.Order.user_id,
-            ).where(m.Order.status.in_(CONFIRMED_SQL))
+                m.Order.status, m.Order.business_state, m.Order.business_state_at,
+                m.Order.payment_method, m.Order.total, m.Order.crm_snapshot,
+                m.Order.created_at, m.Order.user_id,
+            ).where(m.Order.business_state == business.BUSINESS_SALE)
         )).all())
 
-        confirmed_total = received_total = expected_total = Decimal(0)
-        shipped_total = actual_total = calculated_total = Decimal(0)
-        confirmed_period = received_period = expected_period = Decimal(0)
-        shipped_period = actual_period = calculated_period = Decimal(0)
-        confirmed_count = received_count = 0
-        confirmed_period_count = received_period_count = shipped_period_count = 0
+        sales_total = received_total = expected_total = Decimal(0)
+        actual_total = calculated_total = Decimal(0)
+        sales_period = received_period = expected_period = Decimal(0)
+        actual_period = calculated_period = Decimal(0)
+        sales_count = sales_period_count = 0
+        received_period_count = 0
         buyers_period: set[int] = set()
 
-        for row in rows:
-            fin = stats_finance_values(row.status, _stats_payment_method(row, row.crm_snapshot or {}), row.total, row.crm_snapshot)
-            confirmed_total += fin["total"]
+        for row in sale_rows:
+            fin = stats_finance_values(
+                row.business_state, row.status,
+                _stats_payment_method(row, row.crm_snapshot or {}),
+                row.total, row.crm_snapshot,
+            )
+            sales_total += fin["total"]
             received_total += fin["received"]
             expected_total += fin["expected"]
             actual_total += fin["actual_received"]
             calculated_total += fin["calculated_received"]
-            confirmed_count += 1
-            if fin["received"] > 0:
-                received_count += 1
-            if fin["shipped"]:
-                shipped_total += fin["total"]
+            sales_count += 1
 
-            if _in_window(row.created_at, period_since, period_until):
-                confirmed_period += fin["total"]
+            event_at = row.business_state_at or row.created_at
+            if event_at and _in_window(event_at, period_since, period_until):
+                sales_period += fin["total"]
                 received_period += fin["received"]
                 expected_period += fin["expected"]
                 actual_period += fin["actual_received"]
                 calculated_period += fin["calculated_received"]
-                confirmed_period_count += 1
+                sales_period_count += 1
                 buyers_period.add(int(row.user_id))
                 if fin["received"] > 0:
                     received_period_count += 1
-                if fin["shipped"]:
-                    shipped_period += fin["total"]
-                    shipped_period_count += 1
+
+        # Відправлення — логістичний показник і навмисно не є продажем.
+        shipped_rows = list((await self.s.execute(
+            select(m.Order.total, m.Order.created_at).where(m.Order.status.in_(SHIPPED_SQL))
+        )).all())
+        shipped_total = sum((_dec(row.total) for row in shipped_rows), Decimal(0))
+        shipped_period_rows = [
+            row for row in shipped_rows
+            if row.created_at and _in_window(row.created_at, period_since, period_until)
+        ]
+        shipped_period = sum((_dec(row.total) for row in shipped_period_rows), Decimal(0))
+        shipped_period_count = len(shipped_period_rows)
 
         active_24h_since = now - timedelta(hours=24)
         customers_total = await self.s.scalar(select(func.count(m.User.id))) or 0
@@ -1329,11 +1449,14 @@ class SqlRepository(Repository):
         ) or 0
 
         return Stats(
-            # Backward-compatible revenue = гроші, які вже вважаємо отриманими.
             revenue_total=received_total,
             revenue_period=received_period,
-            confirmed_total=confirmed_total,
-            confirmed_period=confirmed_period,
+            sales_total=sales_total,
+            sales_period=sales_period,
+            # Deprecated API aliases: старі клієнти не ламаємо, але семантика
+            # тепер та сама, що в sales_* — тільки CRM «Продаж».
+            confirmed_total=sales_total,
+            confirmed_period=sales_period,
             shipped_total=shipped_total,
             shipped_period=shipped_period,
             expected_total=expected_total,
@@ -1349,13 +1472,15 @@ class SqlRepository(Repository):
             active_users_period=int(active_users_period),
             active_users_24h=int(active_users_24h),
             buyers_period=len(buyers_period),
-            avg_check=(confirmed_total / confirmed_count).quantize(Decimal("0.01"))
-            if confirmed_count else Decimal(0),
-            avg_check_period=(confirmed_period / confirmed_period_count).quantize(Decimal("0.01"))
-            if confirmed_period_count else Decimal(0),
-            # Старе поле лишається кількістю замовлень із уже отриманою сумою.
+            avg_check=(sales_total / sales_count).quantize(Decimal("0.01"))
+            if sales_count else Decimal(0),
+            avg_check_period=(sales_period / sales_period_count).quantize(Decimal("0.01"))
+            if sales_period_count else Decimal(0),
+            # Старий orders_period лишається як compatibility alias для
+            # продажів, за якими вже є отримана сума.
             orders_period=received_period_count,
-            confirmed_orders_period=confirmed_period_count,
+            sales_orders_period=sales_period_count,
+            confirmed_orders_period=sales_period_count,
             shipped_orders_period=shipped_period_count,
             low_stock=await self.count_low_stock(),
         )
@@ -1364,7 +1489,7 @@ class SqlRepository(Repository):
         self, days: int, *, since: datetime | None = None, until: datetime | None = None,
         previous_since: datetime | None = None, tz=None,
     ) -> dict:
-        """Порівняння, активність користувачів і поведінка підтверджених продажів."""
+        """Порівняння й поведінка саме завершених продажів CRM «Продаж»."""
         now = datetime.now(timezone.utc)
         span = days if days > 0 else 3650
         period_until = until or now
@@ -1373,32 +1498,47 @@ class SqlRepository(Repository):
         prev_until = period_since
         prev_since = previous_since if previous_since is not None else period_since - duration
         compare_enabled = since is None or previous_since is not None
-
         query_since = prev_since if compare_enabled else period_since
+        event_expr = func.coalesce(m.Order.business_state_at, m.Order.created_at)
+
         rows = list((await self.s.execute(
             select(
-                m.Order.created_at, m.Order.total, m.Order.status,
-                m.Order.payment_method, m.Order.delivery_method, m.Order.user_id,
-                m.Order.crm_snapshot,
-            ).where(m.Order.created_at >= query_since, m.Order.created_at < period_until)
+                m.Order.created_at, m.Order.business_state_at, m.Order.total, m.Order.status,
+                m.Order.business_state, m.Order.payment_method, m.Order.delivery_method,
+                m.Order.user_id, m.Order.crm_snapshot,
+            ).where(
+                m.Order.business_state == business.BUSINESS_SALE,
+                event_expr >= query_since, event_expr < period_until,
+            )
         )).all())
 
+        # Перша покупка визначається моментом фактичного продажу, а не
+        # створення заявки. Інакше старе незавершене замовлення, яке продали
+        # пізніше, перекручувало new/returning classification.
+        first_sale_at = func.coalesce(m.Order.business_state_at, m.Order.created_at)
         first_seen = dict((await self.s.execute(
-            select(m.Order.user_id, func.min(m.Order.created_at))
-            .where(m.Order.status.in_(CONFIRMED_SQL))
+            select(m.Order.user_id, func.min(first_sale_at))
+            .where(m.Order.business_state == business.BUSINESS_SALE)
             .group_by(m.Order.user_id)
         )).all())
 
-        current = [r for r in rows if _in_window(r.created_at, period_since, period_until)]
-        previous = [r for r in rows if compare_enabled and _in_window(r.created_at, prev_since, prev_until)]
+        def event_time(row):
+            return row.business_state_at or row.created_at
 
-        def confirmed_rows(bucket):
+        current = [r for r in rows if event_time(r) and _in_window(event_time(r), period_since, period_until)]
+        previous = [
+            r for r in rows
+            if compare_enabled and event_time(r) and _in_window(event_time(r), prev_since, prev_until)
+        ]
+
+        def financial_rows(bucket):
             return [(r, stats_finance_values(
-                r.status, _stats_payment_method(r, r.crm_snapshot or {}), r.total, r.crm_snapshot
-            )) for r in bucket if str(getattr(r.status, "value", r.status)) in CONFIRMED_VALUES]
+                r.business_state, r.status,
+                _stats_payment_method(r, r.crm_snapshot or {}), r.total, r.crm_snapshot,
+            )) for r in bucket]
 
-        current_sales = confirmed_rows(current)
-        previous_sales = confirmed_rows(previous)
+        current_sales = financial_rows(current)
+        previous_sales = financial_rows(previous)
 
         def sum_field(bucket, key):
             return sum((fin[key] for _, fin in bucket), Decimal(0))
@@ -1423,6 +1563,8 @@ class SqlRepository(Repository):
         shipped_amount = Decimal(0)
 
         for row, fin in current_sales:
+            # Година/день відповідають часу оформлення замовлення; період
+            # відбору при цьому відповідає часу фактичного продажу.
             when = _aware(row.created_at)
             if tz is not None:
                 when = when.astimezone(tz)
@@ -1443,18 +1585,28 @@ class SqlRepository(Repository):
                 shipped_amount += fin["total"]
 
             earliest = first_seen.get(row.user_id)
-            if earliest is not None and _aware(earliest) < _aware(row.created_at):
+            sold_at = event_time(row)
+            if earliest is not None and sold_at is not None and _aware(earliest) < _aware(sold_at):
                 returning_orders += 1
             else:
                 new_orders += 1
 
-        cancelled = [r for r in current if r.status == OrderStatus.CANCELLED]
-        created_in_period = len(current)
-        active_users = await self.s.scalar(
-            select(func.count(m.User.id)).where(
+        refusal_rows = list((await self.s.execute(
+            select(m.Order.total, m.Order.business_state_at, m.Order.created_at).where(
+                m.Order.business_state == business.BUSINESS_REFUSAL,
+                func.coalesce(m.Order.business_state_at, m.Order.created_at) >= period_since,
+                func.coalesce(m.Order.business_state_at, m.Order.created_at) < period_until,
+            )
+        )).all())
+        refusals = len(refusal_rows)
+        outcomes = orders + refusals
+
+        active_user_ids = set(await self.s.scalars(
+            select(m.User.id).where(
                 m.User.last_seen_at >= period_since, m.User.last_seen_at < period_until
             )
-        ) or 0
+        ))
+        active_users = len(active_user_ids)
         new_users = await self.s.scalar(
             select(func.count(m.User.id)).where(
                 m.User.created_at >= period_since, m.User.created_at < period_until
@@ -1463,14 +1615,14 @@ class SqlRepository(Repository):
         active_24h = await self.s.scalar(
             select(func.count(m.User.id)).where(m.User.last_seen_at >= now - timedelta(hours=24))
         ) or 0
-        unique_buyers = len({int(r.user_id) for r, _ in current_sales})
+        buyer_ids = {int(r.user_id) for r, _ in current_sales}
+        unique_buyers = len(buyer_ids)
+        active_buyers = len(buyer_ids & {int(uid) for uid in active_user_ids})
 
         return {
             "days": span,
             "timezone": str(getattr(tz, "key", tz) or "UTC"),
-            "period": {
-                "from": period_since.isoformat(), "to": period_until.isoformat(),
-            },
+            "period": {"from": period_since.isoformat(), "to": period_until.isoformat()},
             "revenue": {
                 "value": float(received), "was": float(was_received),
                 "change": _change(received, was_received) if compare_enabled else None,
@@ -1498,11 +1650,16 @@ class SqlRepository(Repository):
                 "returning_orders": returning_orders,
                 "share": round(returning_orders * 100 / orders, 1) if orders else 0.0,
             },
+            "refusals": {
+                "orders": refusals,
+                "lost": float(sum((_dec(r.total) for r in refusal_rows), Decimal(0))),
+                "share": round(refusals * 100 / outcomes, 1) if outcomes else 0.0,
+            },
+            # Deprecated compatibility alias for dashboard builds before 1.51.
             "cancelled": {
-                "orders": len(cancelled),
-                "lost": float(sum((_dec(r.total) for r in cancelled), Decimal(0))),
-                "share": round(len(cancelled) * 100 / created_in_period, 1)
-                if created_in_period else 0.0,
+                "orders": refusals,
+                "lost": float(sum((_dec(r.total) for r in refusal_rows), Decimal(0))),
+                "share": round(refusals * 100 / outcomes, 1) if outcomes else 0.0,
             },
             "payment": {
                 key: {
@@ -1518,7 +1675,11 @@ class SqlRepository(Repository):
                 "active_24h": int(active_24h),
                 "new_users": int(new_users),
                 "buyers": unique_buyers,
-                "buyer_share": round(unique_buyers * 100 / active_users, 1) if active_users else 0.0,
+                "active_buyers": active_buyers,
+                # Conversion must use an intersection. A manager can move an
+                # inactive customer's old order to «Продаж», so dividing all
+                # buyers by active users could otherwise exceed 100%.
+                "buyer_share": round(active_buyers * 100 / active_users, 1) if active_users else 0.0,
             },
             "by_hour": by_hour,
             "by_weekday": by_weekday,
@@ -1532,20 +1693,22 @@ class SqlRepository(Repository):
             now - timedelta(days=days) if days > 0 else datetime.fromtimestamp(0, tz=timezone.utc)
         )
         period_until = until or now
+        event_expr = func.coalesce(m.Order.business_state_at, m.Order.created_at)
         rows = list((await self.s.execute(
             select(
-                m.Order.operator_name, m.Order.status, m.Order.payment_method,
-                m.Order.total, m.Order.crm_snapshot, m.Order.created_at,
+                m.Order.operator_name, m.Order.status, m.Order.business_state,
+                m.Order.payment_method, m.Order.total, m.Order.crm_snapshot,
             ).where(
-                m.Order.status.in_(CONFIRMED_SQL),
-                m.Order.created_at >= period_since, m.Order.created_at < period_until,
+                m.Order.business_state == business.BUSINESS_SALE,
+                event_expr >= period_since, event_expr < period_until,
             )
         )).all())
         grouped: dict[str, dict] = {}
         for row in rows:
             name = row.operator_name or "Без менеджера"
             fin = stats_finance_values(
-                row.status, _stats_payment_method(row, row.crm_snapshot or {}), row.total, row.crm_snapshot
+                row.business_state, row.status,
+                _stats_payment_method(row, row.crm_snapshot or {}), row.total, row.crm_snapshot,
             )
             slot = grouped.setdefault(name, {
                 "operator_name": name, "orders": 0, "revenue": Decimal(0),
@@ -1557,7 +1720,9 @@ class SqlRepository(Repository):
             slot["expected"] += fin["expected"]
         result = []
         for slot in grouped.values():
-            slot["avg_check"] = (slot["revenue"] / slot["orders"]).quantize(Decimal("0.01")) if slot["orders"] else Decimal(0)
+            slot["avg_check"] = (
+                slot["revenue"] / slot["orders"]
+            ).quantize(Decimal("0.01")) if slot["orders"] else Decimal(0)
             result.append(slot)
         result.sort(key=lambda item: item["revenue"], reverse=True)
         return result
@@ -1568,56 +1733,47 @@ class SqlRepository(Repository):
         now = datetime.now(timezone.utc)
         period_since = since or (now - timedelta(days=days))
         period_until = until or now
+        event_expr = func.coalesce(m.Order.business_state_at, m.Order.created_at)
         rows = list((await self.s.execute(
             select(
-                m.Order.created_at, m.Order.total, m.Order.status,
-                m.Order.payment_method, m.Order.crm_snapshot,
+                m.Order.business_state_at, m.Order.created_at, m.Order.total, m.Order.status,
+                m.Order.business_state, m.Order.payment_method, m.Order.crm_snapshot,
             ).where(
-                m.Order.status.in_(CONFIRMED_SQL),
-                m.Order.created_at >= period_since, m.Order.created_at < period_until,
+                m.Order.business_state == business.BUSINESS_SALE,
+                event_expr >= period_since, event_expr < period_until,
             )
         )).all())
         buckets: dict[str, dict] = {}
         row_days = []
         for row in rows:
-            moment = _aware(row.created_at)
+            moment = _aware(row.business_state_at or row.created_at)
             if tz is not None:
                 moment = moment.astimezone(tz)
             row_day = moment.date()
             row_days.append(row_day)
             key = row_day.isoformat()
             bucket = buckets.setdefault(key, {
-                "date": key, "revenue": Decimal(0), "confirmed": Decimal(0),
-                "expected": Decimal(0), "orders": 0, "shipped": 0,
+                "date": key, "revenue": Decimal(0), "sales": Decimal(0),
+                "confirmed": Decimal(0), "expected": Decimal(0), "orders": 0, "shipped": 0,
             })
             fin = stats_finance_values(
-                row.status, _stats_payment_method(row, row.crm_snapshot or {}), row.total, row.crm_snapshot
+                row.business_state, row.status,
+                _stats_payment_method(row, row.crm_snapshot or {}), row.total, row.crm_snapshot,
             )
             bucket["revenue"] += fin["received"]
-            bucket["confirmed"] += fin["total"]
+            bucket["sales"] += fin["total"]
+            bucket["confirmed"] += fin["total"]  # deprecated alias
             bucket["expected"] += fin["expected"]
             bucket["orders"] += 1
             if fin["shipped"]:
                 bucket["shipped"] += 1
 
-        # Графік є календарним денним рядом, тому пропущений день — це
-        # нуль, а не «невідома точка». Раніше API повертав тільки дні з
-        # продажами, а Recharts будував spline безпосередньо між ними.
-        # Саме це створювало великі U-подібні дуги на кілька днів.
-        # Для period=all since може бути Unix epoch; у такому випадку
-        # починаємо з першого реального замовлення, а не генеруємо 20k днів.
         if not row_days:
             return []
         local_until = period_until.astimezone(tz) if tz is not None else period_until
         end_day = local_until.date()
         local_since = period_since.astimezone(tz) if tz is not None else period_since
-        if local_since.year <= 1971:
-            start_day = min(row_days)
-        else:
-            start_day = local_since.date()
-
-        # Захист від пошкоджених меж API. За нормальних періодів тут 1–90
-        # точок; навіть «за весь час» починається з першого замовлення.
+        start_day = min(row_days) if local_since.year <= 1971 else local_since.date()
         if start_day > end_day:
             return []
 
@@ -1626,8 +1782,8 @@ class SqlRepository(Repository):
         while day <= end_day:
             key = day.isoformat()
             dense.append(buckets.get(key, {
-                "date": key, "revenue": Decimal(0), "confirmed": Decimal(0),
-                "expected": Decimal(0), "orders": 0, "shipped": 0,
+                "date": key, "revenue": Decimal(0), "sales": Decimal(0),
+                "confirmed": Decimal(0), "expected": Decimal(0), "orders": 0, "shipped": 0,
             }))
             day += timedelta(days=1)
         return dense
@@ -1640,22 +1796,28 @@ class SqlRepository(Repository):
             now - timedelta(days=days) if days > 0 else datetime.fromtimestamp(0, tz=timezone.utc)
         )
         period_until = until or now
+        event_expr = func.coalesce(m.Order.business_state_at, m.Order.created_at)
+        line_gross = m.OrderItem.price * m.OrderItem.qty
+        # Раніше top-products показував gross price×qty і ігнорував знижку
+        # замовлення/бонуси, тому його «оборот» був більшим за загальний.
+        # Розподіляємо фактичний order.total між позиціями пропорційно gross.
+        line_net = case(
+            (m.Order.subtotal > 0, line_gross * m.Order.total / m.Order.subtotal),
+            else_=Decimal(0),
+        )
+        net_sum = func.sum(line_net)
         rows = await self.s.execute(
-            select(
-                m.OrderItem.name,
-                func.sum(m.OrderItem.qty),
-                func.sum(m.OrderItem.price * m.OrderItem.qty),
-            )
+            select(m.OrderItem.name, func.sum(m.OrderItem.qty), net_sum)
             .join(m.Order, m.Order.id == m.OrderItem.order_id)
             .where(
-                m.Order.status.in_(CONFIRMED_SQL),
-                m.Order.created_at >= period_since, m.Order.created_at < period_until,
+                m.Order.business_state == business.BUSINESS_SALE,
+                event_expr >= period_since, event_expr < period_until,
             )
             .group_by(m.OrderItem.name)
-            .order_by(func.sum(m.OrderItem.price * m.OrderItem.qty).desc())
+            .order_by(net_sum.desc())
             .limit(limit)
         )
-        return [{"name": n, "qty": int(q), "revenue": _dec(r)} for n, q, r in rows]
+        return [{"name": n, "qty": int(q), "revenue": _dec(r).quantize(Decimal("0.01"))} for n, q, r in rows]
 
     # --------------------------------------------------- налаштування
 

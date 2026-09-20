@@ -42,8 +42,6 @@ class BroadcastStatus(str, enum.Enum):
     FAILED = "failed"
 
 
-PAID_STATUSES = (OrderStatus.PAID, OrderStatus.SHIPPED, OrderStatus.DONE)
-
 STATUS_LABELS = {
     OrderStatus.NEW: "Нове",
     OrderStatus.CONFIRMED: "Підтверджене",
@@ -186,6 +184,9 @@ class Order:
     crm_synced_at: datetime | None = None
     crm_snapshot: dict | None = None
     crm_fetched_at: datetime | None = None
+    # Комерційний результат для аналітики. Не плутати з local workflow status.
+    business_state: str = "pending"
+    business_state_at: datetime | None = None
     operator_id: int | None = None
     operator_name: str = ""
     referral_paid: bool = False
@@ -237,6 +238,9 @@ class Stats:
     # виглядав як гроші на рахунку лише через те, що посилка вже поїхала.
     revenue_total: Decimal = Decimal(0)
     revenue_period: Decimal = Decimal(0)
+    sales_total: Decimal = Decimal(0)
+    sales_period: Decimal = Decimal(0)
+    # Deprecated aliases для старих dashboard/API-клієнтів.
     confirmed_total: Decimal = Decimal(0)
     confirmed_period: Decimal = Decimal(0)
     shipped_total: Decimal = Decimal(0)
@@ -255,11 +259,11 @@ class Stats:
     active_users_period: int = 0
     active_users_24h: int = 0
     buyers_period: int = 0
-    # Середній чек рахуємо з підтвердженого обороту, а не лише з платежів:
-    # інакше COD занижував би чек до моменту, коли перевізник перерахує гроші.
+    # Середній чек рахуємо тільки з фактичних продажів CRM «Продаж».
     avg_check: Decimal = Decimal(0)
     avg_check_period: Decimal = Decimal(0)
     orders_period: int = 0
+    sales_orders_period: int = 0
     confirmed_orders_period: int = 0
     shipped_orders_period: int = 0
     low_stock: int = 0

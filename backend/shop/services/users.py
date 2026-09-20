@@ -8,6 +8,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from shop.services.shop_settings import get_shop_settings
+from shop.services.identity import safe_telegram_first_name
 from shop.models import BonusTx, Order, OrderStatus, User
 
 ALPHABET = string.ascii_uppercase + string.digits
@@ -29,6 +30,7 @@ async def get_or_create_user(
     referral_code: str | None = None,
 ) -> tuple[User, bool]:
     """Повертає (користувач, чи щойно створений)."""
+    first_name = safe_telegram_first_name(first_name, username)
     user = await session.scalar(select(User).where(User.tg_id == tg_id))
     if user:
         user.username = username or user.username
@@ -99,7 +101,7 @@ async def user_stats(session: AsyncSession, user_id: int) -> dict:
         await session.execute(
             select(func.count(Order.id), func.coalesce(func.sum(Order.total), 0)).where(
                 Order.user_id == user_id,
-                Order.status.in_([OrderStatus.PAID, OrderStatus.SHIPPED, OrderStatus.DONE]),
+                Order.business_state == "sale",
             )
         )
     ).one()

@@ -90,7 +90,7 @@ function FinanceLegend({ summary }) {
       <div className="stats-finance-head">
         <div>
           <h2>Як рахуються гроші</h2>
-          <p className="faint">Статистика не змішує підтверджений продаж із фактично отриманими коштами.</p>
+          <p className="faint">Проданим товар вважається тільки після CRM-статусу «Продаж»; отримані кошти рахуються окремо.</p>
         </div>
         <span className="chip">Період</span>
       </div>
@@ -109,7 +109,7 @@ function FinanceLegend({ summary }) {
         </div>
       </div>
       <p className="faint stats-finance-note">
-        Карткова оплата після етапу «Оплачено/Відправлено» вважається отриманою. Накладений платіж без фактичного платежу SalesDrive лишається очікуваним, навіть якщо посилка вже відправлена.
+        Для замовлення зі статусом «Продаж» карткову оплату вважаємо отриманою повністю. Для накладеного платежу враховуємо лише фактичний payedAmount із SalesDrive; решта лишається очікуваною.
       </p>
     </div>
   )
@@ -191,15 +191,15 @@ export default function Overview() {
               tone="accent"
             />
             <Metric
-              label="Підтверджений оборот"
-              value={money(data.summary.confirmed_period)}
+              label="Оборот продажів"
+              value={money(data.summary.sales_period)}
               change={data.insights?.turnover?.change}
-              sub={`${data.summary.confirmed_orders_period} підтверджених замовлень`}
+              sub={`${data.summary.sales_orders_period} замовлень зі статусом «Продаж»`}
             />
             <Metric
               label="Очікуємо отримання"
               value={money(data.summary.expected_period)}
-              sub="Підтверджено, але гроші ще не вважаються отриманими"
+              sub="Продажі з сумою, яку SalesDrive ще не зафіксував як отриману"
               tone={Number(data.summary.expected_period) > 0 ? 'warn' : ''}
             />
             <Metric
@@ -226,7 +226,7 @@ export default function Overview() {
             <Metric
               label="Покупці за період"
               value={data.summary.buyers_period}
-              sub={`${activity.buyer_share ?? 0}% від активних користувачів оформили підтверджене замовлення`}
+              sub={`${activity.buyer_share ?? 0}% від активних користувачів мають продаж у цьому періоді`}
             />
             <Metric
               label="Нові замовлення зараз"
@@ -246,10 +246,10 @@ export default function Overview() {
               tone={(data.insights?.repeat?.share ?? 0) >= 30 ? 'accent' : ''}
             />
             <Metric
-              label="Скасовано"
-              value={`${data.insights?.cancelled?.orders ?? 0}`}
-              sub={`${data.insights?.cancelled?.share ?? 0}% створених · втрачений потенційний оборот ${money(data.insights?.cancelled?.lost ?? 0)}`}
-              tone={(data.insights?.cancelled?.share ?? 0) >= 15 ? 'warn' : ''}
+              label="Відмови / скасування"
+              value={`${data.insights?.refusals?.orders ?? 0}`}
+              sub={`${data.insights?.refusals?.share ?? 0}% завершених результатів · потенційна сума ${money(data.insights?.refusals?.lost ?? 0)}`}
+              tone={(data.insights?.refusals?.share ?? 0) >= 15 ? 'warn' : ''}
             />
           </div>
 
@@ -266,23 +266,23 @@ export default function Overview() {
             <div className="stats-section-title">
               <div>
                 <h2>Оборот і отримані кошти по днях</h2>
-                <p className="faint">Підтверджений оборот показує продажі, «отримано» — лише гроші, які вже можна зарахувати за правилами оплати.</p>
+                <p className="faint">Оборот містить тільки замовлення, що отримали CRM-статус «Продаж»; «отримано» показує лише вже зараховані за правилами оплати кошти.</p>
               </div>
             </div>
             <Suspense fallback={<div className="skeleton" style={{ height: 260, marginTop: 14 }} />}>
               <RevenueChart data={data.series} />
             </Suspense>
             {data.series.length === 0 && (
-              <p className="muted" style={{ textAlign: 'center' }}>За цей період підтверджених замовлень ще не було.</p>
+              <p className="muted" style={{ textAlign: 'center' }}>За цей період продажів ще не було.</p>
             )}
           </div>
 
           <div className="grid k2">
             <div className="card">
               <h2>Топ товарів</h2>
-              <p className="faint">За підтвердженими замовленнями вибраного періоду.</p>
+              <p className="faint">Тільки за замовленнями, що отримали CRM-статус «Продаж» у вибраному періоді.</p>
               {data.top.length === 0 ? (
-                <p className="muted">Підтверджених продажів за період ще немає.</p>
+                <p className="muted">Продажів за період ще немає.</p>
               ) : (
                 <div className="table-wrap" style={{ marginTop: 12 }}>
                   <table>
@@ -338,7 +338,7 @@ export default function Overview() {
             />
             <Split
               title="Куди возимо"
-              hint="Розподіл лише підтверджених замовлень за вибраний період."
+              hint="Розподіл лише фактичних продажів за вибраний період."
               rows={[
                 { label: 'Відділення', value: data.insights.delivery.warehouse },
                 { label: 'Курʼєр на адресу', value: data.insights.delivery.courier },
@@ -351,7 +351,7 @@ export default function Overview() {
             <div className="stats-section-title">
               <div>
                 <h2>Активність користувачів</h2>
-                <p className="faint">Активність визначається за last_seen у вітрині/боті, покупки — за підтвердженими замовленнями.</p>
+                <p className="faint">Активність визначається за last_seen у вітрині/боті, покупки — тільки за CRM-статусом «Продаж».</p>
               </div>
               <span className="chip">{data.insights.timezone || 'Europe/Kyiv'}</span>
             </div>
@@ -366,7 +366,7 @@ export default function Overview() {
 
           <Bars
             title="Коли замовляють: години доби"
-            hint={`Підтверджені замовлення за локальним часом магазину (${data.insights.timezone || 'Europe/Kyiv'}).`}
+            hint={`Продажі за локальним часом створення замовлення (${data.insights.timezone || 'Europe/Kyiv'}); у період продаж потрапляє за часом переходу в «Продаж».`}
             labels={Array.from({ length: 24 }, (_, h) => String(h))}
             values={data.insights.by_hour}
           />
@@ -380,9 +380,9 @@ export default function Overview() {
 
           <div className="card">
             <h2>Менеджери за період</h2>
-            <p className="faint">Оборот — усі підтверджені замовлення; отримано й очікуємо показані окремо.</p>
+            <p className="faint">Оборот — тільки CRM-статус «Продаж»; отримано й очікуємо показані окремо.</p>
             {data.operators.length === 0 ? (
-              <p className="muted">За цей період підтверджених замовлень немає.</p>
+              <p className="muted">За цей період продажів немає.</p>
             ) : (
               <div className="table-wrap" style={{ marginTop: 12 }}>
                 <table>

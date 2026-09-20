@@ -841,7 +841,7 @@ check("shipment.recipient" in _sd and "shipment.recipient" in _wb
       "заявка CRM і ТТН будуються з однієї структури отримувача й посилки")
 check("novaposhta._call" in _wb and "httpx.AsyncClient" not in _wb.split("async def label_pdf")[0],
       "ТТН ходить у Нову пошту спільним клієнтом довідника")
-_cos = _svc[_svc.index("async def change_order_status"):_svc.index("_COUNTED =")]
+_cos = _svc[_svc.index("async def change_order_status"):_svc.index("def _push_to_crm_soon")]
 # Саме умовний запис позначки, а не будь-яка згадка origin поруч: інакше
 # безумовне patch["crm_state"] проходило б перевірку й давало петлю.
 check(re.search(r'if origin != "salesdrive" and crm_linked:\s*\n\s*patch\["crm_state"\] = "pending"', _cos)

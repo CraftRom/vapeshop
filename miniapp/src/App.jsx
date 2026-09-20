@@ -151,6 +151,51 @@ export default function App() {
     if (config?.age_confirmed && !cart) refresh().catch(() => {})
   }, [config?.age_confirmed, cart, refresh])
 
+  // Тихий read-side refresh вітрини. Чат має свій швидший delta-poll,
+  // а тут синхронізуємо статуси замовлень, профіль і кошик між вкладками/
+  // пристроями без spinner-ів та перезавантаження екрана.
+  const backgroundSyncRef = useRef(false)
+  useEffect(() => {
+    if (!config?.age_confirmed) return undefined
+    let stopped = false
+    let cycle = 0
+
+    const sync = async () => {
+      if (stopped || document.hidden || !navigator.onLine || backgroundSyncRef.current) return
+      backgroundSyncRef.current = true
+      cycle += 1
+      try {
+        const jobs = [api.orders(), api.profile()]
+        // Кошик не перечитуємо поверх ще не відправлених optimistic +/- .
+        const canRefreshCart = Object.keys(pendingRef.current || {}).length === 0
+        if (canRefreshCart && cycle % 2 === 0) jobs.push(api.cart())
+        else jobs.push(Promise.resolve(null))
+        if (cycle % 4 === 0) jobs.push(api.config())
+        else jobs.push(Promise.resolve(null))
+
+        const [ordersResult, profileResult, cartResult, configResult] = await Promise.allSettled(jobs)
+        if (stopped) return
+        if (ordersResult.status === 'fulfilled') setOrders(ordersResult.value || [])
+        if (profileResult.status === 'fulfilled') setProfile(profileResult.value)
+        if (cartResult.status === 'fulfilled' && cartResult.value) setCart(cartResult.value)
+        if (configResult.status === 'fulfilled' && configResult.value) setConfig(configResult.value)
+      } finally {
+        backgroundSyncRef.current = false
+      }
+    }
+
+    const timer = setInterval(sync, 15000)
+    const wake = () => sync()
+    document.addEventListener('visibilitychange', wake)
+    window.addEventListener('online', wake)
+    return () => {
+      stopped = true
+      clearInterval(timer)
+      document.removeEventListener('visibilitychange', wake)
+      window.removeEventListener('online', wake)
+    }
+  }, [config?.age_confirmed])
+
   // Кнопка «Відкрити чат» у боті веде одразу на потрібну розмову.
   //
   // Спрацьовує рівно один раз за запуск. Раніше умови не було, і вихід

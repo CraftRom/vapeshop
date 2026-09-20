@@ -217,7 +217,7 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
     if (profile?.first_name || profile?.phone) {
       setForm((f) => ({
         ...f,
-        contact_name: f.contact_name || profile?.first_name || '',
+        contact_name: f.contact_name || (String(profile?.first_name || '').includes('@') ? '' : profile?.first_name) || '',
         contact_phone: f.contact_phone || normalizePhone(profile?.phone || ''),
       }))
     }

@@ -225,7 +225,14 @@ class Order(Base):
     crm_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # Останній прочитаний стан заявки SalesDrive. Це snapshot CRM, а не джерело цін каталогу.
     crm_snapshot: Mapped[dict | None] = mapped_column(JsonType, nullable=True)
-    crm_fetched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    crm_fetched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    # Канонічний комерційний результат. Це джерело істини для статистики:
+    # CRM «Продаж» -> sale, CRM «Відмова» -> refusal. Local workflow не
+    # підміняє продаж для CRM-пов'язаного замовлення.
+    business_state: Mapped[str] = mapped_column(
+        String(16), default="pending", server_default="pending", index=True
+    )
+    business_state_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
     # Хто веде замовлення — показується клієнту після «Прийнято»
     operator_id: Mapped[int | None] = mapped_column(Integer)
     operator_name: Mapped[str] = mapped_column(String(128), default="")

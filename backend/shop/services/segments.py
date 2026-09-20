@@ -5,9 +5,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import Select, and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from shop.models import Order, OrderStatus, User
-
-PAID_STATUSES = [OrderStatus.PAID, OrderStatus.SHIPPED, OrderStatus.DONE]
+from shop.models import Order, User
 
 SEGMENTS = {
     "all": "Усі клієнти",
@@ -26,7 +24,7 @@ def build_query(segment: dict) -> Select:
 
     paid_orders = (
         select(Order.user_id, func.sum(Order.total).label("spent"))
-        .where(Order.status.in_(PAID_STATUSES))
+        .where(Order.business_state == "sale")
         .group_by(Order.user_id)
         .subquery()
     )

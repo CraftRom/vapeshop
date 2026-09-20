@@ -23,7 +23,7 @@ check(api.includes("badges: () => request('/stats/badges')"), 'frontend вико
 check(app.includes('useVisiblePolling(pollBadges, 60000'), 'глобальний polling знижено до 60 секунд')
 check(polling.includes('document.hidden') && polling.includes('inFlight'), 'polling паузиться у background і не накладає запити')
 check(orders.includes('const OrderRow = memo('), 'рядки замовлень memoized')
-check(orders.includes('sameUnreadCounts') && orders.includes('45000'), 'незмінені unread-дані не перерендерюють список')
+check(orders.includes('sameUnreadCounts') && orders.includes('useVisiblePolling(loadUnread, 10000'), 'live unread polling не перерендерює список без змін')
 check(css.includes('content-visibility: auto') && css.includes('contain-intrinsic-size'), 'довгі списки не рендерять поза viewport')
 check(html.includes('href="/favicon.ico"') && existsSync('public/favicon.ico'), 'справжній favicon входить у збірку')
 check(nginx.includes('location = /favicon.ico') && nginx.includes('try_files $uri =404'), 'favicon не потрапляє у SPA fallback')

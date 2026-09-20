@@ -43,7 +43,8 @@ async def stats(message: Message, repo: Repository) -> None:
         f"<b>Коротка статистика</b>\n\n"
         f"Клієнтів: {summary.customers_total}\n"
         f"Нових замовлень: {summary.orders_new}\n"
-        f"Виручка: {summary.revenue_total:.0f} {shop.currency}\n"
+        f"Оборот продажів: {summary.sales_total:.0f} {shop.currency}\n"
+        f"Отримано: {summary.revenue_total:.0f} {shop.currency}\n"
         f"Товарів із залишком &lt; 5: {summary.low_stock}\n\n"
         f"Повна аналітика — у дашборді."
     )

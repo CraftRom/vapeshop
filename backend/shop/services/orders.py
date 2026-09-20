@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from decimal import Decimal
+from datetime import datetime, timezone
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -14,6 +15,7 @@ from shop.services import users as users_service
 STATUS_LABELS = {
     OrderStatus.NEW: "Нове",
     OrderStatus.CONFIRMED: "Підтверджене",
+    OrderStatus.ACCEPTED: "Прийняте в роботу",
     OrderStatus.PAID: "Оплачене",
     OrderStatus.SHIPPED: "Відправлене",
     OrderStatus.DONE: "Виконане",
@@ -123,6 +125,13 @@ async def change_status(session: AsyncSession, order: Order, status: OrderStatus
     """Змінює статус. При DONE нараховує реферальну винагороду, при CANCELLED повертає залишки."""
     previous = order.status
     order.status = status
+    # Цей SQL-only compatibility service використовується лише старими
+    # smoke-тестами. Для його CRM-unlinked замовлень підтримуємо той самий
+    # канонічний business_state, що й основний Repository workflow.
+    if not (order.crm_id or order.crm_status_id):
+        from shop.services.order_business import state_from_legacy_status
+        order.business_state = state_from_legacy_status(status)
+        order.business_state_at = datetime.now(timezone.utc)
     await session.commit()
 
     if status == OrderStatus.DONE:

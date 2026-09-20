@@ -5,12 +5,9 @@
 був би зайвою рухомою деталлю, яку теж треба піднімати, моніторити й
 відновлювати після падіння.
 
-Період тіку береться з SCHEDULER_INTERVAL_SECONDS (за замовчуванням година).
-Точність планування — година, тому прокидатися частіше немає сенсу: це були
-б зайві запити до бази цілодобово.
-
-Наслідок, про який варто памʼятати: бекап перевіряється тим самим тіком, і
-при годинному інтервалі він спрацює в межах години після заданого часу.
+Період тіку — мінімум між SCHEDULER_INTERVAL_SECONDS і окремим інтервалом
+SalesDrive read-side sync. Важкі задачі самі перевіряють, чи настав їх час,
+тому частіший легкий tick не запускає бекап або cleanup щохвилини.
 """
 from __future__ import annotations
 
@@ -24,13 +21,20 @@ import signal
 from shop.config import settings
 from shop.logging_setup import setup as setup_logging
 from scheduler.tasks import (
-    forget_old_chat_files, run_backup_if_due, run_due_broadcasts, sync_salesdrive,
+    forget_old_chat_files, refresh_salesdrive_orders, run_backup_if_due,
+    run_due_broadcasts, sync_salesdrive,
 )
 
 setup_logging("scheduler")
 log = logging.getLogger("scheduler")
 
-TICK_SECONDS = max(int(settings.scheduler_interval_seconds), 30)
+# Старі production env можуть мати SCHEDULER_INTERVAL_SECONDS=3600.
+# Не змушуємо оператора вручну міняти його після деплою: CRM read-worker
+# автоматично робить загальний цикл не рідшим за власний refresh interval.
+TICK_SECONDS = max(15, min(
+    int(settings.scheduler_interval_seconds),
+    int(settings.salesdrive_background_refresh_seconds),
+))
 
 
 async def tick(state: dict) -> None:
@@ -49,6 +53,13 @@ async def tick(state: dict) -> None:
         await sync_salesdrive()
     except Exception:
         log.exception("Помилка під час синхронізації з SalesDrive")
+
+    # Зворотний напрямок CRM → Elfar. Не залежить від відкритої картки й
+    # страхує webhook: snapshot-и регулярно перечитуються у фоні.
+    try:
+        await refresh_salesdrive_orders()
+    except Exception:
+        log.exception("Помилка під час фонового читання SalesDrive")
 
     # Раз на добу, а не щотіку: запит проходить по всіх виконаних
     # замовленнях, а строк зберігання рахується днями — частіше просто

@@ -186,11 +186,25 @@ async def _suite(app, backend: str) -> None:
         check("статус оновлено", response.status_code == 200, response.text[:120])
         check("нотатка збережена", response.json()["admin_note"] == "перевірено")
 
+        # PAID/SHIPPED — операційні етапи, а не продаж. Для цього тестового
+        # legacy-замовлення продаж настає лише в DONE (CRM-замовлення в
+        # production отримують business_state=sale зі статусу «Продаж»).
+        response = await client.get("/api/customers", headers=headers)
+        customer = response.json()[0]
+        check("PAID ще не збільшує покупки", customer["orders_count"] == 0,
+              f"{customer['orders_count']}")
+        response = await client.patch(f"/api/orders/{order.id}", headers=headers,
+                                json={"status": "shipped", "tracking_number": "20450000123456"})
+        check("перехід у «shipped»", response.status_code == 200, response.text[:120])
+        response = await client.patch(f"/api/orders/{order.id}", headers=headers,
+                                json={"status": "done"})
+        check("legacy DONE фіксує продаж", response.status_code == 200, response.text[:120])
+
         # --- клієнти
         response = await client.get("/api/customers", headers=headers)
         check("клієнт у списку", len(response.json()) == 1, response.text[:120])
         customer = response.json()[0]
-        check("лічильник замовлень оновився", customer["orders_count"] == 1,
+        check("лічильник продажів оновився", customer["orders_count"] == 1,
               f"{customer['orders_count']}")
 
         response = await client.patch(f"/api/customers/{customer['id']}", headers=headers,

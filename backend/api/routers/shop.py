@@ -12,7 +12,7 @@ from __future__ import annotations
 import logging
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, Response, Request
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, Response, Request, Query
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from api.schemas import CategoryOut, ProductOut
@@ -24,6 +24,7 @@ from shop.repo.factory import get_repo
 from shop.services import novaposhta as np
 from shop.services import order_chat as svc_chat
 from shop.services import shop_service as svc
+from shop.services.identity import contains_telegram_handle, safe_telegram_first_name
 from shop.services.notifications import notify_cancelled_by_client, notify_new_order
 from shop.services import wishlist as wl
 from shop.services.shop_settings import get_shop_settings
@@ -249,6 +250,16 @@ class CheckoutIn(BaseModel):
         clean = str(value or "").strip()
         if not clean:
             raise ValueError("Поле обовʼязкове")
+        return clean
+
+    @field_validator("contact_surname", "contact_name", "contact_patronymic")
+    @classmethod
+    def _contact_person_name_has_no_handle(cls, value: str | None):
+        if value is None:
+            return None
+        clean = str(value or "").strip()
+        if contains_telegram_handle(clean):
+            raise ValueError("У ПІБ вкажіть імʼя, а не Telegram username")
         return clean
 
     @field_validator("contact_phone")
@@ -491,8 +502,21 @@ async def change_cart(
     repo: Repository = Depends(get_repo),
 ):
     _require_age(user)
-    await svc.add_to_cart(repo, user.id, data.product_id, data.delta)
-    return await _cart_payload(repo, user.id)
+    try:
+        await svc.add_to_cart(repo, user.id, data.product_id, data.delta)
+        return await _cart_payload(repo, user.id)
+    except Exception:
+        # Storefront telemetry показала серію POST /cart 500 у старій 2.15.0.
+        # PostgreSQL row-lock race вже виправлений у repository; цей event
+        # гарантує, що будь-яка інша майбутня причина матиме server traceback,
+        # а не лише клієнтське «Помилка 500».
+        log.exception(
+            "Помилка зміни кошика користувача %s, товар %s, delta %s",
+            user.id, data.product_id, data.delta,
+            extra={"event": "shop.cart.change_failed", "userId": user.id,
+                   "productId": data.product_id, "delta": data.delta},
+        )
+        raise
 
 
 @router.delete("/cart", response_model=CartOut)
@@ -526,7 +550,7 @@ async def _profile_payload(repo: Repository, shop, user: User) -> ProfileOut:
     fresh = await repo.get_user(user.id) or user
     subtotal = await svc.cart_subtotal(repo, user.id)
     return ProfileOut(
-        first_name=fresh.first_name,
+        first_name=safe_telegram_first_name(fresh.first_name, fresh.username),
         phone=fresh.phone,
         orders_count=fresh.orders_count,
         total_spent=fresh.total_spent,
@@ -695,16 +719,18 @@ async def _own_order(repo: Repository, user: User, order_id: int):
 @router.get("/orders/{order_id}/chat", response_model=list[ChatMessageOut])
 async def order_chat_log(
     order_id: int,
+    after_id: int | None = Query(None, ge=0),
     user: User = Depends(require_webapp_user),
     repo: Repository = Depends(get_repo),
 ):
     _require_age(user)
     await _own_order(repo, user, order_id)
-    messages = await repo.list_order_messages(order_id)
+    messages = await repo.list_order_messages(order_id, after_id=after_id)
     # Читаємо стрічку — отже, повідомлення менеджера побачені. Позначаємо
     # після вибірки, щоб у цій же відповіді клієнт не побачив «прочитано»
     # на тому, що йому щойно віддали: квитанція призначена менеджеру.
-    await repo.mark_client_read(order_id)
+    if messages:
+        await repo.mark_client_read(order_id)
     return messages
 
 

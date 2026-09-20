@@ -102,7 +102,7 @@ async def by_operator(
     period: str | None = Query(None),
     repo: Repository = Depends(get_repo),
 ):
-    """Підтверджений оборот і отримані/очікувані кошти по менеджерах."""
+    """Продажі CRM «Продаж» і отримані/очікувані кошти по менеджерах."""
     window = await _stats_window(repo, period, days)
     return await repo.stats_by_operator(
         days, since=window["since"], until=window["until"]
@@ -171,7 +171,7 @@ async def insights(
     period: str | None = Query(None),
     repo: Repository = Depends(get_repo),
 ):
-    """Порівняння, активність користувачів і календарні зрізи продажів."""
+    """Порівняння й зрізи фактичних продажів: CRM-статус «Продаж»."""
     window = await _stats_window(repo, period, days)
     return await repo.stats_insights(
         days,
