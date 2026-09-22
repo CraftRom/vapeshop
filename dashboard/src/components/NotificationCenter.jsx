@@ -608,7 +608,7 @@ export function NotificationCenter() {
   }, [clearToastTimer])
 
   const poll = useCallback(async () => {
-    if (polling.current) return
+    if (polling.current || document.hidden || navigator.onLine === false) return
     polling.current = true
     try {
       if (!initialized.current) {
@@ -638,6 +638,12 @@ export function NotificationCenter() {
             .sort((a, b) => b.id - a.id)
             .slice(0, 60)
         })
+        // Сторінки можуть відреагувати відразу, не чекаючи власного poll.
+        // Це локальна invalidation-подія, а не друге джерело даних: Orders
+        // після неї все одно перечитує канонічні дані через API.
+        window.dispatchEvent(new CustomEvent('elfar:notifications:fresh', {
+          detail: { items: fresh },
+        }))
         await announce(fresh)
       }
       setUnread(nextUnread)
@@ -651,15 +657,39 @@ export function NotificationCenter() {
   }, [announce, fullRefresh])
 
   useEffect(() => {
-    poll()
-    const timer = setInterval(poll, POLL_MS)
-    const onVisibility = () => poll()
-    document.addEventListener('visibilitychange', onVisibility)
-    window.addEventListener('online', onVisibility)
+    let stopped = false
+    let timer = null
+    const visibleAndOnline = () => !document.hidden && navigator.onLine !== false
+    const clearTimer = () => {
+      if (timer !== null) {
+        clearTimeout(timer)
+        timer = null
+      }
+    }
+    const schedule = () => {
+      clearTimer()
+      if (!stopped && visibleAndOnline()) timer = window.setTimeout(run, POLL_MS)
+    }
+    async function run() {
+      if (stopped || !visibleAndOnline()) return
+      await poll()
+      schedule()
+    }
+    const wake = () => {
+      clearTimer()
+      if (visibleAndOnline()) run()
+    }
+
+    run()
+    document.addEventListener('visibilitychange', wake)
+    window.addEventListener('focus', wake)
+    window.addEventListener('online', wake)
     return () => {
-      clearInterval(timer)
-      document.removeEventListener('visibilitychange', onVisibility)
-      window.removeEventListener('online', onVisibility)
+      stopped = true
+      clearTimer()
+      document.removeEventListener('visibilitychange', wake)
+      window.removeEventListener('focus', wake)
+      window.removeEventListener('online', wake)
     }
   }, [poll])
 

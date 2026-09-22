@@ -159,9 +159,22 @@ export default function App() {
     if (!config?.age_confirmed) return undefined
     let stopped = false
     let cycle = 0
+    let timer = null
+
+    const visibleAndOnline = () => !document.hidden && navigator.onLine !== false
+    const clearTimer = () => {
+      if (timer !== null) {
+        clearTimeout(timer)
+        timer = null
+      }
+    }
+    const schedule = (delay = 15000) => {
+      clearTimer()
+      if (!stopped && visibleAndOnline()) timer = window.setTimeout(sync, delay)
+    }
 
     const sync = async () => {
-      if (stopped || document.hidden || !navigator.onLine || backgroundSyncRef.current) return
+      if (stopped || !visibleAndOnline() || backgroundSyncRef.current) return
       backgroundSyncRef.current = true
       cycle += 1
       try {
@@ -181,17 +194,23 @@ export default function App() {
         if (configResult.status === 'fulfilled' && configResult.value) setConfig(configResult.value)
       } finally {
         backgroundSyncRef.current = false
+        schedule()
       }
     }
 
-    const timer = setInterval(sync, 15000)
-    const wake = () => sync()
+    const wake = () => {
+      clearTimer()
+      if (visibleAndOnline()) sync()
+    }
+    schedule()
     document.addEventListener('visibilitychange', wake)
+    window.addEventListener('focus', wake)
     window.addEventListener('online', wake)
     return () => {
       stopped = true
-      clearInterval(timer)
+      clearTimer()
       document.removeEventListener('visibilitychange', wake)
+      window.removeEventListener('focus', wake)
       window.removeEventListener('online', wake)
     }
   }, [config?.age_confirmed])

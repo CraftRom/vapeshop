@@ -85,7 +85,7 @@ class Settings(BaseSettings):
     # коли webhook SalesDrive/Нової пошти загубився: scheduler перечитує
     # застарілі snapshot-и невеликими порціями й застосовує ті самі правила,
     # що ручний refresh картки.
-    salesdrive_background_refresh_seconds: int = 120
+    salesdrive_background_refresh_seconds: int = 180
     salesdrive_background_batch: int = 20
     # Курʼєр на адресу. За замовчуванням вимкнений: він доступний не в
     # кожному місті й не в кожного магазину налагоджений, а показана
@@ -123,9 +123,10 @@ class Settings(BaseSettings):
     quiet_hours_start: int = 22
     quiet_hours_end: int = 9
     broadcast_chunk: int = 100
-    # Базовий tick scheduler. Фактичний цикл може прокидатися частіше заради
-    # CRM read-side refresh; самі важкі задачі мають власні due-перевірки.
-    scheduler_interval_seconds: int = 3600
+    # Базовий tick scheduler. Це лише легке пробудження процесу; кожна
+    # фонова задача має власний cadence/gate. Старі значення >15 с runtime
+    # автоматично обмежує, щоб не затримувати розсилки та retry CRM.
+    scheduler_interval_seconds: int = 15
 
     # --- Обслуговування сервера ---
     backup_enabled: bool = True

@@ -26,6 +26,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    volumes:
+      - appdata:/data
     expose:
       - "8000"
     # Наприкінці налаштування приберіть цей блок — назовні api ходить через nginx
@@ -40,6 +42,22 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    volumes:
+      - appdata:/data
+
+  # Відкладені розсилки, retry SalesDrive, read-side CRM refresh,
+  # backup і retention. Він має існувати не лише в prod compose: інакше
+  # локальний/звичайний compose виглядає робочим, але автоматизація мовчить.
+  scheduler:
+    build: ./backend
+    restart: unless-stopped
+    command: python -m scheduler
+    env_file: .env
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - appdata:/data
 
   dashboard:
     build: ./dashboard
@@ -59,3 +77,4 @@ services:
 
 volumes:
   pgdata:
+  appdata:

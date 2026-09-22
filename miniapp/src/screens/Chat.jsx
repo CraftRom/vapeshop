@@ -176,18 +176,38 @@ export function ChatRoom({ config, order, onBack }) {
   // Тихе live-оновлення. Hidden/offline вкладка не робить запитів; після
   // повернення/відновлення мережі синхронізуємося одразу.
   useEffect(() => {
-    const poll = () => {
-      if (document.hidden || !navigator.onLine) return
-      pollCyclesRef.current += 1
-      load(true, pollCyclesRef.current % 6 === 0)
+    let stopped = false
+    let timer = null
+    const visibleAndOnline = () => !document.hidden && navigator.onLine !== false
+    const clearTimer = () => {
+      if (timer !== null) {
+        clearTimeout(timer)
+        timer = null
+      }
     }
-    const timer = setInterval(poll, 5000)
-    const wake = () => poll()
+    const schedule = () => {
+      clearTimer()
+      if (!stopped && visibleAndOnline()) timer = window.setTimeout(poll, 5000)
+    }
+    const poll = async () => {
+      if (stopped || !visibleAndOnline()) return
+      pollCyclesRef.current += 1
+      await load(true, pollCyclesRef.current % 6 === 0)
+      schedule()
+    }
+    const wake = () => {
+      clearTimer()
+      if (visibleAndOnline()) poll()
+    }
+    schedule()
     document.addEventListener('visibilitychange', wake)
+    window.addEventListener('focus', wake)
     window.addEventListener('online', wake)
     return () => {
-      clearInterval(timer)
+      stopped = true
+      clearTimer()
       document.removeEventListener('visibilitychange', wake)
+      window.removeEventListener('focus', wake)
       window.removeEventListener('online', wake)
     }
   }, [load])

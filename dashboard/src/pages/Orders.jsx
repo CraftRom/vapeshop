@@ -391,6 +391,19 @@ export default function Orders() {
   // на вкладку, не збільшуючи частоту важчого order-list API.
   useVisiblePolling(loadCrmStatuses, 300000)
 
+  // NotificationCenter бачить нову серверну подію швидше за 15-секундний
+  // safety poll списку. Використовуємо її лише як invalidation-сигнал і
+  // перечитуємо API — payload toast-а ніколи не стає джерелом order data.
+  useEffect(() => {
+    const onFreshNotification = (event) => {
+      const items = Array.isArray(event.detail?.items) ? event.detail.items : []
+      if (items.some((item) => item.kind === 'order.created')) load()
+      if (items.some((item) => item.kind === 'order.message')) loadUnread().catch(() => {})
+    }
+    window.addEventListener('elfar:notifications:fresh', onFreshNotification)
+    return () => window.removeEventListener('elfar:notifications:fresh', onFreshNotification)
+  }, [load, loadUnread])
+
   const changeStatus = useCallback(async (order, next) => {
     // Відправлення потребує накладної, а вікно для неї — на сторінці
     // замовлення. Без цього менеджер тиснув би тут і отримував відмову.

@@ -6,7 +6,7 @@ import string
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
-from sqlalchemy import case, delete, func, or_, select, update
+from sqlalchemy import and_, case, delete, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import lazyload, selectinload
@@ -964,18 +964,35 @@ class SqlRepository(Repository):
             query = query.where(m.Order.created_at < _day_end(date_to))
         return [_order(r, with_user=True) for r in await self.s.scalars(query)]
 
-    async def list_crm_refresh_candidates(self, *, stale_before: datetime, limit: int = 20):
+    async def list_crm_refresh_candidates(
+        self, *, stale_before: datetime,
+        terminal_stale_before: datetime | None = None,
+        limit: int = 20,
+    ):
         """Невелика справедлива порція заявок для фонового SalesDrive pull.
 
         Pending бізнес-результати перевіряємо першими: саме серед них може
         ховатися новий statusCode 9/102/103. Усередині групи беремо найстаріший
         snapshot, щоб при великій базі жодне замовлення не голодувало.
         """
+        terminal_cutoff = terminal_stale_before or stale_before
+        pending_state = or_(
+            m.Order.business_state.is_(None),
+            m.Order.business_state == business.BUSINESS_PENDING,
+        )
+        terminal_state = and_(
+            m.Order.business_state.is_not(None),
+            m.Order.business_state != business.BUSINESS_PENDING,
+        )
         query = (
             select(m.Order)
             .where(
                 m.Order.crm_id.is_not(None),
-                or_(m.Order.crm_fetched_at.is_(None), m.Order.crm_fetched_at < stale_before),
+                or_(
+                    m.Order.crm_fetched_at.is_(None),
+                    and_(pending_state, m.Order.crm_fetched_at < stale_before),
+                    and_(terminal_state, m.Order.crm_fetched_at < terminal_cutoff),
+                ),
             )
             .options(selectinload(m.Order.items), selectinload(m.Order.user))
             .order_by(
@@ -1136,6 +1153,41 @@ class SqlRepository(Repository):
         if status:
             query = query.where(m.Order.status == status)
         return await self.s.scalar(query) or 0
+
+    async def count_display_new_orders(self, crm_new_status_id: str | None = None) -> int:
+        """Єдиний глобальний лічильник «Нових» для legacy + SalesDrive.
+
+        Для CRM-linked заявок локальний workflow більше не авторитетний.
+        Виняток — коротке вікно одразу після створення, коли crm_id вже є,
+        але snapshot/statusId ще не повернувся: таке замовлення справді нове.
+        """
+        legacy_new = and_(
+            m.Order.crm_id.is_(None),
+            m.Order.status == OrderStatus.NEW,
+        )
+        unresolved_crm_new = and_(
+            m.Order.crm_id.is_not(None),
+            or_(m.Order.crm_status_id.is_(None), m.Order.crm_status_id == ""),
+            m.Order.status == OrderStatus.NEW,
+        )
+
+        crm_new_id = str(crm_new_status_id or "").strip()
+        if crm_new_id:
+            crm_new = and_(
+                m.Order.crm_id.is_not(None),
+                m.Order.crm_status_id == crm_new_id,
+            )
+        else:
+            # Compatibility fallback для ще не налаштованої status map.
+            crm_new = and_(
+                m.Order.crm_id.is_not(None),
+                func.lower(func.trim(m.Order.crm_status_name)).in_(("новий", "нове", "new")),
+            )
+
+        query = select(func.count(m.Order.id)).where(
+            or_(legacy_new, unresolved_crm_new, crm_new)
+        )
+        return int(await self.s.scalar(query) or 0)
 
     async def status_breakdown(self) -> dict[str, int]:
         rows = await self.s.execute(

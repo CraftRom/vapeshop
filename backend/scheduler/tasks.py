@@ -142,8 +142,6 @@ async def run_backup_if_due(state: dict) -> bool:
     size_mb = target.stat().st_size / 1024 / 1024
     log.info("Бекап %s готовий: %.1f МБ за %.0f с", target.name, size_mb, time.monotonic() - started)
 
-    prune_backups(shop.backup_retention_days)
-    prune_logs(settings.log_retention_days)
     return True
 
 
@@ -215,6 +213,42 @@ async def forget_old_chat_files() -> int:
     return cleared
 
 
+async def run_housekeeping() -> dict:
+    """Добове обслуговування, незалежне від успіху резервної копії.
+
+    Раніше prune_logs/prune_backups жили в ``run_backup_if_due``. Якщо backup
+    був вимкнений, не настав його час або ``pg_dump`` падав, retention не
+    працював узагалі. Housekeeping має власний scheduler gate, тому прибирає
+    старе навіть при проблемах із резервним копіюванням.
+    """
+    logs_removed = prune_logs(settings.log_retention_days)
+
+    backups_removed = 0
+    try:
+        async with open_repo() as repo:
+            shop = await get_shop_settings(repo)
+        backups_removed = prune_backups(shop.backup_retention_days)
+    except Exception:
+        # Вкладення нижче все одно пробуємо очистити: одна операція
+        # обслуговування не повинна блокувати решту.
+        log.exception("Не вдалося застосувати retention резервних копій")
+
+    chat_files_removed = 0
+    try:
+        chat_files_removed = await forget_old_chat_files()
+    except Exception:
+        log.exception("Не вдалося очистити старі посилання вкладень")
+
+    result = {
+        "logs_removed": logs_removed,
+        "backups_removed": backups_removed,
+        "chat_files_removed": chat_files_removed,
+    }
+    if any(result.values()):
+        log.info("Housekeeping завершено", extra={"event": "housekeeping.done", **result})
+    return result
+
+
 async def sync_salesdrive() -> dict:
     """Доганяє чергу SalesDrive: відправки, що не пройшли одразу.
 
@@ -241,14 +275,18 @@ async def refresh_salesdrive_orders() -> dict:
     ``/api/order/list/`` має жорсткі квоти, тому тут завжди максимум один
     пакетний read-запит за scheduler tick замість одного GET на кожну заявку.
 
-    Мінімум 120 секунд залишає запас добової квоти для ручних refresh та
-    діагностики навіть якщо старий production env досі містить значення 60.
+    Мінімум 180 секунд лишає приблизно половину добової order-list квоти
+    для ручних refresh/діагностики навіть якщо старий production env досі
+    містить 60/120. Фінальні замовлення перечитуються значно рідше за
+    активні, щоб історія не витісняла pending заявки з batch.
     """
     from shop.services import salesdrive
 
-    interval = max(120, int(settings.salesdrive_background_refresh_seconds))
+    interval = max(180, int(settings.salesdrive_background_refresh_seconds))
     batch = max(1, min(int(settings.salesdrive_background_batch), 100))
-    stale_before = datetime.now(timezone.utc) - timedelta(seconds=interval)
+    now = datetime.now(timezone.utc)
+    stale_before = now - timedelta(seconds=interval)
+    terminal_stale_before = now - timedelta(seconds=max(6 * 3600, interval * 20))
 
     async with open_repo() as repo:
         shop = await get_shop_settings(repo)
@@ -256,7 +294,9 @@ async def refresh_salesdrive_orders() -> dict:
             return {"checked": 0, "refreshed": 0, "failed": 0,
                     "deferred": 0, "skipped": "api_disconnected"}
         candidates = await repo.list_crm_refresh_candidates(
-            stale_before=stale_before, limit=batch,
+            stale_before=stale_before,
+            terminal_stale_before=terminal_stale_before,
+            limit=batch,
         )
         order_ids = [order.id for order in candidates]
         if not order_ids:

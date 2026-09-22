@@ -74,11 +74,12 @@ async def build_order_text(repo: Repository, order: Order, user: User) -> str:
 
 
 async def notify_new_order(bot, repo: Repository, order: Order, user: User) -> bool:
-    """Надсилає замовлення в адмінський чат. Повертає, чи вдалося.
+    """Публікує замовлення в панель і, якщо можливо, у Telegram.
 
-    Помилка тут не має валити оформлення: замовлення вже в базі й видиме
-    в панелі. Але вона потрапляє в лог як попередження, бо означає, що
-    менеджер про замовлення не дізнався.
+    ``bot`` навмисно може бути ``None``. Панельний event — базовий канал
+    визначення нового замовлення й не повинен зникати лише через restart або
+    недоступність Telegram bot process. Повертаємо True тільки якщо Telegram
+    також отримав повідомлення.
     """
     from shop.services.panel_notifications import safe_publish
     who_name = user.first_name or user.username or f"id{user.tg_id}"
@@ -91,6 +92,13 @@ async def notify_new_order(bot, repo: Repository, order: Order, user: User) -> b
         entity_id=order.id,
         actor=who_name,
     )
+
+    if bot is None:
+        log.warning(
+            "Замовлення №%s опубліковано в панель, але Telegram bot недоступний",
+            order.id,
+        )
+        return False
 
     shop = await get_shop_settings(repo)
     if not shop.admin_chat_id:

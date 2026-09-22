@@ -1246,7 +1246,7 @@ async def checkout(
 
     # Менеджер має побачити замовлення з вітрини так само, як із чату.
     # Помилка тут не скасовує замовлення: воно вже в базі й видиме в панелі.
-    if not replayed and bot is not None:
+    if not replayed:
         try:
             await notify_new_order(bot, repo, order, user)
         except Exception:

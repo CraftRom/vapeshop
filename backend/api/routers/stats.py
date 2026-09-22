@@ -16,6 +16,19 @@ router = APIRouter(dependencies=[Depends(require_staff)])
 _PERIODS = {"today", "7d", "month", "90d", "all"}
 
 
+async def _display_new_count(repo: Repository) -> int:
+    """Той самий «Новий», який бачить таблиця замовлень.
+
+    CRM-linked заявки рахуються за SalesDrive statusId, legacy — за local
+    workflow. Це прибирає розбіжність між sidebar/overview і Orders page.
+    """
+    from shop.services import salesdrive
+
+    shop = await get_shop_settings(repo)
+    new_status_id = salesdrive.mapping(shop.salesdrive_status_map).get(OrderStatus.NEW.value)
+    return await repo.count_display_new_orders(new_status_id)
+
+
 async def _stats_window(repo: Repository, period: str | None, days: int) -> dict:
     """Календарні межі статистики у часовій зоні магазину.
 
@@ -79,7 +92,7 @@ async def _stats_window(repo: Repository, period: str | None, days: int) -> dict
 async def badges(repo: Repository = Depends(get_repo)):
     """Легкі лічильники для sidebar панелі."""
     return {
-        "orders_new": await repo.count_orders(OrderStatus.NEW),
+        "orders_new": await _display_new_count(repo),
         "support_unread": await repo.support_unread_count(),
     }
 
@@ -91,9 +104,11 @@ async def summary(
     repo: Repository = Depends(get_repo),
 ):
     window = await _stats_window(repo, period, days)
-    return await repo.stats_summary(
+    result = await repo.stats_summary(
         days, since=window["since"], until=window["until"]
     )
+    result.orders_new = await _display_new_count(repo)
+    return result
 
 
 @router.get("/by-operator")

@@ -227,14 +227,18 @@ class Repository(ABC):
         """Замовлення, які чекають відправки в CRM або впали на ній."""
 
     async def list_crm_refresh_candidates(
-        self, *, stale_before: datetime, limit: int = 20,
+        self, *, stale_before: datetime,
+        terminal_stale_before: datetime | None = None,
+        limit: int = 20,
     ) -> list[Order]:
         """Пов'язані CRM-заявки, read snapshot яких застарів.
 
         Не abstract навмисно: тестові/legacy repository лишаються сумісними.
         SQL реалізація має ефективний indexed query; fallback фільтрує невелику
-        порцію звичайного list_orders.
+        порцію звичайного list_orders. Активні ``pending`` можна перечитувати
+        частіше за фінальні sale/refusal — історія не повинна з'їдати CRM quota.
         """
+        terminal_cutoff = terminal_stale_before or stale_before
         rows = await self.list_orders(limit=max(int(limit) * 5, 100))
         picked = []
         for order in rows:
@@ -243,7 +247,9 @@ class Repository(ABC):
             fetched = getattr(order, "crm_fetched_at", None)
             if fetched is not None and fetched.tzinfo is None and stale_before.tzinfo is not None:
                 fetched = fetched.replace(tzinfo=stale_before.tzinfo)
-            if fetched is None or fetched < stale_before:
+            is_pending = str(getattr(order, "business_state", None) or "pending") == "pending"
+            cutoff = stale_before if is_pending else terminal_cutoff
+            if fetched is None or fetched < cutoff:
                 picked.append(order)
             if len(picked) >= limit:
                 break
@@ -251,6 +257,14 @@ class Repository(ABC):
 
     @abstractmethod
     async def count_orders(self, status: OrderStatus | None = None) -> int: ...
+
+    async def count_display_new_orders(self, crm_new_status_id: str | None = None) -> int:
+        """Кількість замовлень, які UI має показувати як «Нові».
+
+        SQL реалізація враховує авторитетний статус CRM. Дефолт лишається
+        сумісним з простими test/legacy repository.
+        """
+        return await self.count_orders(OrderStatus.NEW)
 
     @abstractmethod
     async def status_breakdown(self) -> dict[str, int]: ...

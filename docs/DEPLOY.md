@@ -630,7 +630,7 @@ docker compose -f docker-compose.prod.yml up -d --force-recreate api bot schedul
 | Замовлення не падають у групу | `ADMIN_CHAT_ID` невірний | Має бути від'ємне число |
 | Кнопки статусів не працюють | Вашого ID немає в `ADMIN_IDS` | Додайте через кому |
 | Дампи належать root | Образ зібрано без `APP_UID` | `build --no-cache`, див. розділ вище |
-| Відкладена розсилка не пішла | Тихі години або ще не було тіку | Планувальник тікає раз на годину |
+| Відкладена розсилка не пішла | Тихі години, scheduler не запущений або помилка задачі | Перевірте `docker compose ... ps scheduler` і `logs scheduler`; штатний tick ≈15 с |
 | Після ребуту нічого не піднялось | Юніт або docker вимкнено | `systemctl enable --now elfar docker` |
 | Юніт падає з `status=200/CHDIR` | `shop` не може зайти в каталог проєкту | Перенесіть проєкт у `/opt/elfar`, див. крок 4 |
 | `Permission denied` при `git clone /opt/...` | `/opt` належить root | `sudo git clone`, далі `chown -R shop:shop` |

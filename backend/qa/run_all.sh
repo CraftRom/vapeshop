@@ -159,6 +159,7 @@ run stats-business qa/qa_stats_business.py
 run crm-terminal qa/qa_crm_terminal_outcomes.py
 run background-crm-identity qa/qa_background_crm_and_identity.py
 run salesdrive-background-batch qa/qa_salesdrive_background_batch.py
+run runtime-freshness qa/qa_runtime_freshness.py
 run auto-accept qa/qa_auto_accept.py
 run recon qa/qa_recon.py
 run alerts qa/qa_alerts.py
