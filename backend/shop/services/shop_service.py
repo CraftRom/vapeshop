@@ -488,8 +488,34 @@ async def change_order_status(
         from shop.services.order_business import state_from_legacy_status
         patch["business_state"] = state_from_legacy_status(status)
         patch["business_state_at"] = datetime.now(timezone.utc)
-    await repo.update_order(order.id, patch)
-    order.status = status
+    atomic_transition = getattr(repo, "transition_order_status_atomic", None)
+    if callable(atomic_transition):
+        result = await atomic_transition(order.id, previous, status, patch)
+    else:
+        result = None
+
+    if result is not None:
+        fresh, actual_previous, changed = result
+        if not changed:
+            if fresh is not None and fresh.status == status:
+                # Інший writer уже виконав той самий перехід. Це успішний
+                # idempotent replay, а не конфлікт.
+                order.status = fresh.status
+                order.crm_state = fresh.crm_state
+                order.business_state = fresh.business_state
+                return None
+            raise OrderStateConflict(
+                "Статус замовлення вже змінився. Оновіть дані й повторіть дію."
+            )
+        if fresh is not None:
+            order.status = fresh.status
+            order.crm_state = fresh.crm_state
+            order.business_state = fresh.business_state
+    else:
+        # Legacy/test repository compatibility. SQL production path above is
+        # compare-and-set and therefore protected from stale concurrent writes.
+        await repo.update_order(order.id, patch)
+        order.status = status
 
     if origin != "salesdrive" and crm_linked:
         _push_to_crm_soon(order.id)

@@ -60,7 +60,7 @@ export function ChatList({ config, orders, onOpen }) {
           </div>
           <div className="order-meta">
             <span className={`status-pill status-${o.status}`}>
-              {STATUS[o.status] || o.status}
+              {o.status_label || STATUS[o.status] || o.status}
             </span>
             <span className="hint num">{clock(o.created_at)}</span>
           </div>
@@ -272,7 +272,7 @@ export function ChatRoom({ config, order, onBack }) {
           Замовлення
         </button>
         <h1>Замовлення №{order.id}</h1>
-        <p>{STATUS[order.status] || order.status}</p>
+        <p>{order.status_label || STATUS[order.status] || order.status}</p>
       </div>
 
       {error && <div className="banner warn">{error}</div>}

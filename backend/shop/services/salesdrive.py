@@ -1062,6 +1062,51 @@ def _tracking_explicitly_present(data: dict) -> bool:
     return any("trackingNumber" in row for row in _delivery_rows(data))
 
 
+def _revision_time(value) -> datetime | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    normalized = raw[:-1] + "+00:00" if raw.endswith("Z") else raw
+    try:
+        parsed = datetime.fromisoformat(normalized)
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
+    except ValueError:
+        pass
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%d.%m.%Y %H:%M:%S", "%Y-%m-%d", "%d.%m.%Y"):
+        try:
+            return datetime.strptime(raw, fmt).replace(tzinfo=timezone.utc)
+        except ValueError:
+            pass
+    return None
+
+
+def _snapshot_is_older(current: dict | None, incoming: dict | None) -> bool:
+    """True only when SalesDrive gives enough metadata to prove staleness.
+
+    Webhooks and order/list reads may cross in flight. We never reject a
+    payload merely because metadata is missing; but when both revisions are
+    comparable, an older response must not roll status/tracking backwards.
+    """
+    if not isinstance(current, dict) or not isinstance(incoming, dict):
+        return False
+    try:
+        cur_ver = int(current.get("version")) if current.get("version") not in (None, "") else None
+        in_ver = int(incoming.get("version")) if incoming.get("version") not in (None, "") else None
+    except (TypeError, ValueError):
+        cur_ver = in_ver = None
+    if cur_ver is not None and in_ver is not None and cur_ver != in_ver:
+        return in_ver < cur_ver
+
+    for key in ("updateAt", "timeEntryOrder", "orderTime"):
+        cur_time = _revision_time(current.get(key))
+        in_time = _revision_time(incoming.get(key))
+        if cur_time is not None and in_time is not None and cur_time != in_time:
+            return in_time < cur_time
+    return False
+
+
 async def handle_webhook(repo, payload: dict, *, bot=None) -> dict:
     """Застосовує зміну з SalesDrive до замовлення Elfar."""
     from shop.services import order_workflow as flow
@@ -1098,6 +1143,22 @@ async def handle_webhook(repo, payload: dict, *, bot=None) -> dict:
     if crm_id and order.crm_id != crm_id:
         await repo.update_order(order.id, {"crm_id": crm_id})
         order = await repo.get_order(order.id) or order
+
+    # SalesDrive може доставити webhook із запізненням уже після новішого
+    # webhook/order-list read. Відсікаємо лише доведено старішу ревізію ДО
+    # tracking/status writes, інакше пізня доставка могла відкотити ТТН або
+    # статус на попереднє значення.
+    incoming_revision = {
+        "version": data.get("version"), "updateAt": data.get("updateAt"),
+        "timeEntryOrder": data.get("timeEntryOrder"), "orderTime": data.get("orderTime"),
+    }
+    if _snapshot_is_older(order.crm_snapshot, incoming_revision):
+        log.info(
+            "Застарілий SalesDrive webhook для замовлення %s пропущено", order.id,
+            extra={"event": "salesdrive.webhook.stale_ignored", "orderId": order.id,
+                   "crmId": crm_id, "webhookEvent": event},
+        )
+        return {"result": "ignored", "reason": "stale webhook", "orderId": order.id}
 
     applied: list[str] = []
     problems: list[str] = []
@@ -1748,6 +1809,19 @@ async def pull_order(repo, order_id: int, shop=None, *, force: bool = False, bot
             # Read-side заявки цінніший за підпис опції: при тимчасовій
             # недоступності довідників не втрачаємо сам snapshot.
             pass
+    # HTTP read виконувався поза DB lock. За цей час webhook міг уже
+    # записати новішу ревізію. Перечитуємо canonical row перед commit і не
+    # дозволяємо старій відповіді order/list затерти нові статус/ТТН.
+    latest = await repo.get_order(order.id) or order
+    if _snapshot_is_older(latest.crm_snapshot, snap):
+        log.info(
+            "Застарілий SalesDrive order/list snapshot для замовлення %s пропущено", order.id,
+            extra={"event": "salesdrive.pull.stale_ignored", "orderId": order.id,
+                   "crmId": order.crm_id},
+        )
+        return latest
+    order = latest
+
     now = datetime.now(timezone.utc)
     patch = {"crm_snapshot": snap, "crm_fetched_at": now, "crm_synced_at": now, "crm_error": None}
     if snap.get("statusId"):

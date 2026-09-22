@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { api } from './api'
+import { api, consumeOrderEvents } from './api'
 import { clientLog } from './logger'
 import { AgeGate, Catalog } from './screens/Catalog'
 import { Cart, Checkout } from './screens/Checkout'
@@ -168,7 +168,7 @@ export default function App() {
         timer = null
       }
     }
-    const schedule = (delay = 15000) => {
+    const schedule = (delay = 60000) => {
       clearTimer()
       if (!stopped && visibleAndOnline()) timer = window.setTimeout(sync, delay)
     }
@@ -214,6 +214,95 @@ export default function App() {
       window.removeEventListener('online', wake)
     }
   }, [config?.age_confirmed])
+
+  // Primary realtime path for customer-visible order state. Redis/SSE only
+  // invalidates the read-model; actual data is always re-read through the
+  // signed Mini App API. The 60s background sync above remains recovery.
+  const liveRefreshRef = useRef(false)
+  useEffect(() => {
+    if (!config?.age_confirmed) return undefined
+    let stopped = false
+    let controller = null
+    let retryTimer = null
+    let refreshTimer = null
+    let retryMs = 1000
+
+    const refreshOrderState = async () => {
+      if (stopped || liveRefreshRef.current || document.hidden || navigator.onLine === false) return
+      liveRefreshRef.current = true
+      try {
+        const [ordersResult, profileResult] = await Promise.allSettled([api.orders(), api.profile()])
+        if (stopped) return
+        if (ordersResult.status === 'fulfilled') setOrders(ordersResult.value || [])
+        if (profileResult.status === 'fulfilled') setProfile(profileResult.value)
+      } finally {
+        liveRefreshRef.current = false
+      }
+    }
+
+    const stopConnection = () => {
+      controller?.abort()
+      controller = null
+      if (retryTimer) clearTimeout(retryTimer)
+      retryTimer = null
+    }
+
+    const scheduleReconnect = () => {
+      if (stopped || document.hidden || navigator.onLine === false) return
+      if (retryTimer) clearTimeout(retryTimer)
+      retryTimer = setTimeout(connect, retryMs)
+      retryMs = Math.min(15000, retryMs * 2)
+    }
+
+    const onOrder = () => {
+      if (refreshTimer) clearTimeout(refreshTimer)
+      refreshTimer = setTimeout(() => refreshOrderState().catch(() => {}), 80)
+    }
+
+    const connect = async () => {
+      if (stopped || document.hidden || navigator.onLine === false) return
+      stopConnection()
+      controller = new AbortController()
+      try {
+        await consumeOrderEvents(onOrder, controller.signal)
+        retryMs = 1000
+      } catch (err) {
+        if (err?.name === 'AbortError' || stopped) return
+        clientLog('storefront.orders.realtime_disconnected', {
+          level: 'warning', message: err?.message || 'Realtime connection failed',
+          status: err?.status || null,
+        })
+      }
+      scheduleReconnect()
+    }
+
+    const wake = () => {
+      if (document.hidden || navigator.onLine === false) stopConnection()
+      else { retryMs = 1000; connect(); refreshOrderState().catch(() => {}) }
+    }
+
+    document.addEventListener('visibilitychange', wake)
+    window.addEventListener('online', wake)
+    window.addEventListener('offline', wake)
+    connect()
+    return () => {
+      stopped = true
+      stopConnection()
+      if (refreshTimer) clearTimeout(refreshTimer)
+      document.removeEventListener('visibilitychange', wake)
+      window.removeEventListener('online', wake)
+      window.removeEventListener('offline', wake)
+    }
+  }, [config?.age_confirmed])
+
+  // Open chat gets the same fresh object as the list/profile. Otherwise a
+  // status changed by CRM would update the list but leave the open room with
+  // the old badge until the user navigated back.
+  useEffect(() => {
+    if (!chatOrder) return
+    const fresh = orders.find((order) => order.id === chatOrder.id)
+    if (fresh && fresh !== chatOrder) setChatOrder(fresh)
+  }, [orders, chatOrder?.id])
 
   // Кнопка «Відкрити чат» у боті веде одразу на потрібну розмову.
   //
@@ -614,7 +703,7 @@ initData: ${getInitData() ? `${getInitData().length} символів` : 'пор
       )}
       {tab === 'profile' && (
         <>
-          <Profile config={config} profile={profile} />
+          <Profile config={config} profile={profile} orders={orders} onOrdersChange={setOrders} />
           {/* Збережене живе в профілі, а не окремою вкладкою: у навігації
               лишаються тільки ті розділи, куди заходять під час покупки */}
           <Wishlists

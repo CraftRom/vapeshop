@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 
 import { api } from '../api'
 import { confirm, haptic, notify, openLink } from '../telegram'
@@ -13,8 +13,7 @@ const STATUS = {
   cancelled: 'Скасовано',
 }
 
-export function Profile({ config, profile }) {
-  const [orders, setOrders] = useState(null)
+export function Profile({ config, profile, orders, onOrdersChange }) {
   const [copied, setCopied] = useState(false)
   // Номер замовлення, яке саме скасовується. Не булеве значення: із
   // кількома замовленнями на екрані треба знати, на якій саме кнопці
@@ -22,10 +21,6 @@ export function Profile({ config, profile }) {
   const [cancelling, setCancelling] = useState(null)
   const cancellingRef = useRef(null)
   const [cancelError, setCancelError] = useState('')
-
-  useEffect(() => {
-    api.orders().then(setOrders).catch(() => setOrders([]))
-  }, [])
 
   const cancel = async (order) => {
     // Ref ставимо ДО confirm(): два дуже швидкі тапи інакше відкривають
@@ -45,7 +40,7 @@ export function Profile({ config, profile }) {
 
       setCancelError('')
       const data = await api.cancelOrder(order.id)
-      setOrders(data.orders)
+      onOrdersChange?.(data.orders || [])
       notify('success')
     } catch (err) {
       // Найчастіша причина — менеджер устиг узяти замовлення в роботу
@@ -195,7 +190,7 @@ export function Profile({ config, profile }) {
                 шукають очима, коли відкривають історію. */}
             <div className="order-meta">
               <span className={`status-pill status-${o.status}`}>
-                {STATUS[o.status] || o.status}
+                {o.status_label || STATUS[o.status] || o.status}
               </span>
               <span className="hint num">
                 {new Date(o.created_at).toLocaleDateString('uk-UA')}

@@ -6,6 +6,7 @@ from api.auth import Principal, require_staff
 from api.schemas import CustomerOut, CustomerPatch
 from shop.repo.base import Repository
 from shop.repo.factory import get_repo
+from shop.services import order_business
 
 router = APIRouter(dependencies=[Depends(require_staff)])
 
@@ -76,7 +77,9 @@ async def customer_orders(customer_id: int, repo: Repository = Depends(get_repo)
         {
             "id": o.id, "status": o.status.value, "total": o.total,
             "crm_id": o.crm_id, "crm_status_id": o.crm_status_id,
-            "crm_status_name": o.crm_status_name, "crm_fetched_at": o.crm_fetched_at,
+            "crm_status_name": order_business.effective_crm_status_name(o) or None,
+            "business_state": order_business.derive_business_state(o),
+            "crm_fetched_at": o.crm_fetched_at,
             "created_at": o.created_at,
             "items": [{"name": ln.name, "qty": ln.qty, "price": ln.price} for ln in o.items],
         }

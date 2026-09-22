@@ -10,7 +10,7 @@ from api.auth import authenticate, create_token, Principal, require_sysadmin
 from api.routers import (
     backups as backups_router, broadcasts, catalog, customers,
     logs as logs_router, media as media_router,
-    integrations, orders, promos, support, notifications,
+    integrations, orders, promos, support, notifications, realtime,
     settings as settings_router, operators, shop as shop_router, stats, telegram,
 )
 from api.schemas import LoginIn, TokenOut
@@ -83,7 +83,7 @@ app = FastAPI(
     title=f"{settings.shop_name} — Dashboard API",
     # Версія API піднімається разом зі змінами read/write контракту.
     # 1.10: актуальна нормалізація доставки SalesDrive order/list.
-    version="1.14.4",
+    version="1.14.5",
     lifespan=lifespan,
     docs_url="/docs" if _docs_on else None,
     redoc_url=None,
@@ -236,6 +236,7 @@ app.include_router(catalog.router, prefix="/api/catalog", tags=["catalog"])
 app.include_router(orders.router, prefix="/api/orders", tags=["orders"])
 app.include_router(support.router, prefix="/api/support", tags=["support"])
 app.include_router(notifications.router, prefix="/api/notifications", tags=["notifications"])
+app.include_router(realtime.router, prefix="/api/realtime", tags=["realtime"])
 app.include_router(customers.router, prefix="/api/customers", tags=["customers"])
 app.include_router(promos.router, prefix="/api/promos", tags=["promos"])
 app.include_router(broadcasts.router, prefix="/api/broadcasts", tags=["broadcasts"])

@@ -123,6 +123,51 @@ async function request(path, { method = 'GET', body } = {}) {
   throw new Error('Не вдалося виконати запит')
 }
 
+function parseEventBlock(block) {
+  let event = 'message'
+  const data = []
+  for (const line of block.split('\n')) {
+    if (line.startsWith('event:')) event = line.slice(6).trim()
+    if (line.startsWith('data:')) data.push(line.slice(5).trimStart())
+  }
+  if (!data.length) return null
+  try { return { event, payload: JSON.parse(data.join('\n')) } } catch { return null }
+}
+
+export async function consumeOrderEvents(onOrder, signal) {
+  const initData = getInitData()
+  if (!initData) throw new Error('Telegram initData відсутній')
+  const res = await fetch(`${BASE}/orders/stream`, {
+    headers: {
+      Accept: 'text/event-stream',
+      'X-Telegram-Init-Data': initData,
+    },
+    cache: 'no-store',
+    signal,
+  })
+  if (!res.ok || !res.body) {
+    const error = new Error(await responseDetail(res))
+    error.status = res.status
+    throw error
+  }
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  while (!signal?.aborted) {
+    const { value, done } = await reader.read()
+    if (done) return
+    buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, '\n')
+    let boundary = buffer.indexOf('\n\n')
+    while (boundary >= 0) {
+      const block = buffer.slice(0, boundary)
+      buffer = buffer.slice(boundary + 2)
+      boundary = buffer.indexOf('\n\n')
+      const parsed = parseEventBlock(block)
+      if (parsed?.event === 'order') onOrder(parsed.payload)
+    }
+  }
+}
+
 export const api = {
   config: () => request('/config'),
   // Стартові дані одним запитом — замість шести окремих

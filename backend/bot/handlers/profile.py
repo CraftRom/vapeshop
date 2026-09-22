@@ -6,7 +6,8 @@ from aiogram.types import CallbackQuery, Message
 from bot import keyboards as kb
 from shop.links import app_link
 from shop.services.shop_settings import get_shop_settings
-from shop.entities import STATUS_LABELS, User
+from shop.entities import User
+from shop.services import order_business
 from shop.repo.base import Repository
 
 router = Router()
@@ -67,7 +68,7 @@ async def my_orders(callback: CallbackQuery, repo: Repository, user: User) -> No
     for order in orders:
         items = ", ".join(f"{ln.name} ×{ln.qty}" for ln in order.items)
         lines.append(
-            f"<b>№{order.id}</b> — {STATUS_LABELS.get(order.status, order.status.value)}\n"
+            f"<b>№{order.id}</b> — {order_business.display_status_label(order)}\n"
             f"{order.created_at:%d.%m.%Y} · {order.total:.0f} {shop.currency}\n"
             f"<i>{items}</i>\n"
         )

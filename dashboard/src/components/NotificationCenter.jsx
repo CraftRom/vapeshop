@@ -694,6 +694,23 @@ export function NotificationCenter() {
   }, [poll])
 
   useEffect(() => {
+    let timer = null
+    const onOrderChanged = (event) => {
+      if (event.detail?.kind !== 'order.created') return
+      if (timer) clearTimeout(timer)
+      // Order commit happens immediately before the persisted panel
+      // notification is written. A short delay lets that transaction finish
+      // and still removes the former 10s notification/sound latency.
+      timer = setTimeout(() => poll().catch(() => {}), 250)
+    }
+    window.addEventListener('elfar:orders:changed', onOrderChanged)
+    return () => {
+      if (timer) clearTimeout(timer)
+      window.removeEventListener('elfar:orders:changed', onOrderChanged)
+    }
+  }, [poll])
+
+  useEffect(() => {
     if (!open) return
     // При відкритті беремо повний список: інша вкладка могла прочитати події.
     fullRefresh().catch(() => {})

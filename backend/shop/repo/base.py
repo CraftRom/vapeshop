@@ -208,6 +208,19 @@ class Repository(ABC):
     @abstractmethod
     async def update_order(self, order_id: int, data: dict) -> Order | None: ...
 
+    async def transition_order_status_atomic(
+        self, order_id: int, expected_status: OrderStatus, target_status: OrderStatus,
+        patch: dict | None = None,
+    ):
+        """Опційний CAS-перехід статусу під lock рядка.
+
+        Повертає ``(order, previous_status, changed)``. ``None`` означає,
+        що repository не підтримує атомарний шлях і сервіс має використати
+        сумісний fallback. Очікуваний статус не дає stale webhook/UI затерти
+        уже новіший стан замовлення.
+        """
+        return None
+
     async def cancel_order_atomic(
         self, order_id: int, expected_status: OrderStatus, *, mark_crm_pending: bool = False,
     ):

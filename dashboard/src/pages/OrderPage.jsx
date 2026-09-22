@@ -1256,7 +1256,21 @@ export default function OrderPage() {
     const fresh = await api.orders.get(id)
     applyFreshOrder(fresh)
   }, [id, applyFreshOrder])
-  useVisiblePolling(refreshLocalOrder, 10000)
+  useVisiblePolling(refreshLocalOrder, 60000)
+
+  useEffect(() => {
+    let timer = null
+    const onOrderChanged = (event) => {
+      if (String(event.detail?.orderId ?? '') !== String(id)) return
+      if (timer) clearTimeout(timer)
+      timer = setTimeout(() => refreshLocalOrder().catch(() => {}), 80)
+    }
+    window.addEventListener('elfar:orders:changed', onOrderChanged)
+    return () => {
+      if (timer) clearTimeout(timer)
+      window.removeEventListener('elfar:orders:changed', onOrderChanged)
+    }
+  }, [id, refreshLocalOrder])
 
   // Прийшли зі списку по кнопці «Відпр.» — одразу питаємо накладну
   useEffect(() => {

@@ -4,6 +4,7 @@ import { api } from '../api'
 import { useFilters } from '../components/useFilters'
 import { OrderStatusBadge } from '../components/OrderStatus'
 import { Empty, ErrorBar, Field, Loading, Modal, date, money, useToast } from '../components/ui'
+import { useVisiblePolling } from '../components/useVisiblePolling'
 
 function BonusForm({ customer, onClose, onSaved }) {
   const notify = useToast()
@@ -66,13 +67,31 @@ function CustomerOrders({ customer, onClose }) {
   const [orders, setOrders] = useState(null)
   const [saved, setSaved] = useState(null)
 
-  useEffect(() => {
+  const loadOrders = useCallback(() => (
     api.customers.orders(customer.id).then(setOrders).catch(() => setOrders([]))
+  ), [customer.id])
+
+  useEffect(() => {
+    loadOrders()
     // Відкладене вантажимо поруч із замовленнями: менеджер відкриває
     // картку клієнта саме тоді, коли з ним говорить, і питання «те, що я
     // відкладав» приходить у тій самій розмові.
     api.customers.wishlists(customer.id).then(setSaved).catch(() => setSaved([]))
-  }, [customer.id])
+  }, [customer.id, loadOrders])
+
+  useEffect(() => {
+    let timer = null
+    const onOrderChanged = (event) => {
+      if (Number(event.detail?.userId) !== Number(customer.id)) return
+      if (timer) clearTimeout(timer)
+      timer = setTimeout(loadOrders, 100)
+    }
+    window.addEventListener('elfar:orders:changed', onOrderChanged)
+    return () => {
+      if (timer) clearTimeout(timer)
+      window.removeEventListener('elfar:orders:changed', onOrderChanged)
+    }
+  }, [customer.id, loadOrders])
 
   return (
     <Modal title={`Замовлення: ${customer.first_name || customer.tg_id}`} onClose={onClose}>
@@ -158,6 +177,20 @@ export default function Customers() {
     const timer = setTimeout(load, search ? 350 : 0)
     return () => clearTimeout(timer)
   }, [load, search])
+  useVisiblePolling(load, 60000)
+
+  useEffect(() => {
+    let timer = null
+    const onOrderChanged = () => {
+      if (timer) clearTimeout(timer)
+      timer = setTimeout(() => load(), 150)
+    }
+    window.addEventListener('elfar:orders:changed', onOrderChanged)
+    return () => {
+      if (timer) clearTimeout(timer)
+      window.removeEventListener('elfar:orders:changed', onOrderChanged)
+    }
+  }, [load])
 
   const toggleBlock = async (customer) => {
     try {

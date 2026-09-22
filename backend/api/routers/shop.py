@@ -9,25 +9,30 @@
 """
 from __future__ import annotations
 
+import json
 import logging
+import time
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, Response, Request, Query
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, Response, Request, Query, Header
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from api.schemas import CategoryOut, ProductOut
 from shop.links import app_link
-from api.webapp_auth import require_webapp_user
+from api.webapp_auth import InitDataError, parse_init_data, require_webapp_user
 from shop.entities import OrderStatus, User
 from shop.repo.base import Repository
-from shop.repo.factory import get_repo
+from shop.repo.factory import get_repo, open_repo
 from shop.services import novaposhta as np
 from shop.services import order_chat as svc_chat
+from shop.services import order_business as order_business
 from shop.services import shop_service as svc
 from shop.services.identity import contains_telegram_handle, safe_telegram_first_name
 from shop.services.notifications import notify_cancelled_by_client, notify_new_order
 from shop.services import wishlist as wl
 from shop.services.shop_settings import get_shop_settings
+from shop.config import settings
 
 log = logging.getLogger(__name__)
 
@@ -924,10 +929,21 @@ async def order_chat_send(
 
 async def _orders_payload(repo: Repository, user_id: int) -> list[dict]:
     orders = await repo.list_orders(user_id=user_id, limit=20)
-    return [
-        {
-            "id": o.id, "status": o.status.value, "total": o.total,
-            "created_at": o.created_at,
+    result = []
+    for o in orders:
+        crm_name = order_business.effective_crm_status_name(o)
+        crm_authority = order_business.has_crm_authority(o)
+        if crm_authority:
+            display_status = order_business.display_status_label(o)
+            status_source = "crm"
+        else:
+            display_status = order_business.display_status_label(o)
+            status_source = "local"
+        result.append({
+            "id": o.id, "status": o.status.value, "status_label": display_status,
+            "status_source": status_source, "crm_status_id": o.crm_status_id,
+            "crm_status_name": crm_name or None, "business_state": order_business.derive_business_state(o),
+            "total": o.total, "created_at": o.created_at,
             "operator_name": o.operator_name,
             "tracking_number": o.tracking_number,
             "is_open": o.status in svc_chat.OPEN_STATUSES,
@@ -936,9 +952,8 @@ async def _orders_payload(repo: Repository, user_id: int) -> list[dict]:
             # маршруту статусів.
             "can_cancel": o.status in SELF_CANCELLABLE,
             "items": [{"name": i.name, "qty": i.qty, "price": i.price} for i in o.items],
-        }
-        for o in orders
-    ]
+        })
+    return result
 
 
 @router.get("/orders")
@@ -947,6 +962,52 @@ async def my_orders(
 ):
     _require_age(user)
     return await _orders_payload(repo, user.id)
+
+
+@router.get("/orders/stream")
+async def my_order_stream(x_telegram_init_data: str = Header(default="")):
+    """Realtime invalidation stream for the signed-in Mini App customer.
+
+    Authentication is verified before the stream starts and the DB session is
+    closed immediately; we do not hold a SQL connection for a long-lived SSE
+    response. The stream carries only IDs/change hints. Full order data still
+    comes from the ordinary signed endpoints.
+    """
+    try:
+        init = parse_init_data(x_telegram_init_data, settings.bot_token)
+    except InitDataError as exc:
+        raise HTTPException(401, str(exc))
+    tg_id = (init.get("user") or {}).get("id")
+    if not tg_id:
+        raise HTTPException(401, "У initData немає користувача")
+    async with open_repo() as repo:
+        user = await repo.get_user_by_tg(int(tg_id))
+        if not user:
+            raise HTTPException(401, "Користувача не знайдено")
+        if user.is_blocked:
+            raise HTTPException(403, "Доступ обмежено")
+        user_id = int(user.id)
+
+    from shop.services.realtime import subscribe_order_events
+
+    async def events():
+        started = time.monotonic()
+        yield "event: ready\ndata: {}\n\n"
+        async for payload in subscribe_order_events():
+            if time.monotonic() - started > 300:
+                yield "event: reconnect\ndata: {}\n\n"
+                return
+            if payload is None:
+                yield ": heartbeat\n\n"
+                continue
+            if int(payload.get("userId") or 0) != user_id:
+                continue
+            yield "event: order\ndata: " + json.dumps(payload, ensure_ascii=False) + "\n\n"
+
+    return StreamingResponse(
+        events(), media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache, no-store", "X-Accel-Buffering": "no", "Connection": "keep-alive"},
+    )
 
 
 # Статуси, з яких покупець скасовує сам.

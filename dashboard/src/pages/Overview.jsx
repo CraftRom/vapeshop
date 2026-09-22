@@ -1,9 +1,10 @@
-import { Suspense, lazy, useEffect, useState } from 'react'
+import { Suspense, lazy, useCallback, useEffect, useState } from 'react'
 
 import { api } from '../api'
 import { STATUS_LABELS } from '../components/StatusRail'
 import { StatusBadge } from '../components/OrderStatus'
 import { ErrorBar, Loading, money } from '../components/ui'
+import { useVisiblePolling } from '../components/useVisiblePolling'
 
 const RevenueChart = lazy(() => import('../components/RevenueChart'))
 
@@ -132,26 +133,39 @@ export default function Overview() {
   const [data, setData] = useState(null)
   const [error, setError] = useState('')
 
-  useEffect(() => {
-    let cancelled = false
-    setData(null)
+  const load = useCallback(async ({ skeleton = false } = {}) => {
+    if (skeleton) setData(null)
     setError('')
-
-    Promise.all([
-      api.stats.summary(period),
-      api.stats.series(period),
-      api.stats.topProducts(period),
-      api.stats.breakdown(period),
-      api.stats.byOperator(period),
-      api.stats.insights(period),
-    ])
-      .then(([summary, series, top, breakdown, operators, insights]) => {
-        if (!cancelled) setData({ summary, series, top, breakdown, operators, insights })
-      })
-      .catch((err) => !cancelled && setError(err.message))
-
-    return () => { cancelled = true }
+    try {
+      const [summary, series, top, breakdown, operators, insights] = await Promise.all([
+        api.stats.summary(period),
+        api.stats.series(period),
+        api.stats.topProducts(period),
+        api.stats.breakdown(period),
+        api.stats.byOperator(period),
+        api.stats.insights(period),
+      ])
+      setData({ summary, series, top, breakdown, operators, insights })
+    } catch (err) {
+      setError(err.message)
+    }
   }, [period])
+
+  useEffect(() => { load({ skeleton: true }) }, [load])
+  useVisiblePolling(load, 60000)
+
+  useEffect(() => {
+    let timer = null
+    const onOrderChanged = () => {
+      if (timer) clearTimeout(timer)
+      timer = setTimeout(() => load(), 150)
+    }
+    window.addEventListener('elfar:orders:changed', onOrderChanged)
+    return () => {
+      if (timer) clearTimeout(timer)
+      window.removeEventListener('elfar:orders:changed', onOrderChanged)
+    }
+  }, [load])
 
   const activity = data?.insights?.activity || {}
   const caption = period === 'all' ? 'за весь час' : periodCaption(data?.insights)

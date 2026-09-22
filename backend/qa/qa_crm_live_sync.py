@@ -153,7 +153,7 @@ checks = {
     "order page sends messages without broad page reload": "onSent={appendSentMessage}" in page,
     "messages and order data poll independently": (
         "useVisiblePolling(pollMessages, 5000)" in page
-        and "useVisiblePolling(refreshLocalOrder, 10000)" in page
+        and "useVisiblePolling(refreshLocalOrder, 60000)" in page
     ),
     "message polling has an after_id delta API": (
         "after_id: int | None = Query(None, ge=0)" in orders_api

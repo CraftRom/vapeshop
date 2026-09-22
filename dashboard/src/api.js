@@ -86,6 +86,46 @@ export async function authorizedFetch(url, options = {}, timeoutMs = REQUEST_TIM
   }
 }
 
+export async function consumeOrderEvents(onOrder, signal) {
+  const token = getToken()
+  if (!token) throw new ApiError('Сесія завершилась', 401)
+  const url = new URL(`${BASE}/realtime/orders`, window.location.origin)
+  const response = await fetch(url, {
+    headers: { Accept: 'text/event-stream', Authorization: `Bearer ${token}` },
+    cache: 'no-store',
+    signal,
+  })
+  if (response.status === 401) {
+    clearToken()
+    window.location.href = '/login'
+    throw new ApiError('Сесія завершилась', 401)
+  }
+  if (!response.ok || !response.body) throw new ApiError(`Realtime HTTP ${response.status}`, response.status)
+
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  while (!signal?.aborted) {
+    const { value, done } = await reader.read()
+    if (done) return
+    buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, '\n')
+    let boundary = buffer.indexOf('\n\n')
+    while (boundary >= 0) {
+      const raw = buffer.slice(0, boundary)
+      buffer = buffer.slice(boundary + 2)
+      boundary = buffer.indexOf('\n\n')
+      let event = 'message'
+      const data = []
+      for (const line of raw.split('\n')) {
+        if (line.startsWith('event:')) event = line.slice(6).trim()
+        if (line.startsWith('data:')) data.push(line.slice(5).trimStart())
+      }
+      if (event !== 'order' || !data.length) continue
+      try { onOrder(JSON.parse(data.join('\n'))) } catch { /* malformed live frame: skip */ }
+    }
+  }
+}
+
 async function request(path, { method = 'GET', body, params } = {}) {
   const url = new URL(`${BASE}${path}`, window.location.origin)
   if (params) {

@@ -27,6 +27,26 @@ SHIPPED_SQL = [OrderStatus.SHIPPED, OrderStatus.DONE]
 SHIPPED_VALUES = frozenset(status.value for status in SHIPPED_SQL)
 
 
+def _emit_order_changed(order, fields=(), *, created: bool = False) -> None:
+    """Best-effort realtime signal AFTER the DB transaction is committed.
+
+    Redis/pubsub is deliberately not part of the transaction: a temporary
+    Redis outage must never roll back a valid order. Open pages always have
+    quota-safe polling as a fallback.
+    """
+    if order is None:
+        return
+    try:
+        from shop.services.realtime import emit_order_changed
+        emit_order_changed(
+            int(order.id), user_id=int(order.user_id),
+            fields=tuple(str(x) for x in fields), created=created,
+        )
+    except Exception:
+        # Realtime is an acceleration path, never a source of truth.
+        return
+
+
 def _change(now: Decimal, before: Decimal) -> float | None:
     """Зміна у відсотках до попереднього періоду.
 
@@ -446,7 +466,9 @@ class SqlRepository(Repository):
                 select(m.Order).where(m.Order.id == order_id)
                 .options(selectinload(m.Order.items), selectinload(m.Order.user))
             )
-            return _order(loaded, with_user=True)
+            fresh = _order(loaded, with_user=True)
+            _emit_order_changed(fresh, ("business_state",))
+            return fresh
         except Exception:
             await self.s.rollback()
             raise
@@ -743,7 +765,9 @@ class SqlRepository(Repository):
         loaded = await self.s.scalar(
             select(m.Order).where(m.Order.id == row.id).options(selectinload(m.Order.items))
         )
-        return _order(loaded)
+        created = _order(loaded)
+        _emit_order_changed(created, ("status", "business_state", "crm_state"), created=True)
+        return created
 
     async def create_checkout_order_atomic(
         self, order: Order, lines: list[OrderLine], *, promo_id: int | None = None,
@@ -919,7 +943,9 @@ class SqlRepository(Repository):
             select(m.Order).where(m.Order.id == row.id)
             .options(selectinload(m.Order.items), selectinload(m.Order.user))
         )
-        return _order(loaded, with_user=True), "created"
+        created = _order(loaded, with_user=True)
+        _emit_order_changed(created, ("status", "business_state", "crm_state"), created=True)
+        return created, "created"
 
     async def get_order(self, order_id) -> Order | None:
         row = await self.s.scalar(
@@ -1039,7 +1065,77 @@ class SqlRepository(Repository):
             await self._apply_business_state_row(row, next_state, moment)
 
         await self.s.commit()
-        return _order(row, with_user=True)
+        updated = _order(row, with_user=True)
+        changed_fields = set(str(k) for k in data.keys())
+        if "crm_status_name" in data or "business_state" in data:
+            changed_fields.add("business_state")
+        _emit_order_changed(updated, changed_fields)
+        return updated
+
+    async def transition_order_status_atomic(
+        self, order_id: int, expected_status: OrderStatus, target_status: OrderStatus,
+        patch: dict | None = None,
+    ):
+        """Compare-and-set local workflow status under a row lock.
+
+        All status writers (panel, bot, SalesDrive progression) can race.
+        Checking the expected value in the same transaction prevents a stale
+        request from moving the order backwards after a newer writer committed.
+        """
+        patch = dict(patch or {})
+        try:
+            row = await self.s.scalar(
+                select(m.Order).where(m.Order.id == order_id).with_for_update()
+                .options(selectinload(m.Order.items), selectinload(m.Order.user))
+            )
+            if not row:
+                await self.s.rollback()
+                return None, expected_status, False
+
+            current = OrderStatus(row.status.value)
+            if current != expected_status:
+                fresh = _order(row, with_user=True)
+                await self.s.rollback()
+                return fresh, current, False
+            if current == target_status:
+                fresh = _order(row, with_user=True)
+                await self.s.rollback()
+                return fresh, current, False
+
+            previous_crm_status_id = str(row.crm_status_id or "")
+            requested_business_state = patch.get("business_state") if "business_state" in patch else None
+            requested_business_at = patch.get("business_state_at") if "business_state_at" in patch else None
+            row.status = m.OrderStatus(target_status.value)
+            for key, value in patch.items():
+                if key in {"status", "business_state", "business_state_at"}:
+                    continue
+                setattr(row, key, value)
+
+            next_state = requested_business_state
+            if "crm_status_name" in patch:
+                next_state = business.state_from_crm_status_name(patch.get("crm_status_name"))
+                incoming_id = str(patch.get("crm_status_id") or row.crm_status_id or "")
+                if next_state is None and "crm_status_id" in patch and incoming_id != previous_crm_status_id:
+                    next_state = business.BUSINESS_PENDING
+            if next_state is not None:
+                await self._apply_business_state_row(
+                    row, next_state, requested_business_at or datetime.now(timezone.utc)
+                )
+
+            await self.s.commit()
+            loaded = await self.s.scalar(
+                select(m.Order).where(m.Order.id == order_id)
+                .options(selectinload(m.Order.items), selectinload(m.Order.user))
+            )
+            fresh = _order(loaded, with_user=True)
+            fields = set(str(k) for k in patch.keys()) | {"status"}
+            if "crm_status_name" in patch or "business_state" in patch:
+                fields.add("business_state")
+            _emit_order_changed(fresh, fields)
+            return fresh, current, True
+        except Exception:
+            await self.s.rollback()
+            raise
 
     async def cancel_order_atomic(
         self, order_id: int, expected_status: OrderStatus, *, mark_crm_pending: bool = False,
@@ -1116,7 +1212,11 @@ class SqlRepository(Repository):
                 select(m.Order).where(m.Order.id == order_id)
                 .options(selectinload(m.Order.items), selectinload(m.Order.user))
             )
-            return _order(loaded, with_user=True), current, True
+            fresh = _order(loaded, with_user=True)
+            _emit_order_changed(
+                fresh, ("status", "crm_state", "business_state", "stock", "bonus_balance")
+            )
+            return fresh, current, True
         except Exception:
             await self.s.rollback()
             raise

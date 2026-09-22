@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from shop.entities import OrderStatus
+from shop.entities import OrderStatus, STATUS_LABELS
 
 BUSINESS_PENDING = "pending"
 BUSINESS_SALE = "sale"
@@ -98,6 +98,24 @@ def effective_crm_status_name(order) -> str:
     if isinstance(snapshot, dict):
         return str(snapshot.get("statusName") or "").strip()
     return ""
+
+
+def display_status_label(order) -> str:
+    """Human-readable status shared by customer-facing surfaces.
+
+    For SalesDrive-linked orders CRM is the display authority. Local status
+    remains the internal workflow and must not leak as a contradictory label
+    when CRM already reports another state.
+    """
+    if has_crm_authority(order):
+        crm_name = effective_crm_status_name(order)
+        if crm_name:
+            return crm_name
+        crm_id = str(getattr(order, "crm_status_id", None) or "").strip()
+        if crm_id:
+            return f"CRM #{crm_id}"
+    status = getattr(order, "status", None)
+    return STATUS_LABELS.get(status, getattr(status, "value", str(status or "")))
 
 
 def derive_business_state(order) -> str:

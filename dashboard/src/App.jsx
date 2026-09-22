@@ -6,6 +6,7 @@ import { APP_VERSION } from './version'
 import { Loading, ToastProvider } from './components/ui'
 import { useVisiblePolling } from './components/useVisiblePolling'
 import { NotificationCenter } from './components/NotificationCenter'
+import { RealtimeOrders } from './components/RealtimeOrders'
 import Login from './pages/Login'
 
 // Позначка одноразового перезавантаження після оновлення панелі.
@@ -172,6 +173,21 @@ function Shell({ children }) {
   // оновить їх одразу, а в background узагалі не триматиме таймер.
   useVisiblePolling(pollBadges, 60000, { immediate: true })
 
+  // Live order changes invalidate the cheap sidebar counters immediately.
+  // The 60s poll stays only as recovery after Redis/network interruptions.
+  useEffect(() => {
+    let timer = null
+    const onOrderChanged = () => {
+      if (timer) clearTimeout(timer)
+      timer = setTimeout(() => pollBadges().catch(() => {}), 120)
+    }
+    window.addEventListener('elfar:orders:changed', onOrderChanged)
+    return () => {
+      if (timer) clearTimeout(timer)
+      window.removeEventListener('elfar:orders:changed', onOrderChanged)
+    }
+  }, [pollBadges])
+
   const logout = () => {
     clearToken()
     navigate('/login')
@@ -179,6 +195,7 @@ function Shell({ children }) {
 
   return (
     <div className="shell">
+      <RealtimeOrders />
       <aside className={`sidebar ${mobileNavOpen ? 'nav-open' : ''}`}>
         <div className="sidebar-head">
           <div className="brand" title="Панель магазину">

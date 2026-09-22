@@ -385,13 +385,29 @@ export default function Orders() {
   useVisiblePolling(loadUnread, 10000, { immediate: true })
   // Webhook оновлює crm_status_* у backend; список підтягує ці зміни без
   // перезавантаження сторінки. На прихованій вкладці polling зупиняється.
-  useVisiblePolling(load, 15000)
+  useVisiblePolling(load, 60000)
   // Назви/набір статусів теж належать CRM. Вони змінюються рідко, тому
   // перечитуємо довідник окремо раз на 5 хвилин і одразу після повернення
   // на вкладку, не збільшуючи частоту важчого order-list API.
   useVisiblePolling(loadCrmStatuses, 300000)
 
-  // NotificationCenter бачить нову серверну подію швидше за 15-секундний
+  // Primary path: backend commit -> Redis -> authenticated SSE -> canonical
+  // list reload. A tiny debounce collapses a multi-field CRM transition into
+  // one request instead of refetching for every internal UPDATE.
+  useEffect(() => {
+    let timer = null
+    const onOrderChanged = () => {
+      if (timer) clearTimeout(timer)
+      timer = setTimeout(() => load(), 100)
+    }
+    window.addEventListener('elfar:orders:changed', onOrderChanged)
+    return () => {
+      if (timer) clearTimeout(timer)
+      window.removeEventListener('elfar:orders:changed', onOrderChanged)
+    }
+  }, [load])
+
+  // NotificationCenter remains a second independent invalidation path for
   // safety poll списку. Використовуємо її лише як invalidation-сигнал і
   // перечитуємо API — payload toast-а ніколи не стає джерелом order data.
   useEffect(() => {

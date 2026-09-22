@@ -13,13 +13,14 @@ from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
-from shop.entities import STATUS_LABELS, User
+from shop.entities import User
 from shop.repo.base import Repository
 from bot import faq
 from bot import keyboards as kb
 from shop.services import order_chat as chat
 from shop.services import support_chat as support
 from shop.services.shop_settings import get_shop_settings
+from shop.services import order_business
 
 router = Router(name="chat")
 
@@ -142,7 +143,7 @@ async def switch_order(message: Message, repo: Repository, user: User) -> None:
         mark = " ← обрано" if o.id == user.chat_order_id else ""
         operator = f" · {o.operator_name}" if o.operator_name else ""
         lines.append(
-            f"№{o.id} — {o.total:.0f} · {STATUS_LABELS.get(o.status, o.status)}{operator}{mark}"
+            f"№{o.id} — {o.total:.0f} · {order_business.display_status_label(o)}{operator}{mark}"
         )
     lines.append("\nОберіть, про яке замовлення писати:")
 
