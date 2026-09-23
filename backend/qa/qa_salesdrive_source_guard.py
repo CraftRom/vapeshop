@@ -11,7 +11,7 @@ checks = {
     'конфіг має form id': 'salesdrive_telegram_form_id: int = 0' in config,
     'відправка fail-closed без form id': 'Не вказано ID форми SalesDrive' in sd,
     'webhook звіряє formId': 'int(data.get("formId")) == expected' in sd,
-    'webhook звіряє account': 'account != (shop.salesdrive_domain or "").strip().lower()' in sd,
+    'webhook звіряє account': ('def _webhook_account_matches' in sd and 'expected_account = (shop.salesdrive_domain or "").strip().lower()' in sd and 'account == expected_account' in sd),
 }
 failed = [name for name, ok in checks.items() if not ok]
 for name, ok in checks.items(): print(('✓' if ok else '✗'), name)

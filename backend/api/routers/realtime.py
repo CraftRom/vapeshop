@@ -45,7 +45,7 @@ async def order_events(_who: Principal = Depends(require_staff)):
         generate(),
         media_type="text/event-stream",
         headers={
-            "Cache-Control": "no-cache, no-store",
+            "Cache-Control": "no-cache, no-store, no-transform",
             "X-Accel-Buffering": "no",
             "Connection": "keep-alive",
         },

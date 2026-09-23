@@ -152,7 +152,7 @@ export default function Overview() {
   }, [period])
 
   useEffect(() => { load({ skeleton: true }) }, [load])
-  useVisiblePolling(load, 60000)
+  useVisiblePolling(load, 30000)
 
   useEffect(() => {
     let timer = null

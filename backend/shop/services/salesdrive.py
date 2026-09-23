@@ -108,20 +108,50 @@ def telegram_form_id(shop) -> int:
         return 0
 
 
+def _webhook_account_matches(payload: dict, shop) -> bool:
+    """Fail closed when SalesDrive explicitly names another account."""
+    info = payload.get("info") if isinstance(payload.get("info"), dict) else {}
+    account = str(info.get("account") or "").strip().lower()
+    expected_account = (shop.salesdrive_domain or "").strip().lower()
+    return not account or bool(expected_account and account == expected_account)
+
+
 def source_matches(payload: dict, shop) -> bool:
     """Webhook належить саме нашому акаунту і базі «ELFAR — Telegram Bot»."""
     expected = telegram_form_id(shop)
-    if expected <= 0:
+    if expected <= 0 or not _webhook_account_matches(payload, shop):
         return False
-    info = payload.get("info") if isinstance(payload.get("info"), dict) else {}
     data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
-    account = str(info.get("account") or "").strip().lower()
-    if account and account != (shop.salesdrive_domain or "").strip().lower():
-        return False
     try:
         return int(data.get("formId")) == expected
     except (TypeError, ValueError):
         return False
+
+
+def webhook_source_matches(payload: dict, shop, order=None) -> bool:
+    """Strict source check with a safe compatibility path for linked orders.
+
+    ``formId`` is documented by SalesDrive, but old/partial webhook templates
+    can omit it. Rejecting such an event before looking up ``data[id]`` caused
+    exactly the worst failure mode for the panel: CRM changed, local DB stayed
+    stale, and opening the order card appeared to "fix" it by doing a manual
+    order-list read.
+
+    The webhook URL itself is authenticated by a long random token. After that
+    we accept a missing/mismatched form only when ``data[id]`` is already bound
+    to this exact local order and the account (when present) matches our CRM.
+    This does not import foreign/manual CRM orders and does not weaken the
+    boundary for unknown IDs.
+    """
+    if not _webhook_account_matches(payload, shop):
+        return False
+    if source_matches(payload, shop):
+        return True
+    if order is None:
+        return False
+    data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+    crm_id = str(data.get("id") or "").strip()
+    return bool(crm_id and str(getattr(order, "crm_id", "") or "").strip() == crm_id)
 
 
 # ------------------------------------------------------------- відповідності
@@ -1113,16 +1143,16 @@ async def handle_webhook(repo, payload: dict, *, bot=None) -> dict:
     from shop.services.shop_settings import get_shop_settings
 
     shop = await get_shop_settings(repo)
-    if not source_matches(payload, shop):
-        log.warning("Webhook SalesDrive відхилено: інша або невідома база заявок",
-                    extra={"event": "salesdrive.webhook.wrong_source",
-                           "expectedFormId": telegram_form_id(shop)})
-        return {"result": "ignored", "reason": "інша база заявок SalesDrive"}
     info = payload.get("info") if isinstance(payload.get("info"), dict) else {}
     data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
     event = str(info.get("webhookEvent") or "")
     crm_id = str(data.get("id") or "").strip()
 
+    # First resolve the already linked order. A strict formId-only check before
+    # this lookup made valid status_change webhooks from partial/legacy webhook
+    # templates disappear, leaving the list stale until OrderPage forced a CRM
+    # read. Known CRM IDs are safe to use as a compatibility guard because the
+    # secret webhook token is verified by the router before we get here.
     order = await repo.find_order_by_crm_id(crm_id) if crm_id else None
     external = str(data.get("externalId") or "").strip()
     if not order and external.isdigit():
@@ -1132,6 +1162,16 @@ async def handle_webhook(repo, payload: dict, *, bot=None) -> dict:
         # creating/failed/uncertain/synced) або мати crm_id.
         if candidate and (candidate.crm_id or candidate.crm_state):
             order = candidate
+
+    if not webhook_source_matches(payload, shop, order):
+        log.warning(
+            "Webhook SalesDrive відхилено: інша/невідома база або акаунт",
+            extra={"event": "salesdrive.webhook.wrong_source",
+                   "expectedFormId": telegram_form_id(shop), "crmId": crm_id,
+                   "webhookEvent": event},
+        )
+        return {"result": "ignored", "reason": "інша база заявок SalesDrive"}
+
     if not order:
         # Заявки, створені в CRM руками, у магазин не переносимо: замовлення
         # Elfar завжди має клієнта в Telegram, а в такої заявки його немає.
@@ -1207,22 +1247,25 @@ async def handle_webhook(repo, payload: dict, *, bot=None) -> dict:
     if incoming_status_name and not webhook_snapshot.get("statusName"):
         webhook_snapshot["statusName"] = incoming_status_name
     webhook_snapshot = _merge_webhook_snapshot(order.crm_snapshot, webhook_snapshot, data)
-    await repo.update_order(order.id, {
-        "crm_snapshot": webhook_snapshot, "crm_fetched_at": datetime.now(timezone.utc),
-    })
-
+    patch = {
+        "crm_snapshot": webhook_snapshot,
+        "crm_fetched_at": datetime.now(timezone.utc),
+        "crm_error": None,
+    }
     if incoming_status_id:
         resolved_status_name = str(webhook_snapshot.get("statusName") or "").strip()
-        # update_order() атомарно синхронізує crm_status_* і business_state.
-        # Окремий другий commit тут створював crash-window та подвійний облік.
-        patch = {
+        patch.update({
             "crm_status_id": incoming_status_id,
             # None важливий: не лишаємо назву попереднього statusId, якщо
             # новий ID поки не вдалося розв'язати через довідник.
             "crm_status_name": resolved_status_name or None,
-        }
-        await repo.update_order(order.id, patch)
-        order = await repo.get_order(order.id) or order
+        })
+
+    # Один commit = одна canonical зміна + одна realtime invalidation. Раніше
+    # snapshot і status писались двома транзакціями, тому UI міг коротко
+    # побачити проміжний стан і робив два однакові GET підряд.
+    await repo.update_order(order.id, patch)
+    order = await repo.get_order(order.id) or order
 
     target = status_from_crm(shop, incoming_status_id)
     if target and target != order.status:

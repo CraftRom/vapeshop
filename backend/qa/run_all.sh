@@ -94,6 +94,7 @@ run_node bridge-runtime tests/legacy-bridge-runtime.mjs
 run_node field-guard tests/field-guard.mjs
 run_node text-input tests/text-input.mjs
 run_node design tests/storefront-design.mjs
+run_node ui-refresh tests/ui-refresh.mjs
 run_node checkout-required tests/checkout-required-fields.mjs
 run_node deep-actions tests/deep-actions.mjs
 run_node crm-status-ui tests/crm-status-source.mjs dashboard
@@ -160,6 +161,8 @@ run crm-terminal qa/qa_crm_terminal_outcomes.py
 run background-crm-identity qa/qa_background_crm_and_identity.py
 run salesdrive-background-batch qa/qa_salesdrive_background_batch.py
 run runtime-freshness qa/qa_runtime_freshness.py
+run realtime-status qa/qa_realtime_status_sync.py
+run status-autonomy qa/qa_status_autonomy_1516.py
 run auto-accept qa/qa_auto_accept.py
 run recon qa/qa_recon.py
 run alerts qa/qa_alerts.py

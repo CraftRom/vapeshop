@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 import logging
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 
 from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -60,7 +61,22 @@ async def lifespan(app: FastAPI):
             "DASHBOARD_PASSWORD не змінено з дефолтного. "
             "Задайте його в .env і перестворіть контейнер: docker compose up -d --force-recreate api"
         )
-    yield
+
+    # Другий незалежний safety-net для CRM read-side. Основний background
+    # worker лишається scheduler, але статуси не мають залежати від того, чи
+    # живий саме його контейнер. API watchdog використовує той самий Redis
+    # lease, тому два процеси ніколи не роблять один і той самий batch паралельно.
+    from shop.services.salesdrive_reconciler import api_watchdog_loop
+
+    crm_watchdog_stop = asyncio.Event()
+    crm_watchdog = asyncio.create_task(api_watchdog_loop(crm_watchdog_stop), name="salesdrive-api-watchdog")
+    try:
+        yield
+    finally:
+        crm_watchdog_stop.set()
+        crm_watchdog.cancel()
+        with suppress(asyncio.CancelledError):
+            await crm_watchdog
 
     # Бот, яким API шле сповіщення, тримає власну сесію aiohttp. Ніхто її
     # не закривав, тому кожне вимкнення контейнера давало в журналі
@@ -83,7 +99,7 @@ app = FastAPI(
     title=f"{settings.shop_name} — Dashboard API",
     # Версія API піднімається разом зі змінами read/write контракту.
     # 1.10: актуальна нормалізація доставки SalesDrive order/list.
-    version="1.14.5",
+    version="1.14.6",
     lifespan=lifespan,
     docs_url="/docs" if _docs_on else None,
     redoc_url=None,

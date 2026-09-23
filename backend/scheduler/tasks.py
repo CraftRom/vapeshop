@@ -268,54 +268,17 @@ async def sync_salesdrive() -> dict:
 
 
 async def refresh_salesdrive_orders() -> dict:
-    """Тихо перечитує пов'язані SalesDrive-заявки без відкриття картки.
+    """Shared CRM read-side repair path used by the dedicated scheduler.
 
-    Webhook залишається миттєвим каналом CRM → Elfar. Фоновий read-worker —
-    страховка на випадок загубленого webhook/statusCode Нової пошти.
-    ``/api/order/list/`` має жорсткі квоти, тому тут завжди максимум один
-    пакетний read-запит за scheduler tick замість одного GET на кожну заявку.
-
-    Мінімум 180 секунд лишає приблизно половину добової order-list квоти
-    для ручних refresh/діагностики навіть якщо старий production env досі
-    містить 60/120. Фінальні замовлення перечитуються значно рідше за
-    активні, щоб історія не витісняла pending заявки з batch.
+    Actual cadence and cross-process de-duplication live in
+    ``shop.services.salesdrive_reconciler`` so API watchdog and scheduler can
+    never spend SalesDrive quota independently. The scheduler is allowed to
+    continue without Redis because it is the primary background worker; the
+    API watchdog backs off in that failure mode to avoid duplicate traffic.
     """
-    from shop.services import salesdrive
+    from shop.services.salesdrive_reconciler import refresh_once
 
-    interval = max(180, int(settings.salesdrive_background_refresh_seconds))
-    batch = max(1, min(int(settings.salesdrive_background_batch), 100))
-    now = datetime.now(timezone.utc)
-    stale_before = now - timedelta(seconds=interval)
-    terminal_stale_before = now - timedelta(seconds=max(6 * 3600, interval * 20))
-
-    async with open_repo() as repo:
-        shop = await get_shop_settings(repo)
-        if not shop.salesdrive_api_connected:
-            return {"checked": 0, "refreshed": 0, "failed": 0,
-                    "deferred": 0, "skipped": "api_disconnected"}
-        candidates = await repo.list_crm_refresh_candidates(
-            stale_before=stale_before,
-            terminal_stale_before=terminal_stale_before,
-            limit=batch,
-        )
-        order_ids = [order.id for order in candidates]
-        if not order_ids:
-            return {"checked": 0, "refreshed": 0, "failed": 0, "deferred": 0}
-
-        try:
-            result = await salesdrive.pull_orders_batch(
-                repo, order_ids, shop=shop, bot=None,
-            )
-        except salesdrive.SalesDriveError as exc:
-            result = {"checked": 0, "refreshed": 0, "failed": len(order_ids),
-                      "deferred": 0}
-            log.warning(
-                "SalesDrive background refresh не вдалося: %s", exc,
-                extra={"event": "salesdrive.background_refresh.failed",
-                       "temporary": exc.temporary, **result},
-            )
-            return result
-
+    result = await refresh_once(allow_without_redis=True, source="scheduler")
     if result.get("failed"):
         log.warning(
             "SalesDrive background refresh: перевірено %s, оновлено %s, "
@@ -324,8 +287,8 @@ async def refresh_salesdrive_orders() -> dict:
             result.get("failed", 0), result.get("deferred", 0),
             extra={"event": "salesdrive.background_refresh.pass", **result},
         )
-    else:
-        log.debug(
+    elif result.get("refreshed"):
+        log.info(
             "SalesDrive background refresh: перевірено %s, оновлено %s, відкладено %s",
             result.get("checked", 0), result.get("refreshed", 0),
             result.get("deferred", 0),

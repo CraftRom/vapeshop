@@ -19,6 +19,7 @@ import time
 import signal
 
 from shop.config import settings
+from shop.services.salesdrive_reconciler import ACTIVE_REFRESH_SECONDS
 from shop.logging_setup import setup as setup_logging
 from scheduler.tasks import (
     refresh_salesdrive_orders, run_backup_if_due, run_due_broadcasts,
@@ -28,12 +29,10 @@ from scheduler.tasks import (
 setup_logging("scheduler")
 log = logging.getLogger("scheduler")
 
-# Старі production env можуть містити як SCHEDULER_INTERVAL_SECONDS=3600,
-# так і SALESDRIVE_BACKGROUND_REFRESH_SECONDS=60. Перший більше не має права
-# робити всі фонові процеси годинними, а другий — витрачати CRM read quota.
-SALESDRIVE_BACKGROUND_READ_SECONDS = max(
-    180, int(settings.salesdrive_background_refresh_seconds)
-)
+# Старі production env можуть містити SCHEDULER_INTERVAL_SECONDS=3600.
+# Він більше не має права робити всі фонові процеси годинними. CRM read cadence
+# централізовано у shared reconciler, щоб API watchdog і scheduler не конфліктували.
+SALESDRIVE_BACKGROUND_READ_SECONDS = ACTIVE_REFRESH_SECONDS
 TICK_SECONDS = max(5, min(int(settings.scheduler_interval_seconds), 15))
 
 # Власні cadence-и. Усі значення — нижні межі: задача може фактично

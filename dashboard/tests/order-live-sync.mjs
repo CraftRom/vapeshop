@@ -10,7 +10,7 @@ const checks = [
   ['message polling is isolated', page.includes('useVisiblePolling(pollMessages, 5000)')],
   ['message polling uses delta after_id instead of full history every cycle', page.includes('api.orders.messages(id, false, reconcile ? null : lastId)')],
   ['message receipts are periodically reconciled', page.includes('messagePollTickRef.current % 6 === 0')],
-  ['order polling is fallback-only behind realtime', page.includes('useVisiblePolling(refreshLocalOrder, 60000)') && page.includes("elfar:orders:changed")],
+  ['order polling is fallback-only behind realtime', page.includes('useVisiblePolling(refreshLocalOrder, 15000)') && page.includes("elfar:orders:changed")],
   ['background order refresh protects TTN draft', page.includes('trackingDirtyRef.current')],
   ['background order refresh protects manager note', page.includes('noteDirtyRef.current')],
   ['chat only follows bottom when manager is already there', page.includes('stickToBottomRef.current')],

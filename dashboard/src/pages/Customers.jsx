@@ -177,7 +177,7 @@ export default function Customers() {
     const timer = setTimeout(load, search ? 350 : 0)
     return () => clearTimeout(timer)
   }, [load, search])
-  useVisiblePolling(load, 60000)
+  useVisiblePolling(load, 30000)
 
   useEffect(() => {
     let timer = null

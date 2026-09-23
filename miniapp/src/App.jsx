@@ -168,7 +168,7 @@ export default function App() {
         timer = null
       }
     }
-    const schedule = (delay = 60000) => {
+    const schedule = (delay = 20000) => {
       clearTimer()
       if (!stopped && visibleAndOnline()) timer = window.setTimeout(sync, delay)
     }
@@ -217,7 +217,7 @@ export default function App() {
 
   // Primary realtime path for customer-visible order state. Redis/SSE only
   // invalidates the read-model; actual data is always re-read through the
-  // signed Mini App API. The 60s background sync above remains recovery.
+  // signed Mini App API. The 20s DB-only background sync above remains recovery.
   const liveRefreshRef = useRef(false)
   useEffect(() => {
     if (!config?.age_confirmed) return undefined

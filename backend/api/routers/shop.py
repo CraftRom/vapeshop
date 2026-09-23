@@ -1006,7 +1006,7 @@ async def my_order_stream(x_telegram_init_data: str = Header(default="")):
 
     return StreamingResponse(
         events(), media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache, no-store", "X-Accel-Buffering": "no", "Connection": "keep-alive"},
+        headers={"Cache-Control": "no-cache, no-store, no-transform", "X-Accel-Buffering": "no", "Connection": "keep-alive"},
     )
 
 

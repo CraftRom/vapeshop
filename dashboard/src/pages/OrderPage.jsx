@@ -1102,7 +1102,6 @@ export default function OrderPage() {
   const [askTracking, setAskTracking] = useState(false)
   const [crmStatuses, setCrmStatuses] = useState([])
   const [crmRefreshing, setCrmRefreshing] = useState(false)
-  const [crmAutoRefreshed, setCrmAutoRefreshed] = useState(false)
   const loadedOrderRef = useRef(null)
   const messagesRef = useRef([])
   const messagePollTickRef = useRef(0)
@@ -1178,7 +1177,6 @@ export default function OrderPage() {
     setTracking('')
     setNote('')
     setError('')
-    setCrmAutoRefreshed(false)
     loadInitial()
   }, [id, loadInitial])
 
@@ -1206,19 +1204,23 @@ export default function OrderPage() {
     loadCrmStatuses()
   }, [loadCrmStatuses])
 
-  const refreshCrm = useCallback(async (quiet = false) => {
+  // Прямий SalesDrive read лишається тільки явною дією менеджера.
+  // Відкриття картки більше НЕ має «лікувати» застарілий статус: автоматичний
+  // CRM -> DB шлях працює через webhook + shared background reconciler, а ця
+  // кнопка потрібна лише для діагностики/позапланового повного read-side.
+  const refreshCrm = useCallback(async () => {
     if (!order?.crm_id || crmRefreshInFlightRef.current) return
     crmRefreshInFlightRef.current = true
-    if (!quiet) setCrmRefreshing(true)
+    setCrmRefreshing(true)
     try {
-      const fresh = await api.orders.salesdriveRefresh(order.id, !quiet)
+      const fresh = await api.orders.salesdriveRefresh(order.id, true)
       applyFreshOrder(fresh)
-      if (!quiet) notify('Дані SalesDrive оновлено')
+      notify('Дані SalesDrive оновлено')
     } catch (err) {
-      if (!quiet) notify(err.message, 'bad')
+      notify(err.message, 'bad')
     } finally {
       crmRefreshInFlightRef.current = false
-      if (!quiet) setCrmRefreshing(false)
+      setCrmRefreshing(false)
     }
   }, [order?.id, order?.crm_id, notify, applyFreshOrder])
 
@@ -1235,18 +1237,8 @@ export default function OrderPage() {
     }
   }, [order?.id, order?.crm_id, notify, applyFreshOrder])
 
-  useEffect(() => {
-    if (order?.crm_id && !crmAutoRefreshed) {
-      setCrmAutoRefreshed(true)
-      refreshCrm(true)
-    }
-  }, [order?.crm_id, crmAutoRefreshed, refreshCrm])
-
-  // Поки картка відкрита, періодично перечитуємо саме заявку SalesDrive.
-  // Статуси приходять webhook-ом, а повний read-side потрібен для оплат,
-  // менеджера й доставки. 5 хв плюс серверний fresh-cache не витрачають
-  // документований ліміт /api/order/list/ на кожну відкриту вкладку.
-  useVisiblePolling(() => refreshCrm(true), 300000, { enabled: Boolean(order?.crm_id) })
+  // Довідник CRM можна періодично освіжати: це не read конкретного order і
+  // не має змінювати його стан. Сам order надходить через realtime/local DB.
   useVisiblePolling(loadCrmStatuses, 300000, { enabled: Boolean(order?.crm_id) })
 
   // Webhook змінює локальний рядок замовлення майже миттєво. Цей легкий
@@ -1256,7 +1248,7 @@ export default function OrderPage() {
     const fresh = await api.orders.get(id)
     applyFreshOrder(fresh)
   }, [id, applyFreshOrder])
-  useVisiblePolling(refreshLocalOrder, 60000)
+  useVisiblePolling(refreshLocalOrder, 15000)
 
   useEffect(() => {
     let timer = null
@@ -1505,7 +1497,7 @@ export default function OrderPage() {
                 order={order}
                 crmStatuses={crmStatuses}
                 refreshing={crmRefreshing}
-                onRefresh={() => { refreshCrm(false); loadCrmStatuses() }}
+                onRefresh={() => { refreshCrm(); loadCrmStatuses() }}
                 onUpdate={updateCrm}
               />
             )}

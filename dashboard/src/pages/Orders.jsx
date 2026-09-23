@@ -385,7 +385,7 @@ export default function Orders() {
   useVisiblePolling(loadUnread, 10000, { immediate: true })
   // Webhook оновлює crm_status_* у backend; список підтягує ці зміни без
   // перезавантаження сторінки. На прихованій вкладці polling зупиняється.
-  useVisiblePolling(load, 60000)
+  useVisiblePolling(load, 15000)
   // Назви/набір статусів теж належать CRM. Вони змінюються рідко, тому
   // перечитуємо довідник окремо раз на 5 хвилин і одразу після повернення
   // на вкладку, не збільшуючи частоту важчого order-list API.
