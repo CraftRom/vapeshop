@@ -20,6 +20,7 @@ import re
 import unicodedata
 from dataclasses import dataclass
 from decimal import Decimal
+from datetime import datetime, timedelta, timezone
 
 # Літери, які люди плутають між українською й російською розкладками.
 # Без нормалізації «як замовити» і «как заказать» довелося б описувати двічі.
@@ -146,6 +147,51 @@ class Rule:
     # у розмові перетворювався б на привітання. Там, де ключ несе зміст
     # («доставка», «оплата»), така плутанина неможлива.
     fuzzy: bool = True
+
+
+@dataclass(frozen=True)
+class MatchCandidate:
+    """Один можливий намір із пояснюваними доказами.
+
+    Це не ML-score і не ймовірність. Число потрібне лише для порівняння
+    правил між собою: конкретний термін на кшталт ``промокод`` має бути
+    сильнішим за службове ``як`` + побічне ``замовляю``.
+    """
+
+    rule: Rule
+    score: float
+    strong_score: float
+    matched_terms: tuple[str, ...]
+    strong_terms: tuple[str, ...]
+    fuzzy_hits: int = 0
+
+
+@dataclass(frozen=True)
+class MatchDecision:
+    """Рішення маршрутизатора FAQ. ``rule=None`` означає: мовчати.
+
+    ``reason`` навмисно машинний і без тексту клієнта — його можна безпечно
+    писати в технічний лог та використовувати в QA, не накопичуючи PII.
+    """
+
+    rule: Rule | None
+    reason: str
+    confidence: float = 0.0
+    candidates: tuple[MatchCandidate, ...] = ()
+
+
+@dataclass(frozen=True)
+class ConversationContext:
+    """Контекст, який може заборонити автоматичну репліку.
+
+    ``human_active`` — менеджер уже веде цю розмову. ``recent_auto_keys`` —
+    теми, які бот щойно пояснював у цій самій сесії; повторювати ту саму
+    довідку замість передачі людині не треба.
+    """
+
+    human_active: bool = False
+    recent_auto_keys: tuple[str, ...] = ()
+
 
 
 ORDER_WORDS = (
@@ -549,48 +595,440 @@ def payment_claim(text: str) -> bool:
                    for w in ASKING_WORDS)
 
 
-def match(text: str, shop=None, public: bool = False) -> Rule | None:
-    """Знаходить правило для повідомлення. None — якщо впевненості немає.
+def _phrase_present(normalized: str, phrase: str) -> bool:
+    return f" {phrase} " in normalized
 
-    public=True — розмова в групі чи каналі: беремо лише ті правила, чия
-    відповідь нікого не викриває.
+
+def _prefix_present(normalized: str, phrase: str) -> bool:
+    return re.search(rf"\s{re.escape(phrase)}", normalized) is not None
+
+
+# Службові слова потрібні для граматики питання, але майже нічого не кажуть
+# про його тему. Старий matcher прирівнював «як» до «промокод» і через це
+# перше правило в RULES перемагало конкретніше питання.
+_GENERIC_TERMS = frozenset(normalize(x).strip() for x in (
+    "як", "яким", "де", "куди", "чи мож", "можна", "можу", "можеш",
+    "можлив", "хочу", "треба", "потріб", "підкаж", "скажіть", "скажи",
+    "как", "где", "могу", "нужно", "подскаж", "мож", "є", "есть",
+))
+
+# Слова, які самі по собі можуть зустрічатись у десятках різних намірів.
+# Вони можуть допомогти правилу, але ніколи не є достатнім "якорем" теми.
+_WEAK_TERMS = frozenset(normalize(x).strip() for x in (
+    "оформити", "оформлення", "дайте", "працює", "работает", "отрима",
+    "не працю", "не работ", "як це працює", "що робити", "куди тиснути",
+))
+
+# Сигнали не «теми», а типу звернення. Коли клієнт повідомляє про помилку,
+# виняток або індивідуальну домовленість, статична довідка майже напевно не
+# вирішить задачу. У такій ситуації правильна автоматизація — НЕ відповідати.
+_PROBLEM_MARKERS = tuple(normalize(x).strip() for x in (
+    "не працю", "не виход", "не можу", "не вдається", "помилка", "ошибка",
+    "не відкрива", "не прийма", "не застос", "не спраць", "завис", "виліта",
+    "не приход", "не прийш", "не отримав", "не отримала", "не зарахув",
+    "не списал", "не списало", "не показує", "не отображ",
+))
+
+_NEGATED_PURCHASE = tuple(normalize(x).strip() for x in (
+    "не хочу замов", "не хочу куп", "не буду замов", "не буду куп",
+    "не треба замов", "не потрібно замов", "не хочу заказ", "не буду заказ",
+))
+
+# Поточна готова promo-відповідь пояснює, де вводиться промокод і де видно
+# загальні акції. Вона НЕ відповідає на персональне «дайте/як отримати код»
+# чи торг. Нового тексту не вигадуємо — такі звернення залишаємо менеджеру.
+_PROMO_HUMAN_MARKERS = tuple(normalize(x).strip() for x in (
+    "отримати промокод", "получить промокод", "де взяти промокод",
+    "где взять промокод", "дайте промокод", "дайте промо", "дасте промокод",
+    "є промокод", "промокод є", "есть промокод", "промокод есть",
+    "який промокод", "какой промокод", "який код", "какой код",
+    "для постійних", "постійним клієнт", "постоянным клиент",
+    "завжди замов", "постійно замов", "часто замов", "всегда заказыва",
+    "зробіть знижк", "сделайте скидк", "скинете", "скиньте ціну", "торг",
+    "персональн зниж", "персональну зниж", "персональну скид",
+    "индивидуальн скид", "индивидуальную скид",
+))
+
+_REQUEST_MARKERS = tuple(normalize(x).strip() for x in (
+    "як", "де", "куди", "коли", "скільки", "який", "яка", "які", "що", "шо", "чи",
+    "можна", "можу", "підкаж", "скаж", "дай", "дайте", "покаж", "хочу",
+    "треба", "потріб", "цікав", "как", "где", "куда", "когда", "сколько",
+    "можно", "могу", "подскаж", "скаж", "дайте", "покаж", "хочу", "нужно", "что",
+))
+
+_PROMO_TOPIC_MARKERS = tuple(normalize(x).strip() for x in (
+    "промокод", "промо", "купон", "зниж", "скидк", "акці", "акци", "дешевш", "торг",
+))
+
+_NEGOTIATION_MARKERS = tuple(normalize(x).strip() for x in (
+    "зробіть знижк", "сделайте скидк", "скинете", "скиньте ціну", "торг",
+    "персональн зниж", "персональну зниж", "персональну скид",
+    "индивидуальн скид", "индивидуальную скид",
+))
+
+_FOLLOWUP_ONLY = tuple(normalize(x).strip() for x in (
+    "а як", "а де", "а куди", "а коли", "і як", "і де", "куди саме",
+    "а це", "а воно", "а він", "а вона", "а які", "а який", "а яка",
+))
+
+
+def _contains_any(normalized: str, phrases: tuple[str, ...]) -> bool:
+    return any(_prefix_present(normalized, p) for p in phrases if p)
+
+
+def _looks_like_question_or_request(text: str, normalized: str) -> bool:
+    if "?" in (text or ""):
+        return True
+    return _contains_any(normalized, _REQUEST_MARKERS)
+
+
+def _focus_clause(text: str) -> str:
+    """Повертає частину повідомлення, де сформульоване саме питання.
+
+    «Як отримати промокод, я завжди замовляю у вас?» має дві частини.
+    ``замовляю`` — контекст/аргумент, а не прохання пояснити оформлення.
+    Вибираємо перший clause із питальним/запитувальним маркером, а не просто
+    перший ключ у всьому повідомленні.
+    """
+    chunks = [c.strip() for c in re.split(r"[,;:\n—–]+", text or "") if c.strip()]
+    for chunk in chunks:
+        n = normalize(chunk)
+        if "?" in chunk or _contains_any(n, _REQUEST_MARKERS):
+            return n
+    return normalize(chunks[0]) if chunks else normalize(text)
+
+
+def _term_mode(normalized: str, term: str, *, fuzzy: bool) -> str | None:
+    if _phrase_present(normalized, term):
+        return "exact"
+    if _prefix_present(normalized, term):
+        return "prefix"
+    if fuzzy and _has_typo(normalized, (term,)):
+        return "fuzzy"
+    return None
+
+
+def _term_weight(term: str, mode: str, *, focused: bool, unique: bool) -> float:
+    words = term.count(" ") + 1
+    generic = term in _GENERIC_TERMS
+    weak = term in _WEAK_TERMS
+    if weak:
+        score = {"exact": 1.45, "prefix": 1.0, "fuzzy": 0.45}[mode]
+    elif mode == "exact":
+        score = 0.8 if generic else 4.0 + min(len(term), 18) / 6 + (words - 1) * 1.2
+    elif mode == "prefix":
+        score = 0.55 if generic else 2.8 + min(len(term), 14) / 10 + (words - 1) * 0.8
+    else:
+        score = 0.3 if generic else 1.45 + min(len(term), 12) / 16
+    if unique and not generic and not weak:
+        score += 0.75
+    if focused:
+        score += 0.1 if (generic or weak) else 1.25
+    return score
+
+
+def _term_rule_counts() -> dict[str, int]:
+    out: dict[str, set[str]] = {}
+    for rule in RULES:
+        for group in rule.groups:
+            for term in group:
+                out.setdefault(term, set()).add(rule.key)
+    return {term: len(keys) for term, keys in out.items()}
+
+
+_TERM_RULE_COUNTS = _term_rule_counts()
+
+
+def _candidate(rule: Rule, text: str, normalized: str, *, fuzzy: bool) -> MatchCandidate | None:
+    focus = _focus_clause(text)
+    matched: list[str] = []
+    strong: list[str] = []
+    total = 0.0
+    strong_score = 0.0
+    fuzzy_hits = 0
+
+    # Усі groups правила обов'язкові. Усередині групи беремо НАЙСИЛЬНІШИЙ
+    # доказ, а не сумуємо двадцять синонімів одного й того самого наміру.
+    for group in rule.groups:
+        best: tuple[float, str, str] | None = None
+        for term in group:
+            mode = _term_mode(normalized, term, fuzzy=fuzzy)
+            if mode is None:
+                continue
+            focused = _phrase_present(focus, term) or _prefix_present(focus, term)
+            weight = _term_weight(
+                term, mode, focused=focused,
+                unique=_TERM_RULE_COUNTS.get(term, 0) == 1,
+            )
+            if best is None or weight > best[0]:
+                best = (weight, term, mode)
+        if best is None:
+            return None
+        weight, term, mode = best
+        matched.append(term)
+        total += weight
+        if term not in _GENERIC_TERMS and term not in _WEAK_TERMS and mode != "fuzzy":
+            strong.append(term)
+            strong_score += weight
+        if mode == "fuzzy":
+            fuzzy_hits += 1
+
+    # Перший clause — це не абсолютний пріоритет, але побічна фраза після
+    # коми не повинна перехоплювати головне питання.
+    if focus.strip() != normalized.strip():
+        outside = sum(
+            1 for term in matched
+            if not (_phrase_present(focus, term) or _prefix_present(focus, term))
+        )
+        total -= outside * 0.45
+
+    return MatchCandidate(
+        rule=rule,
+        score=max(0.0, total),
+        strong_score=max(0.0, strong_score),
+        matched_terms=tuple(matched),
+        strong_terms=tuple(strong),
+        fuzzy_hits=fuzzy_hits,
+    )
+
+
+def _candidate_allowed(candidate: MatchCandidate, text: str, normalized: str) -> tuple[bool, str]:
+    key = candidate.rule.key
+
+    # «Хочу/новинки» без питання або прохання — надто широкий сигнал для
+    # каталогу. Це відсікає побутові «новинки кіно дивились» та подібне.
+    if key == "catalog" and not _looks_like_question_or_request(text, normalized):
+        return False, "catalog:not-a-request"
+
+    # Назви способу оплати/доставки без питання часто є даними замовлення:
+    # «Нова пошта, 12 відділення», «накладений платіж». Відповідати на це
+    # довідкою означає з'їсти повідомлення, яке мав отримати менеджер.
+    if key in {"delivery", "payment", "promo", "contacts"} and not _looks_like_question_or_request(text, normalized):
+        return False, f"{key}:not-a-request"
+
+    if key == "order" and _contains_any(normalized, _NEGATED_PURCHASE):
+        return False, "order:negated"
+
+    # Технічна/операційна проблема потребує діагностики людиною. Винятки —
+    # returns/cancel: їхні готові відповіді саме й описують проблему/дію.
+    if key not in {"returns", "cancel"} and _contains_any(normalized, _PROBLEM_MARKERS):
+        return False, f"{key}:problem"
+
+    if key == "promo" and _contains_any(normalized, _PROMO_HUMAN_MARKERS):
+        return False, "promo:human-scope"
+
+    return True, "ok"
+
+
+def _is_short_followup(text: str, normalized: str) -> bool:
+    tokens = normalized.strip().split()
+    if len(tokens) > 4:
+        return False
+    value = normalized.strip()
+    return any(value == p or value.startswith(p + " ") for p in _FOLLOWUP_ONLY)
+
+
+def decide(
+    text: str,
+    shop=None,
+    public: bool = False,
+    context: ConversationContext | None = None,
+) -> MatchDecision:
+    """Ранжує ВСІ можливі FAQ-наміри й відповідає лише при високій впевненості.
+
+    Принципи:
+    * конкретний намір сильніший за загальне слово;
+    * текст після коми може бути контекстом, а не головним питанням;
+    * дві різні сильні теми в одному повідомленні → менеджер;
+    * проблема/торг/персональний виняток → менеджер;
+    * коли менеджер уже веде діалог або бот щойно давав ту саму довідку —
+      бот не встряє повторно;
+    * fuzzy ніколи не перемагає точний збіг лише через порядок RULES.
     """
     normalized = normalize(text)
     if len(normalized.strip()) < 2:
-        return None
-
-    # У публічному чаті питання про своє — привід замовкнути, а не відповісти.
-    #
-    # Без цієї перевірки «де моє замовлення» збігалося б із загальним
-    # правилом «як оформити замовлення» — за ключовими словами «де» і
-    # «замов». Формально не витік, але людина отримує інструкцію замість
-    # відповіді, ще й перед усією групою. Персональні питання належать
-    # приватному чату цілком.
+        return MatchDecision(None, "empty")
     if public and _is_personal(normalized):
-        return None
+        return MatchDecision(None, "public:personal")
+    if context and context.human_active:
+        return MatchDecision(None, "context:human-active")
+    if _is_short_followup(text, normalized):
+        return MatchDecision(None, "context:short-followup")
 
-    # Два проходи, і порядок принциповий. Спершу точні збіги по всіх
-    # правилах, і лише потім — з допуском на описку.
-    #
-    # Інакше нечіткий збіг раннього правила перебиває точний збіг пізнього:
-    # «накладений платіж» ловився правилом про накладну (описка від
-    # «накладн»), хоч слово «платіж» точно збігається з правилом про оплату.
-    # Точний збіг завжди означає більшу впевненість, ніж припущення.
-    for fuzzy in (False, True):
-        for rule in RULES:
-            if public and not rule.public:
-                continue
-            if rule.needs == "bonus" and shop is not None and not shop.bonus_enabled:
-                continue
-            if rule.needs == "referral" and shop is not None and not (
-                shop.referral_enabled and shop.bonus_enabled
-            ):
-                continue
-            if fuzzy and not rule.fuzzy:
-                continue
-            if all(_has(normalized, group, fuzzy) for group in rule.groups):
-                return rule
+    # Персональна знижка/отримання промокоду — окрема бізнес-домовленість,
+    # якої готовий FAQ-текст не знає. Важливо зупинитись ДО ранжування,
+    # інакше побічне «замовляю» або «отримати» може підхопити інше правило.
+    if _contains_any(normalized, _NEGOTIATION_MARKERS):
+        return MatchDecision(None, "business:negotiation")
+    if (_contains_any(normalized, _PROMO_TOPIC_MARKERS) and
+            _contains_any(normalized, _PROMO_HUMAN_MARKERS)):
+        return MatchDecision(None, "promo:human-scope")
+
+    candidates: list[MatchCandidate] = []
+    blocked: list[str] = []
+
+    # Один загальний пул кандидатів: exact/prefix проходять одразу, fuzzy
+    # підключається лише якщо для правила немає точного проходу.
+    for rule in RULES:
+        if public and not rule.public:
+            continue
+        if rule.needs == "bonus" and shop is not None and not shop.bonus_enabled:
+            continue
+        if rule.needs == "referral" and shop is not None and not (
+            shop.referral_enabled and shop.bonus_enabled
+        ):
+            continue
+
+        candidate = _candidate(rule, text, normalized, fuzzy=False)
+        if candidate is None and rule.fuzzy:
+            candidate = _candidate(rule, text, normalized, fuzzy=True)
+        if candidate is None:
+            continue
+        allowed, why = _candidate_allowed(candidate, text, normalized)
+        if not allowed:
+            blocked.append(why)
+            continue
+        candidates.append(candidate)
+
+    if not candidates:
+        return MatchDecision(None, blocked[0] if blocked else "no-match")
+
+    # «Привіт, як оплатити?» — це питання про оплату, а не привітання.
+    # Social intent використовується лише коли змістовного наміру немає.
+    substantive = [c for c in candidates if c.rule.key not in {"greeting", "thanks"}]
+    if substantive:
+        candidates = substantive
+
+    # score не є probability. Стабільний tie-breaker — порядок RULES лише
+    # коли докази фактично однакові (наприклад, спільна фраза доставки/status).
+    order = {rule.key: i for i, rule in enumerate(RULES)}
+    candidates.sort(key=lambda c: (-c.score, -c.strong_score, c.fuzzy_hits, order[c.rule.key]))
+    ranked = tuple(candidates)
+    top = ranked[0]
+
+    # Мінімальний змістовний доказ. Social rules — короткі за природою, але
+    # вони спрацьовують лише на власні вузькі слова й не мають fuzzy.
+    floor = 3.4 if top.rule.key in {"greeting", "thanks"} else 4.0
+    if top.score < floor or (not top.strong_terms and top.rule.key not in {"greeting", "thanks"}):
+        return MatchDecision(None, "confidence:low", top.score, ranked)
+
+    # Дві незалежні сильні теми («як оплатити і яка доставка?») не можна
+    # чесно закрити однією готовою відповіддю. Якщо правила збіглися тим
+    # самим терміном (status/delivery на «коли прийде») — це не multi-intent.
+    if len(ranked) > 1:
+        second = ranked[1]
+        independent = not (set(top.strong_terms) & set(second.strong_terms))
+        close = second.score >= 4.0 and (top.score - second.score) < 1.75
+        if independent and close:
+            return MatchDecision(None, "confidence:multi-intent", top.score, ranked)
+
+    if context and top.rule.key in context.recent_auto_keys:
+        return MatchDecision(None, "context:repeat", top.score, ranked)
+
+    # Умовна confidence лише для телеметрії/QA: відрив від другого кандидата
+    # плюс абсолютна сила доказу. Не показується клієнту й не впливає на текст.
+    second_score = ranked[1].score if len(ranked) > 1 else 0.0
+    margin = max(0.0, top.score - second_score)
+    confidence = min(1.0, 0.45 + top.score / 18 + min(margin, 5) / 12)
+    return MatchDecision(top.rule, "matched", confidence, ranked)
+
+
+def match(text: str, shop=None, public: bool = False) -> Rule | None:
+    """Backward-compatible API: повертає правило або None.
+
+    Вся логіка тепер у :func:`decide`; старі виклики та публічний middleware
+    не треба переписувати одночасно.
+    """
+    return decide(text, shop=shop, public=public).rule
+
+
+def answer_rule_key(text: str, shop=None) -> str | None:
+    """Визначає, яким наявним FAQ-правилом була сформована стара відповідь.
+
+    Потрібно лише для антиспаму в support history. Порівнюємо статичні
+    сегменти шаблону навколо ``{placeholders}``, тому зміна тарифу/віку в
+    налаштуваннях не заважає впізнати відповідь після перезапуску.
+    """
+    value = text or ""
+    for rule in RULES:
+        pieces = [x for x in re.split(r"\{[^{}]+\}", rule.answer) if x]
+        pos = 0
+        ok = True
+        for piece in pieces:
+            found = value.find(piece, pos)
+            if found < 0:
+                ok = False
+                break
+            pos = found + len(piece)
+        if ok and pieces:
+            return rule.key
     return None
+
+
+def context_from_history(
+    messages,
+    *,
+    shop=None,
+    current_message_id: int | None = None,
+    now: datetime | None = None,
+) -> ConversationContext:
+    """Будує мінімальний контекст FAQ із уже збереженої переписки.
+
+    Правила поведінки:
+    * якщо менеджер відповідав протягом останніх 30 хвилин — людина вже
+      веде діалог, бот не перебиває її довідкою;
+    * якщо те саме FAQ уже надсилалось протягом 6 годин — повторювати його
+      безглуздо, наступне таке питання має побачити менеджер;
+    * поточне щойно збережене incoming-повідомлення виключається.
+
+    Ніякого нового стану або ENV: джерело правди — існуюча chat history.
+    """
+    current = now or datetime.now(timezone.utc)
+    previous = []
+    for msg in messages or ():
+        if current_message_id is not None and getattr(msg, "id", None) == current_message_id:
+            continue
+        created = getattr(msg, "created_at", None)
+        if created is None:
+            continue
+        if created.tzinfo is None:
+            created = created.replace(tzinfo=timezone.utc)
+        previous.append((created, msg))
+
+    previous.sort(key=lambda item: (item[0], getattr(item[1], "id", 0)))
+    human_active = False
+    recent_auto: list[str] = []
+
+    for created, msg in reversed(previous):
+        age = current - created
+        if age < timedelta(0):
+            age = timedelta(0)
+        direction = getattr(msg, "direction", "")
+        automatic = bool(getattr(msg, "is_automatic", False))
+
+        if direction == "out" and not automatic and age <= timedelta(minutes=30):
+            # Системні технічні повідомлення не повинні вважатися "менеджер
+            # узяв чат". У support history людська відповідь має реального
+            # автора, а FAQ — is_automatic=True.
+            author = (getattr(msg, "author", "") or "").strip().lower()
+            if author not in {"бот", "система", "system"}:
+                human_active = True
+                break
+
+    for created, msg in previous:
+        if not bool(getattr(msg, "is_automatic", False)):
+            continue
+        age = current - created
+        if age < timedelta(0) or age > timedelta(hours=6):
+            continue
+        key = answer_rule_key(getattr(msg, "text", ""), shop=shop)
+        if key and key not in recent_auto:
+            recent_auto.append(key)
+
+    return ConversationContext(
+        human_active=human_active,
+        recent_auto_keys=tuple(recent_auto),
+    )
 
 
 def _courier_enabled(shop) -> bool:

@@ -512,6 +512,16 @@ class Repository(ABC):
     @abstractmethod
     async def list_support_messages(self, thread_id: int, limit: int = 300) -> list[SupportMessage]: ...
 
+    async def recent_support_messages(self, thread_id: int, limit: int = 24) -> list[SupportMessage]:
+        """Останні повідомлення для lightweight conversation context.
+
+        Реалізації з ефективним DESC-index query можуть перевизначити метод.
+        Дефолт потрібен для тестових/простих repository без нового контракту.
+        """
+        cap = max(1, min(int(limit or 24), 100))
+        items = await self.list_support_messages(thread_id, limit=max(cap, 300))
+        return list(items[-cap:])
+
     @abstractmethod
     async def mark_support_read(self, thread_id: int) -> int: ...
 

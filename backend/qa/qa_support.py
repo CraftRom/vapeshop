@@ -351,9 +351,9 @@ def static_contracts():
             "API не має неявного reopen")
     r.check('Відкрити знову' not in dashboard and 'Ця сесія завершена' in dashboard,
             "панель не пропонує перевідкриття закритої історії")
-    r.check('support.save_automatic_reply' in handler and 'rule = faq.match(text, shop)' in handler
-            and 'faq.render(rule, shop)' in handler and handler.count('_support_auto_reply(') >= 3,
-            "текст і підписи вкладень у /ask використовують ту саму FAQ match/render систему")
+    r.check('support.save_automatic_reply' in handler and 'decision = faq.decide(text, shop=shop, context=context)' in handler
+            and 'faq.render(rule, shop)' in handler and 'has_attachment=True' in handler,
+            "/ask використовує smart FAQ decision/context, а вкладення не перехоплюються автоматикою")
     r.check('is_automatic: bool = False' in schema and 'is_automatic' in models,
             "API і модель мають явну службову ознаку автоматичної відповіді")
     r.check('Автовідповідь' in dashboard and "automatic ? 'Бот'" in dashboard,

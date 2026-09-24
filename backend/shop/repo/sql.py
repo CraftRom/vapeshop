@@ -2856,6 +2856,22 @@ class SqlRepository(Repository):
         merged = {x.id: x for x in [*archived, *live]}
         return [merged[k] for k in sorted(merged)[:cap]]
 
+    async def recent_support_messages(self, thread_id: int, limit: int = 24) -> list[SupportMessage]:
+        """Останні hot-повідомлення без читання всього архіву.
+
+        Використовується лише для FAQ context gating. Відкриті support-thread
+        не архівуються lifecycle-процесом, тож останні репліки гарантовано hot.
+        """
+        cap = max(1, min(int(limit or 24), 100))
+        rows = list(await self.s.scalars(
+            select(m.SupportMessage)
+            .where(m.SupportMessage.thread_id == int(thread_id))
+            .order_by(m.SupportMessage.id.desc())
+            .limit(cap)
+        ))
+        rows.reverse()
+        return [_support_message(row) for row in rows]
+
     async def mark_support_read(self, thread_id: int) -> int:
         result = await self.s.execute(
             update(m.SupportMessage)

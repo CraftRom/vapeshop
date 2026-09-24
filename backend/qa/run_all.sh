@@ -142,6 +142,7 @@ run transport-sec qa/qa_transport_security.py
 run security-log qa/qa_security_log.py
 run database qa/qa_db.py
 run faq qa/qa_faq.py
+run faq-intent-router qa/qa_faq_intent_router.py
 run faq-delivery qa/qa_dynamic_delivery_faq.py
 run faq-flow qa/qa_faq_flow.py
 run support qa/qa_support.py

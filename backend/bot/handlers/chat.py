@@ -8,6 +8,8 @@
 """
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
+
 from aiogram import F, Router
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
@@ -166,20 +168,58 @@ async def _deliver(
     return f"Передали менеджеру{who} щодо замовлення №{order.id}. Відповідь надійде сюди."
 
 
-async def _support_auto_reply(message: Message, repo: Repository, user: User, saved, text: str) -> bool:
+async def _order_faq_context(repo: Repository, order_id: int) -> faq.ConversationContext:
+    """Не дає FAQ перебивати вже активну розмову менеджера по замовленню."""
+    messages = await repo.list_order_messages(order_id, limit=16)
+    now = datetime.now(timezone.utc)
+    human_active = False
+    for msg in reversed(messages):
+        if getattr(msg, "direction", "") != "out":
+            continue
+        author = (getattr(msg, "author", "") or "").strip().lower()
+        if author in {"система", "system", "бот"}:
+            continue
+        created = getattr(msg, "created_at", None)
+        if created is None:
+            continue
+        if created.tzinfo is None:
+            created = created.replace(tzinfo=timezone.utc)
+        if now - created <= timedelta(minutes=30):
+            human_active = True
+        break
+    return faq.ConversationContext(human_active=human_active)
+
+
+async def _support_auto_reply(
+    message: Message, repo: Repository, user: User, saved, text: str,
+    *, has_attachment: bool = False,
+) -> bool:
     """Виконує приватну FAQ-автоматику всередині активного /ask.
 
-    Вхідне повідомлення вже має бути збережене в support history. Вихідна
-    репліка записується як ``author=Бот`` + ``is_automatic=True`` лише для
-    панелі, а Telegram отримує чистий FAQ-текст без службової позначки.
+    Автовідповідь дозволяється лише коли router упевнений, що готовий FAQ
+    справді закриває запит. Фото/документ/голосове завжди лишаємо людині:
+    бот не бачить вміст вкладення й не повинен робити висновок лише з caption.
     """
-    if faq.payment_claim(text):
-        # Бот не бачить рахунку й не має автоматично трактувати повідомлення
-        # «оплатив» як звичайне питання про способи оплати.
+    if has_attachment or faq.payment_claim(text):
         return False
 
     shop = await get_shop_settings(repo)
-    rule = faq.match(text, shop)
+
+    # Контекст беремо з уже існуючої історії, без окремого state/Redis-key.
+    # SQL repository має дешевий DESC-query; тестові repository можуть
+    # залишатись на старому list_support_messages() — backward compatible.
+    recent_reader = getattr(repo, "recent_support_messages", None)
+    if callable(recent_reader):
+        history = await recent_reader(saved.thread_id, limit=24)
+    else:
+        history = await repo.list_support_messages(saved.thread_id, limit=300)
+        history = history[-24:]
+    context = faq.context_from_history(
+        history, shop=shop, current_message_id=getattr(saved, "id", None),
+        now=getattr(saved, "created_at", None),
+    )
+    decision = faq.decide(text, shop=shop, context=context)
+    rule = decision.rule
     if not rule:
         return False
 
@@ -220,7 +260,9 @@ async def incoming_file(
                 reply_markup=kb.main_menu(),
             )
             return
-        if await _support_auto_reply(message, repo, user, saved, caption):
+        if await _support_auto_reply(
+            message, repo, user, saved, caption, has_attachment=True
+        ):
             return
         await message.answer("Передали в підтримку. Менеджер відповість у цьому чаті.")
         return
@@ -313,17 +355,28 @@ async def incoming(
     claims_payment = faq.payment_claim(text)
 
     quoted = getattr(message, "reply_to_message", None) is not None
+    order_id = None
     if not quoted and not claims_payment:
         shop = await get_shop_settings(repo)
-        rule = faq.match(text, shop)
+        decision = faq.decide(text, shop=shop)
+        rule = decision.rule
         if rule:
-            await message.answer(
-                faq.render(rule, shop),
-                reply_markup=kb.faq_reply(with_shop=rule.with_shop),
-            )
-            return
+            # FAQ-кандидат є, але спершу перевіряємо, чи менеджер уже веде
+            # живу розмову по поточному замовленню. Якщо так — не встряємо.
+            order_id = await chat.route_incoming(repo, user, message)
+            if order_id:
+                context = await _order_faq_context(repo, order_id)
+                if context.human_active:
+                    rule = None
+            if rule:
+                await message.answer(
+                    faq.render(rule, shop),
+                    reply_markup=kb.faq_reply(with_shop=rule.with_shop),
+                )
+                return
 
-    order_id = await chat.route_incoming(repo, user, message)
+    if order_id is None:
+        order_id = await chat.route_incoming(repo, user, message)
     if order_id:
         delivered = await _deliver(
             repo, user, text, order_id, message.bot, tg_message_id=message.message_id,

@@ -671,8 +671,9 @@ check("public=True" in mw_src, "у групу йде стисла форма в�
 check("public_answer" in read("backend/bot/faq.py"), "правила мають груповий варіант тексту")
 faq_src = read("backend/bot/faq.py")
 check("_has_typo" in faq_src, "матчер терпить друкарські помилки")
-check("for fuzzy in (False, True)" in faq_src,
-      "точні збіги мають пріоритет над нечіткими")
+check("MatchDecision" in faq_src and "_candidate(rule, text, normalized, fuzzy=False)" in faq_src
+      and "_candidate(rule, text, normalized, fuzzy=True)" in faq_src,
+      "точні збіги ранжуються до fuzzy fallback у smart FAQ router")
 check("CHAT_FLOOR" in mw_src, "є нижня межа між відповідями в чаті")
 check("user_id" in mw_src, "пауза персональна: інший учасник отримає відповідь")
 
