@@ -241,11 +241,13 @@ export const api = {
     list: (params) => request('/orders', { params }),
     get: (id) => request(`/orders/${id}`),
     patch: (id, data) => request(`/orders/${id}`, { method: 'PATCH', body: data }),
-    messages: (id, markRead = false, afterId = null) =>
+    messages: (id, markRead = false, afterId = null, beforeId = null, limit = null) =>
       request(`/orders/${id}/messages`, {
         params: {
           mark_read: markRead || undefined,
           after_id: afterId === null || afterId === undefined ? undefined : afterId,
+          before_id: beforeId === null || beforeId === undefined ? undefined : beforeId,
+          limit: limit || undefined,
         },
       }),
     markMessagesRead: (id) => request(`/orders/${id}/messages/read`, { method: 'POST' }),

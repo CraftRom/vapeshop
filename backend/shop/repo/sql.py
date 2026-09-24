@@ -1,6 +1,9 @@
 """Репозиторій поверх SQLAlchemy — для власного сервера."""
 from __future__ import annotations
 
+import gzip
+import json
+import logging
 import secrets
 import string
 from datetime import datetime, timedelta, timezone
@@ -25,6 +28,96 @@ ALPHABET = string.ascii_uppercase + string.digits
 # для статистики є persisted business_state (CRM «Продаж» -> sale).
 SHIPPED_SQL = [OrderStatus.SHIPPED, OrderStatus.DONE]
 SHIPPED_VALUES = frozenset(status.value for status in SHIPPED_SQL)
+log = logging.getLogger(__name__)
+
+ARCHIVE_CODEC = "gzip-json-v1"
+
+
+def _archive_dt(value):
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.isoformat()
+    return str(value)
+
+
+def _archive_parse_dt(value):
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(str(value))
+    except (TypeError, ValueError):
+        return None
+
+
+def _archive_json(items: list[dict]) -> bytes:
+    return json.dumps(items, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+
+
+def _pack_archive(items: list[dict]) -> bytes:
+    return gzip.compress(_archive_json(items), compresslevel=6)
+
+
+def _unpack_archive(row) -> list[dict]:
+    if row is None or not getattr(row, "payload", None):
+        return []
+    try:
+        if getattr(row, "codec", ARCHIVE_CODEC) != ARCHIVE_CODEC:
+            return []
+        value = json.loads(gzip.decompress(bytes(row.payload)).decode("utf-8"))
+        return value if isinstance(value, list) else []
+    except Exception:
+        log.exception("Не вдалося прочитати message archive %s:%s", getattr(row, "kind", "?"), getattr(row, "entity_id", "?"))
+        return []
+
+
+def _order_message_to_archive(row) -> dict:
+    return {
+        "id": int(row.id), "order_id": int(row.order_id), "user_id": int(row.user_id),
+        "direction": row.direction, "author": row.author or "", "text": row.text or "",
+        "tg_message_id": row.tg_message_id,
+        # Cold history навмисно не зберігає Telegram file_id: це довгоживучий
+        # ключ доступу до чужого вкладення. Назва/тип лишаються для контексту.
+        "file_id": None, "file_kind": row.file_kind, "file_name": row.file_name,
+        "is_read": bool(row.is_read), "delivered": getattr(row, "delivered", None),
+        "delivery_error": getattr(row, "delivery_error", None),
+        "created_at": _archive_dt(row.created_at),
+    }
+
+
+def _support_message_to_archive(row) -> dict:
+    return {
+        "id": int(row.id), "thread_id": int(row.thread_id), "user_id": int(row.user_id),
+        "direction": row.direction, "author": row.author or "", "text": row.text or "",
+        "tg_message_id": row.tg_message_id, "file_id": None,
+        "file_kind": row.file_kind, "file_name": row.file_name,
+        "is_read": bool(row.is_read), "is_automatic": bool(getattr(row, "is_automatic", False)),
+        "created_at": _archive_dt(row.created_at),
+    }
+
+
+def _archived_order_message(item: dict) -> OrderMessage:
+    return OrderMessage(
+        id=int(item.get("id") or 0), order_id=int(item.get("order_id") or 0),
+        user_id=int(item.get("user_id") or 0), direction=str(item.get("direction") or ""),
+        author=str(item.get("author") or ""), text=str(item.get("text") or ""),
+        tg_message_id=item.get("tg_message_id"), file_id=None,
+        file_kind=item.get("file_kind"), file_name=item.get("file_name"),
+        is_read=bool(item.get("is_read")), delivered=item.get("delivered"),
+        delivery_error=item.get("delivery_error"), created_at=_archive_parse_dt(item.get("created_at")),
+    )
+
+
+def _archived_support_message(item: dict) -> SupportMessage:
+    return SupportMessage(
+        id=int(item.get("id") or 0), thread_id=int(item.get("thread_id") or 0),
+        user_id=int(item.get("user_id") or 0), direction=str(item.get("direction") or ""),
+        author=str(item.get("author") or ""), text=str(item.get("text") or ""),
+        tg_message_id=item.get("tg_message_id"), file_id=None,
+        file_kind=item.get("file_kind"), file_name=item.get("file_name"),
+        is_read=bool(item.get("is_read")), is_automatic=bool(item.get("is_automatic")),
+        created_at=_archive_parse_dt(item.get("created_at")),
+    )
 
 
 def _emit_order_changed(order, fields=(), *, created: bool = False) -> None:
@@ -1415,6 +1508,16 @@ class SqlRepository(Repository):
         await self.s.execute(delete(m.OrderItem).where(m.OrderItem.order_id == order_id))
         await self.s.execute(
             delete(m.OrderMessage).where(m.OrderMessage.order_id == order_id))
+        await self.s.execute(
+            delete(m.MessageArchive).where(
+                m.MessageArchive.kind == "order", m.MessageArchive.entity_id == order_id
+            )
+        )
+        await self.s.execute(
+            delete(m.ArchivedMessageRef).where(
+                m.ArchivedMessageRef.kind == "order", m.ArchivedMessageRef.entity_id == order_id
+            )
+        )
         await self._delete_panel_notifications_for_entity(
             ("order.created", "order.message"), order_id
         )
@@ -1426,6 +1529,12 @@ class SqlRepository(Repository):
         count = (await self.s.execute(select(func.count()).select_from(m.Order))).scalar_one()
         await self.s.execute(delete(m.OrderItem))
         await self.s.execute(delete(m.OrderMessage))
+        await self.s.execute(
+            delete(m.MessageArchive).where(m.MessageArchive.kind == "order")
+        )
+        await self.s.execute(
+            delete(m.ArchivedMessageRef).where(m.ArchivedMessageRef.kind == "order")
+        )
         notification_ids = list(await self.s.scalars(
             select(m.PanelNotification.id).where(
                 m.PanelNotification.kind.in_(("order.created", "order.message"))
@@ -2118,6 +2227,198 @@ class SqlRepository(Repository):
         await self._commit()
         return True
 
+    # --------------------------------------------- cold-tier повідомлень
+
+    async def _message_archive(self, kind: str, entity_id: int):
+        return await self.s.scalar(
+            select(m.MessageArchive).where(
+                m.MessageArchive.kind == kind,
+                m.MessageArchive.entity_id == int(entity_id),
+            )
+        )
+
+    async def _merge_message_archive(self, kind: str, entity_id: int, items: list[dict]) -> int:
+        """Атомарно додає повідомлення у стиснений cold-tier.
+
+        Архів зберігається в тій самій БД: insert/update архіву та delete
+        гарячих рядків комітяться однією транзакцією. Тому навіть аварія
+        посеред housekeeping не може лишити історію «між двома сховищами».
+        """
+        if not items:
+            return 0
+        existing = await self._message_archive(kind, entity_id)
+        merged = {}
+        if existing is not None:
+            for item in _unpack_archive(existing):
+                try:
+                    merged[int(item.get("id") or 0)] = item
+                except (TypeError, ValueError):
+                    continue
+        for item in items:
+            try:
+                merged[int(item.get("id") or 0)] = item
+            except (TypeError, ValueError):
+                continue
+        payload_items = [merged[key] for key in sorted(k for k in merged if k > 0)]
+        if not payload_items:
+            return 0
+        ids = [int(x["id"]) for x in payload_items]
+        dates = [_archive_parse_dt(x.get("created_at")) for x in payload_items]
+        dates = [x for x in dates if x is not None]
+        values = {
+            "message_count": len(payload_items),
+            "raw_bytes": len(_archive_json(payload_items)),
+            "min_message_id": min(ids),
+            "max_message_id": max(ids),
+            "first_at": min(dates) if dates else None,
+            "last_at": max(dates) if dates else None,
+            "codec": ARCHIVE_CODEC,
+            "payload": _pack_archive(payload_items),
+        }
+        if existing is None:
+            self.s.add(m.MessageArchive(kind=kind, entity_id=int(entity_id), **values))
+        else:
+            for key, value in values.items():
+                setattr(existing, key, value)
+        return len(items)
+
+    async def archive_cold_messages(self, older_than_days: int = 180, batch: int = 50) -> dict:
+        """Стискає історію давно закритих діалогів і прибирає hot rows.
+
+        Це не retention із втратою даних. Повний текст лишається у gzip-json
+        cold-tier і прозоро повертається звичайними API читання історії.
+        Архівуємо лише прочитані діалоги, щоб unread counters ніколи не
+        змінювались через housekeeping.
+        """
+        days = max(30, int(older_than_days or 180))
+        cap = max(1, min(int(batch or 50), 250))
+        edge = datetime.now(timezone.utc) - timedelta(days=days)
+        result = {"orders": 0, "order_messages": 0, "support_threads": 0, "support_messages": 0}
+
+        unread_order = select(m.OrderMessage.id).where(
+            m.OrderMessage.order_id == m.Order.id,
+            m.OrderMessage.direction == "in",
+            m.OrderMessage.is_read.is_(False),
+        ).exists()
+        has_order_messages = select(m.OrderMessage.id).where(
+            m.OrderMessage.order_id == m.Order.id
+        ).exists()
+        # CRM background refresh може оновлювати orders.updated_at навіть через
+        # роки після продажу. Для CRM-terminal заявки холодний вік рахуємо від
+        # business_state_at, інакше така переписка ніколи не стала б archival.
+        terminal_at = case(
+            (
+                and_(
+                    m.Order.business_state.in_((business.BUSINESS_SALE, business.BUSINESS_REFUSAL)),
+                    m.Order.business_state_at.is_not(None),
+                ),
+                m.Order.business_state_at,
+            ),
+            else_=m.Order.updated_at,
+        )
+        order_ids = list(await self.s.scalars(
+            select(m.Order.id)
+            .where(
+                terminal_at < edge,
+                or_(
+                    m.Order.status.in_((m.OrderStatus.DONE, m.OrderStatus.CANCELLED)),
+                    m.Order.business_state.in_((business.BUSINESS_SALE, business.BUSINESS_REFUSAL)),
+                ),
+                has_order_messages,
+                ~unread_order,
+            )
+            .order_by(terminal_at, m.Order.id)
+            .limit(cap)
+        ))
+        for order_id in order_ids:
+            rows = list(await self.s.scalars(
+                select(m.OrderMessage)
+                .where(m.OrderMessage.order_id == order_id)
+                .order_by(m.OrderMessage.id)
+            ))
+            if not rows:
+                continue
+            packed = [_order_message_to_archive(row) for row in rows]
+            await self._merge_message_archive("order", order_id, packed)
+            existing_refs = set(await self.s.scalars(
+                select(m.ArchivedMessageRef.tg_message_id).where(
+                    m.ArchivedMessageRef.kind == "order",
+                    m.ArchivedMessageRef.entity_id == order_id,
+                )
+            ))
+            for row in rows:
+                if row.tg_message_id is None or row.tg_message_id in existing_refs:
+                    continue
+                self.s.add(m.ArchivedMessageRef(
+                    kind="order", entity_id=order_id, user_id=int(row.user_id),
+                    tg_message_id=int(row.tg_message_id),
+                ))
+                existing_refs.add(row.tg_message_id)
+            await self.s.execute(delete(m.OrderMessage).where(m.OrderMessage.order_id == order_id))
+            result["orders"] += 1
+            result["order_messages"] += len(rows)
+
+        remaining = max(0, cap - result["orders"])
+        if remaining:
+            unread_support = select(m.SupportMessage.id).where(
+                m.SupportMessage.thread_id == m.SupportThread.id,
+                m.SupportMessage.direction == "in",
+                m.SupportMessage.is_read.is_(False),
+            ).exists()
+            has_support_messages = select(m.SupportMessage.id).where(
+                m.SupportMessage.thread_id == m.SupportThread.id
+            ).exists()
+            thread_ids = list(await self.s.scalars(
+                select(m.SupportThread.id)
+                .where(
+                    m.SupportThread.status == "closed",
+                    m.SupportThread.closed_at.is_not(None),
+                    m.SupportThread.closed_at < edge,
+                    has_support_messages,
+                    ~unread_support,
+                )
+                .order_by(m.SupportThread.closed_at, m.SupportThread.id)
+                .limit(remaining)
+            ))
+            for thread_id in thread_ids:
+                rows = list(await self.s.scalars(
+                    select(m.SupportMessage)
+                    .where(m.SupportMessage.thread_id == thread_id)
+                    .order_by(m.SupportMessage.id)
+                ))
+                if not rows:
+                    continue
+                packed = [_support_message_to_archive(row) for row in rows]
+                await self._merge_message_archive("support", thread_id, packed)
+                await self.s.execute(delete(m.SupportMessage).where(m.SupportMessage.thread_id == thread_id))
+                result["support_threads"] += 1
+                result["support_messages"] += len(rows)
+
+        if result["order_messages"] or result["support_messages"]:
+            await self.s.commit()
+        return result
+
+    async def prune_panel_notifications(self, older_than_days: int = 90) -> int:
+        """Видаляє лише оперативні panel notifications, не бізнес-історію."""
+        days = max(7, int(older_than_days or 90))
+        edge = datetime.now(timezone.utc) - timedelta(days=days)
+        stale_ids = select(m.PanelNotification.id).where(m.PanelNotification.created_at < edge)
+        # SQLite у локальних/QA запусках може працювати без FK cascade, тому
+        # read-маркери чистимо явно. PostgreSQL виконає той самий запит дешево
+        # через індекс notification_id.
+        await self.s.execute(
+            delete(m.PanelNotificationRead).where(
+                m.PanelNotificationRead.notification_id.in_(stale_ids)
+            )
+        )
+        result = await self.s.execute(
+            delete(m.PanelNotification).where(m.PanelNotification.created_at < edge)
+        )
+        removed = int(result.rowcount or 0)
+        if removed:
+            await self.s.commit()
+        return removed
+
     # -------------------------------------------------- чат замовлення
 
     async def set_chat_order(self, user_id, order_id) -> None:
@@ -2135,41 +2436,65 @@ class SqlRepository(Repository):
 
     async def list_order_messages(
         self, order_id, limit: int = 200, after_id: int | None = None,
+        before_id: int | None = None,
     ) -> list[OrderMessage]:
-        """Останні повідомлення або інкремент після ``after_id``.
+        """Hot + compressed cold history as one chronological stream.
 
-        Старий запит сортував ASC і лише потім застосовував LIMIT 200, тому
-        у довгій переписці повертав *найстаріші* 200 повідомлень і нові
-        репліки фактично переставали з'являтися в панелі. Початкове читання
-        тепер бере останні 200 через DESC + reverse, а live polling тягне
-        лише повідомлення з більшим id.
+        Callers do not need to know whether an old dialogue has already been
+        archived. IDs are preserved inside the archive, so ``after_id`` and
+        ``before_id`` keep exactly the same semantics across the hot/cold
+        boundary.
         """
         cap = max(1, min(int(limit or 200), 500))
+        if after_id is not None and before_id is not None:
+            raise ValueError("after_id і before_id не можна використовувати одночасно")
+
+        archive = await self._message_archive("order", int(order_id))
+        archived = [_archived_order_message(x) for x in _unpack_archive(archive)]
+        archived = [x for x in archived if x.id > 0]
+
+        query = select(m.OrderMessage).where(m.OrderMessage.order_id == order_id)
         if after_id is not None:
-            rows = list(await self.s.scalars(
-                select(m.OrderMessage)
-                .where(
-                    m.OrderMessage.order_id == order_id,
-                    m.OrderMessage.id > int(after_id),
-                )
-                .order_by(m.OrderMessage.id)
-                .limit(cap)
-            ))
-            return [_order_message(r) for r in rows]
+            query = query.where(m.OrderMessage.id > int(after_id)).order_by(m.OrderMessage.id).limit(cap)
+            live = [_order_message(r) for r in await self.s.scalars(query)]
+            cold = [x for x in archived if x.id > int(after_id)]
+            merged = {x.id: x for x in [*cold, *live]}
+            return [merged[k] for k in sorted(merged)[:cap]]
+
+        if before_id is not None:
+            query = query.where(m.OrderMessage.id < int(before_id)).order_by(m.OrderMessage.id.desc()).limit(cap)
+            live_rows = list(await self.s.scalars(query))
+            live_rows.reverse()
+            live = [_order_message(r) for r in live_rows]
+            cold = [x for x in archived if x.id < int(before_id)]
+            merged = {x.id: x for x in [*cold, *live]}
+            keys = sorted(merged)[-cap:]
+            return [merged[k] for k in keys]
 
         rows = list(await self.s.scalars(
-            select(m.OrderMessage)
-            .where(m.OrderMessage.order_id == order_id)
-            .order_by(m.OrderMessage.created_at.desc(), m.OrderMessage.id.desc())
-            .limit(cap)
+            query.order_by(m.OrderMessage.id.desc()).limit(cap)
         ))
         rows.reverse()
-        return [_order_message(r) for r in rows]
+        live = [_order_message(r) for r in rows]
+        merged = {x.id: x for x in [*archived, *live]}
+        keys = sorted(merged)[-cap:]
+        return [merged[k] for k in keys]
 
-    async def find_order_by_tg_message(self, tg_message_id: int) -> int | None:
-        return await self.s.scalar(
-            select(m.OrderMessage.order_id).where(m.OrderMessage.tg_message_id == tg_message_id)
+    async def find_order_by_tg_message(self, tg_message_id: int, user_id: int | None = None) -> int | None:
+        live = select(m.OrderMessage.order_id).where(m.OrderMessage.tg_message_id == tg_message_id)
+        if user_id is not None:
+            live = live.where(m.OrderMessage.user_id == int(user_id))
+        order_id = await self.s.scalar(live.limit(1))
+        if order_id is not None:
+            return int(order_id)
+        archived = select(m.ArchivedMessageRef.entity_id).where(
+            m.ArchivedMessageRef.kind == "order",
+            m.ArchivedMessageRef.tg_message_id == int(tg_message_id),
         )
+        if user_id is not None:
+            archived = archived.where(m.ArchivedMessageRef.user_id == int(user_id))
+        value = await self.s.scalar(archived.limit(1))
+        return int(value) if value is not None else None
 
     async def mark_messages_read(self, order_id) -> int:
         result = await self.s.execute(
@@ -2517,13 +2842,19 @@ class SqlRepository(Repository):
         return _support_message(row)
 
     async def list_support_messages(self, thread_id: int, limit: int = 300) -> list[SupportMessage]:
-        rows = await self.s.scalars(
+        cap = max(1, min(int(limit or 300), 1000))
+        archive = await self._message_archive("support", int(thread_id))
+        archived = [_archived_support_message(x) for x in _unpack_archive(archive)]
+        archived = [x for x in archived if x.id > 0]
+        rows = list(await self.s.scalars(
             select(m.SupportMessage)
             .where(m.SupportMessage.thread_id == thread_id)
             .order_by(m.SupportMessage.created_at, m.SupportMessage.id)
-            .limit(limit)
-        )
-        return [_support_message(row) for row in rows]
+            .limit(cap)
+        ))
+        live = [_support_message(row) for row in rows]
+        merged = {x.id: x for x in [*archived, *live]}
+        return [merged[k] for k in sorted(merged)[:cap]]
 
     async def mark_support_read(self, thread_id: int) -> int:
         result = await self.s.execute(
@@ -2572,6 +2903,11 @@ class SqlRepository(Repository):
         if not row:
             return False
         await self._delete_panel_notifications_for_entity(("support.message",), thread_id)
+        await self.s.execute(
+            delete(m.MessageArchive).where(
+                m.MessageArchive.kind == "support", m.MessageArchive.entity_id == thread_id
+            )
+        )
         await self.s.delete(row)
         await self.s.commit()
         return True
@@ -2598,15 +2934,14 @@ class SqlRepository(Repository):
         await self.s.commit()
         await self.s.refresh(row)
 
-        # Центр сповіщень — оперативний журнал, не архів аудиту. Старші
-        # за 90 днів події прибираємо разом із read-мітками через CASCADE,
-        # щоб таблиця не росла безмежно роками.
-        edge = datetime.now(timezone.utc) - timedelta(days=90)
-        await self.s.execute(
-            delete(m.PanelNotification).where(m.PanelNotification.created_at < edge)
-        )
-        await self.s.commit()
+        # Retention виконує добовий housekeeping, а не кожне створення події:
+        # DELETE по великій таблиці в hot-path нового замовлення/повідомлення
+        # створював зайві записи WAL і contention без жодної користі.
         return self._panel_notification_dict(row)
+
+    async def _panel_read_cursor(self, viewer_key: str) -> int:
+        row = await self.s.get(m.PanelNotificationCursor, viewer_key)
+        return int(row.through_id or 0) if row else 0
 
     async def list_panel_notifications(
         self, viewer_key: str, *, limit: int = 60, after_id: int | None = None
@@ -2621,23 +2956,32 @@ class SqlRepository(Repository):
         ))
         if not rows:
             return []
-        ids = [row.id for row in rows]
-        read_ids = set(await self.s.scalars(
-            select(m.PanelNotificationRead.notification_id).where(
-                m.PanelNotificationRead.viewer_key == viewer_key,
-                m.PanelNotificationRead.notification_id.in_(ids),
-            )
-        ))
+        cursor = await self._panel_read_cursor(viewer_key)
+        ids = [row.id for row in rows if row.id > cursor]
+        explicit = set()
+        if ids:
+            explicit = set(await self.s.scalars(
+                select(m.PanelNotificationRead.notification_id).where(
+                    m.PanelNotificationRead.viewer_key == viewer_key,
+                    m.PanelNotificationRead.notification_id.in_(ids),
+                )
+            ))
         return [
-            self._panel_notification_dict(row, read=row.id in read_ids)
+            self._panel_notification_dict(row, read=(row.id <= cursor or row.id in explicit))
             for row in rows
         ]
 
     async def panel_notification_unread_count(self, viewer_key: str) -> int:
-        total = int(await self.s.scalar(select(func.count(m.PanelNotification.id))) or 0)
+        cursor = await self._panel_read_cursor(viewer_key)
+        total = int(await self.s.scalar(
+            select(func.count(m.PanelNotification.id)).where(m.PanelNotification.id > cursor)
+        ) or 0)
+        if not total:
+            return 0
         read = int(await self.s.scalar(
             select(func.count(m.PanelNotificationRead.id)).where(
-                m.PanelNotificationRead.viewer_key == viewer_key
+                m.PanelNotificationRead.viewer_key == viewer_key,
+                m.PanelNotificationRead.notification_id > cursor,
             )
         ) or 0)
         return max(0, total - read)
@@ -2648,6 +2992,9 @@ class SqlRepository(Repository):
         )
         if exists_row is None:
             return False
+        cursor = await self._panel_read_cursor(viewer_key)
+        if int(notification_id) <= cursor:
+            return True
         already = await self.s.scalar(
             select(m.PanelNotificationRead.id).where(
                 m.PanelNotificationRead.notification_id == notification_id,
@@ -2665,23 +3012,26 @@ class SqlRepository(Repository):
         return True
 
     async def mark_all_panel_notifications_read(self, viewer_key: str) -> int:
-        all_ids = set(await self.s.scalars(select(m.PanelNotification.id)))
-        if not all_ids:
+        """O(1) read-all via cursor instead of one DB row per notification."""
+        changed = await self.panel_notification_unread_count(viewer_key)
+        latest = int(await self.s.scalar(select(func.max(m.PanelNotification.id))) or 0)
+        if not latest:
             return 0
-        read_ids = set(await self.s.scalars(
-            select(m.PanelNotificationRead.notification_id).where(
-                m.PanelNotificationRead.viewer_key == viewer_key
+        row = await self.s.get(m.PanelNotificationCursor, viewer_key)
+        if row is None:
+            row = m.PanelNotificationCursor(viewer_key=viewer_key, through_id=latest)
+            self.s.add(row)
+        elif int(row.through_id or 0) < latest:
+            row.through_id = latest
+        # Точкові read-маркери до курсора вже повністю описані одним числом.
+        await self.s.execute(
+            delete(m.PanelNotificationRead).where(
+                m.PanelNotificationRead.viewer_key == viewer_key,
+                m.PanelNotificationRead.notification_id <= latest,
             )
-        ))
-        pending = sorted(all_ids - read_ids)
-        if not pending:
-            return 0
-        self.s.add_all([
-            m.PanelNotificationRead(notification_id=nid, viewer_key=viewer_key)
-            for nid in pending
-        ])
+        )
         await self.s.commit()
-        return len(pending)
+        return changed
 
     # ------------------------------------------------------ менеджери
 
@@ -2752,6 +3102,8 @@ def _order_message(row) -> OrderMessage:
         direction=row.direction, author=row.author or "", text=row.text,
         tg_message_id=row.tg_message_id, is_read=row.is_read, created_at=row.created_at,
         file_id=row.file_id, file_kind=row.file_kind, file_name=row.file_name,
+        delivered=getattr(row, "delivered", None),
+        delivery_error=getattr(row, "delivery_error", None),
     )
 
 

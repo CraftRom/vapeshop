@@ -98,6 +98,8 @@ async def index(who: Principal = Depends(require_sysadmin)):
     total = sum(item["sizeBytes"] for item in items)
     free = shutil.disk_usage(directory).free
 
+    from shop.db import storage_report
+
     return {
         "items": items,
         "total": len(items),
@@ -105,6 +107,7 @@ async def index(who: Principal = Depends(require_sysadmin)):
         "freeBytes": free,
         "directory": str(directory),
         "retentionDays": settings.backup_retention_days,
+        "database": await storage_report(),
     }
 
 

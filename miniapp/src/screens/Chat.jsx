@@ -272,7 +272,7 @@ export function ChatRoom({ config, order, onBack }) {
           Замовлення
         </button>
         <h1>Замовлення №{order.id}</h1>
-        <p>{order.status_label || STATUS[order.status] || order.status}</p>
+        <p>{order.status_label || STATUS[order.status] || order.status} · історія зберігається</p>
       </div>
 
       {error && <div className="banner warn">{error}</div>}

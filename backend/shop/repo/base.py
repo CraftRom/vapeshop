@@ -432,10 +432,13 @@ class Repository(ABC):
     async def add_order_message(self, data: dict) -> OrderMessage: ...
 
     @abstractmethod
-    async def list_order_messages(self, order_id: int, limit: int = 200, after_id: int | None = None) -> list[OrderMessage]: ...
+    async def list_order_messages(
+        self, order_id: int, limit: int = 200, after_id: int | None = None,
+        before_id: int | None = None,
+    ) -> list[OrderMessage]: ...
 
     @abstractmethod
-    async def find_order_by_tg_message(self, tg_message_id: int) -> int | None:
+    async def find_order_by_tg_message(self, tg_message_id: int, user_id: int | None = None) -> int | None:
         """Замовлення, до якого належить повідомлення бота. Для розбору відповідей."""
 
     @abstractmethod
@@ -443,6 +446,16 @@ class Repository(ABC):
         """Позначає вхідні прочитаними. Повертає, скільки було непрочитаних."""
 
     @abstractmethod
+    @abstractmethod
+    async def archive_cold_messages(self, older_than_days: int = 180, batch: int = 50) -> dict:
+        """Стискає давно закриті чати у cold-tier без втрати історії."""
+        ...
+
+    @abstractmethod
+    async def prune_panel_notifications(self, older_than_days: int = 90) -> int:
+        """Прибирає старі оперативні сповіщення панелі."""
+        ...
+
     async def forget_chat_files(self, older_than_days: int) -> int:
         """Прибирає посилання на вкладення давно виконаних замовлень.
 

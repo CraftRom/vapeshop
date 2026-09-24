@@ -5,7 +5,7 @@ from datetime import datetime
 from decimal import Decimal
 
 from sqlalchemy import (
-    JSON, BigInteger, Index, Boolean, DateTime, Enum, ForeignKey, Integer, Numeric,
+    JSON, BigInteger, Index, Boolean, DateTime, Enum, ForeignKey, Integer, LargeBinary, Numeric,
     String, Text, UniqueConstraint, func, text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
@@ -375,10 +375,51 @@ class OrderMessage(Base):
     file_kind: Mapped[str | None] = mapped_column(String(16))   # photo, document, video, voice
     file_name: Mapped[str | None] = mapped_column(String(255))
     is_read: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Для вихідних реплік окремо зберігаємо факт доставки. is_read не може
+    # виконувати цю роль: недоставлене повідомлення раніше записувалося як
+    # прочитане, і після reload панель показувала неправдиве «✓✓ Прочитано».
+    # None — вхідне повідомлення клієнта / старий запис до міграції.
+    delivered: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    delivery_error: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
 
 
 Index("ix_order_messages_order_created", OrderMessage.order_id, OrderMessage.created_at)
+Index("ix_order_messages_order_id_id", OrderMessage.order_id, OrderMessage.id)
+
+
+
+
+class MessageArchive(Base):
+    """Стиснений cold-tier для давно закритих діалогів.
+
+    Один gzip-json chunk замінює сотні/тисячі рядків + їхні індекси.
+    Архів лишається в тій самій транзакційній PostgreSQL-базі, тому pg_dump
+    залишається атомарним і для відновлення не потрібне друге сховище.
+    Гарячі таблиці ``order_messages`` / ``support_messages`` містять лише
+    активну історію; старі діалоги прозоро дочитуються з цього cold-tier.
+    """
+
+    __tablename__ = "message_archives"
+    __table_args__ = (
+        # UNIQUE already creates the B-tree needed by (kind, entity_id).
+        # Do not duplicate it with a second identical index.
+        UniqueConstraint("kind", "entity_id", name="uq_message_archive_entity"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    kind: Mapped[str] = mapped_column(String(16))  # order | support
+    entity_id: Mapped[int] = mapped_column(Integer)
+    message_count: Mapped[int] = mapped_column(Integer, default=0)
+    raw_bytes: Mapped[int] = mapped_column(BigInteger, default=0, server_default="0")
+    min_message_id: Mapped[int | None] = mapped_column(Integer)
+    max_message_id: Mapped[int | None] = mapped_column(Integer)
+    first_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    codec: Mapped[str] = mapped_column(String(24), default="gzip-json-v1")
+    payload: Mapped[bytes] = mapped_column(LargeBinary)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 
 class SupportThread(Base):
@@ -445,6 +486,7 @@ class SupportMessage(Base):
 
 
 Index("ix_support_messages_thread_created", SupportMessage.thread_id, SupportMessage.created_at)
+Index("ix_support_messages_thread_id_id", SupportMessage.thread_id, SupportMessage.id)
 
 
 class PanelNotification(Base):
@@ -489,6 +531,47 @@ class PanelNotificationRead(Base):
     read_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     notification: Mapped[PanelNotification] = relationship(back_populates="reads")
+
+
+
+
+
+
+class ArchivedMessageRef(Base):
+    """Мінімальний індекс Telegram reply -> archived order.
+
+    ``message_id`` Telegram унікальний лише всередині конкретного чату,
+    тому ключ обов'язково містить user_id. Сам текст тут не дублюється.
+    """
+
+    __tablename__ = "archived_message_refs"
+    __table_args__ = (
+        # UNIQUE doubles as the lookup index; a duplicate non-unique index
+        # would only increase write cost and database size.
+        UniqueConstraint("kind", "user_id", "tg_message_id", name="uq_archived_message_ref"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    kind: Mapped[str] = mapped_column(String(16))
+    entity_id: Mapped[int] = mapped_column(Integer, index=True)
+    user_id: Mapped[int] = mapped_column(Integer, index=True)
+    tg_message_id: Mapped[int] = mapped_column(BigInteger)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class PanelNotificationCursor(Base):
+    """Компактний read-cursor для центру сповіщень.
+
+    ``read-all`` більше не створює N рядків ``panel_notification_reads``.
+    Один запис означає: усе до ``through_id`` включно вже прочитано.
+    Окремі read-рядки лишаються лише для точкових прочитань після курсора.
+    """
+
+    __tablename__ = "panel_notification_cursors"
+
+    viewer_key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    through_id: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 
 class Wishlist(Base):

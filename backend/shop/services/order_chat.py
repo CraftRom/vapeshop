@@ -128,7 +128,7 @@ async def announce_accepted(
     await repo.add_order_message({
         "order_id": order.id, "user_id": order.user_id, "direction": "out",
         "author": "Система", "text": note,
-        "tg_message_id": sent.message_id, "is_read": False,
+        "tg_message_id": sent.message_id, "is_read": False, "delivered": True,
     })
     return True
 
@@ -177,7 +177,7 @@ async def send_to_client(
     await repo.add_order_message({
         "order_id": order.id, "user_id": order.user_id, "direction": "out",
         "author": author, "text": text, "tg_message_id": sent.message_id,
-        "is_read": False,
+        "is_read": False, "delivered": True,
     })
     return True
 
@@ -219,7 +219,7 @@ async def send_tracking(bot, repo: Repository, order: Order, tracking: str) -> b
     await repo.add_order_message({
         "order_id": order.id, "user_id": order.user_id, "direction": "out",
         "author": "Система", "text": f"Відправлено. ТТН: {tracking}",
-        "tg_message_id": sent.message_id, "is_read": False,
+        "tg_message_id": sent.message_id, "is_read": False, "delivered": True,
     })
     return True
 
@@ -275,7 +275,7 @@ async def send_tracking_update(bot, repo: Repository, order: Order, tracking: st
     await repo.add_order_message({
         "order_id": order.id, "user_id": order.user_id, "direction": "out",
         "author": "Система", "text": f"Накладну змінено на {tracking}",
-        "tg_message_id": sent.message_id, "is_read": False,
+        "tg_message_id": sent.message_id, "is_read": False, "delivered": True,
     })
     return True
 
@@ -308,7 +308,7 @@ async def route_incoming(repo: Repository, user, message) -> int | None:
     """
     reply_to = getattr(message, "reply_to_message", None)
     if reply_to is not None:
-        order_id = await repo.find_order_by_tg_message(reply_to.message_id)
+        order_id = await repo.find_order_by_tg_message(reply_to.message_id, user.id)
         if order_id:
             return order_id
 
@@ -391,7 +391,8 @@ def describe_attachment(message) -> dict | None:
 
 
 async def save_incoming(
-    repo: Repository, order: Order, user, text: str, bot=None, attachment: dict | None = None
+    repo: Repository, order: Order, user, text: str, bot=None,
+    attachment: dict | None = None, tg_message_id: int | None = None,
 ) -> None:
     """Зберігає відповідь клієнта і сповіщає команду.
 
@@ -402,7 +403,7 @@ async def save_incoming(
     await repo.add_order_message({
         "order_id": order.id, "user_id": user.id, "direction": "in",
         "author": author,
-        "text": text, "tg_message_id": None, "is_read": False,
+        "text": text, "tg_message_id": tg_message_id, "is_read": False,
         **(attachment or {}),
     })
 

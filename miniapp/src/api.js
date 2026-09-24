@@ -371,6 +371,9 @@ export const api = {
 
   chat: {
     list: (orderId, afterId = null) => request(`/orders/${orderId}/chat${afterId != null ? `?after_id=${encodeURIComponent(afterId)}` : ''}`),
+    older: (orderId, beforeId, limit = 100) => request(
+      `/orders/${orderId}/chat?before_id=${encodeURIComponent(beforeId)}&limit=${encodeURIComponent(limit)}`
+    ),
     send: (orderId, text) =>
       request(`/orders/${orderId}/chat`, { method: 'POST', body: { text } }),
   },

@@ -198,6 +198,8 @@ def prune_backups(retention_days: int) -> int:
 # нікому, а код доступу до неї, який у нас лежить, лишається чинним:
 # витік бази означав би витік чужих знімків із банківськими додатками.
 CHAT_FILE_RETENTION_DAYS = 3
+MESSAGE_HOT_RETENTION_DAYS = 180
+PANEL_NOTIFICATION_RETENTION_DAYS = 90
 
 
 async def forget_old_chat_files() -> int:
@@ -239,10 +241,28 @@ async def run_housekeeping() -> dict:
     except Exception:
         log.exception("Не вдалося очистити старі посилання вкладень")
 
+    # Cold-tier: завершені діалоги не повинні роками роздувати hot tables та
+    # їхні індекси. Текст НЕ видаляється — він стискається в один gzip chunk
+    # на замовлення/support thread і прозоро читається тим самим API.
+    archived = {"orders": 0, "order_messages": 0, "support_threads": 0, "support_messages": 0}
+    panel_notifications_removed = 0
+    try:
+        async with open_repo() as repo:
+            archived = await repo.archive_cold_messages(
+                MESSAGE_HOT_RETENTION_DAYS, batch=200
+            )
+            panel_notifications_removed = await repo.prune_panel_notifications(
+                PANEL_NOTIFICATION_RETENTION_DAYS
+            )
+    except Exception:
+        log.exception("Не вдалося виконати DB lifecycle housekeeping")
+
     result = {
         "logs_removed": logs_removed,
         "backups_removed": backups_removed,
         "chat_files_removed": chat_files_removed,
+        "panel_notifications_removed": panel_notifications_removed,
+        **{f"archived_{key}": value for key, value in archived.items()},
     }
     if any(result.values()):
         log.info("Housekeeping завершено", extra={"event": "housekeeping.done", **result})

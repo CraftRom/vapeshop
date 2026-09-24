@@ -368,6 +368,8 @@ async def order_messages(
     order_id: int,
     mark_read: bool = False,
     after_id: int | None = Query(None, ge=0),
+    before_id: int | None = Query(None, ge=1),
+    limit: int = Query(200, ge=1, le=500),
     repo: Repository = Depends(get_repo),
 ):
     """Стрічка листування.
@@ -381,9 +383,13 @@ async def order_messages(
     """
     if not await repo.get_order(order_id):
         raise HTTPException(404, "Замовлення не знайдено")
+    if after_id is not None and before_id is not None:
+        raise HTTPException(422, "after_id і before_id не можна використовувати одночасно")
     if mark_read:
         await repo.mark_messages_read(order_id)
-    return await repo.list_order_messages(order_id, after_id=after_id)
+    return await repo.list_order_messages(
+        order_id, limit=limit, after_id=after_id, before_id=before_id,
+    )
 
 
 @router.post("/{order_id}/messages/read")
@@ -442,7 +448,9 @@ async def send_message(
 
     saved = await repo.add_order_message({
         "order_id": order_id, "user_id": order.user_id, "direction": "out",
-        "author": author, "text": data.text, "tg_message_id": None, "is_read": True,
+        "author": author, "text": data.text, "tg_message_id": None,
+        "is_read": False, "delivered": False,
+        "delivery_error": "Telegram delivery failed",
     })
     return OrderMessageResult(
         message=saved, delivered=False,

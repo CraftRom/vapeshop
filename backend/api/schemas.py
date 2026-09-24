@@ -254,6 +254,8 @@ class OrderMessageOut(BaseModel):
     is_read: bool
     file_kind: str | None = None
     file_name: str | None = None
+    delivered: bool | None = None
+    delivery_error: str | None = None
     created_at: datetime | None = None
 
 

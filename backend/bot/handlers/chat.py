@@ -150,11 +150,16 @@ async def switch_order(message: Message, repo: Repository, user: User) -> None:
     await message.answer("\n".join(lines), reply_markup=chat.pick_order_keyboard(open_orders))
 
 
-async def _deliver(repo, user, text, order_id, bot=None, attachment=None) -> str:
+async def _deliver(
+    repo, user, text, order_id, bot=None, attachment=None, tg_message_id=None,
+) -> str:
     order = await repo.get_order(order_id)
     if not order or order.user_id != user.id:
         return "Це замовлення не знайдено."
-    await chat.save_incoming(repo, order, user, text, bot=bot, attachment=attachment)
+    await chat.save_incoming(
+        repo, order, user, text, bot=bot, attachment=attachment,
+        tg_message_id=tg_message_id,
+    )
     await repo.set_chat_order(user.id, order.id)
 
     who = f" ({order.operator_name})" if order.operator_name else ""
@@ -244,7 +249,9 @@ async def incoming_file(
         return
 
     caption = (message.caption or "").strip() or f"[{attachment['file_name']}]"
-    delivered = await _deliver(repo, user, caption, order_id, message.bot, attachment)
+    delivered = await _deliver(
+        repo, user, caption, order_id, message.bot, attachment, message.message_id,
+    )
     if attachment.get("file_kind") == "photo":
         # Бот не вміє читати суму зі знімка й не вдає, що вміє: обіцяти
         # автоматичну перевірку означало б, що людина чекатиме підтвердження,
@@ -318,7 +325,9 @@ async def incoming(
 
     order_id = await chat.route_incoming(repo, user, message)
     if order_id:
-        delivered = await _deliver(repo, user, text, order_id, message.bot)
+        delivered = await _deliver(
+            repo, user, text, order_id, message.bot, tg_message_id=message.message_id,
+        )
         if claims_payment:
             # Окреме підтвердження саме про оплату. Людина, яка щойно
             # переказала гроші, чекає не «передали менеджеру», а відповіді

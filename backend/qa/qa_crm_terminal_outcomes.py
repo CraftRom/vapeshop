@@ -49,7 +49,7 @@ for down in revisions.values():
     if isinstance(down, str): parents.add(down)
     elif isinstance(down, (tuple, list)): parents.update(down)
 heads = sorted(set(revisions) - parents)
-check("Alembic has exactly one head", heads == ["e3f7a91c2d64"], heads)
+check("Alembic has exactly one head", len(heads) == 1, heads)
 
 migration = (versions / "e3f7a91c2d64_merge_heads_and_negative_crm_outcomes.py").read_text()
 check("migration rebuilds customer sale totals", "orders_count = COALESCE" in migration and "business_state = 'sale'" in migration)

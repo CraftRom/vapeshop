@@ -350,6 +350,8 @@ class OrderMessage:
     file_kind: str | None = None
     file_name: str | None = None
     is_read: bool = False
+    delivered: bool | None = None
+    delivery_error: str | None = None
     created_at: datetime | None = None
 
     @property

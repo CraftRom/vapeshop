@@ -852,6 +852,19 @@ a.info-strong:hover { color: var(--violet); }
 }
 
 .receipt.seen { color: var(--mint); }
+.receipt.failed { color: var(--danger, #ff6b7a); }
+
+.chat-history-more {
+  display: flex;
+  justify-content: center;
+  padding: 2px 0 6px;
+}
+
+.chat-history-more .btn {
+  min-height: 30px;
+  padding: 5px 10px;
+  font-size: 11px;
+}
 
 /* ================================================================
    Навігація й список замовлень — UX-оновлення 1.25

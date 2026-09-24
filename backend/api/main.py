@@ -99,7 +99,7 @@ app = FastAPI(
     title=f"{settings.shop_name} — Dashboard API",
     # Версія API піднімається разом зі змінами read/write контракту.
     # 1.10: актуальна нормалізація доставки SalesDrive order/list.
-    version="1.14.6",
+    version="1.14.8",
     lifespan=lifespan,
     docs_url="/docs" if _docs_on else None,
     redoc_url=None,

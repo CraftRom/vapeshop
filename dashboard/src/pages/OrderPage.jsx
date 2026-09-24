@@ -29,6 +29,15 @@ const FILE_LABEL = {
   photo: 'Фото', document: 'Документ', video: 'Відео', voice: 'Голосове',
 }
 
+
+function mergeMessages(...groups) {
+  const byId = new Map()
+  for (const group of groups) {
+    for (const message of group || []) byId.set(message.id, message)
+  }
+  return [...byId.values()].sort((a, b) => Number(a.id) - Number(b.id))
+}
+
 function sameMessages(left, right) {
   if (left === right) return true
   if (!Array.isArray(left) || !Array.isArray(right) || left.length !== right.length) return false
@@ -42,6 +51,8 @@ function sameMessages(left, right) {
       && message.text === other.text
       && message.file_kind === other.file_kind
       && message.file_name === other.file_name
+      && message.delivered === other.delivered
+      && message.delivery_error === other.delivery_error
       && message.created_at === other.created_at
   })
 }
@@ -162,7 +173,7 @@ function TrackingModal({ initial, onCancel, onConfirm }) {
   )
 }
 
-function Chat({ orderId, messages, newMessageIds, onSent }) {
+function Chat({ orderId, messages, newMessageIds, onSent, onLoadOlder, hasOlder, loadingOlder }) {
   const notify = useToast()
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
@@ -228,7 +239,7 @@ function Chat({ orderId, messages, newMessageIds, onSent }) {
       <div className="order-chat-head">
         <div>
           <h2>Листування</h2>
-          <div className="faint">Повідомлення клієнта з Telegram і відповіді менеджера</div>
+          <div className="faint">Повідомлення клієнта з Telegram і відповіді менеджера · історія зберігається</div>
         </div>
         {newCount > 0 && (
           <span className="chat-new-counter">
@@ -246,6 +257,13 @@ function Chat({ orderId, messages, newMessageIds, onSent }) {
           stickToBottomRef.current = node.scrollHeight - node.scrollTop - node.clientHeight < 80
         }}
       >
+        {hasOlder && messages.length > 0 && (
+          <div className="chat-history-more">
+            <button className="btn ghost compact" onClick={onLoadOlder} disabled={loadingOlder}>
+              {loadingOlder ? 'Завантажуємо…' : 'Показати попередні повідомлення'}
+            </button>
+          </div>
+        )}
         {messages.length === 0 ? (
           <p className="faint" style={{ margin: 0 }}>
             Повідомлень ще немає. Клієнт отримає ваше в чаті з ботом і зможе
@@ -282,8 +300,8 @@ function Chat({ orderId, messages, newMessageIds, onSent }) {
                       чи він читає й не відповідає, чи просто не відкривав
                       застосунок, і чи варто дзвонити. */}
                   {m.direction === 'out' && (
-                    <div className={`receipt ${m.is_read ? 'seen' : ''}`}>
-                      {m.is_read ? '✓✓ Прочитано' : '✓ Надіслано'}
+                    <div className={`receipt ${m.delivered === false ? 'failed' : (m.is_read ? 'seen' : '')}`}>
+                      {m.delivered === false ? 'Не доставлено' : (m.is_read ? '✓✓ Прочитано' : '✓ Надіслано')}
                     </div>
                   )}
                 </div>
@@ -1090,6 +1108,8 @@ export default function OrderPage() {
 
   const [order, setOrder] = useState(null)
   const [messages, setMessages] = useState([])
+  const [hasOlderMessages, setHasOlderMessages] = useState(false)
+  const [loadingOlderMessages, setLoadingOlderMessages] = useState(false)
   // Повідомлення, які були непрочитаними в момент, коли менеджер побачив
   // цю картку. На сервері вони одразу стають прочитаними, але локальна
   // мітка живе до виходу зі сторінки — інакше «Нове» зникало б ще до того,
@@ -1133,6 +1153,7 @@ export default function OrderPage() {
       applyFreshOrder(fresh)
       messagesRef.current = log
       setMessages(log)
+      setHasOlderMessages(log.length >= 200)
       setError('')
       const unseen = log
         .filter((message) => message.direction === 'in' && !message.is_read)
@@ -1173,6 +1194,8 @@ export default function OrderPage() {
     messagesRef.current = []
     messagePollTickRef.current = 0
     setMessages([])
+    setHasOlderMessages(false)
+    setLoadingOlderMessages(false)
     setNewMessageIds(new Set())
     setTracking('')
     setNote('')
@@ -1272,6 +1295,27 @@ export default function OrderPage() {
     }
   }, [order, params, setParams])
 
+  const loadOlderMessages = useCallback(async () => {
+    if (loadingOlderMessages || !hasOlderMessages) return
+    const current = messagesRef.current
+    const firstId = current.length ? current[0]?.id : null
+    if (!firstId) return
+    setLoadingOlderMessages(true)
+    try {
+      const older = await api.orders.messages(id, false, null, firstId, 200)
+      setHasOlderMessages(older.length >= 200)
+      if (older.length > 0) {
+        const next = mergeMessages(older, current)
+        messagesRef.current = next
+        setMessages(next)
+      }
+    } catch (err) {
+      notify(err.message, 'bad')
+    } finally {
+      setLoadingOlderMessages(false)
+    }
+  }, [id, hasOlderMessages, loadingOlderMessages, notify])
+
   // Відповідь клієнта приходить у бот, а не в панель. Оновлюємо тільки
   // стрічку повідомлень; решта картки не переходить у loading і не скаче.
   // Якщо історія не змінилась, навіть React-state лишається тим самим.
@@ -1288,7 +1332,10 @@ export default function OrderPage() {
 
     let next = current
     if (reconcile || lastId === null) {
-      next = sameMessages(current, fresh) ? current : fresh
+      // Full reconcile повертає останній серверний batch. Якщо менеджер вже
+      // довантажив старішу історію, не відкидаємо її на черговому poll.
+      const merged = mergeMessages(current, fresh)
+      next = sameMessages(current, merged) ? current : merged
     } else if (fresh.length > 0) {
       const byId = new Map(current.map((message) => [message.id, message]))
       fresh.forEach((message) => byId.set(message.id, message))
@@ -1676,7 +1723,15 @@ export default function OrderPage() {
             )}
           </div>
 
-          <Chat orderId={id} messages={messages} newMessageIds={newMessageIds} onSent={appendSentMessage} />
+          <Chat
+            orderId={id}
+            messages={messages}
+            newMessageIds={newMessageIds}
+            onSent={appendSentMessage}
+            onLoadOlder={loadOlderMessages}
+            hasOlder={hasOlderMessages}
+            loadingOlder={loadingOlderMessages}
+          />
         </div>
       </div>
 

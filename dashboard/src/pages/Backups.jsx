@@ -191,6 +191,57 @@ export default function Backups() {
         )}
       </div>
 
+      {data?.database?.available && (
+        <div className="card" style={{ marginBottom: 14 }}>
+          <h2 style={{ marginTop: 0 }}>Сховище PostgreSQL</h2>
+          <p className="faint" style={{ marginTop: -4 }}>
+            Загальний фізичний розмір бази: <b>{sizeLabel(data.database.totalBytes)}</b>.
+            Нижче — найбільші таблиці разом з індексами. Dead rows — простір,
+            який PostgreSQL може повторно використати після autovacuum; це не втрачені дані.
+          </p>
+          <div style={{ overflowX: 'auto' }}>
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Таблиця</th>
+                  <th>Разом</th>
+                  <th>Дані</th>
+                  <th>Індекси</th>
+                  <th>Рядків</th>
+                  <th>Dead</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(data.database.tables || []).map((table) => (
+                  <tr key={table.name}>
+                    <td><b>{table.name}</b></td>
+                    <td>{sizeLabel(table.totalBytes)}</td>
+                    <td className="faint">{sizeLabel(table.tableBytes)}</td>
+                    <td className="faint">{sizeLabel(table.indexBytes)}</td>
+                    <td className="faint">{Number(table.liveRows || 0).toLocaleString('uk-UA')}</td>
+                    <td className="faint">{Number(table.deadRows || 0).toLocaleString('uk-UA')}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {(data.database.coldArchives || []).length > 0 && (
+            <p className="faint" style={{ marginBottom: 8 }}>
+              Cold-tier: {(data.database.coldArchives || []).map((item) => {
+                const raw = Number(item.rawBytes || 0)
+                const packed = Number(item.payloadBytes || 0)
+                const ratio = raw > 0 ? Math.max(0, Math.round((1 - packed / raw) * 100)) : 0
+                return `${item.kind}: ${Number(item.messages || 0).toLocaleString('uk-UA')} повідомлень / ${sizeLabel(packed)}${raw > 0 ? ` (стиснення ${ratio}%)` : ''}`
+              }).join(' · ')}
+            </p>
+          )}
+          <p className="faint" style={{ marginBottom: 0 }}>
+            Старі закриті чати автоматично переходять у стиснений cold-tier,
+            а оперативні сповіщення мають обмежений строк зберігання.
+          </p>
+        </div>
+      )}
+
       <div className="card">
         {!data && <p className="faint">Завантаження…</p>}
 

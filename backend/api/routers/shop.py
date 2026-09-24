@@ -717,6 +717,7 @@ class ChatMessageOut(BaseModel):
     text: str
     file_kind: str | None = None
     file_name: str | None = None
+    delivered: bool | None = None
     created_at: object | None = None
 
 
@@ -735,12 +736,18 @@ async def _own_order(repo: Repository, user: User, order_id: int):
 async def order_chat_log(
     order_id: int,
     after_id: int | None = Query(None, ge=0),
+    before_id: int | None = Query(None, ge=1),
+    limit: int = Query(200, ge=1, le=500),
     user: User = Depends(require_webapp_user),
     repo: Repository = Depends(get_repo),
 ):
     _require_age(user)
     await _own_order(repo, user, order_id)
-    messages = await repo.list_order_messages(order_id, after_id=after_id)
+    if after_id is not None and before_id is not None:
+        raise HTTPException(422, "after_id і before_id не можна використовувати одночасно")
+    messages = await repo.list_order_messages(
+        order_id, limit=limit, after_id=after_id, before_id=before_id,
+    )
     # Читаємо стрічку — отже, повідомлення менеджера побачені. Позначаємо
     # після вибірки, щоб у цій же відповіді клієнт не побачив «прочитано»
     # на тому, що йому щойно віддали: квитанція призначена менеджеру.
