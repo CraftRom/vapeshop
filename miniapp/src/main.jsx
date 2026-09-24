@@ -60,7 +60,7 @@ async function boot() {
 
     const target = legacyHostRedirectUrl(initData) || canonicalUrl
     clientLog('storefront.host.legacy_redirect', {
-      level: 'warning',
+      level: initData ? 'info' : 'warning',
       message: initData
         ? 'Застарілий www host: Telegram-підпис збережено й перенесено на канонічний домен'
         : 'Застарілий www host: підпис не отримано, перехід на канонічний домен для перевірки локальної сесії',

@@ -94,22 +94,27 @@ async def require_webapp_user(
     try:
         data = parse_init_data(x_telegram_init_data, settings.bot_token)
     except InitDataError as exc:
-        # Причина має бути видима в логах: назовні вона теж іде, але
-        # користувач її не перекаже, а без неї 401 нерозрізненні між собою
-        log.warning(
+        # Не кожен 401 є атакою. Telegram не оновлює initData в уже
+        # відкритому WebView, тому прострочення — нормальний lifecycle
+        # довгої сесії. Підроблений/зіпсований підпис лишається warning.
+        reason = str(exc)
+        expired = reason.startswith("Сесію прострочено")
+        missing = not x_telegram_init_data
+        write_log = log.info if (expired or missing) else log.warning
+        write_log(
             "initData відхилено: %s (довжина заголовка: %d, поля: %s)",
             exc,
             len(x_telegram_init_data or ""),
             ",".join(sorted(dict(parse_qsl(x_telegram_init_data or "")).keys())) or "—",
         )
-        # Порожній підпис і підроблений — різні події. Перше буденне,
-        # друге варте уваги; змішавши їх, ми навчили б не помічати обидва.
-        security.record(
-            "security.initdata.missing" if not x_telegram_init_data
-            else "security.initdata.rejected",
-            reason=str(exc),
-        )
-        raise HTTPException(401, str(exc))
+        if missing:
+            event = "security.initdata.missing"
+        elif expired:
+            event = "security.initdata.expired"
+        else:
+            event = "security.initdata.rejected"
+        security.record(event, reason=reason)
+        raise HTTPException(401, reason)
 
     tg_user = data.get("user") or {}
     tg_id = tg_user.get("id")

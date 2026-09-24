@@ -169,6 +169,11 @@ r.check(_sec.describe("security.initdata.missing").severity == "info",
 r.check(_sec.describe("security.initdata.rejected").severity == "notice",
         "а підроблений підпис лишається вартим уваги",
         _sec.describe("security.initdata.rejected").severity)
+r.check("security.initdata.expired" in _sec.CATALOG,
+        "прострочена валідна сесія має окрему подію")
+r.check(_sec.describe("security.initdata.expired").severity == "info",
+        "прострочення сесії не маскується під атаку",
+        _sec.describe("security.initdata.expired").severity)
 
 import pathlib                                                        # noqa: E402
 

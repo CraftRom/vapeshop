@@ -135,6 +135,7 @@ echo "Рівні тестування"
 run smoke qa/qa_smoke.py
 run negative qa/qa_negative.py
 run security qa/qa_security.py
+run session-expiry qa/qa_session_expiry_1519.py
 run revoke qa/qa_revoke.py
 run headers qa/qa_headers.py
 run transport-sec qa/qa_transport_security.py

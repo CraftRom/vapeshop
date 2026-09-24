@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { api, consumeOrderEvents } from './api'
+import { api, AUTH_FAILURE_EVENT, consumeOrderEvents } from './api'
 import { clientLog } from './logger'
 import { AgeGate, Catalog } from './screens/Catalog'
 import { Cart, Checkout } from './screens/Checkout'
@@ -53,6 +53,24 @@ export default function App() {
     ready()
     applyTheme()
     return onThemeChange(applyTheme)
+  }, [])
+
+  // Telegram initData не оновлюється всередині вже відкритого WebView.
+  // Після першого 401 зупиняємо всю фонову активність замість нескінченного
+  // циклу poll/SSE → 401 → reconnect. Новий валідний initData Telegram
+  // видасть лише після повторного відкриття Mini App.
+  useEffect(() => {
+    const onAuthFailure = (event) => {
+      const message = event?.detail?.message || 'Сесію завершено. Закрийте магазин і відкрийте його знову в Telegram.'
+      setConfig(null)
+      setCart(null)
+      setProfile(null)
+      setOrders([])
+      setChatOrder(null)
+      setFatal(message)
+    }
+    window.addEventListener(AUTH_FAILURE_EVENT, onAuthFailure)
+    return () => window.removeEventListener(AUTH_FAILURE_EVENT, onAuthFailure)
   }, [])
 
   /* Клавіатура займає нижню половину екрана, а сторінка під неї не
@@ -267,11 +285,16 @@ export default function App() {
         await consumeOrderEvents(onOrder, controller.signal)
         retryMs = 1000
       } catch (err) {
-        if (err?.name === 'AbortError' || stopped) return
-        clientLog('storefront.orders.realtime_disconnected', {
-          level: 'warning', message: err?.message || 'Realtime connection failed',
-          status: err?.status || null,
-        })
+        if (err?.name === 'AbortError' || stopped || err?.authFailure || err?.status === 401) return
+        // Telegram/Android обриває довгі fetch під час згортання WebView.
+        // Якщо стан змінився вже після старту read(), це очікуване закриття,
+        // а не збій realtime.
+        if (!document.hidden && navigator.onLine !== false) {
+          clientLog('storefront.orders.realtime_disconnected', {
+            level: 'warning', message: err?.message || 'Realtime connection failed',
+            status: err?.status || null,
+          })
+        }
       }
       scheduleReconnect()
     }

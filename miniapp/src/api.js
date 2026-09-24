@@ -4,6 +4,34 @@ import { clientLog } from './logger'
 const BASE = '/api/shop'
 const REQUEST_TIMEOUT_MS = 12000
 const GET_RETRIES = 1
+export const AUTH_FAILURE_EVENT = 'elfar:auth-failure'
+let authFailure = ''
+
+function isExpiredAuthMessage(message = '') {
+  return String(message).toLowerCase().includes('сесію прострочено')
+}
+
+function authFailureError(message = authFailure || 'Сесію завершено') {
+  const error = new Error(message)
+  error.status = 401
+  error.authFailure = true
+  return error
+}
+
+function signalAuthFailure(message = 'Сесію завершено') {
+  const normalized = String(message || 'Сесію завершено')
+  if (authFailure) return
+  authFailure = normalized
+  clientLog('storefront.auth.invalidated', {
+    level: isExpiredAuthMessage(normalized) ? 'info' : 'warning',
+    message: normalized,
+    once: 'auth-invalidated',
+  })
+  window.dispatchEvent(new CustomEvent(AUTH_FAILURE_EVENT, {
+    detail: { message: normalized, expired: isExpiredAuthMessage(normalized) },
+  }))
+}
+
 
 function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -39,6 +67,7 @@ async function responseDetail(res) {
 }
 
 async function request(path, { method = 'GET', body } = {}) {
+  if (authFailure) throw authFailureError()
   const started = performance.now()
   const logPath = String(path).split('?')[0]
   const maxAttempts = method === 'GET' ? GET_RETRIES + 1 : 1
@@ -94,6 +123,10 @@ async function request(path, { method = 'GET', body } = {}) {
 
     if (!res.ok) {
       const detail = await responseDetail(res)
+      if (res.status === 401) {
+        signalAuthFailure(detail)
+        throw authFailureError(detail)
+      }
       const retry = method === 'GET' && attempt < maxAttempts && isTransientStatus(res.status)
       if (retry) {
         clientLog('storefront.api.retry', {
@@ -135,6 +168,7 @@ function parseEventBlock(block) {
 }
 
 export async function consumeOrderEvents(onOrder, signal) {
+  if (authFailure) throw authFailureError()
   const initData = getInitData()
   if (!initData) throw new Error('Telegram initData відсутній')
   const res = await fetch(`${BASE}/orders/stream`, {
@@ -146,7 +180,12 @@ export async function consumeOrderEvents(onOrder, signal) {
     signal,
   })
   if (!res.ok || !res.body) {
-    const error = new Error(await responseDetail(res))
+    const detail = await responseDetail(res)
+    if (res.status === 401) {
+      signalAuthFailure(detail)
+      throw authFailureError(detail)
+    }
+    const error = new Error(detail)
     error.status = res.status
     throw error
   }
