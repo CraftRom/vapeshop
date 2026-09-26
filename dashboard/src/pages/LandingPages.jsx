@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../api'
 import ImageField from '../components/ImageField'
 import { Empty, ErrorBar, Field, Loading, Modal, useToast } from '../components/ui'
@@ -62,6 +62,40 @@ function CopyValue({ value }) {
   return <span className="promo-dns-copy"><code>{value}</code><button type="button" className="btn ghost promo-dns-copy-btn" onClick={copy}>Копіювати</button></span>
 }
 
+
+function domainCheckSummary(state) {
+  const dnsReady = state?.dns?.pointsHere === true
+  const dnsKnown = !!state?.dns
+  const routeReady = !!state?.routePresent
+  const tlsReady = !!state?.tls?.present
+  const productionReady = !!state?.active
+  const dnsLabel = dnsReady ? 'DNS веде на VPS' : dnsKnown ? (state?.dns?.ok ? 'DNS веде на іншу адресу' : 'DNS ще не готовий') : 'Очікуємо первинну перевірку'
+  const routeLabel = routeReady ? 'Маршрут створено' : 'Маршрут ще не створено'
+  const tlsLabel = tlsReady ? `TLS активний${state?.tls?.expiresAt ? ` до ${new Date(state.tls.expiresAt).toLocaleDateString('uk-UA')}` : ''}` : 'TLS ще не активний'
+  const productionLabel = productionReady ? 'Сайт доступний' : 'Production ще не готовий'
+  const overall = productionReady ? 'ready' : (dnsReady || routeReady || tlsReady ? 'progress' : 'waiting')
+  return {
+    overall,
+    steps: [
+      { key: 'dns', title: 'DNS', status: dnsReady ? 'ok' : (dnsKnown ? 'warn' : 'checking'), text: dnsLabel },
+      { key: 'route', title: 'Маршрут', status: routeReady ? 'ok' : (dnsReady ? 'progress' : 'waiting'), text: routeLabel },
+      { key: 'tls', title: 'TLS / HTTPS', status: tlsReady ? 'ok' : (routeReady ? 'progress' : 'waiting'), text: tlsLabel },
+      { key: 'prod', title: 'Production', status: productionReady ? 'ok' : ((tlsReady || routeReady) ? 'progress' : 'waiting'), text: productionLabel },
+    ],
+  }
+}
+
+function prettyCheckState(refreshing, state, autoRefresh) {
+  if (refreshing) return 'Виконуємо перевірку…'
+  if (state?.active) return 'Готово до роботи'
+  if (state?.tls?.present) return 'TLS активний, завершуємо перевірки'
+  if (state?.routePresent) return 'Маршрут активовано, очікуємо HTTPS'
+  if (state?.dns?.pointsHere === true) return 'DNS готовий, можна підключати домен'
+  if (state?.dns?.ok) return 'DNS веде на іншу адресу'
+  if (autoRefresh) return 'Автоматично перевіряємо DNS'
+  return 'Очікуємо коректний DNS'
+}
+
 export default function LandingPages() {
   const notify = useToast()
   const [pages, setPages] = useState(null)
@@ -75,6 +109,11 @@ export default function LandingPages() {
   const [error, setError] = useState('')
   const [creating, setCreating] = useState(false)
   const [seoBusy, setSeoBusy] = useState(false)
+  const [domainRefreshing, setDomainRefreshing] = useState(false)
+  const [domainAutoRefresh, setDomainAutoRefresh] = useState(true)
+  const [domainLastCheckedAt, setDomainLastCheckedAt] = useState('')
+  const pollTimer = useRef(null)
+  const domainInputTimer = useRef(null)
 
   const selected = useMemo(() => (pages || []).find((p) => p.id === selectedId) || null, [pages, selectedId])
 
@@ -92,10 +131,12 @@ export default function LandingPages() {
 
   useEffect(() => { load(null) }, [])
   useEffect(() => {
-    if (!selected) { setStats(null); setDomainState(null); return }
+    if (!selected) { setStats(null); setDomainState(null); setDomainLastCheckedAt(''); return }
     setForm(normalized(selected))
     api.landingPages.stats(selected.id, 30).then(setStats).catch(() => setStats(null))
-    api.landingPages.domainStatus(selected.id).then(setDomainState).catch((e) => setDomainState({ error: e.message }))
+    api.landingPages.domainStatus(selected.id)
+      .then((state) => { setDomainState(state); setDomainLastCheckedAt(new Date().toISOString()) })
+      .catch((e) => setDomainState({ error: e.message }))
   }, [selectedId, selected?.version, selected?.domain])
 
   const setContent = (key, value) => setForm((f) => ({ ...f, content: { ...f.content, [key]: value } }))
@@ -170,10 +211,20 @@ export default function LandingPages() {
     } catch (e) { setError(e.message) } finally { setSeoBusy(false) }
   }
 
-  const refreshDomain = async () => {
-    if (!selected) return
-    try { setDomainState(await api.landingPages.domainStatus(selected.id)) }
-    catch (e) { setDomainState({ error: e.message }) }
+  const refreshDomain = async ({ silent = false } = {}) => {
+    if (!selected) return null
+    if (!silent) setDomainRefreshing(true)
+    try {
+      const state = await api.landingPages.domainStatus(selected.id)
+      setDomainState(state)
+      setDomainLastCheckedAt(new Date().toISOString())
+      return state
+    } catch (e) {
+      setDomainState({ error: e.message })
+      return null
+    } finally {
+      if (!silent) setDomainRefreshing(false)
+    }
   }
 
   const connectDomain = async () => {
@@ -183,8 +234,8 @@ export default function LandingPages() {
       await api.landingPages.update(selected.id, form)
       const state = await api.landingPages.domainConnect(selected.id)
       setDomainState(state)
-      notify('Домен підключено, HTTPS активний')
-      await load(selected.id)
+      notify(state?.active ? 'Домен підключено, HTTPS активний' : 'Підключення запущено, виконуємо додаткові перевірки')
+      await refreshDomain({ silent: true })
     } catch (e) { setError(e.message); await refreshDomain() } finally { setDomainBusy(false) }
   }
 
@@ -195,9 +246,38 @@ export default function LandingPages() {
       const state = await api.landingPages.domainDisconnect(selected.id)
       setDomainState(state)
       notify('Домен відключено')
-      await load(selected.id)
+      await refreshDomain({ silent: true })
     } catch (e) { setError(e.message) } finally { setDomainBusy(false) }
   }
+
+  useEffect(() => {
+    if (tab !== 'deploy' || !selected) return undefined
+    if (domainInputTimer.current) clearTimeout(domainInputTimer.current)
+    domainInputTimer.current = setTimeout(() => {
+      if (form.domain?.trim()) refreshDomain({ silent: true })
+    }, 700)
+    return () => {
+      if (domainInputTimer.current) clearTimeout(domainInputTimer.current)
+    }
+  }, [form.domain, selected?.id, tab])
+
+  useEffect(() => {
+    if (tab !== 'deploy' || !selected || !domainAutoRefresh) {
+      if (pollTimer.current) { clearInterval(pollTimer.current); pollTimer.current = null }
+      return undefined
+    }
+    const shouldPollFast = domainBusy || domainRefreshing || !domainState?.active
+    const intervalMs = shouldPollFast ? 5000 : 15000
+    pollTimer.current = setInterval(() => {
+      refreshDomain({ silent: true })
+    }, intervalMs)
+    return () => {
+      if (pollTimer.current) { clearInterval(pollTimer.current); pollTimer.current = null }
+    }
+  }, [tab, selected?.id, domainAutoRefresh, domainBusy, domainRefreshing, domainState?.active])
+
+  const checkSummary = domainCheckSummary(domainState)
+  const checkingText = prettyCheckState(domainRefreshing || domainBusy, domainState, domainAutoRefresh)
 
   if (!pages) return <Loading rows={5} />
 
@@ -299,6 +379,28 @@ export default function LandingPages() {
         {tab === 'deploy' && <div className="card">
           <h2 style={{ marginTop: 0 }}>Домен і деплой</h2>
           <p><strong>Менеджеру не потрібна консоль.</strong> Панель сама перевіряє DNS, випускає або оновлює TLS-сертифікат, активує nginx route і показує результат.</p>
+          <div className="promo-check-banner">
+            <div className={`promo-check-dot ${(domainRefreshing || domainBusy) ? 'is-checking' : checkSummary.overall === 'ready' ? 'is-ok' : checkSummary.overall === 'progress' ? 'is-progress' : 'is-waiting'}`} aria-hidden="true"></div>
+            <div className="promo-check-banner-copy">
+              <strong>{checkingText}</strong>
+              <span>{domainLastCheckedAt ? `Остання перевірка: ${new Date(domainLastCheckedAt).toLocaleString('uk-UA')}` : 'Щойно відкрили блок деплою — перша перевірка виконається автоматично.'}</span>
+            </div>
+            <label className="promo-auto-refresh-toggle">
+              <input type="checkbox" checked={domainAutoRefresh} onChange={(e) => setDomainAutoRefresh(e.target.checked)} />
+              <span>Автоперевірка без перезавантаження</span>
+            </label>
+          </div>
+
+          <div className="promo-check-steps">
+            {checkSummary.steps.map((step, index) => <div key={step.key} className={`promo-check-step ${step.status}${(domainRefreshing || domainBusy) ? ' live' : ''}`}>
+              <div className="promo-check-step-top">
+                <span className="promo-check-step-index">{index + 1}</span>
+                <strong>{step.title}</strong>
+              </div>
+              <div className="promo-check-step-text">{step.text}</div>
+            </div>)}
+          </div>
+
           <div className="grid k2">
             <Field label="Домен" hint={domainState?.routePresent ? 'Щоб змінити домен, спочатку відключіть поточний route.' : 'A/AAAA запис має вже вести на цей сервер.'}>
               <input className="input" value={form.domain} disabled={!!domainState?.routePresent} onChange={(e) => setForm({ ...form, domain: e.target.value })} />
@@ -312,7 +414,7 @@ export default function LandingPages() {
                 <h3>Налаштування DNS перед деплоєм</h3>
                 <p>Спочатку внесіть ці записи у DNS-панелі домену. Після поширення DNS натисніть «Оновити статус», і лише тоді підключайте HTTPS.</p>
               </div>
-              <span className={`promo-dns-badge ${domainState?.dns?.pointsHere === true ? 'ok' : 'warn'}`}>
+              <span className={`promo-dns-badge ${(domainRefreshing || domainBusy) ? 'checking' : domainState?.dns?.pointsHere === true ? 'ok' : 'warn'}`}> 
                 {domainState?.dns?.pointsHere === true ? 'DNS веде на цей VPS' : domainState?.dns?.ok ? 'DNS веде на іншу адресу' : 'Очікуємо DNS'}
               </span>
             </div>
@@ -347,9 +449,9 @@ export default function LandingPages() {
           </div>
 
           <div className="grid k3" style={{ marginTop: 14 }}>
-            <Metric label="Маршрут" value={domainState?.routePresent ? 'Активний' : 'Не створено'} />
-            <Metric label="DNS" value={domainState?.dns?.pointsHere === true ? 'Готовий' : domainState?.dns?.ok ? 'Інша адреса' : 'Не готовий'} sub={(domainState?.dns?.addresses || []).join(', ') || domainState?.dns?.error || ''} />
-            <Metric label="TLS" value={domainState?.tls?.present ? 'Активний' : 'Немає'} sub={domainState?.tls?.expiresAt ? `до ${new Date(domainState.tls.expiresAt).toLocaleDateString('uk-UA')}` : ''} />
+            <Metric label="Маршрут" value={domainRefreshing ? 'Перевіряємо…' : domainState?.routePresent ? 'Активний' : 'Не створено'} />
+            <Metric label="DNS" value={domainRefreshing ? 'Перевіряємо…' : domainState?.dns?.pointsHere === true ? 'Готовий' : domainState?.dns?.ok ? 'Інша адреса' : 'Не готовий'} sub={(domainState?.dns?.addresses || []).join(', ') || domainState?.dns?.error || ''} />
+            <Metric label="TLS" value={domainRefreshing ? 'Перевіряємо…' : domainState?.tls?.present ? 'Активний' : 'Немає'} sub={domainState?.tls?.expiresAt ? `до ${new Date(domainState.tls.expiresAt).toLocaleDateString('uk-UA')}` : ''} />
           </div>
 
           {domainState?.error && <div className="error-bar" style={{ marginTop: 14 }}>{domainState.error}</div>}
@@ -364,7 +466,7 @@ export default function LandingPages() {
             {domainState?.routePresent && <button className="btn danger" onClick={disconnectDomain} disabled={domainBusy}>
               {domainBusy ? 'Відключаємо…' : 'Відключити домен'}
             </button>}
-            <button className="btn ghost" onClick={refreshDomain} disabled={domainBusy}>Оновити статус</button>
+            <button className={`btn ghost ${domainRefreshing ? 'is-loading' : ''}`} onClick={() => refreshDomain()} disabled={domainBusy || domainRefreshing}>{domainRefreshing ? 'Перевіряємо…' : 'Оновити статус'}</button>
             {domainState?.active && <a className="btn ghost" href={`https://${selected.domain}/`} target="_blank" rel="noreferrer">Відкрити сайт</a>}
           </div>
 
