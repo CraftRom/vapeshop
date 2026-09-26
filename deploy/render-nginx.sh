@@ -35,7 +35,7 @@ if [[ -z "$DOMAIN" ]]; then
     exit 1
 fi
 
-mkdir -p nginx/generated nginx/generated/promos
+mkdir -p nginx/generated
 sed "s|__DOMAIN__|${DOMAIN}|g" nginx/app.conf.template > nginx/generated/app.conf
 echo "    nginx/generated/app.conf для ${DOMAIN}"
 

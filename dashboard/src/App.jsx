@@ -131,7 +131,7 @@ const NAV = [
   { to: '/catalog', label: 'Каталог' },
   { to: '/customers', label: 'Клієнти' },
   { to: '/promos', label: 'Промокоди' },
-  { to: '/landing-pages', label: 'Промо-сторінки', adminOnly: true },
+  { to: '/landing-pages', label: 'Промо-сторінки' },
   { to: '/broadcasts', label: 'Розсилки' },
   { to: '/operators', label: 'Менеджери', adminOnly: true },
   { to: '/logs', label: 'Журнал', sysadminOnly: true },

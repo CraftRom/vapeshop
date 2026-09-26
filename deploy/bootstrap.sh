@@ -156,6 +156,7 @@ else
     cron=$(openssl rand -hex 16)
     hook=$(openssl rand -hex 16)
     redispass=$(openssl rand -hex 24)
+    promotoken=$(openssl rand -hex 32)
     datakey=$(python3 - <<'PYKEY'
 import base64, os
 print(base64.urlsafe_b64encode(os.urandom(32)).decode())
@@ -172,6 +173,7 @@ PYKEY
         -e "s|^REDIS_PASSWORD=.*|REDIS_PASSWORD=${redispass}|" \
         -e "s|^REDIS_URL=.*|REDIS_URL=redis://:${redispass}@redis:6379/0|" \
         -e "s|^DATA_ENCRYPTION_KEY=.*|DATA_ENCRYPTION_KEY=${datakey}|" \
+        -e "s|^PROMO_CONTROLLER_TOKEN=.*|PROMO_CONTROLLER_TOKEN=${promotoken}|" \
         "$REPO_DIR/.env"
     chmod 600 "$REPO_DIR/.env"
     chown "$SERVICE_USER:$SERVICE_USER" "$REPO_DIR/.env"

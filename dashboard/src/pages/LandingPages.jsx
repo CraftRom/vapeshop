@@ -42,6 +42,8 @@ export default function LandingPages() {
   const [form, setForm] = useState(newForm())
   const [tab, setTab] = useState('content')
   const [stats, setStats] = useState(null)
+  const [domainState, setDomainState] = useState(null)
+  const [domainBusy, setDomainBusy] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [creating, setCreating] = useState(false)
@@ -62,10 +64,11 @@ export default function LandingPages() {
 
   useEffect(() => { load(null) }, [])
   useEffect(() => {
-    if (!selected) { setStats(null); return }
+    if (!selected) { setStats(null); setDomainState(null); return }
     setForm(normalized(selected))
     api.landingPages.stats(selected.id, 30).then(setStats).catch(() => setStats(null))
-  }, [selectedId, selected?.version])
+    api.landingPages.domainStatus(selected.id).then(setDomainState).catch((e) => setDomainState({ error: e.message }))
+  }, [selectedId, selected?.version, selected?.domain])
 
   const setContent = (key, value) => setForm((f) => ({ ...f, content: { ...f.content, [key]: value } }))
   const setSeo = (key, value) => setForm((f) => ({ ...f, seo: { ...f.seo, [key]: value } }))
@@ -110,7 +113,10 @@ export default function LandingPages() {
     try {
       await api.landingPages.update(selected.id, form)
       const html = await api.landingPages.preview(selected.id)
-      const blob = new Blob([html], { type: 'text/html;charset=utf-8' })
+      // Preview lives in a blob: document, so relative /media/... URLs would
+      // otherwise resolve against blob:. Anchor them to the dashboard origin.
+      const previewHtml = html.replace('</head>', `<base href="${window.location.origin}/"></head>`)
+      const blob = new Blob([previewHtml], { type: 'text/html;charset=utf-8' })
       const url = URL.createObjectURL(blob)
       const win = window.open(url, '_blank', 'noopener,noreferrer')
       setTimeout(() => URL.revokeObjectURL(url), 60000)
@@ -124,6 +130,35 @@ export default function LandingPages() {
       const item = await api.landingPages.create(form)
       setCreating(false); notify('Промо-сторінку створено'); await load(item.id)
     } catch (e) { setError(e.message) } finally { setBusy(false) }
+  }
+
+  const refreshDomain = async () => {
+    if (!selected) return
+    try { setDomainState(await api.landingPages.domainStatus(selected.id)) }
+    catch (e) { setDomainState({ error: e.message }) }
+  }
+
+  const connectDomain = async () => {
+    if (!selected || domainBusy) return
+    setDomainBusy(true); setError('')
+    try {
+      await api.landingPages.update(selected.id, form)
+      const state = await api.landingPages.domainConnect(selected.id)
+      setDomainState(state)
+      notify('Домен підключено, HTTPS активний')
+      await load(selected.id)
+    } catch (e) { setError(e.message); await refreshDomain() } finally { setDomainBusy(false) }
+  }
+
+  const disconnectDomain = async () => {
+    if (!selected || domainBusy || !window.confirm(`Відключити ${selected.domain}? Публічна сторінка стане недоступною.`)) return
+    setDomainBusy(true); setError('')
+    try {
+      const state = await api.landingPages.domainDisconnect(selected.id)
+      setDomainState(state)
+      notify('Домен відключено')
+      await load(selected.id)
+    } catch (e) { setError(e.message) } finally { setDomainBusy(false) }
   }
 
   if (!pages) return <Loading rows={5} />
@@ -215,15 +250,40 @@ export default function LandingPages() {
         </div>}
 
         {tab === 'deploy' && <div className="card">
-          <h2 style={{ marginTop: 0 }}>Домен і публікація</h2>
-          <p><strong>Контент редеплоїться одразу кнопкою «Опублікувати»</strong> — без перезапуску API або панелі. Жива сторінка читає production snapshot за доменом.</p>
-          <p className="faint">Для нового домену один раз потрібні DNS + TLS + nginx route. Це інфраструктурна операція; вона навмисно не дає панелі Docker socket/root-доступ. Після первинного підключення всі наступні зміни та повторні публікації виконуються з цього модуля.</p>
+          <h2 style={{ marginTop: 0 }}>Домен і деплой</h2>
+          <p><strong>Менеджеру не потрібна консоль.</strong> Панель сама перевіряє DNS, випускає або оновлює TLS-сертифікат, активує nginx route і показує результат.</p>
           <div className="grid k2">
-            <Field label="Домен"><input className="input" value={form.domain} onChange={(e) => setForm({ ...form, domain: e.target.value })} /></Field>
+            <Field label="Домен" hint={domainState?.routePresent ? 'Щоб змінити домен, спочатку відключіть поточний route.' : 'A/AAAA запис має вже вести на цей сервер.'}>
+              <input className="input" value={form.domain} disabled={!!domainState?.routePresent} onChange={(e) => setForm({ ...form, domain: e.target.value })} />
+            </Field>
             <Field label="Production URL"><input className="input" readOnly value={`https://${form.domain || 'domain.example'}/`} /></Field>
           </div>
+
+          <div className="grid k3" style={{ marginTop: 14 }}>
+            <Metric label="Маршрут" value={domainState?.routePresent ? 'Активний' : 'Не створено'} />
+            <Metric label="DNS" value={domainState?.dns?.ok ? 'Знайдено' : 'Не готовий'} sub={(domainState?.dns?.addresses || []).join(', ') || domainState?.dns?.error || ''} />
+            <Metric label="TLS" value={domainState?.tls?.present ? 'Активний' : 'Немає'} sub={domainState?.tls?.expiresAt ? `до ${new Date(domainState.tls.expiresAt).toLocaleDateString('uk-UA')}` : ''} />
+          </div>
+
+          {domainState?.error && <div className="error-bar" style={{ marginTop: 14 }}>{domainState.error}</div>}
+
+          <div className="row" style={{ gap: 8, flexWrap: 'wrap', marginTop: 16 }}>
+            {!domainState?.routePresent && <button className="btn" onClick={connectDomain} disabled={domainBusy || !form.domain.trim()}>
+              {domainBusy ? 'Підключаємо…' : 'Підключити домен'}
+            </button>}
+            {domainState?.routePresent && !domainState?.active && <button className="btn" onClick={connectDomain} disabled={domainBusy}>
+              {domainBusy ? 'Перевіряємо TLS…' : 'Повторити підключення TLS'}
+            </button>}
+            {domainState?.routePresent && <button className="btn danger" onClick={disconnectDomain} disabled={domainBusy}>
+              {domainBusy ? 'Відключаємо…' : 'Відключити домен'}
+            </button>}
+            <button className="btn ghost" onClick={refreshDomain} disabled={domainBusy}>Оновити статус</button>
+            {domainState?.active && <a className="btn ghost" href={`https://${selected.domain}/`} target="_blank" rel="noreferrer">Відкрити сайт</a>}
+          </div>
+
           <div className="card" style={{ marginTop: 14, background: 'var(--panel-2, rgba(0,0,0,.12))' }}>
-            <strong>Потік запиту</strong><p className="faint" style={{ marginBottom: 0 }}>Домен → nginx/TLS → public promo renderer → production snapshot. `/media/` віддається локально nginx; CTA проходить через `/go`, де рахується клік і виконується redirect.</p>
+            <strong>Ізоляція</strong>
+            <p className="faint" style={{ marginBottom: 0 }}>Панель не має Docker socket, root або shell-доступу. Доменами керує окремий внутрішній Promo Controller: він бачить тільки promo-конфіги, ACME/TLS-сховище та може лише послати nginx сигнал reload. До основної БД він доступу не має.</p>
           </div>
         </div>}
       </section>}

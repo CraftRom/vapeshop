@@ -29,6 +29,21 @@ if grep -qE '^(DASHBOARD_PASSWORD=admin|JWT_SECRET=change_this)' ../.env; then
     exit 1
 fi
 
+# Старі інсталяції не мають PROMO_CONTROLLER_TOKEN. Генеруємо його
+# автоматично під час звичайного deploy, щоб новий модуль не вимагав
+# ручного SSH-налаштування після оновлення. Секрет ніколи не потрапляє
+# у браузер — ним спілкуються тільки API та ізольований promo-controller.
+promo_token=$(grep -E '^PROMO_CONTROLLER_TOKEN=' ../.env | head -1 | cut -d= -f2- || true)
+if [[ -z "$promo_token" || "$promo_token" == change_this* ]]; then
+    promo_token=$(openssl rand -hex 32)
+    if grep -q '^PROMO_CONTROLLER_TOKEN=' ../.env; then
+        sed -i "s|^PROMO_CONTROLLER_TOKEN=.*|PROMO_CONTROLLER_TOKEN=${promo_token}|" ../.env
+    else
+        printf '\nPROMO_CONTROLLER_TOKEN=%s\n' "$promo_token" >> ../.env
+    fi
+    echo "==> Згенеровано внутрішній секрет Promo Controller"
+fi
+
 echo "==> Бекап бази перед оновленням"
 ./backup.sh || echo "    (бази ще немає — перший запуск)"
 

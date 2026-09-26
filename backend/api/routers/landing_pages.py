@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import html
 import json
+import os
 import re
+
+import httpx
 from datetime import datetime, timezone
 from urllib.parse import urlparse
 
@@ -12,7 +15,7 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.auth import Principal, require_admin
+from api.auth import Principal, require_staff
 from shop import security_log as security
 from shop.db import get_session
 from shop.models import PromoLandingDailyStat, PromoLandingPage
@@ -21,6 +24,35 @@ router = APIRouter()
 
 _DOMAIN_RE = re.compile(r"^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$")
 _BOT_RE = re.compile(r"bot|crawler|spider|slurp|facebookexternalhit|preview|monitor|uptime", re.I)
+
+_PROMO_CONTROLLER_URL = os.environ.get("PROMO_CONTROLLER_URL", "http://promo-controller:8787").rstrip("/")
+_PROMO_CONTROLLER_TOKEN = os.environ.get("PROMO_CONTROLLER_TOKEN", "").strip()
+
+
+async def _controller(method: str, path: str, *, domain: str) -> dict:
+    if not _PROMO_CONTROLLER_TOKEN:
+        raise HTTPException(503, "Контролер промо-доменів не налаштований")
+    headers = {"Authorization": f"Bearer {_PROMO_CONTROLLER_TOKEN}"}
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(190.0, connect=5.0)) as client:
+            if method == "GET":
+                response = await client.get(f"{_PROMO_CONTROLLER_URL}{path}", params={"domain": domain}, headers=headers)
+            else:
+                response = await client.request(method, f"{_PROMO_CONTROLLER_URL}{path}", json={"domain": domain}, headers=headers)
+    except httpx.RequestError:
+        raise HTTPException(503, "Ізольований контролер доменів недоступний")
+    try:
+        payload = response.json()
+    except Exception:
+        payload = {}
+    if response.status_code >= 400:
+        raise HTTPException(response.status_code if response.status_code < 500 else 503, payload.get("detail") or "Помилка контролера доменів")
+    return payload
+
+
+async def _domain_status(domain: str) -> dict:
+    return await _controller("GET", "/v1/status", domain=domain)
+
 
 
 DEFAULT_CONTENT = {
@@ -167,7 +199,7 @@ def _dto(row: PromoLandingPage) -> dict:
 
 @router.get("")
 async def list_pages(
-    who: Principal = Depends(require_admin),
+    who: Principal = Depends(require_staff),
     db: AsyncSession = Depends(get_session),
 ):
     rows = (await db.execute(select(PromoLandingPage).order_by(PromoLandingPage.updated_at.desc()))).scalars().all()
@@ -177,7 +209,7 @@ async def list_pages(
 @router.post("", status_code=201)
 async def create_page(
     data: LandingPageIn,
-    who: Principal = Depends(require_admin),
+    who: Principal = Depends(require_staff),
     db: AsyncSession = Depends(get_session),
 ):
     exists = await db.scalar(select(PromoLandingPage.id).where(PromoLandingPage.domain == data.domain))
@@ -194,7 +226,7 @@ async def create_page(
 @router.get("/{page_id}")
 async def get_page(
     page_id: int,
-    who: Principal = Depends(require_admin),
+    who: Principal = Depends(require_staff),
     db: AsyncSession = Depends(get_session),
 ):
     row = await db.get(PromoLandingPage, page_id)
@@ -207,7 +239,7 @@ async def get_page(
 async def update_page(
     page_id: int,
     data: LandingPageIn,
-    who: Principal = Depends(require_admin),
+    who: Principal = Depends(require_staff),
     db: AsyncSession = Depends(get_session),
 ):
     row = await db.get(PromoLandingPage, page_id)
@@ -219,6 +251,10 @@ async def update_page(
     ))
     if conflict:
         raise HTTPException(409, "Цей домен уже прив'язаний до іншої промо-сторінки")
+    if row.domain != data.domain:
+        old_status = await _domain_status(row.domain)
+        if old_status.get("routePresent"):
+            raise HTTPException(409, "Спочатку відключіть поточний домен у вкладці «Домен і деплой»")
     row.name = data.name.strip()
     row.domain = data.domain
     row.draft_config = _config(data)
@@ -232,7 +268,7 @@ async def update_page(
 @router.post("/{page_id}/publish")
 async def publish_page(
     page_id: int,
-    who: Principal = Depends(require_admin),
+    who: Principal = Depends(require_staff),
     db: AsyncSession = Depends(get_session),
 ):
     row = await db.get(PromoLandingPage, page_id)
@@ -240,6 +276,9 @@ async def publish_page(
         raise HTTPException(404, "Промо-сторінку не знайдено")
     if not row.draft_config:
         raise HTTPException(400, "Немає чернетки для публікації")
+    domain_state = await _domain_status(row.domain)
+    if not domain_state.get("active"):
+        raise HTTPException(409, "Домен ще не підключений. Відкрийте «Домен і деплой» та натисніть «Підключити домен»")
     row.published_config = json.loads(json.dumps(row.draft_config))
     row.is_published = True
     row.version = int(row.version or 0) + 1
@@ -254,7 +293,7 @@ async def publish_page(
 @router.post("/{page_id}/unpublish")
 async def unpublish_page(
     page_id: int,
-    who: Principal = Depends(require_admin),
+    who: Principal = Depends(require_staff),
     db: AsyncSession = Depends(get_session),
 ):
     row = await db.get(PromoLandingPage, page_id)
@@ -271,24 +310,71 @@ async def unpublish_page(
 @router.delete("/{page_id}", status_code=204)
 async def remove_page(
     page_id: int,
-    who: Principal = Depends(require_admin),
+    who: Principal = Depends(require_staff),
     db: AsyncSession = Depends(get_session),
 ):
     row = await db.get(PromoLandingPage, page_id)
     if not row:
         raise HTTPException(404, "Промо-сторінку не знайдено")
     domain = row.domain
+    state = await _domain_status(domain)
+    if state.get("routePresent"):
+        raise HTTPException(409, "Спочатку відключіть домен, потім видаліть сторінку")
     await db.delete(row)
     await db.commit()
     security.record("promo.page.deleted", actor=who.login, reason=domain)
     return None
 
 
+@router.get("/{page_id}/domain-status")
+async def domain_status(
+    page_id: int,
+    who: Principal = Depends(require_staff),
+    db: AsyncSession = Depends(get_session),
+):
+    row = await db.get(PromoLandingPage, page_id)
+    if not row:
+        raise HTTPException(404, "Промо-сторінку не знайдено")
+    return await _domain_status(row.domain)
+
+
+@router.post("/{page_id}/domain-connect")
+async def domain_connect(
+    page_id: int,
+    who: Principal = Depends(require_staff),
+    db: AsyncSession = Depends(get_session),
+):
+    row = await db.get(PromoLandingPage, page_id)
+    if not row:
+        raise HTTPException(404, "Промо-сторінку не знайдено")
+    state = await _controller("POST", "/v1/connect", domain=row.domain)
+    security.record("promo.domain.connected", actor=who.login, reason=row.domain)
+    return state
+
+
+@router.post("/{page_id}/domain-disconnect")
+async def domain_disconnect(
+    page_id: int,
+    who: Principal = Depends(require_staff),
+    db: AsyncSession = Depends(get_session),
+):
+    row = await db.get(PromoLandingPage, page_id)
+    if not row:
+        raise HTTPException(404, "Промо-сторінку не знайдено")
+    if row.is_published:
+        row.is_published = False
+        row.updated_at = datetime.now(timezone.utc)
+        await db.commit()
+    state = await _controller("POST", "/v1/disconnect", domain=row.domain)
+    security.record("promo.domain.disconnected", actor=who.login, reason=row.domain)
+    return state
+
+
 @router.get("/{page_id}/stats")
 async def page_stats(
     page_id: int,
     days: int = 30,
-    who: Principal = Depends(require_admin),
+    who: Principal = Depends(require_staff),
     db: AsyncSession = Depends(get_session),
 ):
     if not await db.get(PromoLandingPage, page_id):
@@ -309,7 +395,7 @@ async def page_stats(
 @router.get("/{page_id}/preview", response_class=HTMLResponse)
 async def preview_page(
     page_id: int,
-    who: Principal = Depends(require_admin),
+    who: Principal = Depends(require_staff),
     db: AsyncSession = Depends(get_session),
 ):
     row = await db.get(PromoLandingPage, page_id)
@@ -383,10 +469,15 @@ async def public_click(request: Request, db: AsyncSession = Depends(get_session)
     return RedirectResponse(target, status_code=302, headers={"Cache-Control": "no-store"})
 
 
-def _abs(domain: str, path: str) -> str:
+def _abs(domain: str, path: str, *, preview: bool = False) -> str:
     if not path:
         return ""
-    return f"https://{domain}{path}" if path.startswith("/") else path
+    if path.startswith("/"):
+        # Preview is opened from a blob URL in the dashboard. Keep local media
+        # relative there so the dashboard can anchor it to its own /media/ host.
+        # Production still gets an absolute promo-domain URL for SEO/social crawlers.
+        return path if preview else f"https://{domain}{path}"
+    return path
 
 
 def _render(row: PromoLandingPage, config: dict, preview: bool) -> str:
@@ -395,7 +486,7 @@ def _render(row: PromoLandingPage, config: dict, preview: bool) -> str:
     canonical = seo["canonical_url"] or f"https://{row.domain}/"
     og_title = seo["og_title"] or seo["title"] or content["title"]
     og_desc = seo["og_description"] or seo["description"]
-    og_image = _abs(row.domain, seo["og_image"] or content["background_image"] or content["logo_image"])
+    og_image = _abs(row.domain, seo["og_image"] or content["background_image"] or content["logo_image"], preview=preview)
     schema = {
         "@context": "https://schema.org",
         "@type": "WebPage",
@@ -408,8 +499,8 @@ def _render(row: PromoLandingPage, config: dict, preview: bool) -> str:
         schema["primaryImageOfPage"] = {"@type": "ImageObject", "url": og_image}
 
     esc = lambda value: html.escape(str(value or ""), quote=True)
-    bg = esc(_abs(row.domain, content["background_image"]))
-    logo = esc(_abs(row.domain, content["logo_image"]))
+    bg = esc(_abs(row.domain, content["background_image"], preview=preview))
+    logo = esc(_abs(row.domain, content["logo_image"], preview=preview))
     cta = "#" if preview else "/go"
     preview_banner = '<div class="preview">Попередній перегляд чернетки</div>' if preview else ""
     logo_html = f'<img class="logo" src="{logo}" width="100" height="100" alt="Логотип" fetchpriority="high">' if logo else ""
