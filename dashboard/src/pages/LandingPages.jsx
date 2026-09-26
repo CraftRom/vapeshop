@@ -56,6 +56,12 @@ function Metric({ label, value, sub }) {
   return <div className="card metric"><div className="label">{label}</div><div className="value">{value}</div>{sub && <div className="sub">{sub}</div>}</div>
 }
 
+function CopyValue({ value }) {
+  if (!value) return <span className="faint">—</span>
+  const copy = async () => { try { await navigator.clipboard.writeText(value) } catch {} }
+  return <span className="promo-dns-copy"><code>{value}</code><button type="button" className="btn ghost promo-dns-copy-btn" onClick={copy}>Копіювати</button></span>
+}
+
 export default function LandingPages() {
   const notify = useToast()
   const [pages, setPages] = useState(null)
@@ -300,16 +306,49 @@ export default function LandingPages() {
             <Field label="Production URL"><input className="input" readOnly value={`https://${form.domain || 'domain.example'}/`} /></Field>
           </div>
 
+          <div className="promo-dns-setup">
+            <div className="promo-dns-setup-head">
+              <div>
+                <h3>Налаштування DNS перед деплоєм</h3>
+                <p>Спочатку внесіть ці записи у DNS-панелі домену. Після поширення DNS натисніть «Оновити статус», і лише тоді підключайте HTTPS.</p>
+              </div>
+              <span className={`promo-dns-badge ${domainState?.dns?.pointsHere === true ? 'ok' : 'warn'}`}>
+                {domainState?.dns?.pointsHere === true ? 'DNS веде на цей VPS' : domainState?.dns?.ok ? 'DNS веде на іншу адресу' : 'Очікуємо DNS'}
+              </span>
+            </div>
+
+            {domainState?.dnsRequirements?.configured ? <div className="promo-dns-records">
+              {(domainState.dnsRequirements.records || []).map((record) => <div className="promo-dns-record" key={`${record.type}-${record.value}`}>
+                <div><span className="label">Тип</span><strong>{record.type}</strong></div>
+                <div><span className="label">Name / Host</span><CopyValue value={record.host} /></div>
+                <div><span className="label">Значення / Points to</span><CopyValue value={record.value} /></div>
+                <div><span className="label">Обов’язковість</span><strong>{record.required ? 'Обов’язковий' : 'Необов’язковий'}</strong></div>
+              </div>)}
+            </div> : <div className="error-bar">Публічна IP-адреса VPS ще не задана адміністратором у PROMO_PUBLIC_IPV4/PROMO_PUBLIC_IPV6. Без цього панель не може показати менеджеру точні DNS-дані.</div>}
+
+            <div className="promo-dns-note">
+              <strong>Що саме вносити у провайдера домену</strong>
+              <span>{domainState?.dnsRequirements?.note || 'Для IPv4 потрібен A-запис на публічну IPv4-адресу VPS. AAAA додавайте тільки якщо IPv6 реально налаштований.'}</span>
+              <span><strong>TTL:</strong> можна залишити Auto/Default. Для первинного підключення зручно 300–600 секунд, якщо провайдер дозволяє.</span>
+              <span><strong>AAAA:</strong> не створюйте його лише «для галочки». Неправильний IPv6 може зробити сайт недоступним для частини клієнтів.</span>
+            </div>
+
+            <div className="promo-dns-current">
+              <span><strong>Зараз резолвиться:</strong> {(domainState?.dns?.addresses || []).join(', ') || 'ще немає адрес'}</span>
+              {!!domainState?.dns?.expected?.length && <span><strong>Очікуємо:</strong> {domainState.dns.expected.join(', ')}</span>}
+            </div>
+          </div>
+
           <div className="grid k3" style={{ marginTop: 14 }}>
             <Metric label="Маршрут" value={domainState?.routePresent ? 'Активний' : 'Не створено'} />
-            <Metric label="DNS" value={domainState?.dns?.ok ? 'Знайдено' : 'Не готовий'} sub={(domainState?.dns?.addresses || []).join(', ') || domainState?.dns?.error || ''} />
+            <Metric label="DNS" value={domainState?.dns?.pointsHere === true ? 'Готовий' : domainState?.dns?.ok ? 'Інша адреса' : 'Не готовий'} sub={(domainState?.dns?.addresses || []).join(', ') || domainState?.dns?.error || ''} />
             <Metric label="TLS" value={domainState?.tls?.present ? 'Активний' : 'Немає'} sub={domainState?.tls?.expiresAt ? `до ${new Date(domainState.tls.expiresAt).toLocaleDateString('uk-UA')}` : ''} />
           </div>
 
           {domainState?.error && <div className="error-bar" style={{ marginTop: 14 }}>{domainState.error}</div>}
 
           <div className="row" style={{ gap: 8, flexWrap: 'wrap', marginTop: 16 }}>
-            {!domainState?.routePresent && <button className="btn" onClick={connectDomain} disabled={domainBusy || !form.domain.trim()}>
+            {!domainState?.routePresent && <button className="btn" onClick={connectDomain} disabled={domainBusy || !form.domain.trim() || domainState?.dns?.pointsHere === false || !domainState?.dnsRequirements?.configured}>
               {domainBusy ? 'Підключаємо…' : 'Підключити домен'}
             </button>}
             {domainState?.routePresent && !domainState?.active && <button className="btn" onClick={connectDomain} disabled={domainBusy}>

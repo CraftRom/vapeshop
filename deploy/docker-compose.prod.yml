@@ -220,6 +220,8 @@ services:
     environment:
       PROMO_CONTROLLER_TOKEN: ${PROMO_CONTROLLER_TOKEN}
       CERTBOT_EMAIL: ${CERTBOT_EMAIL}
+      PROMO_PUBLIC_IPV4: ${PROMO_PUBLIC_IPV4:-}
+      PROMO_PUBLIC_IPV6: ${PROMO_PUBLIC_IPV6:-}
       PROMO_CONTROLLER_PORT: 8787
     volumes:
       - promo-nginx-conf:/promo-conf
@@ -227,7 +229,7 @@ services:
       - certbot-conf:/etc/letsencrypt
     pid: "service:nginx"
     depends_on: [nginx]
-    networks: [promo_control]
+    networks: [promo_control, promo_egress]
     security_opt:
       - no-new-privileges:true
     cap_drop: ["ALL"]
@@ -263,3 +265,5 @@ networks:
   internal:
   promo_control:
     internal: true
+  promo_egress:
+    # Лише вихід promo-controller до DNS/Let's Encrypt. Портів назовні немає.

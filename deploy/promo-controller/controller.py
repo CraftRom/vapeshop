@@ -24,6 +24,8 @@ LE_DIR = Path(os.environ.get("PROMO_LE_DIR", "/etc/letsencrypt"))
 LISTEN = os.environ.get("PROMO_CONTROLLER_LISTEN", "0.0.0.0")
 PORT = int(os.environ.get("PROMO_CONTROLLER_PORT", "8787"))
 RENEW_SECONDS = max(3600, int(os.environ.get("PROMO_RENEW_SECONDS", "43200")))
+PUBLIC_IPV4 = os.environ.get("PROMO_PUBLIC_IPV4", "").strip()
+PUBLIC_IPV6 = os.environ.get("PROMO_PUBLIC_IPV6", "").strip()
 LOCK = threading.Lock()
 
 
@@ -64,12 +66,40 @@ def cert_info(domain: str) -> dict:
 
 
 def dns_info(domain: str) -> dict:
+    expected = [ip for ip in (PUBLIC_IPV4, PUBLIC_IPV6) if ip]
     try:
         rows = socket.getaddrinfo(domain, 443, proto=socket.IPPROTO_TCP)
         addresses = sorted({row[4][0] for row in rows})
-        return {"ok": bool(addresses), "addresses": addresses, "error": None}
+        matches = sorted(set(addresses).intersection(expected)) if expected else []
+        points_here = bool(matches) if expected else None
+        return {
+            "ok": bool(addresses),
+            "addresses": addresses,
+            "error": None,
+            "expected": expected,
+            "matches": matches,
+            "pointsHere": points_here,
+        }
     except socket.gaierror as exc:
-        return {"ok": False, "addresses": [], "error": str(exc)}
+        return {
+            "ok": False, "addresses": [], "error": str(exc),
+            "expected": expected, "matches": [], "pointsHere": False if expected else None,
+        }
+
+
+def dns_requirements(domain: str) -> dict:
+    records = []
+    if PUBLIC_IPV4:
+        records.append({"type": "A", "host": domain, "value": PUBLIC_IPV4, "required": True})
+    if PUBLIC_IPV6:
+        records.append({"type": "AAAA", "host": domain, "value": PUBLIC_IPV6, "required": False})
+    return {
+        "records": records,
+        "ipv4": PUBLIC_IPV4 or None,
+        "ipv6": PUBLIC_IPV6 or None,
+        "configured": bool(records),
+        "note": "У DNS-панелі поле Name/Host може вимагати @ для кореневого домену, коротке ім’я піддомену або повний домен — це залежить від DNS-провайдера.",
+    }
 
 
 def nginx_reload() -> None:
@@ -136,6 +166,7 @@ def status(domain: str) -> dict:
         "active": active,
         "routePresent": cfg,
         "dns": dns,
+        "dnsRequirements": dns_requirements(domain),
         "tls": cert,
         "publicUrl": f"https://{domain}/" if active else None,
     }
@@ -145,7 +176,9 @@ def connect(domain: str) -> dict:
     with LOCK:
         dns = dns_info(domain)
         if not dns["ok"]:
-            raise RuntimeError("DNS домену ще не резолвиться. Перевірте A/AAAA запис і повторіть спробу.")
+            raise RuntimeError("DNS домену ще не резолвиться. Внесіть записи з блоку «Налаштування DNS перед деплоєм» і повторіть перевірку.")
+        if dns.get("pointsHere") is False:
+            raise RuntimeError("Домен резолвиться, але веде не на цей VPS. Перевірте значення A/AAAA у блоці «Налаштування DNS перед деплоєм».")
 
         path = config_path(domain)
         write_atomic(path, http_config(domain))

@@ -23,9 +23,11 @@ def main() -> None:
     assert "Підключити домен" in page and "Promo Controller" in page
     assert "Docker socket" in controller and "certbot" in controller
     assert "signal.SIGHUP" in controller and 'os.kill(1' in controller
-    assert 'networks: [promo_control]' in compose and 'internal: true' in compose
+    assert 'networks: [promo_control, promo_egress]' in compose and 'internal: true' in compose
     assert 'cap_add: ["KILL"]' in compose and 'pid: "service:nginx"' in compose
     assert 'promo-nginx-conf:/promo-conf' in compose and 'promo-nginx-conf:/etc/nginx/promo.d:ro' in compose
+    assert 'PROMO_PUBLIC_IPV4' in controller and 'dnsRequirements' in controller
+    assert 'Налаштування DNS перед деплоєм' in page
     ui = page
     api = (ROOT / "dashboard/src/api.js").read_text(encoding="utf-8")
     css = (ROOT / "dashboard/src/styles.css").read_text(encoding="utf-8")

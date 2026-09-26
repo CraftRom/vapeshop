@@ -4946,3 +4946,12 @@ button.support-stat:hover { border-color: rgba(139, 123, 240, 0.38); }
 .seo-help-tooltip strong{display:block;margin-bottom:5px;font-size:12px}.seo-help:hover .seo-help-tooltip,.seo-help:focus .seo-help-tooltip{display:block}
 .seo-image-field{margin-top:14px}.seo-image-title{margin-bottom:7px;font-size:13px;font-weight:600}
 @media(max-width:640px){.promo-seo-generator-note{display:block}.promo-seo-generator-note strong{display:block;margin-bottom:5px}.seo-help-tooltip{left:0;transform:none;width:min(320px,calc(100vw - 52px))}}
+
+/* Promo DNS setup before deployment */
+.promo-dns-setup{margin-top:16px;padding:18px;border:1px solid var(--border);border-radius:14px;background:var(--panel-2,rgba(0,0,0,.08))}
+.promo-dns-setup-head{display:flex;justify-content:space-between;gap:16px;align-items:flex-start;margin-bottom:14px}.promo-dns-setup-head h3{margin:0 0 5px}.promo-dns-setup-head p{margin:0;color:var(--muted);max-width:780px}
+.promo-dns-badge{white-space:nowrap;border-radius:999px;padding:6px 10px;font-size:12px;font-weight:700;border:1px solid var(--border)}.promo-dns-badge.ok{background:rgba(40,180,100,.12)}.promo-dns-badge.warn{background:rgba(230,170,40,.12)}
+.promo-dns-records{display:grid;gap:10px}.promo-dns-record{display:grid;grid-template-columns:90px minmax(180px,1.2fr) minmax(220px,1.4fr) 130px;gap:12px;align-items:center;padding:12px;border:1px solid var(--border);border-radius:12px;background:var(--panel)}.promo-dns-record>div{display:flex;flex-direction:column;gap:5px}.promo-dns-record .label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+.promo-dns-copy{display:flex;align-items:center;gap:8px;min-width:0}.promo-dns-copy code{overflow-wrap:anywhere}.promo-dns-copy-btn{padding:4px 8px;font-size:11px}
+.promo-dns-note{display:grid;gap:7px;margin-top:12px;padding:12px;border-left:3px solid var(--border);color:var(--muted)}.promo-dns-current{display:flex;flex-wrap:wrap;gap:16px;margin-top:12px;font-size:13px}
+@media(max-width:900px){.promo-dns-setup-head{flex-direction:column}.promo-dns-record{grid-template-columns:1fr}.promo-dns-copy{justify-content:space-between}}

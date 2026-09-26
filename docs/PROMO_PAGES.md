@@ -99,3 +99,6 @@ Every SEO input in the dashboard has a keyboard-accessible `?` help control. The
 New pages receive an initial SEO configuration automatically. The generator derives facts only from the page name, domain, promo content, CTA context and local media. It uses multiple title/description/OG/Schema composition families selected from a seeded hash, extracts offer signals such as percentage or UAH discount when present, deduplicates keywords, clamps output to field limits and never injects arbitrary HTML. Explicit **Generate SEO** produces another wording family; normal Save never silently overwrites manual SEO edits.
 
 The `keywords` tooltip explicitly notes that Google does not use `meta keywords` as a direct ranking signal; the field remains for compatibility and other consumers.
+
+## DNS setup block before deployment
+The dashboard shows managers the exact A/AAAA targets before domain activation. `PROMO_PUBLIC_IPV4` is the required public IPv4 of the VPS; `PROMO_PUBLIC_IPV6` is optional and must only be set when IPv6 is actually routed to the VPS. The controller compares resolved addresses with these configured targets and blocks activation when DNS points elsewhere. TTL can remain provider default; the UI explains provider-specific Host/Name notation (`@`, subdomain label, or FQDN).
