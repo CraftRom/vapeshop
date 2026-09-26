@@ -442,6 +442,30 @@ export default function LandingPages() {
               <span><strong>AAAA:</strong> не створюйте його лише «для галочки». Неправильний IPv6 може зробити сайт недоступним для частини клієнтів.</span>
             </div>
 
+            <div className={`promo-ns-card ${domainState?.nameservers?.isNicUa ? 'nic' : domainState?.nameservers?.ok ? 'external' : 'warn'}`}>
+              <div className="promo-ns-head">
+                <div>
+                  <span className="label">NS / DNS-провайдер</span>
+                  <strong>{domainState?.nameservers?.provider || 'Перевіряємо…'}</strong>
+                </div>
+                <span className="promo-ns-action">{domainState?.nameservers?.isNicUa ? 'NS НЕ ЗМІНЮВАТИ' : domainState?.nameservers?.ok ? 'Редагуйте DNS у поточного провайдера' : 'Потрібна перевірка делегування'}</span>
+              </div>
+              {!!domainState?.nameservers?.nameservers?.length && <div className="promo-ns-list">
+                {domainState.nameservers.nameservers.map((ns) => <CopyValue key={ns} value={ns} />)}
+              </div>}
+              <p>{domainState?.nameservers?.action || 'Авторитетні NS визначаються автоматично. Панель не змінює їх сама.'}</p>
+              {domainState?.nameservers?.isNicUa && <div className="promo-nic-steps">
+                <strong>Для NIC.UA</strong>
+                <span>1. Відкрийте NIC.UA → «Сервери імен (NS)» → потрібний домен → DNS-записи.</span>
+                <span>2. Для кореневого домену змініть <code>A</code> запис <code>@</code> на IP VPS, показаний вище. Для піддомену використайте його коротке ім’я.</span>
+                <span>3. Поточні NIC.UA NS залиште без змін. Типові NS NIC.UA: <code>ns10.uadns.com</code>, <code>ns11.uadns.com</code>, <code>ns12.uadns.com</code>.</span>
+              </div>}
+              {!domainState?.nameservers?.isNicUa && domainState?.nameservers?.ok && <div className="promo-nic-steps">
+                <strong>Важливо</strong>
+                <span>Домен може бути зареєстрований у NIC.UA, але DNS зараз обслуговується іншим провайдером. У такому разі A/AAAA треба змінювати саме там, куди вказують поточні NS.</span>
+              </div>}
+            </div>
+
             <div className="promo-dns-current">
               <span><strong>Зараз резолвиться:</strong> {(domainState?.dns?.addresses || []).join(', ') || 'ще немає адрес'}</span>
               {!!domainState?.dns?.expected?.length && <span><strong>Очікуємо:</strong> {domainState.dns.expected.join(', ')}</span>}

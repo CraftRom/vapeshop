@@ -45,6 +45,12 @@ IP_ENDPOINTS = {
     ),
 }
 
+NIC_UA_NAMESERVERS = ("ns10.uadns.com", "ns11.uadns.com", "ns12.uadns.com")
+DNS_JSON_ENDPOINTS = (
+    "https://cloudflare-dns.com/dns-query",
+    "https://dns.google/resolve",
+)
+
 
 def normalize_domain(value: str) -> str:
     value = (value or "").strip().lower().rstrip(".")
@@ -146,6 +152,72 @@ def public_ip_info(force: bool = False) -> dict:
         _PUBLIC_IP_CACHE.clear()
         _PUBLIC_IP_CACHE.update(data)
         return dict(data)
+
+
+def _doh_ns_query(name: str) -> tuple[list[str], str | None]:
+    errors = []
+    for endpoint in DNS_JSON_ENDPOINTS:
+        try:
+            url = f"{endpoint}?name={name}&type=NS"
+            req = Request(url, headers={
+                "User-Agent": "ELFAR-PromoController/1.0",
+                "Accept": "application/dns-json",
+            })
+            with urlopen(req, timeout=4.0) as response:
+                payload = json.loads(response.read(65536).decode("utf-8"))
+            answers = payload.get("Answer") or []
+            values = sorted({
+                str(item.get("data") or "").strip().lower().rstrip(".")
+                for item in answers if int(item.get("type") or 0) == 2 and item.get("data")
+            })
+            if values:
+                return values, None
+        except Exception as exc:
+            errors.append(f"{type(exc).__name__}")
+    return [], ", ".join(errors[-2:]) if errors else None
+
+
+def nameserver_info(domain: str) -> dict:
+    labels = domain.split(".")
+    checked = []
+    nameservers: list[str] = []
+    zone = domain
+    error = None
+    # A promo may be a subdomain. Walk upward until we find the authoritative
+    # NS zone. Exact-domain NS wins when the registrable domain itself is delegated.
+    for offset in range(0, max(1, len(labels) - 1)):
+        candidate = ".".join(labels[offset:])
+        if candidate.count(".") < 1:
+            break
+        checked.append(candidate)
+        values, err = _doh_ns_query(candidate)
+        if values:
+            nameservers = values
+            zone = candidate
+            error = None
+            break
+        if err:
+            error = err
+
+    nic = bool(nameservers) and all(ns.endswith(".uadns.com") or ns == "uadns.com" for ns in nameservers)
+    provider = "NIC.UA" if nic else ("Інший DNS-провайдер" if nameservers else "Не визначено")
+    if nic:
+        action = "NS залишити без змін. DNS-зона обслуговується NIC.UA; змініть тільки A-запис на IP VPS."
+    elif nameservers:
+        action = "NS не змінюйте автоматично. A/AAAA треба редагувати у DNS-провайдера, якому належать поточні авторитетні NS."
+    else:
+        action = "Не вдалося визначити авторитетні NS. Не змінюйте NS навмання; перевірте делегування домену в NIC.UA."
+    return {
+        "ok": bool(nameservers),
+        "zone": zone,
+        "nameservers": nameservers,
+        "provider": provider,
+        "isNicUa": nic,
+        "expectedNicUa": list(NIC_UA_NAMESERVERS),
+        "action": action,
+        "checked": checked,
+        "error": error,
+    }
 
 
 def dns_info(domain: str) -> dict:
@@ -258,6 +330,7 @@ def status(domain: str) -> dict:
         "routePresent": cfg,
         "dns": dns,
         "dnsRequirements": dns_requirements(domain),
+        "nameservers": nameserver_info(domain),
         "tls": cert,
         "publicUrl": f"https://{domain}/" if active else None,
     }
