@@ -4,6 +4,8 @@ import html
 import json
 import os
 import re
+import hashlib
+import secrets
 
 import httpx
 from datetime import datetime, timezone
@@ -176,6 +178,131 @@ class LandingPageIn(BaseModel):
         return _domain(value)
 
 
+
+
+_SEO_STOPWORDS = {
+    "і", "й", "та", "або", "в", "у", "на", "до", "для", "з", "зі", "із", "по", "про", "під",
+    "це", "цей", "ця", "ці", "ваш", "ваша", "ваші", "наш", "наша", "отримайте", "скористайтеся",
+    "не", "лише", "після", "під час", "перейти", "промокод", "акція", "акційна", "пропозиція",
+}
+
+def _clean_text(value: str) -> str:
+    value = re.sub(r"[\s\u00a0]+", " ", (value or "")).strip()
+    return re.sub(r"[<>]", "", value)
+
+def _clip(value: str, limit: int) -> str:
+    value = _clean_text(value)
+    if len(value) <= limit:
+        return value
+    cut = value[: limit + 1]
+    cut = cut.rsplit(" ", 1)[0] or value[:limit]
+    return cut.rstrip(" ,.;:!?—-")
+
+def _brand_from_domain(domain: str, name: str) -> str:
+    host = (domain or "").split(".")[0].replace("-", " ").replace("_", " ").strip()
+    generic = {"promo", "sale", "offer", "go", "landing", "www"}
+    if host and host.lower() not in generic and len(host) >= 3:
+        return host.title()
+    cleaned = re.sub(r"\b(промо|promo|landing|сторінка|акція|акційна)\b", " ", name or "", flags=re.I)
+    cleaned = _clean_text(cleaned)
+    return _clip(cleaned, 42) or "ELFAR"
+
+def _offer_signal(content: dict) -> str:
+    source = " ".join(str(content.get(k) or "") for k in ("title", "description", "validity_text", "promo_code"))
+    percent = re.search(r"(?<!\d)(\d{1,2})\s*%", source)
+    money = re.search(r"(?<!\d)(\d{2,5})\s*(?:грн|₴)", source, re.I)
+    if percent:
+        return f"знижка {percent.group(1)}%"
+    if money:
+        return f"вигода {money.group(1)} грн"
+    if content.get("promo_code"):
+        return "промокод на спеціальну пропозицію"
+    return "спеціальна пропозиція"
+
+def _keywords(content: dict, brand: str, signal: str, domain: str) -> str:
+    text = " ".join(_clean_text(str(content.get(k) or "")).lower() for k in ("title", "description", "validity_text", "eyebrow"))
+    words = re.findall(r"[a-zа-яіїєґ0-9-]{3,}", text, flags=re.I)
+    ranked, seen = [], set()
+    for word in words:
+        key = word.lower()
+        if key in _SEO_STOPWORDS or key in seen or key.isdigit():
+            continue
+        seen.add(key); ranked.append(key)
+        if len(ranked) >= 7:
+            break
+    base = [brand.lower(), signal.lower(), "промокод", "знижка", domain.lower()] + ranked
+    out=[]; seen=set()
+    for item in base:
+        item=_clean_text(item)
+        if item and item not in seen:
+            seen.add(item); out.append(item)
+    return ", ".join(out[:10])
+
+def _pick(options: list[str], seed: str, salt: str) -> str:
+    digest = hashlib.blake2b(f"{seed}|{salt}".encode("utf-8"), digest_size=8).digest()
+    return options[int.from_bytes(digest, "big") % len(options)]
+
+def generate_seo_payload(*, name: str, domain: str, content: dict, variant_seed: str = "") -> dict:
+    """Generate production-safe SEO copy from the actual promo content.
+
+    It is intentionally rule-based and deterministic for a given seed: this makes output
+    explainable/reproducible while still avoiding one static template for every page.
+    """
+    brand = _brand_from_domain(domain, name)
+    signal = _offer_signal(content)
+    title = _clean_text(content.get("title") or name or "Спеціальна пропозиція")
+    desc = _clean_text(content.get("description") or "")
+    validity = _clean_text(content.get("validity_text") or "")
+    code = _clean_text(content.get("promo_code") or "")
+    seed = variant_seed or f"{domain}|{name}|{title}|{desc}|{code}"
+
+    title_variants = [
+        f"{title} — {brand}",
+        f"{signal.capitalize()} від {brand} | {title}",
+        f"{brand}: {title}",
+        f"{title} | {signal.capitalize()}",
+    ]
+    meta_title = _clip(_pick(title_variants, seed, "title"), 68)
+
+    desc_bits = [x for x in (desc, validity) if x]
+    joined = " ".join(desc_bits) or f"Скористайтеся пропозицією {brand} та отримайте {signal}."
+    description_variants = [
+        joined,
+        f"{signal.capitalize()} від {brand}. {joined}",
+        f"Дізнайтеся умови пропозиції {brand}. {joined}",
+        f"Отримайте {signal} від {brand}. {joined}",
+    ]
+    meta_description = _clip(_pick(description_variants, seed, "description"), 170)
+
+    og_title_variants = [meta_title, _clip(f"{title} — {signal}", 96), _clip(f"{brand} · {title}", 96)]
+    og_desc_variants = [meta_description, _clip(joined, 195), _clip(f"{signal.capitalize()}. {joined}", 195)]
+    schema_name = _clip(_pick([title, meta_title, f"{brand} — {signal}"], seed, "schema-name"), 118)
+    schema_desc = _clip(_pick([joined, meta_description, f"{title}. {joined}"], seed, "schema-desc"), 235)
+
+    return {
+        "title": meta_title,
+        "description": meta_description,
+        "keywords": _clip(_keywords(content, brand, signal, domain), 490),
+        "canonical_url": f"https://{domain}/",
+        "robots": DEFAULT_SEO["robots"],
+        "og_title": _pick(og_title_variants, seed, "og-title"),
+        "og_description": _pick(og_desc_variants, seed, "og-desc"),
+        "og_image": content.get("background_image") or content.get("logo_image") or "",
+        "og_locale": "uk_UA",
+        "site_name": _clip(brand, 96),
+        "schema_name": schema_name,
+        "schema_description": schema_desc,
+    }
+
+def _should_generate_initial_seo(seo: dict) -> bool:
+    # UI creates a page with the stock defaults. Treat those as placeholders, not
+    # deliberate SEO copy supplied by an API client.
+    meaningful = {k: v for k, v in (seo or {}).items() if _clean_text(str(v or ""))}
+    if not meaningful:
+        return True
+    return all((seo or {}).get(k, DEFAULT_SEO[k]) == DEFAULT_SEO[k] for k in DEFAULT_SEO)
+
+
 def _config(data: LandingPageIn) -> dict:
     return {"content": data.content.model_dump(), "seo": data.seo.model_dump()}
 
@@ -215,12 +342,49 @@ async def create_page(
     exists = await db.scalar(select(PromoLandingPage.id).where(PromoLandingPage.domain == data.domain))
     if exists:
         raise HTTPException(409, "Цей домен уже прив'язаний до іншої промо-сторінки")
-    row = PromoLandingPage(name=data.name.strip(), domain=data.domain, draft_config=_config(data))
+    config = _config(data)
+    if _should_generate_initial_seo(config.get("seo") or {}):
+        config["seo"] = generate_seo_payload(
+            name=data.name.strip(), domain=data.domain, content=config.get("content") or {},
+            variant_seed=f"create:{data.domain}:{secrets.token_hex(4)}",
+        )
+    row = PromoLandingPage(name=data.name.strip(), domain=data.domain, draft_config=config)
     db.add(row)
     await db.commit()
     await db.refresh(row)
     security.record("promo.page.created", actor=who.login, reason=row.domain)
     return _dto(row)
+
+
+class SeoGenerateIn(BaseModel):
+    name: str = Field(min_length=1, max_length=128)
+    domain: str
+    content: ContentIn
+
+    @field_validator("domain")
+    @classmethod
+    def valid_domain(cls, value: str) -> str:
+        return _domain(value)
+
+
+@router.post("/{page_id}/seo-generate")
+async def generate_page_seo(
+    page_id: int,
+    data: SeoGenerateIn,
+    who: Principal = Depends(require_staff),
+    db: AsyncSession = Depends(get_session),
+):
+    row = await db.get(PromoLandingPage, page_id)
+    if not row:
+        raise HTTPException(404, "Промо-сторінку не знайдено")
+    # A fresh nonce gives a new wording family on explicit regeneration, while all
+    # facts still come only from current page content.
+    seo = generate_seo_payload(
+        name=data.name, domain=data.domain, content=data.content.model_dump(),
+        variant_seed=f"regen:{page_id}:{row.version}:{secrets.token_hex(8)}",
+    )
+    security.record("promo.seo.generated", actor=who.login, reason=row.domain)
+    return seo
 
 
 @router.get("/{page_id}")

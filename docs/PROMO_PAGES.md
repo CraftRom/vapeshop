@@ -90,3 +90,12 @@ CTA на production веде через `/go`: API збільшує click counte
 - `PROMO_CONTROLLER_TOKEN` — bootstrap генерує його автоматично.
 
 `CERTBOT_EMAIL` необов’язковий: якщо він заданий, Let’s Encrypt може використовувати його для службових сповіщень; якщо порожній, підключення доменів із панелі все одно працює. Після deployment усі домени керуються з панелі.
+
+
+## SEO help and contextual generation (v1.55.0)
+
+Every SEO input in the dashboard has a keyboard-accessible `?` help control. The tooltip explains what the field is, where it is consumed, and what practical effect it has.
+
+New pages receive an initial SEO configuration automatically. The generator derives facts only from the page name, domain, promo content, CTA context and local media. It uses multiple title/description/OG/Schema composition families selected from a seeded hash, extracts offer signals such as percentage or UAH discount when present, deduplicates keywords, clamps output to field limits and never injects arbitrary HTML. Explicit **Generate SEO** produces another wording family; normal Save never silently overwrites manual SEO edits.
+
+The `keywords` tooltip explicitly notes that Google does not use `meta keywords` as a direct ranking signal; the field remains for compatibility and other consumers.

@@ -381,6 +381,7 @@ export const api = {
     domainStatus: (id) => request(`/landing-pages/${id}/domain-status`),
     domainConnect: (id) => request(`/landing-pages/${id}/domain-connect`, { method: 'POST' }),
     domainDisconnect: (id) => request(`/landing-pages/${id}/domain-disconnect`, { method: 'POST' }),
+    generateSeo: (id, data) => request(`/landing-pages/${id}/seo-generate`, { method: 'POST', body: data }),
     preview: async (id) => {
       const response = await authorizedFetch(new URL(`${BASE}/landing-pages/${id}/preview`, window.location.origin))
       if (!response.ok) throw new ApiError(`Помилка ${response.status}`, response.status)

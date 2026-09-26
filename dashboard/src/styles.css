@@ -4934,3 +4934,15 @@ button.support-stat:hover { border-color: rgba(139, 123, 240, 0.38); }
 .promo-tabs{display:flex;gap:6px;flex-wrap:wrap}.promo-tabs button{padding:9px 13px;border:1px solid var(--line);border-radius:999px;background:var(--panel);color:var(--muted);cursor:pointer}.promo-tabs button.active{color:var(--text);border-color:var(--accent);background:rgba(116,96,255,.1)}
 @media(max-width:900px){.promo-builder-layout{grid-template-columns:1fr}.promo-page-list{position:static;grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:560px){.promo-page-list{grid-template-columns:1fr}.promo-builder-toolbar .row{width:100%}.promo-builder-toolbar .row .btn{flex:1}}
+
+/* promo SEO help + contextual generator */
+.promo-seo-head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:14px;flex-wrap:wrap}
+.promo-seo-generator-note{display:flex;gap:10px;align-items:flex-start;padding:12px 14px;margin-bottom:16px;border:1px solid var(--line);border-radius:10px;background:rgba(116,96,255,.05);font-size:13px;line-height:1.45}
+.promo-seo-generator-note strong{white-space:nowrap}.promo-seo-generator-note span{color:var(--muted)}
+.seo-help-label{display:inline-flex;align-items:center;gap:7px}
+.seo-help{position:relative;display:inline-grid;place-items:center;width:18px;height:18px;border:1px solid var(--line);border-radius:50%;font-size:11px;font-weight:800;line-height:1;color:var(--muted);cursor:help;outline:none;background:var(--panel)}
+.seo-help:hover,.seo-help:focus-visible{border-color:var(--accent);color:var(--accent)}
+.seo-help-tooltip{position:absolute;z-index:80;left:50%;bottom:calc(100% + 10px);transform:translateX(-50%);display:none;width:min(360px,80vw);padding:12px 13px;border:1px solid var(--line);border-radius:10px;background:var(--panel);box-shadow:0 12px 32px rgba(0,0,0,.22);color:var(--text);font-size:12px;font-weight:400;line-height:1.5;text-align:left;white-space:normal}
+.seo-help-tooltip strong{display:block;margin-bottom:5px;font-size:12px}.seo-help:hover .seo-help-tooltip,.seo-help:focus .seo-help-tooltip{display:block}
+.seo-image-field{margin-top:14px}.seo-image-title{margin-bottom:7px;font-size:13px;font-weight:600}
+@media(max-width:640px){.promo-seo-generator-note{display:block}.promo-seo-generator-note strong{display:block;margin-bottom:5px}.seo-help-tooltip{left:0;transform:none;width:min(320px,calc(100vw - 52px))}}

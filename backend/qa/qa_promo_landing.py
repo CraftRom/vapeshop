@@ -26,7 +26,15 @@ def main() -> None:
     assert 'networks: [promo_control]' in compose and 'internal: true' in compose
     assert 'cap_add: ["KILL"]' in compose and 'pid: "service:nginx"' in compose
     assert 'promo-nginx-conf:/promo-conf' in compose and 'promo-nginx-conf:/etc/nginx/promo.d:ro' in compose
-    print("promo landing isolation: PASS")
+    ui = page
+    api = (ROOT / "dashboard/src/api.js").read_text(encoding="utf-8")
+    css = (ROOT / "dashboard/src/styles.css").read_text(encoding="utf-8")
+    page = router
+    assert "generate_seo_payload" in page and "/seo-generate" in page
+    assert "_should_generate_initial_seo" in page and "secrets.token_hex" in page
+    assert "SEO_HELP" in ui and "SeoLabel" in ui and "Згенерувати SEO" in ui
+    assert "generateSeo:" in api and "seo-help-tooltip" in css
+    print("promo landing isolation + SEO generator: PASS")
 
 
 if __name__ == "__main__":

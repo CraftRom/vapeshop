@@ -20,6 +20,27 @@ const DEFAULT_SEO = {
   schema_name: '', schema_description: '',
 }
 
+
+const SEO_HELP = {
+  title: { title: 'Meta title', text: 'Основний заголовок сторінки для пошукових систем і вкладки браузера. Допомагає Google зрозуміти тему сторінки та часто використовується як синє посилання у результатах пошуку. Має бути конкретним, природним і відрізнятися від інших промо-сторінок. Рекомендовано приблизно 50–68 символів.' },
+  canonical_url: { title: 'Canonical URL', text: 'Канонічна адреса повідомляє пошуковим системам, яку URL-версію сторінки вважати основною. Захищає від дублювання сигналів між варіантами URL, UTM-посиланнями або технічними копіями. Для звичайної промо-сторінки це її HTTPS-адреса.' },
+  description: { title: 'Meta description', text: 'Короткий опис змісту сторінки. Не є прямим фактором ранжування Google, але часто використовується у сніпеті пошуку й може впливати на CTR. Генератор формує його з реальної пропозиції, умов і бренду, без вигаданих переваг.' },
+  keywords: { title: 'Keywords', text: 'Список тематичних фраз для сумісності з іншими системами, внутрішніми інструментами та деякими пошуковиками. Google meta keywords практично не використовує для ранжування, тому поле не повинно перетворюватися на спам. Генератор бере лише слова з фактичного контенту сторінки.' },
+  robots: { title: 'Robots', text: 'Керує індексацією та способом показу контенту пошуковими роботами. index,follow дозволяє індексувати сторінку й переходити за посиланнями; max-image-preview:large дозволяє великі прев’ю зображень; max-snippet:-1 і max-video-preview:-1 не обмежують розмір доступних сніпетів.' },
+  og_locale: { title: 'Open Graph locale', text: 'Мова й регіон Open Graph-даних. Використовується соцмережами та месенджерами під час формування картки посилання. Для української сторінки стандартне значення — uk_UA.' },
+  og_title: { title: 'Open Graph title', text: 'Заголовок картки при поширенні посилання у Telegram, Facebook, Discord та інших сервісах, що читають Open Graph. Може бути трохи рекламнішим за Meta title, але повинен точно відповідати змісту сторінки.' },
+  og_description: { title: 'Open Graph description', text: 'Опис для картки посилання у соцмережах і месенджерах. Дає людині контекст ще до відкриття сторінки. Генератор створює окрему варіацію, щоб вона не дублювала Meta description слово в слово.' },
+  site_name: { title: 'Site name', text: 'Назва бренду або сайту, яка може відображатися у картці Open Graph і допомагає ідентифікувати джерело. Генератор визначає її з домену та внутрішньої назви сторінки.' },
+  og_image: { title: 'OG / social image', text: 'Головне зображення для прев’ю посилання в соцмережах і месенджерах. Воно має бути локальним файлом із /media/. Якщо спеціальне зображення не задано, генератор використовує вибраний фон або логотип сторінки.' },
+  schema_name: { title: 'Schema name', text: 'Назва сторінки у структурованих даних Schema.org / JSON-LD. Допомагає пошуковим системам машинно прочитати сутність сторінки та зв’язати її назву з URL, описом і основним зображенням.' },
+  schema_description: { title: 'Schema description', text: 'Розгорнутий машинозчитуваний опис для JSON-LD WebPage. Він не показується як звичайний текст на сторінці, але додає контекст пошуковим системам. Генератор формує його з фактичного промо-тексту та умов.' },
+}
+
+function SeoLabel({ field }) {
+  const item = SEO_HELP[field]
+  return <span className="seo-help-label"><span>{item.title}</span><span className="seo-help" tabIndex="0" role="button" aria-label={`Довідка: ${item.title}`}><span aria-hidden="true">?</span><span className="seo-help-tooltip" role="tooltip"><strong>{item.title}</strong>{item.text}</span></span></span>
+}
+
 const newForm = () => ({ name: 'Нова промо-сторінка', domain: '', content: { ...DEFAULT_CONTENT }, seo: { ...DEFAULT_SEO } })
 
 function normalized(page) {
@@ -47,6 +68,7 @@ export default function LandingPages() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [creating, setCreating] = useState(false)
+  const [seoBusy, setSeoBusy] = useState(false)
 
   const selected = useMemo(() => (pages || []).find((p) => p.id === selectedId) || null, [pages, selectedId])
 
@@ -130,6 +152,16 @@ export default function LandingPages() {
       const item = await api.landingPages.create(form)
       setCreating(false); notify('Промо-сторінку створено'); await load(item.id)
     } catch (e) { setError(e.message) } finally { setBusy(false) }
+  }
+
+  const generateSeo = async () => {
+    if (!selected || seoBusy) return
+    setSeoBusy(true); setError('')
+    try {
+      const seo = await api.landingPages.generateSeo(selected.id, { name: form.name, domain: form.domain, content: form.content })
+      setForm((f) => ({ ...f, seo }))
+      notify('SEO згенеровано з поточного контенту. Перевірте й збережіть зміни.')
+    } catch (e) { setError(e.message) } finally { setSeoBusy(false) }
   }
 
   const refreshDomain = async () => {
@@ -219,22 +251,31 @@ export default function LandingPages() {
         </div>}
 
         {tab === 'seo' && <div className="card">
-          <h2 style={{ marginTop: 0 }}>SEO</h2>
-          <p className="faint">Шаблон автоматично формує semantic HTML, canonical, Open Graph, Twitter Card і JSON-LD WebPage. Тут змінюються лише дані.</p>
-          <div className="grid k2">
-            <Field label="Meta title" hint="Орієнтир: до ~60–70 символів."><input className="input" value={form.seo.title} onChange={(e) => setSeo('title', e.target.value)} /></Field>
-            <Field label="Canonical URL" hint="Можна лишити порожнім — буде https://домен/."><input className="input" value={form.seo.canonical_url} onChange={(e) => setSeo('canonical_url', e.target.value)} /></Field>
-            <Field label="Meta description"><textarea className="input" rows="4" value={form.seo.description} onChange={(e) => setSeo('description', e.target.value)} /></Field>
-            <Field label="Keywords" hint="Не впливають напряму на Google ranking, але поле залишене для сумісності/інших систем."><textarea className="input" rows="4" value={form.seo.keywords} onChange={(e) => setSeo('keywords', e.target.value)} /></Field>
-            <Field label="Robots"><input className="input" value={form.seo.robots} onChange={(e) => setSeo('robots', e.target.value)} /></Field>
-            <Field label="OG locale"><input className="input" value={form.seo.og_locale} onChange={(e) => setSeo('og_locale', e.target.value)} /></Field>
-            <Field label="Open Graph title"><input className="input" value={form.seo.og_title} onChange={(e) => setSeo('og_title', e.target.value)} /></Field>
-            <Field label="Open Graph description"><textarea className="input" rows="3" value={form.seo.og_description} onChange={(e) => setSeo('og_description', e.target.value)} /></Field>
-            <Field label="Site name"><input className="input" value={form.seo.site_name} onChange={(e) => setSeo('site_name', e.target.value)} /></Field>
-            <Field label="Schema name"><input className="input" value={form.seo.schema_name} onChange={(e) => setSeo('schema_name', e.target.value)} /></Field>
+          <div className="promo-seo-head">
+            <div>
+              <h2 style={{ marginTop: 0, marginBottom: 6 }}>SEO</h2>
+              <p className="faint" style={{ margin: 0 }}>Semantic HTML, canonical, Open Graph, Twitter Card і JSON-LD формуються шаблоном автоматично. Дані нижче можна редагувати вручну.</p>
+            </div>
+            <button className="btn ghost" onClick={generateSeo} disabled={seoBusy}>{seoBusy ? 'Генеруємо…' : 'Згенерувати SEO'}</button>
           </div>
-          <ImageField label="OG / social image" value={form.seo.og_image} onChange={(v) => setSeo('og_image', v)} hint="Локальний файл із /media/. Якщо порожньо — використовується фон або логотип." />
-          <Field label="Schema description"><textarea className="input" rows="3" value={form.seo.schema_description} onChange={(e) => setSeo('schema_description', e.target.value)} /></Field>
+          <div className="promo-seo-generator-note">
+            <strong>Контекстний генератор</strong>
+            <span>Під час створення сторінки SEO заповнюється автоматично з назви, домену, заголовка, опису, промокоду, терміну дії, CTA та вибраних зображень. Повторна генерація створює іншу коректну варіацію, але не вигадує факти, яких немає у промо.</span>
+          </div>
+          <div className="grid k2">
+            <Field label={<SeoLabel field="title" />} hint={`${form.seo.title.length}/70`}><input className="input" value={form.seo.title} onChange={(e) => setSeo('title', e.target.value)} /></Field>
+            <Field label={<SeoLabel field="canonical_url" />}><input className="input" value={form.seo.canonical_url} placeholder={`https://${form.domain || 'domain.example'}/`} onChange={(e) => setSeo('canonical_url', e.target.value)} /></Field>
+            <Field label={<SeoLabel field="description" />} hint={`${form.seo.description.length}/180`}><textarea className="input" rows="4" value={form.seo.description} onChange={(e) => setSeo('description', e.target.value)} /></Field>
+            <Field label={<SeoLabel field="keywords" />}><textarea className="input" rows="4" value={form.seo.keywords} onChange={(e) => setSeo('keywords', e.target.value)} /></Field>
+            <Field label={<SeoLabel field="robots" />}><input className="input" value={form.seo.robots} onChange={(e) => setSeo('robots', e.target.value)} /></Field>
+            <Field label={<SeoLabel field="og_locale" />}><input className="input" value={form.seo.og_locale} onChange={(e) => setSeo('og_locale', e.target.value)} /></Field>
+            <Field label={<SeoLabel field="og_title" />} hint={`${form.seo.og_title.length}/100`}><input className="input" value={form.seo.og_title} onChange={(e) => setSeo('og_title', e.target.value)} /></Field>
+            <Field label={<SeoLabel field="og_description" />} hint={`${form.seo.og_description.length}/200`}><textarea className="input" rows="3" value={form.seo.og_description} onChange={(e) => setSeo('og_description', e.target.value)} /></Field>
+            <Field label={<SeoLabel field="site_name" />}><input className="input" value={form.seo.site_name} onChange={(e) => setSeo('site_name', e.target.value)} /></Field>
+            <Field label={<SeoLabel field="schema_name" />}><input className="input" value={form.seo.schema_name} onChange={(e) => setSeo('schema_name', e.target.value)} /></Field>
+          </div>
+          <div className="seo-image-field"><div className="seo-image-title"><SeoLabel field="og_image" /></div><ImageField label="Зображення" value={form.seo.og_image} onChange={(v) => setSeo('og_image', v)} hint="Локальний файл із /media/. Якщо порожньо — renderer використає фон або логотип." /></div>
+          <Field label={<SeoLabel field="schema_description" />} hint={`${form.seo.schema_description.length}/240`}><textarea className="input" rows="3" value={form.seo.schema_description} onChange={(e) => setSeo('schema_description', e.target.value)} /></Field>
         </div>}
 
         {tab === 'stats' && <div className="stack" style={{ gap: 14 }}>
