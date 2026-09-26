@@ -493,13 +493,15 @@ async def remove_page(
 @router.get("/{page_id}/domain-status")
 async def domain_status(
     page_id: int,
+    domain: str | None = None,
     who: Principal = Depends(require_staff),
     db: AsyncSession = Depends(get_session),
 ):
     row = await db.get(PromoLandingPage, page_id)
     if not row:
         raise HTTPException(404, "Промо-сторінку не знайдено")
-    return await _domain_status(row.domain)
+    target = row.domain if not domain else _domain(domain)
+    return await _domain_status(target)
 
 
 @router.post("/{page_id}/domain-connect")
@@ -629,7 +631,8 @@ async def public_click(request: Request, db: AsyncSession = Depends(get_session)
         target = _url(target)
     except ValueError:
         raise HTTPException(409, "Посилання кнопки не налаштоване")
-    await _bump(db, row.id, "clicks")
+    if not _BOT_RE.search(request.headers.get("user-agent", "")):
+        await _bump(db, row.id, "clicks")
     return RedirectResponse(target, status_code=302, headers={"Cache-Control": "no-store"})
 
 

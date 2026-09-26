@@ -177,6 +177,56 @@ def _doh_ns_query(name: str) -> tuple[list[str], str | None]:
     return [], ", ".join(errors[-2:]) if errors else None
 
 
+def _doh_address_query(endpoint: str, name: str, rrtype: str) -> tuple[list[str], str | None]:
+    qtype = 1 if rrtype == "A" else 28
+    try:
+        url = f"{endpoint}?name={name}&type={rrtype}"
+        req = Request(url, headers={
+            "User-Agent": "ELFAR-PromoController/1.0",
+            "Accept": "application/dns-json",
+        })
+        with urlopen(req, timeout=4.0) as response:
+            payload = json.loads(response.read(65536).decode("utf-8"))
+        answers = payload.get("Answer") or []
+        values = []
+        for item in answers:
+            if int(item.get("type") or 0) != qtype or not item.get("data"):
+                continue
+            value = _valid_public_ip(str(item.get("data") or ""), 4 if rrtype == "A" else 6)
+            if value:
+                values.append(value)
+        return sorted(set(values)), None
+    except Exception as exc:
+        return [], f"{type(exc).__name__}"
+
+
+def public_resolver_info(domain: str) -> dict:
+    checks = []
+    all_addresses: set[str] = set()
+    successful = 0
+    for endpoint in DNS_JSON_ENDPOINTS:
+        resolver_name = "Cloudflare" if "cloudflare" in endpoint else "Google"
+        a, aerr = _doh_address_query(endpoint, domain, "A")
+        aaaa, aaaaerr = _doh_address_query(endpoint, domain, "AAAA")
+        addresses = sorted(set(a + aaaa))
+        if addresses or not (aerr and aaaaerr):
+            successful += 1
+        all_addresses.update(addresses)
+        checks.append({
+            "resolver": resolver_name,
+            "addresses": addresses,
+            "a": a,
+            "aaaa": aaaa,
+            "error": ", ".join(x for x in (aerr, aaaaerr) if x) or None,
+        })
+    return {
+        "ok": successful > 0,
+        "addresses": sorted(all_addresses),
+        "checks": checks,
+        "successfulResolvers": successful,
+    }
+
+
 def nameserver_info(domain: str) -> dict:
     labels = domain.split(".")
     checked = []
@@ -223,35 +273,60 @@ def nameserver_info(domain: str) -> dict:
 def dns_info(domain: str) -> dict:
     public = public_ip_info()
     expected = [ip for ip in (public.get("ipv4"), public.get("ipv6")) if ip]
+    local_addresses: list[str] = []
+    local_error = None
     try:
         rows = socket.getaddrinfo(domain, 443, proto=socket.IPPROTO_TCP)
-        addresses = sorted({row[4][0] for row in rows})
-        matches = sorted(set(addresses).intersection(expected)) if expected else []
-        points_here = bool(matches) if expected else None
-        return {
-            "ok": bool(addresses),
-            "addresses": addresses,
-            "error": None,
-            "expected": expected,
-            "matches": matches,
-            "pointsHere": points_here,
-        }
+        local_addresses = sorted({row[4][0] for row in rows})
     except socket.gaierror as exc:
-        return {
-            "ok": False, "addresses": [], "error": str(exc),
-            "expected": expected, "matches": [], "pointsHere": False if expected else None,
-        }
+        local_error = str(exc)
+
+    resolvers = public_resolver_info(domain)
+    public_addresses = resolvers.get("addresses") or []
+    # Prefer public resolvers for deployment readiness. The container/system resolver
+    # can retain an old answer longer and would make the UI lie about propagation.
+    observed = public_addresses if resolvers.get("ok") else local_addresses
+    expected_set = set(expected)
+    observed_set = set(observed)
+    matches = sorted(observed_set.intersection(expected_set)) if expected else []
+    wrong = sorted(observed_set.difference(expected_set)) if expected else []
+    # ALL visible A/AAAA answers must belong to this VPS. One correct record plus one
+    # stale/wrong record is not ready: browsers and ACME may hit the wrong address.
+    points_here = bool(observed_set) and not wrong and observed_set.issubset(expected_set) if expected else None
+    propagating = bool(matches and wrong)
+    return {
+        "ok": bool(observed),
+        "addresses": observed,
+        "localAddresses": local_addresses,
+        "publicAddresses": public_addresses,
+        "error": None if observed else (local_error or "DNS record not found"),
+        "expected": expected,
+        "matches": matches,
+        "wrongAddresses": wrong,
+        "pointsHere": points_here,
+        "propagating": propagating,
+        "resolverChecks": resolvers.get("checks") or [],
+        "successfulResolvers": resolvers.get("successfulResolvers", 0),
+    }
 
 
-def dns_requirements(domain: str) -> dict:
+def dns_requirements(domain: str, nameservers: dict | None = None) -> dict:
     public = public_ip_info()
     ipv4 = public.get("ipv4")
     ipv6 = public.get("ipv6")
     records = []
+    host = domain
+    ns = nameservers or {}
+    zone = (ns.get("zone") or "").lower().rstrip(".")
+    if ns.get("isNicUa") and zone:
+        if domain == zone:
+            host = "@"
+        elif domain.endswith("." + zone):
+            host = domain[: -(len(zone) + 1)]
     if ipv4:
-        records.append({"type": "A", "host": domain, "value": ipv4, "required": True})
+        records.append({"type": "A", "host": host, "fqdn": domain, "value": ipv4, "required": True})
     if ipv6:
-        records.append({"type": "AAAA", "host": domain, "value": ipv6, "required": False})
+        records.append({"type": "AAAA", "host": host, "fqdn": domain, "value": ipv6, "required": False})
     return {
         "records": records,
         "ipv4": ipv4,
@@ -322,6 +397,7 @@ def status(domain: str) -> dict:
             https_ready = False
     cert = cert_info(domain)
     dns = dns_info(domain)
+    nameservers = nameserver_info(domain)
     cert_valid = cert["present"] and (cert["daysLeft"] is None or cert["daysLeft"] >= 0)
     active = cfg and https_ready and cert_valid
     return {
@@ -329,8 +405,8 @@ def status(domain: str) -> dict:
         "active": active,
         "routePresent": cfg,
         "dns": dns,
-        "dnsRequirements": dns_requirements(domain),
-        "nameservers": nameserver_info(domain),
+        "dnsRequirements": dns_requirements(domain, nameservers),
+        "nameservers": nameservers,
         "tls": cert,
         "publicUrl": f"https://{domain}/" if active else None,
     }
@@ -342,6 +418,10 @@ def connect(domain: str) -> dict:
         if not dns["ok"]:
             raise RuntimeError("DNS домену ще не резолвиться. Внесіть записи з блоку «Налаштування DNS перед деплоєм» і повторіть перевірку.")
         if dns.get("pointsHere") is False:
+            if dns.get("propagating"):
+                wrong = ", ".join(dns.get("wrongAddresses") or [])
+                expected = ", ".join(dns.get("expected") or [])
+                raise RuntimeError(f"DNS поширюється, але частина резолверів ще бачить старі/зайві адреси: {wrong}. Очікуємо лише: {expected}.")
             raise RuntimeError("Домен резолвиться, але веде не на цей VPS. Перевірте значення A/AAAA у блоці «Налаштування DNS перед деплоєм».")
 
         path = config_path(domain)

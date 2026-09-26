@@ -4990,3 +4990,5 @@ button.support-stat:hover { border-color: rgba(139, 123, 240, 0.38); }
 .promo-ns-list{display:flex;flex-wrap:wrap;gap:10px;margin:12px 0}.promo-ns-list .promo-dns-copy{padding:7px 9px;border:1px solid var(--border);border-radius:10px;background:rgba(0,0,0,.08)}
 .promo-ns-card p{margin:10px 0 0;color:var(--muted);line-height:1.5}.promo-nic-steps{display:grid;gap:6px;margin-top:12px;padding-top:12px;border-top:1px solid var(--border);font-size:13px;line-height:1.5}.promo-nic-steps span{color:var(--muted)}
 @media(max-width:680px){.promo-ns-head{display:grid}.promo-ns-action{white-space:normal;width:max-content;max-width:100%}}
+
+.promo-dns-wrong{color:#ef8f8f;font-weight:600}

@@ -134,7 +134,7 @@ export default function LandingPages() {
     if (!selected) { setStats(null); setDomainState(null); setDomainLastCheckedAt(''); return }
     setForm(normalized(selected))
     api.landingPages.stats(selected.id, 30).then(setStats).catch(() => setStats(null))
-    api.landingPages.domainStatus(selected.id)
+    api.landingPages.domainStatus(selected.id, selected.domain)
       .then((state) => { setDomainState(state); setDomainLastCheckedAt(new Date().toISOString()) })
       .catch((e) => setDomainState({ error: e.message }))
   }, [selectedId, selected?.version, selected?.domain])
@@ -215,7 +215,7 @@ export default function LandingPages() {
     if (!selected) return null
     if (!silent) setDomainRefreshing(true)
     try {
-      const state = await api.landingPages.domainStatus(selected.id)
+      const state = await api.landingPages.domainStatus(selected.id, form.domain || selected.domain)
       setDomainState(state)
       setDomainLastCheckedAt(new Date().toISOString())
       return state
@@ -415,7 +415,7 @@ export default function LandingPages() {
                 <p>Спочатку внесіть ці записи у DNS-панелі домену. Після поширення DNS натисніть «Оновити статус», і лише тоді підключайте HTTPS.</p>
               </div>
               <span className={`promo-dns-badge ${(domainRefreshing || domainBusy) ? 'checking' : domainState?.dns?.pointsHere === true ? 'ok' : 'warn'}`}> 
-                {domainState?.dns?.pointsHere === true ? 'DNS веде на цей VPS' : domainState?.dns?.ok ? 'DNS веде на іншу адресу' : 'Очікуємо DNS'}
+                {domainState?.dns?.pointsHere === true ? 'DNS веде на цей VPS' : domainState?.dns?.propagating ? 'DNS ще поширюється' : domainState?.dns?.ok ? 'DNS веде на іншу адресу' : 'Очікуємо DNS'}
               </span>
             </div>
 
@@ -467,8 +467,10 @@ export default function LandingPages() {
             </div>
 
             <div className="promo-dns-current">
-              <span><strong>Зараз резолвиться:</strong> {(domainState?.dns?.addresses || []).join(', ') || 'ще немає адрес'}</span>
+              <span><strong>Зараз бачимо:</strong> {(domainState?.dns?.addresses || []).join(', ') || 'ще немає адрес'}</span>
               {!!domainState?.dns?.expected?.length && <span><strong>Очікуємо:</strong> {domainState.dns.expected.join(', ')}</span>}
+              {!!domainState?.dns?.wrongAddresses?.length && <span className="promo-dns-wrong"><strong>Старі/зайві:</strong> {domainState.dns.wrongAddresses.join(', ')}</span>}
+              {!!domainState?.dns?.successfulResolvers && <span><strong>Публічні резолвери:</strong> {domainState.dns.successfulResolvers}</span>}
             </div>
           </div>
 

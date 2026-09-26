@@ -102,6 +102,7 @@ run_node crm-api-rich tests/crm-api-richness.mjs dashboard
 run_node crm-order-update tests/crm-order-update.mjs dashboard
 run_node crm-card-payment-rule tests/crm-card-payment-rule.mjs dashboard
 run_node order-live-sync tests/order-live-sync.mjs dashboard
+run_node order-chat-history tests/order-chat-history.mjs dashboard
 run_node filters tests/filters.mjs dashboard
 run_node new-markers tests/new-order-message-markers.mjs dashboard
 run_node catalog-ux tests/catalog-ux.mjs dashboard
@@ -115,6 +116,7 @@ run_node performance tests/performance.mjs dashboard
 run_node stats-business-ui tests/stats-business.mjs dashboard
 run_node form-chart tests/form-chart-normalization.mjs dashboard
 run_node deep-actions-ui tests/deep-actions.mjs dashboard
+run_node promo-domain-ux tests/promo-domain-ux.mjs dashboard
 
 echo
 echo "Контракти й дані"
@@ -122,6 +124,7 @@ run checkout-integrity qa/qa_checkout_integrity.py
 run tg-contact qa/qa_telegram_contact_bridge.py
 run cart-lock qa/qa_postgres_cart_lock.py
 run deep-integrity qa/qa_deep_integrity.py
+run order-chat-history qa/qa_order_chat_history.py
 run contracts tests_contracts.py
 run repo tests_repo.py
 # Наскрізні сценарії бота. Існували, але в зведення не входили — і
@@ -151,10 +154,12 @@ run faq-public qa/qa_faq_public.py
 run env qa/qa_env.py
 run docs qa/qa_docs.py
 run legal qa/qa_legal.py
+run promo-landing qa/qa_promo_landing.py
 run scheduler qa/qa_scheduler.py
 run public qa/qa_public_chat.py
 run logging qa/qa_logging.py
 run storefront-log qa/qa_storefront_logging.py
+run storage-lifecycle qa/qa_storage_lifecycle.py
 run logs-api qa/qa_logs_api.py
 run backups-api qa/qa_backups_api.py
 run status-flow qa/qa_status_flow.py

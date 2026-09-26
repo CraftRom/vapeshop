@@ -102,3 +102,15 @@ The `keywords` tooltip explicitly notes that Google does not use `meta keywords`
 
 ## DNS setup block before deployment
 The dashboard shows managers the exact A/AAAA targets before domain activation. `PROMO_PUBLIC_IPV4` is the required public IPv4 of the VPS; `PROMO_PUBLIC_IPV6` is optional and must only be set when IPv6 is actually routed to the VPS. The controller compares resolved addresses with these configured targets and blocks activation when DNS points elsewhere. TTL can remain provider default; the UI explains provider-specific Host/Name notation (`@`, subdomain label, or FQDN).
+
+## DNS propagation, authoritative NS and NIC.UA (v1.58.0)
+
+The controller now checks public DNS through multiple resolvers instead of trusting only the container/system resolver. Deployment is considered DNS-ready only when every currently visible public A/AAAA address belongs to this VPS. A mixed state such as `57.131.146.111` plus an old `135.181.41.169` is reported as propagation/incomplete configuration and TLS activation stays blocked until the stale/wrong answer disappears.
+
+Public IPv4/IPv6 is detected automatically; `PROMO_PUBLIC_IPV4` and `PROMO_PUBLIC_IPV6` are optional emergency overrides for NAT/non-standard networking.
+
+Authoritative NS are detected automatically. When NIC.UA DNS is active (`*.uadns.com`), the dashboard explicitly says not to change NS. For a zone apex it shows `@` as the NIC.UA Host/Name value; for a subdomain it shows the relative label. If another authoritative DNS provider is detected, the UI tells the manager to edit A/AAAA there instead of changing NS blindly.
+
+The dashboard also checks the unsaved domain currently typed in the form, so live diagnostics never lag behind the manager's input.
+
+Known crawler/bot user agents are excluded from both page views and CTA click counters.

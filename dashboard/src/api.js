@@ -378,7 +378,7 @@ export const api = {
     unpublish: (id) => request(`/landing-pages/${id}/unpublish`, { method: 'POST' }),
     remove: (id) => request(`/landing-pages/${id}`, { method: 'DELETE' }),
     stats: (id, days = 30) => request(`/landing-pages/${id}/stats`, { params: { days } }),
-    domainStatus: (id) => request(`/landing-pages/${id}/domain-status`),
+    domainStatus: (id, domain) => request(`/landing-pages/${id}/domain-status`, { params: { domain } }),
     domainConnect: (id) => request(`/landing-pages/${id}/domain-connect`, { method: 'POST' }),
     domainDisconnect: (id) => request(`/landing-pages/${id}/domain-disconnect`, { method: 'POST' }),
     generateSeo: (id, data) => request(`/landing-pages/${id}/seo-generate`, { method: 'POST', body: data }),
