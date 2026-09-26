@@ -195,6 +195,7 @@ services:
       # бани працюють з адресою вузла Cloudflare, спільною для всіх.
       - ./nginx/cloudflare-realip.conf:/etc/nginx/conf.d/01-cloudflare-realip.conf:ro
       - ./nginx/generated/app.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./nginx/generated/promos:/etc/nginx/promo.d:ro
       # Читання, не запис: nginx лише віддає файли, кладе їх API.
       - ./data/media:/data/media:ro
       # HSTS вмикається лише після появи справжнього сертифіката.

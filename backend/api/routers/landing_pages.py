@@ -1,0 +1,471 @@
+from __future__ import annotations
+
+import html
+import json
+import re
+from datetime import datetime, timezone
+from urllib.parse import urlparse
+
+from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import HTMLResponse, RedirectResponse
+from pydantic import BaseModel, Field, field_validator
+from sqlalchemy import delete, func, select, update
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from api.auth import Principal, require_admin
+from shop import security_log as security
+from shop.db import get_session
+from shop.models import PromoLandingDailyStat, PromoLandingPage
+
+router = APIRouter()
+
+_DOMAIN_RE = re.compile(r"^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$")
+_BOT_RE = re.compile(r"bot|crawler|spider|slurp|facebookexternalhit|preview|monitor|uptime", re.I)
+
+
+DEFAULT_CONTENT = {
+    "background_image": "",
+    "logo_image": "",
+    "eyebrow": "",
+    "title": "Телеграм канал шалених знижок 🔥",
+    "promo_label": "Ваш персональний промокод:",
+    "promo_code": "PROMO2026",
+    "description": "Отримайте 7% знижки, скориставшись ним під час замовлення.",
+    "validity_text": "Не зволікайте — промокод активний лише 1 добу після отримання.",
+    "button_text": "ПЕРЕЙТИ",
+    "button_url": "https://t.me/",
+    "footer_text": "",
+}
+
+DEFAULT_SEO = {
+    "title": "Акційна пропозиція",
+    "description": "Отримайте персональний промокод та скористайтеся спеціальною пропозицією.",
+    "keywords": "",
+    "canonical_url": "",
+    "robots": "index,follow,max-image-preview:large,max-snippet:-1,max-video-preview:-1",
+    "og_title": "",
+    "og_description": "",
+    "og_image": "",
+    "og_locale": "uk_UA",
+    "site_name": "",
+    "schema_name": "",
+    "schema_description": "",
+}
+
+
+def _domain(value: str) -> str:
+    value = (value or "").strip().lower().rstrip(".")
+    if value.startswith("http://") or value.startswith("https://"):
+        value = (urlparse(value).hostname or "").lower()
+    if not _DOMAIN_RE.fullmatch(value):
+        raise ValueError("Вкажіть домен без шляху, наприклад promo.example.com")
+    return value
+
+
+def _local_image(value: str) -> str:
+    value = (value or "").strip()
+    if not value:
+        return ""
+    parsed = urlparse(value)
+    path = parsed.path if parsed.scheme or parsed.netloc else value
+    if not path.startswith("/media/") or ".." in path or "\\" in path:
+        raise ValueError("Зображення промо-сторінки мають бути завантажені у локальне сховище /media/")
+    return path
+
+
+def _url(value: str) -> str:
+    value = (value or "").strip()
+    if not value:
+        return ""
+    parsed = urlparse(value)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise ValueError("Посилання має починатися з https:// або http://")
+    return value
+
+
+class ContentIn(BaseModel):
+    background_image: str = ""
+    logo_image: str = ""
+    eyebrow: str = Field("", max_length=120)
+    title: str = Field("", max_length=180)
+    promo_label: str = Field("", max_length=160)
+    promo_code: str = Field("", max_length=64)
+    description: str = Field("", max_length=700)
+    validity_text: str = Field("", max_length=500)
+    button_text: str = Field("", max_length=80)
+    button_url: str = ""
+    footer_text: str = Field("", max_length=500)
+
+    @field_validator("background_image", "logo_image")
+    @classmethod
+    def local_image(cls, value: str) -> str:
+        return _local_image(value)
+
+    @field_validator("button_url")
+    @classmethod
+    def valid_button_url(cls, value: str) -> str:
+        return _url(value)
+
+
+class SeoIn(BaseModel):
+    title: str = Field("", max_length=70)
+    description: str = Field("", max_length=180)
+    keywords: str = Field("", max_length=500)
+    canonical_url: str = ""
+    robots: str = Field(DEFAULT_SEO["robots"], max_length=160)
+    og_title: str = Field("", max_length=100)
+    og_description: str = Field("", max_length=200)
+    og_image: str = ""
+    og_locale: str = Field("uk_UA", max_length=16)
+    site_name: str = Field("", max_length=100)
+    schema_name: str = Field("", max_length=120)
+    schema_description: str = Field("", max_length=240)
+
+    @field_validator("canonical_url")
+    @classmethod
+    def canonical(cls, value: str) -> str:
+        return _url(value)
+
+    @field_validator("og_image")
+    @classmethod
+    def local_og_image(cls, value: str) -> str:
+        return _local_image(value)
+
+
+class LandingPageIn(BaseModel):
+    name: str = Field(min_length=1, max_length=128)
+    domain: str
+    content: ContentIn = Field(default_factory=lambda: ContentIn(**DEFAULT_CONTENT))
+    seo: SeoIn = Field(default_factory=lambda: SeoIn(**DEFAULT_SEO))
+
+    @field_validator("domain")
+    @classmethod
+    def valid_domain(cls, value: str) -> str:
+        return _domain(value)
+
+
+def _config(data: LandingPageIn) -> dict:
+    return {"content": data.content.model_dump(), "seo": data.seo.model_dump()}
+
+
+def _dto(row: PromoLandingPage) -> dict:
+    draft = row.draft_config or {"content": DEFAULT_CONTENT, "seo": DEFAULT_SEO}
+    return {
+        "id": row.id,
+        "name": row.name,
+        "domain": row.domain,
+        "draft": draft,
+        "published": row.published_config,
+        "isPublished": row.is_published,
+        "version": row.version,
+        "createdAt": row.created_at,
+        "updatedAt": row.updated_at,
+        "publishedAt": row.published_at,
+        "publicUrl": f"https://{row.domain}/",
+    }
+
+
+@router.get("")
+async def list_pages(
+    who: Principal = Depends(require_admin),
+    db: AsyncSession = Depends(get_session),
+):
+    rows = (await db.execute(select(PromoLandingPage).order_by(PromoLandingPage.updated_at.desc()))).scalars().all()
+    return [_dto(row) for row in rows]
+
+
+@router.post("", status_code=201)
+async def create_page(
+    data: LandingPageIn,
+    who: Principal = Depends(require_admin),
+    db: AsyncSession = Depends(get_session),
+):
+    exists = await db.scalar(select(PromoLandingPage.id).where(PromoLandingPage.domain == data.domain))
+    if exists:
+        raise HTTPException(409, "Цей домен уже прив'язаний до іншої промо-сторінки")
+    row = PromoLandingPage(name=data.name.strip(), domain=data.domain, draft_config=_config(data))
+    db.add(row)
+    await db.commit()
+    await db.refresh(row)
+    security.record("promo.page.created", actor=who.login, reason=row.domain)
+    return _dto(row)
+
+
+@router.get("/{page_id}")
+async def get_page(
+    page_id: int,
+    who: Principal = Depends(require_admin),
+    db: AsyncSession = Depends(get_session),
+):
+    row = await db.get(PromoLandingPage, page_id)
+    if not row:
+        raise HTTPException(404, "Промо-сторінку не знайдено")
+    return _dto(row)
+
+
+@router.put("/{page_id}")
+async def update_page(
+    page_id: int,
+    data: LandingPageIn,
+    who: Principal = Depends(require_admin),
+    db: AsyncSession = Depends(get_session),
+):
+    row = await db.get(PromoLandingPage, page_id)
+    if not row:
+        raise HTTPException(404, "Промо-сторінку не знайдено")
+    conflict = await db.scalar(select(PromoLandingPage.id).where(
+        PromoLandingPage.domain == data.domain,
+        PromoLandingPage.id != page_id,
+    ))
+    if conflict:
+        raise HTTPException(409, "Цей домен уже прив'язаний до іншої промо-сторінки")
+    row.name = data.name.strip()
+    row.domain = data.domain
+    row.draft_config = _config(data)
+    row.updated_at = datetime.now(timezone.utc)
+    await db.commit()
+    await db.refresh(row)
+    security.record("promo.page.saved", actor=who.login, reason=row.domain)
+    return _dto(row)
+
+
+@router.post("/{page_id}/publish")
+async def publish_page(
+    page_id: int,
+    who: Principal = Depends(require_admin),
+    db: AsyncSession = Depends(get_session),
+):
+    row = await db.get(PromoLandingPage, page_id)
+    if not row:
+        raise HTTPException(404, "Промо-сторінку не знайдено")
+    if not row.draft_config:
+        raise HTTPException(400, "Немає чернетки для публікації")
+    row.published_config = json.loads(json.dumps(row.draft_config))
+    row.is_published = True
+    row.version = int(row.version or 0) + 1
+    row.published_at = datetime.now(timezone.utc)
+    row.updated_at = row.published_at
+    await db.commit()
+    await db.refresh(row)
+    security.record("promo.page.published", actor=who.login, reason=f"{row.domain} v{row.version}")
+    return _dto(row)
+
+
+@router.post("/{page_id}/unpublish")
+async def unpublish_page(
+    page_id: int,
+    who: Principal = Depends(require_admin),
+    db: AsyncSession = Depends(get_session),
+):
+    row = await db.get(PromoLandingPage, page_id)
+    if not row:
+        raise HTTPException(404, "Промо-сторінку не знайдено")
+    row.is_published = False
+    row.updated_at = datetime.now(timezone.utc)
+    await db.commit()
+    await db.refresh(row)
+    security.record("promo.page.unpublished", actor=who.login, reason=row.domain)
+    return _dto(row)
+
+
+@router.delete("/{page_id}", status_code=204)
+async def remove_page(
+    page_id: int,
+    who: Principal = Depends(require_admin),
+    db: AsyncSession = Depends(get_session),
+):
+    row = await db.get(PromoLandingPage, page_id)
+    if not row:
+        raise HTTPException(404, "Промо-сторінку не знайдено")
+    domain = row.domain
+    await db.delete(row)
+    await db.commit()
+    security.record("promo.page.deleted", actor=who.login, reason=domain)
+    return None
+
+
+@router.get("/{page_id}/stats")
+async def page_stats(
+    page_id: int,
+    days: int = 30,
+    who: Principal = Depends(require_admin),
+    db: AsyncSession = Depends(get_session),
+):
+    if not await db.get(PromoLandingPage, page_id):
+        raise HTTPException(404, "Промо-сторінку не знайдено")
+    days = max(1, min(days, 366))
+    rows = (await db.execute(
+        select(PromoLandingDailyStat)
+        .where(PromoLandingDailyStat.page_id == page_id)
+        .order_by(PromoLandingDailyStat.day.desc())
+        .limit(days)
+    )).scalars().all()
+    items = [{"day": row.day, "views": row.views, "clicks": row.clicks} for row in reversed(rows)]
+    views = sum(i["views"] for i in items)
+    clicks = sum(i["clicks"] for i in items)
+    return {"views": views, "clicks": clicks, "ctr": round(clicks / views * 100, 2) if views else 0, "items": items}
+
+
+@router.get("/{page_id}/preview", response_class=HTMLResponse)
+async def preview_page(
+    page_id: int,
+    who: Principal = Depends(require_admin),
+    db: AsyncSession = Depends(get_session),
+):
+    row = await db.get(PromoLandingPage, page_id)
+    if not row:
+        raise HTTPException(404, "Промо-сторінку не знайдено")
+    return HTMLResponse(_render(row, row.draft_config or {}, preview=True), headers={"Cache-Control": "no-store"})
+
+
+async def _bump(db: AsyncSession, page_id: int, field: str) -> None:
+    day = datetime.now(timezone.utc).date().isoformat()
+    result = await db.execute(
+        update(PromoLandingDailyStat)
+        .where(PromoLandingDailyStat.page_id == page_id, PromoLandingDailyStat.day == day)
+        .values({field: getattr(PromoLandingDailyStat, field) + 1})
+    )
+    if result.rowcount == 0:
+        db.add(PromoLandingDailyStat(page_id=page_id, day=day, **{field: 1}))
+    try:
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        # Рідкісна гонка першого запиту дня: рядок уже вставив інший воркер.
+        await db.execute(
+            update(PromoLandingDailyStat)
+            .where(PromoLandingDailyStat.page_id == page_id, PromoLandingDailyStat.day == day)
+            .values({field: getattr(PromoLandingDailyStat, field) + 1})
+        )
+        await db.commit()
+
+
+def _request_host(request: Request) -> str:
+    # Proxy зберігає Host. Порт прибираємо, IPv6 для доменів тут не підтримуємо.
+    return (request.headers.get("host") or "").split(":", 1)[0].lower().rstrip(".")
+
+
+@router.get("/public/render/page", response_class=HTMLResponse, include_in_schema=False)
+async def public_render(request: Request, db: AsyncSession = Depends(get_session)):
+    domain = _request_host(request)
+    row = await db.scalar(select(PromoLandingPage).where(
+        PromoLandingPage.domain == domain,
+        PromoLandingPage.is_published.is_(True),
+    ))
+    if not row or not row.published_config:
+        raise HTTPException(404, "Сторінка не опублікована")
+    if not _BOT_RE.search(request.headers.get("user-agent", "")):
+        await _bump(db, row.id, "views")
+    return HTMLResponse(
+        _render(row, row.published_config, preview=False),
+        headers={
+            "Cache-Control": "public, max-age=60, stale-while-revalidate=300",
+            "X-Robots-Tag": (row.published_config.get("seo") or {}).get("robots", DEFAULT_SEO["robots"]),
+        },
+    )
+
+
+@router.get("/public/go/button", include_in_schema=False)
+async def public_click(request: Request, db: AsyncSession = Depends(get_session)):
+    domain = _request_host(request)
+    row = await db.scalar(select(PromoLandingPage).where(
+        PromoLandingPage.domain == domain,
+        PromoLandingPage.is_published.is_(True),
+    ))
+    if not row or not row.published_config:
+        raise HTTPException(404, "Сторінка не опублікована")
+    target = ((row.published_config.get("content") or {}).get("button_url") or "").strip()
+    try:
+        target = _url(target)
+    except ValueError:
+        raise HTTPException(409, "Посилання кнопки не налаштоване")
+    await _bump(db, row.id, "clicks")
+    return RedirectResponse(target, status_code=302, headers={"Cache-Control": "no-store"})
+
+
+def _abs(domain: str, path: str) -> str:
+    if not path:
+        return ""
+    return f"https://{domain}{path}" if path.startswith("/") else path
+
+
+def _render(row: PromoLandingPage, config: dict, preview: bool) -> str:
+    content = {**DEFAULT_CONTENT, **(config.get("content") or {})}
+    seo = {**DEFAULT_SEO, **(config.get("seo") or {})}
+    canonical = seo["canonical_url"] or f"https://{row.domain}/"
+    og_title = seo["og_title"] or seo["title"] or content["title"]
+    og_desc = seo["og_description"] or seo["description"]
+    og_image = _abs(row.domain, seo["og_image"] or content["background_image"] or content["logo_image"])
+    schema = {
+        "@context": "https://schema.org",
+        "@type": "WebPage",
+        "name": seo["schema_name"] or seo["title"] or content["title"],
+        "description": seo["schema_description"] or seo["description"],
+        "url": canonical,
+        "inLanguage": "uk-UA",
+    }
+    if og_image:
+        schema["primaryImageOfPage"] = {"@type": "ImageObject", "url": og_image}
+
+    esc = lambda value: html.escape(str(value or ""), quote=True)
+    bg = esc(_abs(row.domain, content["background_image"]))
+    logo = esc(_abs(row.domain, content["logo_image"]))
+    cta = "#" if preview else "/go"
+    preview_banner = '<div class="preview">Попередній перегляд чернетки</div>' if preview else ""
+    logo_html = f'<img class="logo" src="{logo}" width="100" height="100" alt="Логотип" fetchpriority="high">' if logo else ""
+    eyebrow_html = f'<div class="eyebrow">{esc(content["eyebrow"])}</div>' if content["eyebrow"] else ""
+    footer_html = f'<p class="footer">{esc(content["footer_text"])}</p>' if content["footer_text"] else ""
+    keywords = f'<meta name="keywords" content="{esc(seo["keywords"])}">' if seo["keywords"] else ""
+    og_img_meta = f'<meta property="og:image" content="{esc(og_image)}"><meta name="twitter:image" content="{esc(og_image)}">' if og_image else ""
+    site_meta = f'<meta property="og:site_name" content="{esc(seo["site_name"])}">' if seo["site_name"] else ""
+
+    # CSS — частина версійованого шаблону, а не користувацькі дані. У панелі
+    # немає жодного поля, через яке його можна підмінити чи дописати script.
+    return f'''<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>{esc(seo["title"] or content["title"])}</title>
+<meta name="description" content="{esc(seo["description"])}">
+<meta name="robots" content="{esc(seo["robots"])}">
+{keywords}
+<link rel="canonical" href="{esc(canonical)}">
+<meta property="og:type" content="website">
+<meta property="og:locale" content="{esc(seo["og_locale"])}">
+<meta property="og:title" content="{esc(og_title)}">
+<meta property="og:description" content="{esc(og_desc)}">
+<meta property="og:url" content="{esc(canonical)}">
+{site_meta}{og_img_meta}
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="{esc(og_title)}">
+<meta name="twitter:description" content="{esc(og_desc)}">
+<script type="application/ld+json">{json.dumps(schema, ensure_ascii=False).replace('</', '<\\/')}</script>
+<style>
+:root{{color-scheme:light;--ink:#111827;--muted:#5b6472;--accent:#1484e8;--accent2:#1e73be}}
+*{{box-sizing:border-box}}html,body{{margin:0;min-height:100%;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:var(--ink)}}
+body{{min-height:100svh;display:grid;place-items:center;padding:24px;background:#eef2f6 {f'url("{bg}")' if bg else ''} center/cover no-repeat fixed}}
+body:before{{content:"";position:fixed;inset:0;background:rgba(12,20,32,.12);pointer-events:none}}
+.card{{position:relative;width:min(100%,520px);padding:44px 34px 32px;background:rgba(255,255,255,.97);border:1px solid rgba(17,24,39,.10);border-radius:20px;box-shadow:0 24px 70px rgba(15,23,42,.22);text-align:center}}
+.logo{{display:block;margin:0 auto 28px;border-radius:20px;object-fit:cover}}.eyebrow{{margin-bottom:8px;font-size:12px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:var(--accent2)}}
+h1{{margin:0 0 28px;font-size:clamp(26px,5vw,38px);line-height:1.12;letter-spacing:-.025em}}.label{{margin:0 0 10px;color:var(--muted)}}
+.code{{display:inline-block;margin:0 0 20px;padding:12px 18px;border:1px dashed #aab4c3;border-radius:12px;background:#f8fafc;font:800 22px/1 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.05em;user-select:all}}
+.copyhint{{display:block;margin-top:-12px;margin-bottom:20px;font-size:11px;color:#8a94a3}}.desc,.validity{{margin:0 auto 14px;max-width:420px;line-height:1.55;color:#374151}}.validity{{font-size:14px;color:var(--muted)}}
+.cta{{display:inline-flex;align-items:center;justify-content:center;min-width:220px;margin-top:14px;padding:15px 26px;border-radius:999px;background:linear-gradient(90deg,var(--accent),var(--accent2));color:#fff;text-decoration:none;font-weight:800;box-shadow:0 10px 24px rgba(20,132,232,.24)}}.cta:hover{{filter:brightness(.98);transform:translateY(-1px)}}
+.footer{{margin:24px 0 0;font-size:12px;line-height:1.45;color:#8a94a3}}.preview{{position:fixed;top:12px;left:50%;z-index:3;transform:translateX(-50%);padding:8px 12px;border-radius:999px;background:#111827;color:#fff;font-size:12px;font-weight:700}}
+@media(max-width:560px){{body{{padding:16px}}.card{{padding:34px 22px 28px;border-radius:17px}}}}
+@media(prefers-reduced-motion:no-preference){{.cta{{transition:transform .18s ease,filter .18s ease}}}}
+</style>
+</head>
+<body>{preview_banner}
+<main class="card">
+{logo_html}{eyebrow_html}
+<h1>{esc(content["title"])}</h1>
+<p class="label">{esc(content["promo_label"])}</p>
+<div class="code">{esc(content["promo_code"])}</div><span class="copyhint">Код можна виділити та скопіювати</span>
+<p class="desc">{esc(content["description"])}</p>
+<p class="validity">{esc(content["validity_text"])}</p>
+<a class="cta" href="{esc(cta)}" rel="noopener noreferrer">{esc(content["button_text"])}</a>
+{footer_html}
+</main>
+</body></html>'''

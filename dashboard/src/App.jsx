@@ -48,6 +48,7 @@ const Support = page(() => import('./pages/Support'))
 const Catalog = page(() => import('./pages/Catalog'))
 const Customers = page(() => import('./pages/Customers'))
 const Promos = page(() => import('./pages/Promos'))
+const LandingPages = page(() => import('./pages/LandingPages'))
 const Broadcasts = page(() => import('./pages/Broadcasts'))
 const Settings = page(() => import('./pages/Settings'))
 const Operators = page(() => import('./pages/Operators'))
@@ -130,6 +131,7 @@ const NAV = [
   { to: '/catalog', label: 'Каталог' },
   { to: '/customers', label: 'Клієнти' },
   { to: '/promos', label: 'Промокоди' },
+  { to: '/landing-pages', label: 'Промо-сторінки', adminOnly: true },
   { to: '/broadcasts', label: 'Розсилки' },
   { to: '/operators', label: 'Менеджери', adminOnly: true },
   { to: '/logs', label: 'Журнал', sysadminOnly: true },
@@ -281,6 +283,7 @@ export default function App() {
         <Route path="/catalog" element={<Protected><Catalog /></Protected>} />
         <Route path="/customers" element={<Protected><Customers /></Protected>} />
         <Route path="/promos" element={<Protected><Promos /></Protected>} />
+        <Route path="/landing-pages" element={<Protected><LandingPages /></Protected>} />
         <Route path="/broadcasts" element={<Protected><Broadcasts /></Protected>} />
         <Route path="/settings" element={<Protected><Settings /></Protected>} />
         <Route path="/operators" element={<Protected><Operators /></Protected>} />

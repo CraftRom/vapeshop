@@ -1,0 +1,64 @@
+# Generated promo domain. Do not edit by hand; use promo-domain-add.sh.
+server {
+    listen 80;
+    server_name __PROMO_DOMAIN__;
+    include /etc/nginx/deny.d/*.conf;
+    location /.well-known/acme-challenge/ { root /var/www/certbot; }
+    location / { return 301 https://$host$request_uri; }
+}
+
+server {
+    listen 443 ssl;
+    http2 on;
+    server_name __PROMO_DOMAIN__;
+    include /etc/nginx/deny.d/*.conf;
+
+    ssl_certificate     /etc/letsencrypt/live/__PROMO_DOMAIN__/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/__PROMO_DOMAIN__/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_timeout 1d;
+
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "DENY" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    add_header Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=()" always;
+    # Шаблон не має JS. Це дозволяє тримати script-src закритим, крім JSON-LD
+    # у head, який не виконується як JavaScript.
+    add_header Content-Security-Policy "default-src 'none'; style-src 'unsafe-inline'; img-src 'self' data:; script-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none';" always;
+
+    location /media/ {
+        alias /data/media/;
+        access_log off;
+        expires 30d;
+        add_header Cache-Control "public, immutable";
+        add_header X-Content-Type-Options "nosniff" always;
+        location ~* \.(php|py|sh|html?)$ { deny all; }
+    }
+
+    location = /go {
+        limit_req zone=api burst=20 nodelay;
+        proxy_pass http://api:8000/api/landing-pages/public/go/button;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location = /robots.txt {
+        default_type text/plain;
+        return 200 "User-agent: *\nAllow: /\n";
+    }
+
+    location = / {
+        limit_req zone=api burst=20 nodelay;
+        proxy_pass http://api:8000/api/landing-pages/public/render/page;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 30s;
+    }
+
+    location / { return 404; }
+}

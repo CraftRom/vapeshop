@@ -584,3 +584,40 @@ class Wishlist(Base):
     # список завжди читається й пишеться цілком.
     product_ids: Mapped[list] = mapped_column(JsonType, default=list)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+# --------------------------------------------------------- промо-сторінки
+
+class PromoLandingPage(Base):
+    """Керована промо-сторінка з фіксованим шаблоном.
+
+    draft_config редагується в панелі. published_config — незмінний snapshot
+    останньої публікації, тому незбережена/невдала правка не ламає живий сайт.
+    CSS/JS тут принципово немає: редактор змінює лише дані шаблону.
+    """
+    __tablename__ = "promo_landing_pages"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(128))
+    domain: Mapped[str] = mapped_column(String(253), unique=True, index=True)
+    draft_config: Mapped[dict] = mapped_column(JsonType, default=dict)
+    published_config: Mapped[dict | None] = mapped_column(JsonType)
+    is_published: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    version: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class PromoLandingDailyStat(Base):
+    """Агрегована статистика без IP/cookie/event rows — база не росте від кожного кліку."""
+    __tablename__ = "promo_landing_daily_stats"
+    __table_args__ = (
+        UniqueConstraint("page_id", "day", name="uq_promo_landing_stat_day"),
+        Index("ix_promo_landing_stats_page_day", "page_id", "day"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    page_id: Mapped[int] = mapped_column(ForeignKey("promo_landing_pages.id", ondelete="CASCADE"))
+    day: Mapped[str] = mapped_column(String(10))  # YYYY-MM-DD, UTC; portable SQLite/Postgres
+    views: Mapped[int] = mapped_column(Integer, default=0)
+    clicks: Mapped[int] = mapped_column(Integer, default=0)

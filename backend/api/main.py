@@ -12,7 +12,7 @@ from api.routers import (
     backups as backups_router, broadcasts, catalog, customers,
     logs as logs_router, media as media_router,
     integrations, orders, promos, support, notifications, realtime,
-    settings as settings_router, operators, shop as shop_router, stats, telegram,
+    settings as settings_router, operators, shop as shop_router, stats, telegram, landing_pages,
 )
 from api.schemas import LoginIn, TokenOut
 from shop.config import settings
@@ -99,7 +99,7 @@ app = FastAPI(
     title=f"{settings.shop_name} — Dashboard API",
     # Версія API піднімається разом зі змінами read/write контракту.
     # 1.10: актуальна нормалізація доставки SalesDrive order/list.
-    version="1.15.0",
+    version="1.16.0",
     lifespan=lifespan,
     docs_url="/docs" if _docs_on else None,
     redoc_url=None,
@@ -255,6 +255,7 @@ app.include_router(notifications.router, prefix="/api/notifications", tags=["not
 app.include_router(realtime.router, prefix="/api/realtime", tags=["realtime"])
 app.include_router(customers.router, prefix="/api/customers", tags=["customers"])
 app.include_router(promos.router, prefix="/api/promos", tags=["promos"])
+app.include_router(landing_pages.router, prefix="/api/landing-pages", tags=["landing-pages"])
 app.include_router(broadcasts.router, prefix="/api/broadcasts", tags=["broadcasts"])
 app.include_router(operators.router, prefix="/api/operators", tags=["operators"])
 app.include_router(settings_router.router, prefix="/api/settings", tags=["settings"])
