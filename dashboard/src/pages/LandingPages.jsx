@@ -324,7 +324,14 @@ export default function LandingPages() {
                 <div><span className="label">Значення / Points to</span><CopyValue value={record.value} /></div>
                 <div><span className="label">Обов’язковість</span><strong>{record.required ? 'Обов’язковий' : 'Необов’язковий'}</strong></div>
               </div>)}
-            </div> : <div className="error-bar">Публічна IP-адреса VPS ще не задана адміністратором у PROMO_PUBLIC_IPV4/PROMO_PUBLIC_IPV6. Без цього панель не може показати менеджеру точні DNS-дані.</div>}
+            </div> : <div className="error-bar">Не вдалося автоматично визначити публічну IPv4-адресу VPS. Перевірте вихід promo-controller в інтернет або задайте PROMO_PUBLIC_IPV4 як аварійний override.</div>}
+
+            {domainState?.dnsRequirements?.configured && <div className="promo-dns-current" style={{ marginTop: 10 }}>
+              <span><strong>IP VPS:</strong> {domainState.dnsRequirements.ipv4 || '—'}</span>
+              <span><strong>Джерело:</strong> {domainState.dnsRequirements.autoDetected ? 'визначено автоматично' : 'ручний override'}</span>
+              {domainState.dnsRequirements.detectedAt && <span><strong>Перевірено:</strong> {new Date(domainState.dnsRequirements.detectedAt).toLocaleString('uk-UA')}</span>}
+              <span><strong>IPv6:</strong> {domainState.dnsRequirements.ipv6 || 'не виявлено / не використовується'}</span>
+            </div>}
 
             <div className="promo-dns-note">
               <strong>Що саме вносити у провайдера домену</strong>

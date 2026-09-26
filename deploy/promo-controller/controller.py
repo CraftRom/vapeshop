@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hmac
+import ipaddress
 import json
 import os
 import re
@@ -14,6 +15,7 @@ from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
+from urllib.request import Request, urlopen
 
 DOMAIN_RE = re.compile(r"^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$")
 TOKEN = os.environ.get("PROMO_CONTROLLER_TOKEN", "").strip()
@@ -24,9 +26,24 @@ LE_DIR = Path(os.environ.get("PROMO_LE_DIR", "/etc/letsencrypt"))
 LISTEN = os.environ.get("PROMO_CONTROLLER_LISTEN", "0.0.0.0")
 PORT = int(os.environ.get("PROMO_CONTROLLER_PORT", "8787"))
 RENEW_SECONDS = max(3600, int(os.environ.get("PROMO_RENEW_SECONDS", "43200")))
-PUBLIC_IPV4 = os.environ.get("PROMO_PUBLIC_IPV4", "").strip()
-PUBLIC_IPV6 = os.environ.get("PROMO_PUBLIC_IPV6", "").strip()
+PUBLIC_IPV4_OVERRIDE = os.environ.get("PROMO_PUBLIC_IPV4", "").strip()
+PUBLIC_IPV6_OVERRIDE = os.environ.get("PROMO_PUBLIC_IPV6", "").strip()
+PUBLIC_IP_CACHE_SECONDS = max(60, int(os.environ.get("PROMO_PUBLIC_IP_CACHE_SECONDS", "600")))
 LOCK = threading.Lock()
+PUBLIC_IP_LOCK = threading.Lock()
+_PUBLIC_IP_CACHE = {"at": 0.0, "ipv4": None, "ipv6": None, "sources": {}, "errors": {}}
+
+IP_ENDPOINTS = {
+    4: (
+        "https://api4.ipify.org",
+        "https://ipv4.icanhazip.com",
+        "https://ifconfig.me/ip",
+    ),
+    6: (
+        "https://api6.ipify.org",
+        "https://ipv6.icanhazip.com",
+    ),
+}
 
 
 def normalize_domain(value: str) -> str:
@@ -65,8 +82,75 @@ def cert_info(domain: str) -> dict:
         return {"present": True, "expiresAt": None, "daysLeft": None}
 
 
+def _valid_public_ip(value: str, version: int) -> str | None:
+    try:
+        addr = ipaddress.ip_address((value or "").strip())
+    except ValueError:
+        return None
+    if addr.version != version or not addr.is_global:
+        return None
+    return str(addr)
+
+
+def _fetch_public_ip(version: int) -> tuple[str | None, list[str], list[str]]:
+    values: list[str] = []
+    errors: list[str] = []
+    for endpoint in IP_ENDPOINTS[version]:
+        try:
+            req = Request(endpoint, headers={"User-Agent": "ELFAR-PromoController/1.0"})
+            with urlopen(req, timeout=3.5) as response:
+                raw = response.read(128).decode("ascii", "ignore").strip()
+            value = _valid_public_ip(raw, version)
+            if value:
+                values.append(value)
+            else:
+                errors.append(f"{endpoint}: invalid response")
+        except Exception as exc:
+            errors.append(f"{endpoint}: {type(exc).__name__}")
+    if not values:
+        return None, [], errors
+    # Use the majority result. With only one successful provider, accept it,
+    # but expose the source count so the UI can show reduced confidence.
+    counts = {value: values.count(value) for value in set(values)}
+    chosen = max(counts, key=lambda value: (counts[value], value))
+    winners = [value for value, count in counts.items() if count == counts[chosen]]
+    if len(winners) > 1:
+        return None, values, errors + ["public IP providers disagree"]
+    return chosen, values, errors
+
+
+def public_ip_info(force: bool = False) -> dict:
+    now = time.time()
+    with PUBLIC_IP_LOCK:
+        if not force and now - float(_PUBLIC_IP_CACHE["at"] or 0) < PUBLIC_IP_CACHE_SECONDS:
+            return dict(_PUBLIC_IP_CACHE)
+
+        v4_override = _valid_public_ip(PUBLIC_IPV4_OVERRIDE, 4) if PUBLIC_IPV4_OVERRIDE else None
+        v6_override = _valid_public_ip(PUBLIC_IPV6_OVERRIDE, 6) if PUBLIC_IPV6_OVERRIDE else None
+        v4, v4_sources, v4_errors = (v4_override, [v4_override], []) if v4_override else _fetch_public_ip(4)
+        v6, v6_sources, v6_errors = (v6_override, [v6_override], []) if v6_override else _fetch_public_ip(6)
+
+        data = {
+            "at": now,
+            "detectedAt": datetime.now(timezone.utc).isoformat(),
+            "ipv4": v4,
+            "ipv6": v6,
+            "sources": {
+                "ipv4": "override" if v4_override else "auto",
+                "ipv6": "override" if v6_override else ("auto" if v6 else "unavailable"),
+                "ipv4Responses": v4_sources,
+                "ipv6Responses": v6_sources,
+            },
+            "errors": {"ipv4": v4_errors, "ipv6": v6_errors},
+        }
+        _PUBLIC_IP_CACHE.clear()
+        _PUBLIC_IP_CACHE.update(data)
+        return dict(data)
+
+
 def dns_info(domain: str) -> dict:
-    expected = [ip for ip in (PUBLIC_IPV4, PUBLIC_IPV6) if ip]
+    public = public_ip_info()
+    expected = [ip for ip in (public.get("ipv4"), public.get("ipv6")) if ip]
     try:
         rows = socket.getaddrinfo(domain, 443, proto=socket.IPPROTO_TCP)
         addresses = sorted({row[4][0] for row in rows})
@@ -88,17 +172,24 @@ def dns_info(domain: str) -> dict:
 
 
 def dns_requirements(domain: str) -> dict:
+    public = public_ip_info()
+    ipv4 = public.get("ipv4")
+    ipv6 = public.get("ipv6")
     records = []
-    if PUBLIC_IPV4:
-        records.append({"type": "A", "host": domain, "value": PUBLIC_IPV4, "required": True})
-    if PUBLIC_IPV6:
-        records.append({"type": "AAAA", "host": domain, "value": PUBLIC_IPV6, "required": False})
+    if ipv4:
+        records.append({"type": "A", "host": domain, "value": ipv4, "required": True})
+    if ipv6:
+        records.append({"type": "AAAA", "host": domain, "value": ipv6, "required": False})
     return {
         "records": records,
-        "ipv4": PUBLIC_IPV4 or None,
-        "ipv6": PUBLIC_IPV6 or None,
-        "configured": bool(records),
-        "note": "У DNS-панелі поле Name/Host може вимагати @ для кореневого домену, коротке ім’я піддомену або повний домен — це залежить від DNS-провайдера.",
+        "ipv4": ipv4,
+        "ipv6": ipv6,
+        "configured": bool(ipv4),
+        "autoDetected": public.get("sources", {}).get("ipv4") == "auto",
+        "detectedAt": public.get("detectedAt"),
+        "source": public.get("sources", {}),
+        "detectionErrors": public.get("errors", {}),
+        "note": "IPv4 VPS визначається автоматично. У DNS-панелі поле Name/Host може вимагати @ для кореневого домену, коротке ім’я піддомену або повний домен — це залежить від DNS-провайдера. PROMO_PUBLIC_IPV4/PROMO_PUBLIC_IPV6 залишаються лише як ручний override.",
     }
 
 

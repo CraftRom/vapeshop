@@ -26,7 +26,8 @@ def main() -> None:
     assert 'networks: [promo_control, promo_egress]' in compose and 'internal: true' in compose
     assert 'cap_add: ["KILL"]' in compose and 'pid: "service:nginx"' in compose
     assert 'promo-nginx-conf:/promo-conf' in compose and 'promo-nginx-conf:/etc/nginx/promo.d:ro' in compose
-    assert 'PROMO_PUBLIC_IPV4' in controller and 'dnsRequirements' in controller
+    assert 'PUBLIC_IPV4_OVERRIDE' in controller and 'public_ip_info' in controller and 'api4.ipify.org' in controller
+    assert 'autoDetected' in controller and 'dnsRequirements' in controller
     assert 'Налаштування DNS перед деплоєм' in page
     ui = page
     api = (ROOT / "dashboard/src/api.js").read_text(encoding="utf-8")
