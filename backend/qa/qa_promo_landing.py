@@ -19,8 +19,8 @@ def main() -> None:
     assert '<base href="${window.location.origin}/">' in page
     assert '/public/go/button' in router and '"clicks"' in router
     assert "require_staff" in router and "domain-connect" in router and "domain-disconnect" in router
-    assert "CSS/JS" in page and "SEO" in page and "Статистика" in page
-    assert "Підключити домен" in page and "Promo Controller" in page
+    assert "SEO" in page and "Статистика" in page and "Промо-сторінки" in page
+    assert "Запустити сайт" in page and "Технічний блок" in page
     assert "Docker socket" in controller and "certbot" in controller
     assert "signal.SIGHUP" in controller and 'os.kill(1' in controller
     assert 'networks: [promo_control, promo_egress]' in compose and 'internal: true' in compose
@@ -31,7 +31,7 @@ def main() -> None:
     assert 'public_resolver_info' in controller and 'wrongAddresses' in controller and 'propagating' in controller
     assert 'observed_set.issubset(expected_set)' in controller
     assert 'dns_requirements(domain, nameservers)' in controller and 'host = "@"' in controller
-    assert 'Налаштування DNS перед деплоєм' in page
+    assert 'Що потрібно налаштувати в домені' in page
     ui = page
     api = (ROOT / "dashboard/src/api.js").read_text(encoding="utf-8")
     css = (ROOT / "dashboard/src/styles.css").read_text(encoding="utf-8")
