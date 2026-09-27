@@ -20,6 +20,28 @@ const DEFAULT_SEO = {
   schema_name: '', schema_description: '',
 }
 
+const DEFAULT_GOOGLE = {
+  enabled: false,
+  mode: 'google_tag',
+  google_tag_id: '',
+  gtm_container_id: '',
+  ads_conversion_id: '',
+  ads_conversion_label: '',
+  search_console_verification: '',
+  consent_mode: 'banner',
+}
+
+const GOOGLE_HELP = {
+  enabled: 'Увімкніть, коли хочете передавати перегляди та події цієї промо-сторінки в Google. Search Console verification може працювати окремо навіть без аналітики.',
+  mode: 'Google tag — простіший варіант для GA4/Google Ads. Google Tag Manager — контейнер для складніших сценаріїв і керування тегами без повторного редагування сторінки.',
+  google_tag_id: 'ID Google tag / GA4. Приклади: G-XXXXXXXXXX, GT-XXXXXXX або AW-123456789. Скрипт gtag.js підключається лише один раз.',
+  gtm_container_id: 'ID контейнера Google Tag Manager у форматі GTM-XXXXXXX. У цьому режимі сторінка передає подію promo_cta_click у dataLayer, а потрібні теги налаштовуються у GTM.',
+  ads_conversion_id: 'Conversion ID Google Ads у форматі AW-123456789. Використовується для прямої конверсії лише в режимі Google tag.',
+  ads_conversion_label: 'Conversion Label конкретної дії в Google Ads. Разом з Conversion ID формує send_to для події conversion.',
+  search_console_verification: 'Тільки значення content з meta-тегу google-site-verification. Після публікації Google Search Console зможе підтвердити володіння доменом через HTML meta tag.',
+  consent_mode: 'Consent Mode v2 керує analytics_storage, ad_storage, ad_user_data і ad_personalization. Рекомендований варіант — вбудований банер: до вибору користувача зберігання заборонене.',
+}
+
 
 const SEO_HELP = {
   title: { title: 'Meta title', text: 'Основний заголовок сторінки для пошукових систем і вкладки браузера. Допомагає Google зрозуміти тему сторінки та часто використовується як синє посилання у результатах пошуку. Має бути конкретним, природним і відрізнятися від інших промо-сторінок. Рекомендовано приблизно 50–68 символів.' },
@@ -41,7 +63,7 @@ function SeoLabel({ field }) {
   return <span className="seo-help-label"><span>{item.title}</span><span className="seo-help" tabIndex="0" role="button" aria-label={`Довідка: ${item.title}`}><span aria-hidden="true">?</span><span className="seo-help-tooltip" role="tooltip"><strong>{item.title}</strong>{item.text}</span></span></span>
 }
 
-const newForm = () => ({ name: 'Нова промо-сторінка', domain: '', content: { ...DEFAULT_CONTENT }, seo: { ...DEFAULT_SEO } })
+const newForm = () => ({ name: 'Нова промо-сторінка', domain: '', content: { ...DEFAULT_CONTENT }, seo: { ...DEFAULT_SEO }, google: { ...DEFAULT_GOOGLE } })
 
 function normalized(page) {
   if (!page) return newForm()
@@ -49,6 +71,7 @@ function normalized(page) {
     name: page.name || '', domain: page.domain || '',
     content: { ...DEFAULT_CONTENT, ...(page.draft?.content || {}) },
     seo: { ...DEFAULT_SEO, ...(page.draft?.seo || {}) },
+    google: { ...DEFAULT_GOOGLE, ...(page.draft?.google || {}) },
   }
 }
 
@@ -201,6 +224,7 @@ export default function LandingPages() {
 
   const setContent = (key, value) => setForm((f) => ({ ...f, content: { ...f.content, [key]: value } }))
   const setSeo = (key, value) => setForm((f) => ({ ...f, seo: { ...f.seo, [key]: value } }))
+  const setGoogle = (key, value) => setForm((f) => ({ ...f, google: { ...f.google, [key]: value } }))
 
   const save = async () => {
     if (!selected) return
@@ -435,6 +459,7 @@ export default function LandingPages() {
         <div className="promo-tabs">
           <button className={tab === 'content' ? 'active' : ''} onClick={() => setTab('content')}>Сторінка</button>
           <button className={tab === 'seo' ? 'active' : ''} onClick={() => setTab('seo')}>SEO</button>
+          <button className={tab === 'google' ? 'active' : ''} onClick={() => setTab('google')}>Google</button>
           <button className={tab === 'stats' ? 'active' : ''} onClick={() => setTab('stats')}>Статистика</button>
           <button className={tab === 'deploy' ? 'active' : ''} onClick={() => setTab('deploy')}>Домен і деплой</button>
         </div>
@@ -487,6 +512,70 @@ export default function LandingPages() {
           </div>
           <div className="seo-image-field"><div className="seo-image-title"><SeoLabel field="og_image" /></div><ImageField label="Зображення" value={form.seo.og_image} onChange={(v) => setSeo('og_image', v)} hint="Локальний файл із /media/. Якщо порожньо — renderer використає фон або логотип." /></div>
           <Field label={<SeoLabel field="schema_description" />} hint={`${form.seo.schema_description.length}/240`}><textarea className="input" rows="3" value={form.seo.schema_description} onChange={(e) => setSeo('schema_description', e.target.value)} /></Field>
+        </div>}
+
+        {tab === 'google' && <div className="stack" style={{ gap: 14 }}>
+          <div className="card promo-google-card">
+            <div className="promo-google-head">
+              <div>
+                <h2 style={{ marginTop: 0, marginBottom: 6 }}>Google</h2>
+                <p className="faint" style={{ margin: 0 }}>Аналітика, рекламні конверсії, Tag Manager і підтвердження Search Console для цієї промо-сторінки.</p>
+              </div>
+              <label className="promo-google-switch"><input type="checkbox" checked={!!form.google.enabled} onChange={(e) => setGoogle('enabled', e.target.checked)} /><span>Відстеження увімкнено</span></label>
+            </div>
+
+            <div className="promo-google-note"><strong>Без дублювання тегів</strong><span>Виберіть один спосіб підключення: Google tag або Google Tag Manager. Панель не вставляє довільний JavaScript і приймає лише валідні Google ID.</span></div>
+
+            <div className="grid k2">
+              <Field label="Спосіб підключення" hint={GOOGLE_HELP.mode}>
+                <select className="input" value={form.google.mode} onChange={(e) => setGoogle('mode', e.target.value)}>
+                  <option value="google_tag">Google tag / GA4 / Google Ads</option>
+                  <option value="gtm">Google Tag Manager</option>
+                </select>
+              </Field>
+              <Field label="Згода на аналітику" hint={GOOGLE_HELP.consent_mode}>
+                <select className="input" value={form.google.consent_mode} onChange={(e) => setGoogle('consent_mode', e.target.value)}>
+                  <option value="banner">Вбудований банер — рекомендовано</option>
+                  <option value="granted">Дозволено одразу</option>
+                  <option value="disabled">Consent Mode вимкнено</option>
+                </select>
+              </Field>
+            </div>
+
+            {form.google.mode === 'google_tag' ? <div className="grid k2">
+              <Field label="Google tag ID" hint={GOOGLE_HELP.google_tag_id}><input className="input mono" value={form.google.google_tag_id} placeholder="G-XXXXXXXXXX" onChange={(e) => setGoogle('google_tag_id', e.target.value.trim())} /></Field>
+              <div className="promo-google-status-box"><span>Що буде передаватися</span><strong>Перегляд сторінки + подія promo_cta_click</strong><small>Якщо нижче задано Google Ads ID і Label — клік CTA також піде як conversion.</small></div>
+            </div> : <div className="grid k2">
+              <Field label="GTM Container ID" hint={GOOGLE_HELP.gtm_container_id}><input className="input mono" value={form.google.gtm_container_id} placeholder="GTM-XXXXXXX" onChange={(e) => setGoogle('gtm_container_id', e.target.value.trim())} /></Field>
+              <div className="promo-google-status-box"><span>Подія для GTM</span><strong>promo_cta_click</strong><small>Створіть Trigger у GTM на Custom Event з цією назвою та прив'яжіть потрібні GA4/Ads теги.</small></div>
+            </div>}
+          </div>
+
+          <div className="card promo-google-card">
+            <h3 style={{ marginTop: 0 }}>Google Ads</h3>
+            <p className="faint">Необов'язково. Для прямої конверсії використовуйте разом із режимом Google tag.</p>
+            <div className="grid k2">
+              <Field label="Conversion ID" hint={GOOGLE_HELP.ads_conversion_id}><input className="input mono" value={form.google.ads_conversion_id} placeholder="AW-123456789" onChange={(e) => setGoogle('ads_conversion_id', e.target.value.trim())} /></Field>
+              <Field label="Conversion Label" hint={GOOGLE_HELP.ads_conversion_label}><input className="input mono" value={form.google.ads_conversion_label} placeholder="AbCdEfGhIjKlMn" onChange={(e) => setGoogle('ads_conversion_label', e.target.value.trim())} /></Field>
+            </div>
+            {form.google.mode === 'gtm' && (form.google.ads_conversion_id || form.google.ads_conversion_label) && <div className="promo-google-warning">У режимі GTM ці два поля не запускають conversion напряму. Використовуйте подію <code>promo_cta_click</code> у контейнері GTM.</div>}
+          </div>
+
+          <div className="card promo-google-card">
+            <h3 style={{ marginTop: 0 }}>Google Search Console</h3>
+            <Field label="Verification token" hint={GOOGLE_HELP.search_console_verification}><input className="input mono" value={form.google.search_console_verification} placeholder="значення з content=..." onChange={(e) => setGoogle('search_console_verification', e.target.value.trim())} /></Field>
+            <div className="promo-google-note"><strong>Як вставляється</strong><span>Панель сама створить meta-тег <code>google-site-verification</code> у &lt;head&gt;. Повний HTML-код вставляти не потрібно.</span></div>
+          </div>
+
+          <div className="card promo-google-card">
+            <h3 style={{ marginTop: 0 }}>Стан інтеграції</h3>
+            <div className="promo-google-summary">
+              <div><span>Аналітика</span><strong>{form.google.enabled ? (form.google.mode === 'gtm' ? (form.google.gtm_container_id ? 'Налаштовано' : 'Потрібен GTM ID') : (form.google.google_tag_id ? 'Налаштовано' : 'Потрібен Google tag ID')) : 'Вимкнена'}</strong></div>
+              <div><span>Ads conversion</span><strong>{form.google.ads_conversion_id && form.google.ads_conversion_label ? (form.google.mode === 'google_tag' ? 'Готова' : 'Через GTM') : 'Не задана'}</strong></div>
+              <div><span>Search Console</span><strong>{form.google.search_console_verification ? 'Verification додано' : 'Не задано'}</strong></div>
+              <div><span>Consent</span><strong>{form.google.consent_mode === 'banner' ? 'Банер' : form.google.consent_mode === 'granted' ? 'Дозволено одразу' : 'Вимкнено'}</strong></div>
+            </div>
+          </div>
         </div>}
 
         {tab === 'stats' && <div className="stack" style={{ gap: 14 }}>

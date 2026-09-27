@@ -195,6 +195,17 @@ DEFAULT_SEO = {
     "schema_description": "",
 }
 
+DEFAULT_GOOGLE = {
+    "enabled": False,
+    "mode": "google_tag",
+    "google_tag_id": "",
+    "gtm_container_id": "",
+    "ads_conversion_id": "",
+    "ads_conversion_label": "",
+    "search_console_verification": "",
+    "consent_mode": "banner",
+}
+
 
 def _domain(value: str) -> str:
     value = (value or "").strip().lower().rstrip(".")
@@ -224,6 +235,78 @@ def _url(value: str) -> str:
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
         raise ValueError("Посилання має починатися з https:// або http://")
     return value
+
+
+_GOOGLE_TAG_RE = re.compile(r"^(?:G-[A-Z0-9]+|GT-[A-Z0-9]+|AW-[0-9]+)$", re.I)
+_GTM_RE = re.compile(r"^GTM-[A-Z0-9]+$", re.I)
+_ADS_ID_RE = re.compile(r"^AW-[0-9]+$", re.I)
+_ADS_LABEL_RE = re.compile(r"^[A-Za-z0-9_-]{1,100}$")
+_VERIFY_RE = re.compile(r"^[A-Za-z0-9_=-]{6,200}$")
+
+
+def _google_id(value: str, pattern: re.Pattern, label: str) -> str:
+    value = (value or "").strip()
+    if not value:
+        return ""
+    if not pattern.fullmatch(value):
+        raise ValueError(f"Некоректний {label}")
+    return value.upper()
+
+
+class GoogleIn(BaseModel):
+    enabled: bool = False
+    mode: str = "google_tag"
+    google_tag_id: str = ""
+    gtm_container_id: str = ""
+    ads_conversion_id: str = ""
+    ads_conversion_label: str = ""
+    search_console_verification: str = ""
+    consent_mode: str = "banner"
+
+    @field_validator("mode")
+    @classmethod
+    def valid_mode(cls, value: str) -> str:
+        if value not in {"google_tag", "gtm"}:
+            raise ValueError("Режим Google має бути google_tag або gtm")
+        return value
+
+    @field_validator("consent_mode")
+    @classmethod
+    def valid_consent_mode(cls, value: str) -> str:
+        if value not in {"banner", "granted", "disabled"}:
+            raise ValueError("Некоректний режим згоди")
+        return value
+
+    @field_validator("google_tag_id")
+    @classmethod
+    def valid_google_tag(cls, value: str) -> str:
+        return _google_id(value, _GOOGLE_TAG_RE, "Google tag ID")
+
+    @field_validator("gtm_container_id")
+    @classmethod
+    def valid_gtm(cls, value: str) -> str:
+        return _google_id(value, _GTM_RE, "GTM container ID")
+
+    @field_validator("ads_conversion_id")
+    @classmethod
+    def valid_ads_id(cls, value: str) -> str:
+        return _google_id(value, _ADS_ID_RE, "Google Ads conversion ID")
+
+    @field_validator("ads_conversion_label")
+    @classmethod
+    def valid_ads_label(cls, value: str) -> str:
+        value = (value or "").strip()
+        if value and not _ADS_LABEL_RE.fullmatch(value):
+            raise ValueError("Некоректний Google Ads conversion label")
+        return value
+
+    @field_validator("search_console_verification")
+    @classmethod
+    def valid_verification(cls, value: str) -> str:
+        value = (value or "").strip()
+        if value and not _VERIFY_RE.fullmatch(value):
+            raise ValueError("Некоректний токен Google Search Console")
+        return value
 
 
 class ContentIn(BaseModel):
@@ -280,6 +363,7 @@ class LandingPageIn(BaseModel):
     domain: str
     content: ContentIn = Field(default_factory=lambda: ContentIn(**DEFAULT_CONTENT))
     seo: SeoIn = Field(default_factory=lambda: SeoIn(**DEFAULT_SEO))
+    google: GoogleIn = Field(default_factory=lambda: GoogleIn(**DEFAULT_GOOGLE))
 
     @field_validator("domain")
     @classmethod
@@ -413,7 +497,7 @@ def _should_generate_initial_seo(seo: dict) -> bool:
 
 
 def _config(data: LandingPageIn) -> dict:
-    return {"content": data.content.model_dump(), "seo": data.seo.model_dump()}
+    return {"content": data.content.model_dump(), "seo": data.seo.model_dump(), "google": data.google.model_dump()}
 
 
 def _dto(row: PromoLandingPage) -> dict:
@@ -899,9 +983,88 @@ def _abs(domain: str, path: str, *, preview: bool = False) -> str:
     return path
 
 
+def _google_markup(google: dict, *, preview: bool = False) -> tuple[str, str, str]:
+    verification = (google.get("search_console_verification") or "").strip()
+    meta = f'<meta name="google-site-verification" content="{html.escape(verification, quote=True)}">' if verification else ""
+    if preview or not google.get("enabled"):
+        return meta, "", ""
+
+    mode = google.get("mode") or "google_tag"
+    consent = google.get("consent_mode") or "banner"
+    google_tag_id = (google.get("google_tag_id") or "").strip()
+    gtm_id = (google.get("gtm_container_id") or "").strip()
+    ads_id = (google.get("ads_conversion_id") or "").strip()
+    ads_label = (google.get("ads_conversion_label") or "").strip()
+
+    head: list[str] = []
+    body: list[str] = []
+    tracking_ready = bool(gtm_id) if mode == "gtm" else bool(google_tag_id)
+
+    if consent != "disabled" and tracking_ready:
+        if consent == "banner":
+            head.append(
+                "<script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments)};"
+                "var promoConsentDefault='denied';try{if(localStorage.getItem('promo_google_consent')==='granted')promoConsentDefault='granted'}catch(e){};"
+                "gtag('consent','default',{analytics_storage:promoConsentDefault,ad_storage:promoConsentDefault,"
+                "ad_user_data:promoConsentDefault,ad_personalization:promoConsentDefault,wait_for_update:500});</script>"
+            )
+        else:
+            head.append(
+                "<script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments)};"
+                "gtag('consent','default',{analytics_storage:'granted',ad_storage:'granted',"
+                "ad_user_data:'granted',ad_personalization:'granted',wait_for_update:500});</script>"
+            )
+
+    if mode == "gtm" and gtm_id:
+        safe_id = html.escape(gtm_id, quote=True)
+        head.append(
+            "<script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':new Date().getTime(),event:'gtm.js'});"
+            "var f=d.getElementsByTagName(s)[0],j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';"
+            "j.async=true;j.src='https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);})"
+            f"(window,document,'script','dataLayer','{safe_id}');</script>"
+        )
+        body.append(
+            f'<noscript><iframe src="https://www.googletagmanager.com/ns.html?id={safe_id}" height="0" width="0" '
+            'style="display:none;visibility:hidden" title="Google Tag Manager"></iframe></noscript>'
+        )
+    elif mode == "google_tag" and google_tag_id:
+        safe_id = html.escape(google_tag_id, quote=True)
+        configs = [google_tag_id]
+        if ads_id and ads_id not in configs:
+            configs.append(ads_id)
+        cfg = "".join(f"gtag('config',{json.dumps(x)});" for x in configs)
+        head.append(
+            f'<script async src="https://www.googletagmanager.com/gtag/js?id={safe_id}"></script>'
+            "<script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments)};"
+            f"gtag('js',new Date());{cfg}</script>"
+        )
+
+    if consent == "banner" and tracking_ready:
+        body.append(
+            '<div class="google-consent" id="googleConsent" hidden>'
+            '<div><strong>Аналітика та реклама</strong><span>Ми можемо використовувати Google Analytics і Google Ads, щоб вимірювати ефективність сторінки.</span></div>'
+            '<div class="google-consent-actions"><button type="button" data-consent="deny">Лише необхідні</button>'
+            '<button type="button" data-consent="grant">Дозволити</button></div></div>'
+        )
+
+    send_to = f"{ads_id}/{ads_label}" if ads_id and ads_label else ""
+    runtime = '''<script>(function(){
+var mode=__MODE__,consentMode=__CONSENT__,sendTo=__SENDTO__;
+function pushEvent(name,data){window.dataLayer=window.dataLayer||[];window.dataLayer.push(Object.assign({event:name},data||{}));}
+function emitEvent(name,data){if(mode==='google_tag'&&typeof gtag==='function')gtag('event',name,data||{});else pushEvent(name,data);}
+function setConsent(value){try{localStorage.setItem('promo_google_consent',value)}catch(e){};if(typeof gtag==='function')gtag('consent','update',{analytics_storage:value,ad_storage:value,ad_user_data:value,ad_personalization:value});pushEvent('promo_consent_update',{consent:value});}
+if(consentMode==='banner'){var saved='';try{saved=localStorage.getItem('promo_google_consent')||''}catch(e){};var box=document.getElementById('googleConsent');if(saved==='granted'||saved==='denied')setConsent(saved);else if(box)box.hidden=false;if(box)box.addEventListener('click',function(e){var v=e.target&&e.target.getAttribute('data-consent');if(!v)return;setConsent(v==='grant'?'granted':'denied');box.hidden=true;});}
+var cta=document.querySelector('.cta');if(cta)cta.addEventListener('click',function(e){var href=cta.getAttribute('href');emitEvent('promo_cta_click',{promo_code:(document.querySelector('.code')||{}).textContent||'',destination:href});if(mode==='google_tag'&&sendTo&&typeof gtag==='function'){e.preventDefault();var done=false;var go=function(){if(done)return;done=true;location.href=href};gtag('event','conversion',{send_to:sendTo,event_callback:go});setTimeout(go,700);}});
+})();</script>'''
+    runtime = runtime.replace("__MODE__", json.dumps(mode)).replace("__CONSENT__", json.dumps(consent)).replace("__SENDTO__", json.dumps(send_to))
+    body.append(runtime)
+    return meta, "".join(head), "".join(body)
+
+
 def _render(row: PromoLandingPage, config: dict, preview: bool) -> str:
     content = {**DEFAULT_CONTENT, **(config.get("content") or {})}
     seo = {**DEFAULT_SEO, **(config.get("seo") or {})}
+    google = {**DEFAULT_GOOGLE, **(config.get("google") or {})}
     canonical = seo["canonical_url"] or f"https://{row.domain}/"
     og_title = seo["og_title"] or seo["title"] or content["title"]
     og_desc = seo["og_description"] or seo["description"]
@@ -928,6 +1091,7 @@ def _render(row: PromoLandingPage, config: dict, preview: bool) -> str:
     keywords = f'<meta name="keywords" content="{esc(seo["keywords"])}">' if seo["keywords"] else ""
     og_img_meta = f'<meta property="og:image" content="{esc(og_image)}"><meta name="twitter:image" content="{esc(og_image)}">' if og_image else ""
     site_meta = f'<meta property="og:site_name" content="{esc(seo["site_name"])}">' if seo["site_name"] else ""
+    google_meta, google_head, google_body = _google_markup(google, preview=preview)
 
     # CSS — частина версійованого шаблону, а не користувацькі дані. У панелі
     # немає жодного поля, через яке його можна підмінити чи дописати script.
@@ -939,6 +1103,7 @@ def _render(row: PromoLandingPage, config: dict, preview: bool) -> str:
 <title>{esc(seo["title"] or content["title"])}</title>
 <meta name="description" content="{esc(seo["description"])}">
 <meta name="robots" content="{esc(seo["robots"])}">
+{google_meta}
 {keywords}
 <link rel="canonical" href="{esc(canonical)}">
 <meta property="og:type" content="website">
@@ -951,6 +1116,7 @@ def _render(row: PromoLandingPage, config: dict, preview: bool) -> str:
 <meta name="twitter:title" content="{esc(og_title)}">
 <meta name="twitter:description" content="{esc(og_desc)}">
 <script type="application/ld+json">{json.dumps(schema, ensure_ascii=False).replace('</', '<\\/')}</script>
+{google_head}
 <style>
 :root{{color-scheme:light;--ink:#111827;--muted:#5b6472;--accent:#1484e8;--accent2:#1e73be}}
 *{{box-sizing:border-box}}html,body{{margin:0;min-height:100%;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:var(--ink)}}
@@ -963,7 +1129,8 @@ h1{{margin:0 0 28px;font-size:clamp(26px,5vw,38px);line-height:1.12;letter-spaci
 .copyhint{{display:block;margin-top:-12px;margin-bottom:20px;font-size:11px;color:#8a94a3}}.desc,.validity{{margin:0 auto 14px;max-width:420px;line-height:1.55;color:#374151}}.validity{{font-size:14px;color:var(--muted)}}
 .cta{{display:inline-flex;align-items:center;justify-content:center;min-width:220px;margin-top:14px;padding:15px 26px;border-radius:999px;background:linear-gradient(90deg,var(--accent),var(--accent2));color:#fff;text-decoration:none;font-weight:800;box-shadow:0 10px 24px rgba(20,132,232,.24)}}.cta:hover{{filter:brightness(.98);transform:translateY(-1px)}}
 .footer{{margin:24px 0 0;font-size:12px;line-height:1.45;color:#8a94a3}}.preview{{position:fixed;top:12px;left:50%;z-index:3;transform:translateX(-50%);padding:8px 12px;border-radius:999px;background:#111827;color:#fff;font-size:12px;font-weight:700}}
-@media(max-width:560px){{body{{padding:16px}}.card{{padding:34px 22px 28px;border-radius:17px}}}}
+.google-consent{{position:fixed;z-index:20;left:16px;right:16px;bottom:16px;margin:auto;max-width:760px;padding:14px 16px;display:flex;align-items:center;justify-content:space-between;gap:16px;background:#111827;color:#fff;border-radius:14px;box-shadow:0 16px 50px rgba(0,0,0,.28);text-align:left}}.google-consent[hidden]{{display:none}}.google-consent>div:first-child{{display:grid;gap:4px}}.google-consent span{{font-size:12px;line-height:1.4;color:#d1d5db}}.google-consent-actions{{display:flex;gap:8px;flex:0 0 auto}}.google-consent button{{border:0;border-radius:999px;padding:9px 12px;font:700 12px/1 inherit;cursor:pointer}}
+@media(max-width:560px){{body{{padding:16px}}.card{{padding:34px 22px 28px;border-radius:17px}}.google-consent{{align-items:stretch;flex-direction:column}}.google-consent-actions button{{flex:1}}}}
 @media(prefers-reduced-motion:no-preference){{.cta{{transition:transform .18s ease,filter .18s ease}}}}
 </style>
 </head>
@@ -978,4 +1145,5 @@ h1{{margin:0 0 28px;font-size:clamp(26px,5vw,38px);line-height:1.12;letter-spaci
 <a class="cta" href="{esc(cta)}" rel="noopener noreferrer">{esc(content["button_text"])}</a>
 {footer_html}
 </main>
+{google_body}
 </body></html>'''

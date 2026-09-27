@@ -11,6 +11,9 @@ python3 backend/qa/qa_promo_landing.py
 echo "=== Promo Cloudflare contracts"
 python3 backend/qa/qa_promo_cloudflare.py
 
+echo "=== Promo Google integrations"
+python3 backend/qa/qa_promo_google.py
+
 echo "=== Promo shell syntax"
 bash -n deploy/deploy-promo.sh
 
