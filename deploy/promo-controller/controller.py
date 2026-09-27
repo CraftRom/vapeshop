@@ -412,17 +412,19 @@ def status(domain: str) -> dict:
     }
 
 
-def connect(domain: str) -> dict:
+def connect(domain: str, allow_proxy: bool = False) -> dict:
     with LOCK:
         dns = dns_info(domain)
         if not dns["ok"]:
             raise RuntimeError("DNS домену ще не резолвиться. Внесіть записи з блоку «Налаштування DNS перед деплоєм» і повторіть перевірку.")
-        if dns.get("pointsHere") is False:
+        if dns.get("pointsHere") is False and not allow_proxy:
             if dns.get("propagating"):
                 wrong = ", ".join(dns.get("wrongAddresses") or [])
                 expected = ", ".join(dns.get("expected") or [])
                 raise RuntimeError(f"DNS поширюється, але частина резолверів ще бачить старі/зайві адреси: {wrong}. Очікуємо лише: {expected}.")
             raise RuntimeError("Домен резолвиться, але веде не на цей VPS. Перевірте значення A/AAAA у блоці «Налаштування DNS перед деплоєм».")
+        if allow_proxy and not dns.get("ok"):
+            raise RuntimeError("Cloudflare Proxy підтверджено через API, але публічний DNS ще не відповідає. Дочекайтеся активації DNS у Cloudflare.")
 
         path = config_path(domain)
         write_atomic(path, http_config(domain))
@@ -521,7 +523,7 @@ class Handler(BaseHTTPRequestHandler):
             body = self.read_body()
             domain = normalize_domain(body.get("domain", ""))
             if self.path == "/v1/connect":
-                return self.send_json(200, connect(domain))
+                return self.send_json(200, connect(domain, allow_proxy=bool(body.get("allowProxy"))))
             if self.path == "/v1/disconnect":
                 return self.send_json(200, disconnect(domain))
             return self.send_json(404, {"detail": "not found"})

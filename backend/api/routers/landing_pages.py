@@ -20,7 +20,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from api.auth import Principal, require_staff
 from shop import security_log as security
 from shop.db import get_session
-from shop.models import PromoLandingDailyStat, PromoLandingPage
+from shop.secret_crypto import encrypt_secret, decrypt_secret
+from shop.models import PromoLandingDailyStat, PromoLandingPage, Setting
 
 router = APIRouter()
 
@@ -31,7 +32,7 @@ _PROMO_CONTROLLER_URL = os.environ.get("PROMO_CONTROLLER_URL", "http://promo-con
 _PROMO_CONTROLLER_TOKEN = os.environ.get("PROMO_CONTROLLER_TOKEN", "").strip()
 
 
-async def _controller(method: str, path: str, *, domain: str) -> dict:
+async def _controller(method: str, path: str, *, domain: str, extra: dict | None = None) -> dict:
     if not _PROMO_CONTROLLER_TOKEN:
         raise HTTPException(503, "Контролер промо-доменів не налаштований")
     headers = {"Authorization": f"Bearer {_PROMO_CONTROLLER_TOKEN}"}
@@ -40,7 +41,7 @@ async def _controller(method: str, path: str, *, domain: str) -> dict:
             if method == "GET":
                 response = await client.get(f"{_PROMO_CONTROLLER_URL}{path}", params={"domain": domain}, headers=headers)
             else:
-                response = await client.request(method, f"{_PROMO_CONTROLLER_URL}{path}", json={"domain": domain}, headers=headers)
+                response = await client.request(method, f"{_PROMO_CONTROLLER_URL}{path}", json={"domain": domain, **(extra or {})}, headers=headers)
     except httpx.RequestError:
         raise HTTPException(503, "Ізольований контролер доменів недоступний")
     try:
@@ -54,6 +55,91 @@ async def _controller(method: str, path: str, *, domain: str) -> dict:
 
 async def _domain_status(domain: str) -> dict:
     return await _controller("GET", "/v1/status", domain=domain)
+
+
+CF_TOKEN_KEY = "promo_cloudflare_api_token"
+CF_API = "https://api.cloudflare.com/client/v4"
+
+
+async def _cf_token(db: AsyncSession) -> str:
+    row = await db.get(Setting, CF_TOKEN_KEY)
+    if not row or not (row.value or "").strip():
+        return ""
+    try:
+        return decrypt_secret(row.value).strip()
+    except Exception:
+        return ""
+
+
+async def _cf_request(token: str, method: str, path: str, *, params: dict | None = None, body: dict | None = None) -> dict:
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(12.0, connect=4.0)) as client:
+            r = await client.request(method, f"{CF_API}{path}", params=params, json=body, headers=headers)
+    except httpx.RequestError as exc:
+        raise HTTPException(503, f"Cloudflare API недоступний: {type(exc).__name__}")
+    try:
+        data = r.json()
+    except Exception:
+        data = {}
+    if r.status_code >= 400 or data.get("success") is False:
+        errors = data.get("errors") or []
+        msg = "; ".join(str(x.get("message") or x) for x in errors[:3]) or f"Cloudflare HTTP {r.status_code}"
+        raise HTTPException(502 if r.status_code >= 500 else 400, msg)
+    return data
+
+
+async def _cf_find_zone(token: str, domain: str) -> dict | None:
+    labels = domain.split('.')
+    # Cloudflare zones are normally an apex domain; walk upward and pick first exact active zone.
+    for i in range(0, max(1, len(labels)-1)):
+        candidate = '.'.join(labels[i:])
+        if candidate.count('.') < 1:
+            break
+        data = await _cf_request(token, 'GET', '/zones', params={'name': candidate, 'status': 'active', 'per_page': 5})
+        rows = data.get('result') or []
+        if rows:
+            return rows[0]
+    return None
+
+
+async def _cloudflare_domain_info(db: AsyncSession, domain: str, origin_ipv4: str | None = None) -> dict:
+    token = await _cf_token(db)
+    if not token:
+        return {"configured": False, "connected": False, "detected": False}
+    try:
+        zone = await _cf_find_zone(token, domain)
+        if not zone:
+            return {"configured": True, "connected": True, "detected": False, "error": "Домен не знайдено серед доступних Cloudflare zones"}
+        zid = zone.get('id')
+        dns = await _cf_request(token, 'GET', f'/zones/{zid}/dns_records', params={'name': domain, 'per_page': 100})
+        records = []
+        for r in dns.get('result') or []:
+            if r.get('type') not in {'A','AAAA','CNAME'}:
+                continue
+            records.append({
+                'id': r.get('id'), 'type': r.get('type'), 'name': r.get('name'),
+                'content': r.get('content'), 'proxied': bool(r.get('proxied')),
+                'proxiable': bool(r.get('proxiable')), 'ttl': r.get('ttl'),
+            })
+        try:
+            ssl_data = await _cf_request(token, 'GET', f'/zones/{zid}/settings/ssl')
+            ssl_mode = (ssl_data.get('result') or {}).get('value')
+        except HTTPException:
+            ssl_mode = None
+        proxied = any(r['proxied'] for r in records if r['type'] in {'A','AAAA','CNAME'})
+        a_records = [r for r in records if r['type'] == 'A']
+        origin_matches = bool(origin_ipv4) and any(r['content'] == origin_ipv4 for r in a_records)
+        ready = bool(proxied and origin_matches)
+        return {
+            'configured': True, 'connected': True, 'detected': True,
+            'zone': {'id': zid, 'name': zone.get('name'), 'status': zone.get('status')},
+            'records': records, 'proxied': proxied, 'originIpv4': origin_ipv4,
+            'originMatches': origin_matches, 'sslMode': ssl_mode,
+            'strict': ssl_mode == 'strict', 'readyForProxyDeploy': ready,
+        }
+    except HTTPException as exc:
+        return {"configured": True, "connected": False, "detected": False, "error": str(exc.detail)}
 
 
 
@@ -324,6 +410,128 @@ def _dto(row: PromoLandingPage) -> dict:
     }
 
 
+class CloudflareConfigIn(BaseModel):
+    api_token: str = Field(min_length=20, max_length=256)
+
+
+@router.get("/cloudflare/config")
+async def cloudflare_config_status(
+    who: Principal = Depends(require_staff),
+    db: AsyncSession = Depends(get_session),
+):
+    token = await _cf_token(db)
+    return {"configured": bool(token)}
+
+
+@router.put("/cloudflare/config")
+async def cloudflare_config_save(
+    data: CloudflareConfigIn,
+    who: Principal = Depends(require_staff),
+    db: AsyncSession = Depends(get_session),
+):
+    # Only admin roles may replace infrastructure credentials.
+    if not who.is_admin:
+        raise HTTPException(403, "Cloudflare API Token може змінювати лише адміністратор")
+    token = data.api_token.strip()
+    # Verify before storing. /user/tokens/verify works for API Tokens.
+    await _cf_request(token, 'GET', '/user/tokens/verify')
+    row = await db.get(Setting, CF_TOKEN_KEY)
+    encrypted = encrypt_secret(token)
+    if row:
+        row.value = encrypted
+    else:
+        db.add(Setting(key=CF_TOKEN_KEY, value=encrypted))
+    await db.commit()
+    security.record('promo.cloudflare.configured', actor=who.login, reason='API token verified')
+    return {"configured": True}
+
+
+@router.delete("/cloudflare/config")
+async def cloudflare_config_remove(
+    who: Principal = Depends(require_staff),
+    db: AsyncSession = Depends(get_session),
+):
+    if not who.is_admin:
+        raise HTTPException(403, "Cloudflare API Token може змінювати лише адміністратор")
+    row = await db.get(Setting, CF_TOKEN_KEY)
+    if row:
+        await db.delete(row); await db.commit()
+    security.record('promo.cloudflare.disconnected', actor=who.login, reason='token removed')
+    return {"configured": False}
+
+
+@router.get("/cloudflare/domain")
+async def cloudflare_domain_status(
+    domain: str,
+    who: Principal = Depends(require_staff),
+    db: AsyncSession = Depends(get_session),
+):
+    target = _domain(domain)
+    ctrl = await _domain_status(target)
+    origin = (ctrl.get('dnsRequirements') or {}).get('ipv4')
+    return await _cloudflare_domain_info(db, target, origin)
+
+
+@router.post("/cloudflare/domain/sync")
+async def cloudflare_domain_sync(
+    domain: str,
+    who: Principal = Depends(require_staff),
+    db: AsyncSession = Depends(get_session),
+):
+    if not who.is_admin:
+        raise HTTPException(403, "DNS Cloudflare може змінювати лише адміністратор")
+    target = _domain(domain)
+    token = await _cf_token(db)
+    if not token:
+        raise HTTPException(409, "Спочатку підключіть Cloudflare API")
+    ctrl = await _domain_status(target)
+    origin = (ctrl.get('dnsRequirements') or {}).get('ipv4')
+    if not origin:
+        raise HTTPException(409, "Не вдалося визначити IPv4 VPS")
+    zone = await _cf_find_zone(token, target)
+    if not zone:
+        raise HTTPException(404, "Cloudflare zone для домену не знайдено")
+    zid = zone['id']
+    dns = await _cf_request(token, 'GET', f'/zones/{zid}/dns_records', params={'name': target, 'per_page': 100})
+    exact = dns.get('result') or []
+    if any(r.get('type') == 'CNAME' for r in exact):
+        raise HTTPException(409, "Для домену вже існує CNAME. Автоматично замінювати його на A небезпечно; приберіть конфлікт вручну.")
+    arecs = [r for r in exact if r.get('type') == 'A']
+    if len(arecs) > 1:
+        raise HTTPException(409, "Для домену існує кілька A-записів. Автоматичне об'єднання може зламати балансування; залиште один запис вручну.")
+    body = {'type': 'A', 'name': target, 'content': origin, 'ttl': 1, 'proxied': True}
+    if arecs:
+        await _cf_request(token, 'PATCH', f"/zones/{zid}/dns_records/{arecs[0]['id']}", body=body)
+        action = 'updated'
+    else:
+        await _cf_request(token, 'POST', f'/zones/{zid}/dns_records', body=body)
+        action = 'created'
+    security.record('promo.cloudflare.dns.synced', actor=who.login, reason=f'{target}; {action}; proxied=true')
+    return await _cloudflare_domain_info(db, target, origin)
+
+
+@router.post("/cloudflare/domain/strict")
+async def cloudflare_enable_strict(
+    domain: str,
+    who: Principal = Depends(require_staff),
+    db: AsyncSession = Depends(get_session),
+):
+    if not who.is_admin:
+        raise HTTPException(403, "SSL mode Cloudflare може змінювати лише адміністратор")
+    target = _domain(domain)
+    token = await _cf_token(db)
+    if not token:
+        raise HTTPException(409, "Спочатку підключіть Cloudflare API")
+    zone = await _cf_find_zone(token, target)
+    if not zone:
+        raise HTTPException(404, "Cloudflare zone для домену не знайдено")
+    await _cf_request(token, 'PATCH', f"/zones/{zone['id']}/settings/ssl", body={'value': 'strict'})
+    security.record('promo.cloudflare.ssl.strict', actor=who.login, reason=target)
+    ctrl = await _domain_status(target)
+    origin = (ctrl.get('dnsRequirements') or {}).get('ipv4')
+    return await _cloudflare_domain_info(db, target, origin)
+
+
 @router.get("")
 async def list_pages(
     who: Principal = Depends(require_staff),
@@ -501,7 +709,16 @@ async def domain_status(
     if not row:
         raise HTTPException(404, "Промо-сторінку не знайдено")
     target = row.domain if not domain else _domain(domain)
-    return await _domain_status(target)
+    state = await _domain_status(target)
+    origin = (state.get("dnsRequirements") or {}).get("ipv4")
+    state["cloudflare"] = await _cloudflare_domain_info(db, target, origin)
+    if state["cloudflare"].get("readyForProxyDeploy"):
+        state["dns"]["cloudflareProxy"] = True
+        state["dns"]["pointsHere"] = True
+        state["dns"]["proxyAddresses"] = list(state["dns"].get("addresses") or [])
+        state["dns"]["wrongAddresses"] = []
+        state["dns"]["propagating"] = False
+    return state
 
 
 @router.post("/{page_id}/domain-connect")
@@ -513,8 +730,13 @@ async def domain_connect(
     row = await db.get(PromoLandingPage, page_id)
     if not row:
         raise HTTPException(404, "Промо-сторінку не знайдено")
-    state = await _controller("POST", "/v1/connect", domain=row.domain)
-    security.record("promo.domain.connected", actor=who.login, reason=row.domain)
+    pre = await _domain_status(row.domain)
+    origin = (pre.get("dnsRequirements") or {}).get("ipv4")
+    cf = await _cloudflare_domain_info(db, row.domain, origin)
+    allow_proxy = bool(cf.get("readyForProxyDeploy"))
+    state = await _controller("POST", "/v1/connect", domain=row.domain, extra={"allowProxy": allow_proxy})
+    state["cloudflare"] = cf
+    security.record("promo.domain.connected", actor=who.login, reason=f"{row.domain}; cloudflare={allow_proxy}")
     return state
 
 

@@ -187,6 +187,18 @@ CATALOG: dict[str, Event] = {event.code: event for event in (
     _e("promo.domain.disconnected", "notice",
        "Відключено промо-домен",
        "Маршрут домену прибрано з nginx; чинний сертифікат збережено для безпечного повторного підключення."),
+    _e("promo.cloudflare.configured", "notice",
+       "Cloudflare API підключено",
+       "API Token Cloudflare перевірено та збережено у зашифрованому вигляді."),
+    _e("promo.cloudflare.disconnected", "notice",
+       "Cloudflare API відключено",
+       "Збережений API Token Cloudflare видалено. DNS-записи у Cloudflare не змінювались."),
+    _e("promo.cloudflare.dns.synced", "notice",
+       "Cloudflare DNS синхронізовано",
+       "A-запис промо-домену синхронізовано з origin VPS та увімкнено Cloudflare Proxy."),
+    _e("promo.cloudflare.ssl.strict", "notice",
+       "Cloudflare Full (strict) увімкнено",
+       "SSL mode Cloudflare для зони переведено у Full (strict)."),
 )}
 
 

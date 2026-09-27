@@ -4992,3 +4992,13 @@ button.support-stat:hover { border-color: rgba(139, 123, 240, 0.38); }
 @media(max-width:680px){.promo-ns-head{display:grid}.promo-ns-action{white-space:normal;width:max-content;max-width:100%}}
 
 .promo-dns-wrong{color:#ef8f8f;font-weight:600}
+
+/* Cloudflare integration for promo deploy */
+.promo-cloudflare-card{margin:0 0 16px;padding:16px;border:1px solid rgba(246,130,31,.28);border-radius:14px;background:rgba(246,130,31,.055)}
+.promo-cloudflare-head{display:flex;align-items:flex-start;justify-content:space-between;gap:14px}.promo-cloudflare-head h3{margin:0 0 5px}.promo-cloudflare-head p{margin:0;color:var(--muted);max-width:850px}
+.promo-cloudflare-connect{display:grid;grid-template-columns:minmax(260px,1fr) auto auto;gap:8px;margin-top:14px;align-items:center}
+.promo-cloudflare-help{margin-top:10px;color:var(--muted);font-size:12px;line-height:1.5}
+.promo-cloudflare-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:14px}.promo-cloudflare-grid>div{display:grid;gap:4px;padding:10px;border:1px solid var(--border);border-radius:10px;background:var(--panel)}.promo-cloudflare-grid span{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+.promo-cloudflare-records{display:grid;gap:7px;margin-top:12px}.promo-cloudflare-record{display:grid;grid-template-columns:56px minmax(140px,1fr) 20px minmax(160px,1fr) 110px;gap:8px;align-items:center;padding:8px 10px;border:1px solid var(--border);border-radius:9px;background:var(--panel)}.promo-cloudflare-record code{overflow-wrap:anywhere}
+@media(max-width:900px){.promo-cloudflare-connect{grid-template-columns:1fr}.promo-cloudflare-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.promo-cloudflare-record{grid-template-columns:50px 1fr}.promo-cloudflare-record span:nth-of-type(1){display:none}}
+@media(max-width:560px){.promo-cloudflare-head{display:grid}.promo-cloudflare-grid{grid-template-columns:1fr}}

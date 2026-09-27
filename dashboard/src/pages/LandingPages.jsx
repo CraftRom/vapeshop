@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { api } from '../api'
+import { api, isAdmin } from '../api'
 import ImageField from '../components/ImageField'
 import { Empty, ErrorBar, Field, Loading, Modal, useToast } from '../components/ui'
 
@@ -109,6 +109,10 @@ export default function LandingPages() {
   const [error, setError] = useState('')
   const [creating, setCreating] = useState(false)
   const [seoBusy, setSeoBusy] = useState(false)
+  const [cfConfig, setCfConfig] = useState({ configured: false })
+  const [cfToken, setCfToken] = useState('')
+  const [cfBusy, setCfBusy] = useState(false)
+  const canConfigureCloudflare = isAdmin()
   const [domainRefreshing, setDomainRefreshing] = useState(false)
   const [domainAutoRefresh, setDomainAutoRefresh] = useState(true)
   const [domainLastCheckedAt, setDomainLastCheckedAt] = useState('')
@@ -129,7 +133,7 @@ export default function LandingPages() {
     } catch (e) { setError(e.message) }
   }
 
-  useEffect(() => { load(null) }, [])
+  useEffect(() => { load(null); api.landingPages.cloudflareConfig().then(setCfConfig).catch(() => setCfConfig({ configured: false })) }, [])
   useEffect(() => {
     if (!selected) { setStats(null); setDomainState(null); setDomainLastCheckedAt(''); return }
     setForm(normalized(selected))
@@ -237,6 +241,44 @@ export default function LandingPages() {
       notify(state?.active ? 'Домен підключено, HTTPS активний' : 'Підключення запущено, виконуємо додаткові перевірки')
       await refreshDomain({ silent: true })
     } catch (e) { setError(e.message); await refreshDomain() } finally { setDomainBusy(false) }
+  }
+
+  const saveCloudflare = async () => {
+    if (!cfToken.trim() || cfBusy) return
+    setCfBusy(true); setError('')
+    try {
+      const result = await api.landingPages.cloudflareSave(cfToken.trim())
+      setCfConfig(result); setCfToken('')
+      notify('Cloudflare API підключено')
+      await refreshDomain({ silent: true })
+    } catch (e) { setError(e.message) } finally { setCfBusy(false) }
+  }
+
+  const syncCloudflareDns = async () => {
+    if (cfBusy || !form.domain.trim()) return
+    setCfBusy(true); setError('')
+    try {
+      await api.landingPages.cloudflareSync(form.domain.trim())
+      notify('Cloudflare DNS синхронізовано: A → VPS, Proxy увімкнено')
+      await refreshDomain({ silent: true })
+    } catch (e) { setError(e.message) } finally { setCfBusy(false) }
+  }
+
+  const enableCloudflareStrict = async () => {
+    if (cfBusy || !form.domain.trim()) return
+    setCfBusy(true); setError('')
+    try {
+      await api.landingPages.cloudflareStrict(form.domain.trim())
+      notify('Cloudflare SSL mode: Full (strict)')
+      await refreshDomain({ silent: true })
+    } catch (e) { setError(e.message) } finally { setCfBusy(false) }
+  }
+
+  const removeCloudflare = async () => {
+    if (cfBusy || !window.confirm('Відключити Cloudflare API? DNS-записи у Cloudflare не змінюватимуться.')) return
+    setCfBusy(true); setError('')
+    try { const result = await api.landingPages.cloudflareRemove(); setCfConfig(result); notify('Cloudflare API відключено'); await refreshDomain({ silent: true }) }
+    catch (e) { setError(e.message) } finally { setCfBusy(false) }
   }
 
   const disconnectDomain = async () => {
@@ -399,6 +441,47 @@ export default function LandingPages() {
               </div>
               <div className="promo-check-step-text">{step.text}</div>
             </div>)}
+          </div>
+
+          <div className="promo-cloudflare-card">
+            <div className="promo-cloudflare-head">
+              <div>
+                <h3>Cloudflare API</h3>
+                <p>Для proxied-доменів перевіряємо прихований origin через Cloudflare API, а не порівнюємо публічні Cloudflare IP з IP VPS.</p>
+              </div>
+              <span className={`promo-dns-badge ${domainState?.cloudflare?.readyForProxyDeploy ? 'ok' : domainState?.cloudflare?.configured ? 'warn' : ''}`}>
+                {domainState?.cloudflare?.readyForProxyDeploy ? 'Proxy перевірено' : domainState?.cloudflare?.configured ? 'Підключено' : 'Не підключено'}
+              </span>
+            </div>
+
+            {canConfigureCloudflare && <div className="promo-cloudflare-connect">
+              <input className="input" type="password" autoComplete="new-password" value={cfToken} onChange={(e) => setCfToken(e.target.value)} placeholder={cfConfig?.configured ? 'Введіть новий API Token, щоб замінити поточний' : 'Cloudflare API Token'} />
+              <button className="btn ghost" onClick={saveCloudflare} disabled={cfBusy || !cfToken.trim()}>{cfBusy ? 'Перевіряємо…' : cfConfig?.configured ? 'Замінити токен' : 'Підключити Cloudflare'}</button>
+              {cfConfig?.configured && <button className="btn danger" onClick={removeCloudflare} disabled={cfBusy}>Відключити API</button>}
+            </div>}
+            <div className="promo-cloudflare-help">
+              <strong>Мінімальні права токена:</strong> Zone Read, DNS Read/Write, Zone Settings Read. Для кнопки Full (strict) потрібен Zone Settings Edit. Сам токен зберігається зашифровано і назад у браузер не повертається.
+            </div>
+            {canConfigureCloudflare && cfConfig?.configured && <div className="row" style={{ gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
+              <button className="btn ghost" onClick={syncCloudflareDns} disabled={cfBusy || !form.domain.trim()}>{cfBusy ? 'Виконуємо…' : 'Синхронізувати DNS + Proxy'}</button>
+              {!domainState?.cloudflare?.strict && <button className="btn ghost" onClick={enableCloudflareStrict} disabled={cfBusy || !form.domain.trim()}>Увімкнути Full (strict)</button>}
+            </div>}
+
+            {domainState?.cloudflare?.detected && <div className="promo-cloudflare-grid">
+              <div><span>Zone</span><strong>{domainState.cloudflare.zone?.name || '—'}</strong></div>
+              <div><span>Proxy</span><strong>{domainState.cloudflare.proxied ? '🟠 Proxied' : 'DNS only'}</strong></div>
+              <div><span>Origin VPS</span><strong>{domainState.cloudflare.originIpv4 || '—'}</strong></div>
+              <div><span>Origin у Cloudflare</span><strong>{domainState.cloudflare.originMatches ? 'Збігається' : 'Не збігається'}</strong></div>
+              <div><span>SSL mode</span><strong>{domainState.cloudflare.sslMode || 'Немає доступу'}</strong></div>
+              <div><span>Full (strict)</span><strong>{domainState.cloudflare.strict ? 'Так' : 'Ні'}</strong></div>
+            </div>}
+
+            {!!domainState?.cloudflare?.records?.length && <div className="promo-cloudflare-records">
+              {domainState.cloudflare.records.map((r) => <div key={r.id || `${r.type}-${r.content}`} className="promo-cloudflare-record">
+                <strong>{r.type}</strong><code>{r.name}</code><span>→</span><code>{r.content}</code><span>{r.proxied ? '🟠 Proxied' : 'DNS only'}</span>
+              </div>)}
+            </div>}
+            {domainState?.cloudflare?.error && <div className="error-bar">Cloudflare: {domainState.cloudflare.error}</div>}
           </div>
 
           <div className="grid k2">

@@ -155,6 +155,7 @@ run env qa/qa_env.py
 run docs qa/qa_docs.py
 run legal qa/qa_legal.py
 run promo-landing qa/qa_promo_landing.py
+run promo-cloudflare qa/qa_promo_cloudflare.py
 run scheduler qa/qa_scheduler.py
 run public qa/qa_public_chat.py
 run logging qa/qa_logging.py

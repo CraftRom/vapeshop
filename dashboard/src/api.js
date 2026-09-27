@@ -382,6 +382,12 @@ export const api = {
     domainConnect: (id) => request(`/landing-pages/${id}/domain-connect`, { method: 'POST' }),
     domainDisconnect: (id) => request(`/landing-pages/${id}/domain-disconnect`, { method: 'POST' }),
     generateSeo: (id, data) => request(`/landing-pages/${id}/seo-generate`, { method: 'POST', body: data }),
+    cloudflareConfig: () => request('/landing-pages/cloudflare/config'),
+    cloudflareSave: (apiToken) => request('/landing-pages/cloudflare/config', { method: 'PUT', body: { api_token: apiToken } }),
+    cloudflareRemove: () => request('/landing-pages/cloudflare/config', { method: 'DELETE' }),
+    cloudflareDomain: (domain) => request('/landing-pages/cloudflare/domain', { params: { domain } }),
+    cloudflareSync: (domain) => request('/landing-pages/cloudflare/domain/sync', { method: 'POST', params: { domain } }),
+    cloudflareStrict: (domain) => request('/landing-pages/cloudflare/domain/strict', { method: 'POST', params: { domain } }),
     preview: async (id) => {
       const response = await authorizedFetch(new URL(`${BASE}/landing-pages/${id}/preview`, window.location.origin))
       if (!response.ok) throw new ApiError(`Помилка ${response.status}`, response.status)
