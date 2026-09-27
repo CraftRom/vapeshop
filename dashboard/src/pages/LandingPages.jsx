@@ -96,6 +96,35 @@ function prettyCheckState(refreshing, state, autoRefresh) {
   return 'Очікуємо коректний DNS'
 }
 
+
+function promoRuntimeInfo(page, state) {
+  if (!page?.isPublished) return { tone: 'draft', badge: 'Чернетка', text: 'Ще не опубліковано' }
+  if (!state) return { tone: 'checking', badge: 'Перевіряємо', text: 'Оновлюємо стан сторінки' }
+  if (state.error) return { tone: 'problem', badge: 'Проблема', text: 'Не вдалося отримати стан сторінки' }
+  const live = state.live || {}
+  if (live.status === 'up') return { tone: 'ok', badge: 'Працює', text: 'Сайт доступний для відвідувачів' }
+  if (live.status === 'blocked') return { tone: 'problem', badge: 'Обмежено', text: live.message || 'Доступ до сайту обмежено' }
+  if (live.status === 'down' || live.status === 'error' || live.status === 'slow') return { tone: 'problem', badge: live.label || 'Недоступний', text: live.message || 'Сайт не відкривається як слід' }
+  if (state.routePresent && !state.tls?.present) return { tone: 'progress', badge: 'Підключаємо', text: 'Готуємо HTTPS і публічний доступ' }
+  if (!state.routePresent && state.dns?.pointsHere) return { tone: 'progress', badge: 'Готово до підключення', text: 'DNS уже налаштовано, можна запускати сайт' }
+  if (state.dns?.propagating) return { tone: 'progress', badge: 'Поширюється', text: 'Чекаємо оновлення DNS у мережі' }
+  if (state.dns?.ok && state.dns?.pointsHere === false) return { tone: 'problem', badge: 'Інша адреса', text: 'Домен веде не на цей сервер' }
+  if (live.status === 'disabled') return { tone: 'draft', badge: 'Вимкнено', text: live.message || 'Сторінка вимкнена' }
+  return { tone: 'checking', badge: live.label || 'Перевіряємо', text: live.message || 'Оновлюємо стан сторінки' }
+}
+
+function deployReadiness(state) {
+  if (!state) return { tone: 'waiting', title: 'Очікуємо перевірку', text: 'Щойно ви відкрили цей розділ — панель починає перевіряти домен та доступність сайту.' }
+  if (state.live?.status === 'up') return { tone: 'ok', title: 'Сайт працює', text: 'Промо-сторінка доступна для відвідувачів. За потреби можна просто відкрити сайт або оновити контент.' }
+  if (!state.page?.published) return { tone: 'draft', title: 'Спершу опублікуйте сторінку', text: 'Поки сторінка не опублікована, відвідувачі не побачать її навіть при готовому домені.' }
+  if (state.dns?.ok && state.dns?.pointsHere === false) return { tone: 'problem', title: 'Домен веде не туди', text: 'Зараз домен веде на іншу адресу. Виправте DNS-запис і дочекайтеся поширення.' }
+  if (state.dns?.propagating) return { tone: 'progress', title: 'DNS ще оновлюється', text: 'Частина мереж уже бачить правильну адресу, але ще не всі. Панель перевірятиме це автоматично.' }
+  if (state.routePresent && !state.tls?.present) return { tone: 'progress', title: 'Підключаємо захищений доступ', text: 'Маршрут уже створено. Зараз чекаємо HTTPS-сертифікат або завершення перевірки.' }
+  if (state.routePresent && state.tls?.present && state.live?.status !== 'up') return { tone: 'progress', title: 'Майже готово', text: state.live?.message || 'HTTPS уже активний, завершуємо перевірку доступності сайту.' }
+  if (state.dns?.pointsHere) return { tone: 'ready', title: 'Можна запускати сайт', text: 'DNS налаштовано правильно. Наступний крок — підключити домен і видати HTTPS.' }
+  return { tone: 'waiting', title: 'Підготуйте домен', text: 'Почніть із DNS-записів нижче. Коли домен почне вести на цей сервер, запуск стане доступним.' }
+}
+
 export default function LandingPages() {
   const notify = useToast()
   const [pages, setPages] = useState(null)
@@ -116,16 +145,39 @@ export default function LandingPages() {
   const [domainRefreshing, setDomainRefreshing] = useState(false)
   const [domainAutoRefresh, setDomainAutoRefresh] = useState(true)
   const [domainLastCheckedAt, setDomainLastCheckedAt] = useState('')
+  const [pageStates, setPageStates] = useState({})
+  const [pageStatesRefreshing, setPageStatesRefreshing] = useState(false)
   const pollTimer = useRef(null)
   const domainInputTimer = useRef(null)
+  const listPollTimer = useRef(null)
 
   const selected = useMemo(() => (pages || []).find((p) => p.id === selectedId) || null, [pages, selectedId])
+
+  const refreshPageStates = async (list = pages, { silent = false } = {}) => {
+    const source = list || []
+    if (!source.length) { setPageStates({}); return }
+    if (!silent) setPageStatesRefreshing(true)
+    try {
+      const pairs = await Promise.all(source.map(async (page) => {
+        try {
+          const state = await api.landingPages.domainStatus(page.id, page.domain)
+          return [page.id, state]
+        } catch (e) {
+          return [page.id, { error: e.message, page: { published: page.isPublished, version: page.version } }]
+        }
+      }))
+      setPageStates(Object.fromEntries(pairs))
+    } finally {
+      if (!silent) setPageStatesRefreshing(false)
+    }
+  }
 
   const load = async (keepId = selectedId) => {
     try {
       setError('')
       const list = await api.landingPages.list()
       setPages(list)
+      refreshPageStates(list, { silent: true })
       const id = list.some((p) => p.id === keepId) ? keepId : list[0]?.id || null
       setSelectedId(id)
       const item = list.find((p) => p.id === id)
@@ -139,7 +191,11 @@ export default function LandingPages() {
     setForm(normalized(selected))
     api.landingPages.stats(selected.id, 30).then(setStats).catch(() => setStats(null))
     api.landingPages.domainStatus(selected.id, selected.domain)
-      .then((state) => { setDomainState(state); setDomainLastCheckedAt(new Date().toISOString()) })
+      .then((state) => {
+        setDomainState(state)
+        setDomainLastCheckedAt(new Date().toISOString())
+        setPageStates((prev) => ({ ...prev, [selected.id]: state }))
+      })
       .catch((e) => setDomainState({ error: e.message }))
   }, [selectedId, selected?.version, selected?.domain])
 
@@ -221,6 +277,7 @@ export default function LandingPages() {
     try {
       const state = await api.landingPages.domainStatus(selected.id, form.domain || selected.domain)
       setDomainState(state)
+      setPageStates((prev) => selected ? ({ ...prev, [selected.id]: state }) : prev)
       setDomainLastCheckedAt(new Date().toISOString())
       return state
     } catch (e) {
@@ -318,33 +375,59 @@ export default function LandingPages() {
     }
   }, [tab, selected?.id, domainAutoRefresh, domainBusy, domainRefreshing, domainState?.active])
 
+  useEffect(() => {
+    if (!pages?.length) return undefined
+    refreshPageStates(pages, { silent: true })
+    listPollTimer.current = setInterval(() => { refreshPageStates(pages, { silent: true }) }, 15000)
+    return () => {
+      if (listPollTimer.current) { clearInterval(listPollTimer.current); listPollTimer.current = null }
+    }
+  }, [pages?.length, pages?.map((p) => `${p.id}:${p.version}:${p.isPublished}`).join('|')])
+
   const checkSummary = domainCheckSummary(domainState)
   const checkingText = prettyCheckState(domainRefreshing || domainBusy, domainState, domainAutoRefresh)
+  const readiness = deployReadiness(domainState)
+  const currentRuntime = promoRuntimeInfo(selected, pageStates[selected?.id])
 
   if (!pages) return <Loading rows={5} />
 
   return <div>
     <div className="page-head">
-      <div><h1>Промо-сторінки</h1><p>Фіксований шаблон без доступу до CSS/JS. Редагуються лише контент, локальні зображення, домен і SEO.</p></div>
+      <div><h1>Промо-сторінки</h1><p>Тут менеджер працює лише з тим, що справді потрібно: тексти, зображення, промокод, адреса сайту та SEO. Усі технічні деталі панель бере на себе.</p></div>
       <button className="btn" onClick={() => { setForm(newForm()); setCreating(true) }}>Створити сторінку</button>
     </div>
     <ErrorBar error={error} />
 
     {pages.length === 0 ? <Empty title="Ще немає промо-сторінок">Створіть першу сторінку та прив'яжіть до неї домен.</Empty> : <div className="promo-builder-layout">
       <aside className="card promo-page-list">
-        {(pages || []).map((p) => <button key={p.id} className={`promo-page-item ${p.id === selectedId ? 'active' : ''}`} onClick={() => setSelectedId(p.id)}>
-          <strong>{p.name}</strong><span>{p.domain}</span><small>{p.isPublished ? `Опубліковано · v${p.version}` : 'Чернетка'}</small>
-        </button>)}
+        {(pages || []).map((p) => {
+          const runtime = promoRuntimeInfo(p, pageStates[p.id])
+          return <button key={p.id} className={`promo-page-item ${p.id === selectedId ? 'active' : ''}`} onClick={() => setSelectedId(p.id)}>
+            <div className="promo-page-item-top">
+              <strong>{p.name}</strong>
+              <span className={`promo-page-badge ${runtime.tone}`}>{runtime.badge}</span>
+            </div>
+            <span>{p.domain}</span>
+            <small>{p.isPublished ? `Опубліковано · версія ${p.version}` : 'Ще не опубліковано'}</small>
+            <div className="promo-page-runtime">{runtime.text}</div>
+          </button>
+        })}
+        {pageStatesRefreshing && <div className="promo-page-status-note">Оновлюємо стан сторінок…</div>}
       </aside>
 
       {selected && <section className="stack" style={{ gap: 14 }}>
         <div className="card promo-builder-toolbar">
-          <div><strong>{selected.name}</strong><div className="faint">{selected.publicUrl} · {selected.isPublished ? `production v${selected.version}` : 'не опубліковано'}</div></div>
+          <div>
+            <strong>{selected.name}</strong>
+            <div className="faint">{selected.publicUrl} · {selected.isPublished ? `опубліковано, версія ${selected.version}` : 'ще не опубліковано'}</div>
+            <div className={`promo-toolbar-runtime ${currentRuntime.tone}`}>{currentRuntime.badge}: {currentRuntime.text}</div>
+          </div>
           <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
             <button className="btn ghost" onClick={preview} disabled={busy}>Перегляд</button>
             <button className="btn ghost" onClick={save} disabled={busy}>Зберегти</button>
-            <button className="btn" onClick={publish} disabled={busy}>{busy ? 'Зберігаю…' : 'Опублікувати'}</button>
-            {selected.isPublished && <button className="btn ghost" onClick={unpublish} disabled={busy}>Зняти</button>}
+            <button className="btn" onClick={publish} disabled={busy}>{busy ? 'Публікуємо…' : 'Опублікувати'}</button>
+            {selected.isPublished && <a className="btn ghost" href={`https://${form.domain || selected.domain}/`} target="_blank" rel="noreferrer">Відкрити сайт</a>}
+            {selected.isPublished && <button className="btn ghost" onClick={unpublish} disabled={busy}>Зняти з публікації</button>}
             <button className="btn danger" onClick={remove} disabled={busy}>Видалити</button>
           </div>
         </div>
@@ -419,8 +502,8 @@ export default function LandingPages() {
         </div>}
 
         {tab === 'deploy' && <div className="card">
-          <h2 style={{ marginTop: 0 }}>Домен і деплой</h2>
-          <p><strong>Менеджеру не потрібна консоль.</strong> Панель сама перевіряє DNS, випускає або оновлює TLS-сертифікат, активує nginx route і показує результат.</p>
+          <h2 style={{ marginTop: 0 }}>Домен і запуск сайту</h2>
+          <p><strong>Усе керується прямо з панелі.</strong> Тут ви бачите, чи готовий домен, чи працює захищене з'єднання і чи сайт реально відкривається для людей.</p>
           <div className="promo-check-banner">
             <div className={`promo-check-dot ${(domainRefreshing || domainBusy) ? 'is-checking' : checkSummary.overall === 'ready' ? 'is-ok' : checkSummary.overall === 'progress' ? 'is-progress' : 'is-waiting'}`} aria-hidden="true"></div>
             <div className="promo-check-banner-copy">
@@ -494,8 +577,8 @@ export default function LandingPages() {
           <div className="promo-dns-setup">
             <div className="promo-dns-setup-head">
               <div>
-                <h3>Налаштування DNS перед деплоєм</h3>
-                <p>Спочатку внесіть ці записи у DNS-панелі домену. Після поширення DNS натисніть «Оновити статус», і лише тоді підключайте HTTPS.</p>
+                <h3>Що потрібно налаштувати в домені</h3>
+                <p>Скопіюйте записи нижче у вашу DNS-панель. Коли зміни поширяться, панель сама це побачить і дозволить перейти до запуску сайту.</p>
               </div>
               <span className={`promo-dns-badge ${(domainRefreshing || domainBusy) ? 'checking' : domainState?.dns?.pointsHere === true ? 'ok' : 'warn'}`}> 
                 {domainState?.dns?.pointsHere === true ? 'DNS веде на цей VPS' : domainState?.dns?.propagating ? 'DNS ще поширюється' : domainState?.dns?.ok ? 'DNS веде на іншу адресу' : 'Очікуємо DNS'}
@@ -557,31 +640,32 @@ export default function LandingPages() {
             </div>
           </div>
 
-          <div className="grid k3" style={{ marginTop: 14 }}>
-            <Metric label="Маршрут" value={domainRefreshing ? 'Перевіряємо…' : domainState?.routePresent ? 'Активний' : 'Не створено'} />
-            <Metric label="DNS" value={domainRefreshing ? 'Перевіряємо…' : domainState?.dns?.pointsHere === true ? 'Готовий' : domainState?.dns?.ok ? 'Інша адреса' : 'Не готовий'} sub={(domainState?.dns?.addresses || []).join(', ') || domainState?.dns?.error || ''} />
-            <Metric label="TLS" value={domainRefreshing ? 'Перевіряємо…' : domainState?.tls?.present ? 'Активний' : 'Немає'} sub={domainState?.tls?.expiresAt ? `до ${new Date(domainState.tls.expiresAt).toLocaleDateString('uk-UA')}` : ''} />
+          <div className="grid k4" style={{ marginTop: 14 }}>
+            <Metric label="Публічна адреса" value={domainRefreshing ? 'Перевіряємо…' : domainState?.routePresent ? 'Активна' : 'Ще ні'} />
+            <Metric label="Домен" value={domainRefreshing ? 'Перевіряємо…' : domainState?.dns?.pointsHere === true ? 'Готовий' : domainState?.dns?.ok ? 'Інша адреса' : 'Не готовий'} sub={(domainState?.dns?.addresses || []).join(', ') || domainState?.dns?.error || ''} />
+            <Metric label="HTTPS" value={domainRefreshing ? 'Перевіряємо…' : domainState?.tls?.present ? 'Активний' : 'Ще ні'} sub={domainState?.tls?.expiresAt ? `до ${new Date(domainState.tls.expiresAt).toLocaleDateString('uk-UA')}` : ''} />
+            <Metric label="Стан сайту" value={domainRefreshing ? 'Перевіряємо…' : domainState?.live?.label || 'Очікуємо'} sub={domainState?.live?.message || ''} />
           </div>
 
           {domainState?.error && <div className="error-bar" style={{ marginTop: 14 }}>{domainState.error}</div>}
 
           <div className="row" style={{ gap: 8, flexWrap: 'wrap', marginTop: 16 }}>
             {!domainState?.routePresent && <button className="btn" onClick={connectDomain} disabled={domainBusy || !form.domain.trim() || domainState?.dns?.pointsHere === false || !domainState?.dnsRequirements?.configured}>
-              {domainBusy ? 'Підключаємо…' : 'Підключити домен'}
+              {domainBusy ? 'Запускаємо…' : 'Запустити сайт'}
             </button>}
             {domainState?.routePresent && !domainState?.active && <button className="btn" onClick={connectDomain} disabled={domainBusy}>
-              {domainBusy ? 'Перевіряємо TLS…' : 'Повторити підключення TLS'}
+              {domainBusy ? 'Перевіряємо HTTPS…' : 'Повторити перевірку HTTPS'}
             </button>}
             {domainState?.routePresent && <button className="btn danger" onClick={disconnectDomain} disabled={domainBusy}>
-              {domainBusy ? 'Відключаємо…' : 'Відключити домен'}
+              {domainBusy ? 'Відключаємо…' : 'Вимкнути сайт'}
             </button>}
             <button className={`btn ghost ${domainRefreshing ? 'is-loading' : ''}`} onClick={() => refreshDomain()} disabled={domainBusy || domainRefreshing}>{domainRefreshing ? 'Перевіряємо…' : 'Оновити статус'}</button>
             {domainState?.active && <a className="btn ghost" href={`https://${selected.domain}/`} target="_blank" rel="noreferrer">Відкрити сайт</a>}
           </div>
 
           <div className="card" style={{ marginTop: 14, background: 'var(--panel-2, rgba(0,0,0,.12))' }}>
-            <strong>Ізоляція</strong>
-            <p className="faint" style={{ marginBottom: 0 }}>Панель не має Docker socket, root або shell-доступу. Доменами керує окремий внутрішній Promo Controller: він бачить тільки promo-конфіги, ACME/TLS-сховище та може лише послати nginx сигнал reload. До основної БД він доступу не має.</p>
+            <strong>Технічний блок</strong>
+            <p className="faint" style={{ marginBottom: 0 }}>Для безпеки доменами керує окремий внутрішній сервіс. Панель не має root або shell-доступу, а технічні деталі винесені в цей блок, щоб не заважати щоденній роботі менеджера.</p>
           </div>
         </div>}
       </section>}

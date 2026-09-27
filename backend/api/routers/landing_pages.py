@@ -143,6 +143,29 @@ async def _cloudflare_domain_info(db: AsyncSession, domain: str, origin_ipv4: st
 
 
 
+async def _public_site_probe(domain: str) -> dict:
+    url = f"https://{domain}/"
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(8.0, connect=4.0), follow_redirects=True) as client:
+            response = await client.get(url, headers={"User-Agent": "elfar-promo-check/1.0"})
+        code = response.status_code
+        if 200 <= code < 400:
+            return {"ok": True, "status": "up", "code": code, "label": "Працює", "message": "Сайт відкривається для відвідувачів."}
+        if code in {401, 403}:
+            return {"ok": False, "status": "blocked", "code": code, "label": "Обмежено", "message": "Сайт відповідає, але доступ зараз обмежений."}
+        if 400 <= code < 500:
+            return {"ok": False, "status": "error", "code": code, "label": "Є проблема", "message": f"Сайт відповідає помилкою {code}."}
+        return {"ok": False, "status": "error", "code": code, "label": "Є проблема", "message": f"Сайт відповідає помилкою {code}."}
+    except httpx.ConnectError:
+        return {"ok": False, "status": "down", "label": "Недоступний", "message": "Не вдалося підключитися до сайту."}
+    except httpx.ConnectTimeout:
+        return {"ok": False, "status": "slow", "label": "Немає відповіді", "message": "Сайт не встиг відповісти вчасно."}
+    except httpx.ReadTimeout:
+        return {"ok": False, "status": "slow", "label": "Повільна відповідь", "message": "Сайт відповідає занадто повільно."}
+    except httpx.HTTPError as exc:
+        return {"ok": False, "status": "error", "label": "Помилка перевірки", "message": f"Не вдалося перевірити сайт: {type(exc).__name__}."}
+
+
 DEFAULT_CONTENT = {
     "background_image": "",
     "logo_image": "",
@@ -718,6 +741,13 @@ async def domain_status(
         state["dns"]["proxyAddresses"] = list(state["dns"].get("addresses") or [])
         state["dns"]["wrongAddresses"] = []
         state["dns"]["propagating"] = False
+    if state.get("routePresent") and state.get("tls", {}).get("present"):
+        state["live"] = await _public_site_probe(target)
+    elif row.is_published:
+        state["live"] = {"ok": False, "status": "preparing", "label": "Готується", "message": "Сторінка опублікована, але зовнішня адреса ще не готова."}
+    else:
+        state["live"] = {"ok": False, "status": "disabled", "label": "Вимкнено", "message": "Сторінка ще не доступна для відвідувачів."}
+    state["page"] = {"published": bool(row.is_published), "version": row.version}
     return state
 
 
