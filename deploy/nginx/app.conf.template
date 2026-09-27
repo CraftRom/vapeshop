@@ -36,6 +36,21 @@ map $host $dashboard_static {
     default "http://dashboard:80";
 }
 
+# Внутрішній health endpoint для deploy. Він не публікується назовні і
+# не залежить ані від PUBLIC_URL, ані від будь-якого промо-домену.
+# Перевіряє саме nginx -> API через той самий runtime DNS-механізм.
+server {
+    listen 127.0.0.1:8080;
+    server_name _;
+    location = /__deploy_api_health {
+        set $deploy_api_health "http://api:8000/api/health";
+        proxy_pass $deploy_api_health;
+        proxy_set_header Host localhost;
+        proxy_connect_timeout 3s;
+        proxy_read_timeout 3s;
+    }
+}
+
 # ------------------------------------------------------------------------ HTTP
 #
 # Порт 80 ніколи не віддає API, панель чи Mini App незашифрованими.
