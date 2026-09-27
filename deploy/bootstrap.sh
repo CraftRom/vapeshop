@@ -224,18 +224,12 @@ chmod +x "$REPO_DIR"/deploy/*.sh
 echo "    $(ls "$REPO_DIR"/deploy/*.sh | wc -l) скриптів позначено виконуваними"
 
 
-say "Звʼязок compose із .env"
-# docker compose читає два різні набори змінних, і плутанина між ними —
-# класична пастка:
-#   • env_file: ../.env — те, що бачить процес ВСЕРЕДИНІ контейнера
-#   • ${VAR} у самому YAML — підставляється з файлу .env поруч
-#     із compose-файлом, тобто з deploy/.env
-#
-# Без цього симлінка ${POSTGRES_USER} розкривається в порожній рядок,
-# Postgres відмовляється ініціалізуватись, а compose каже лише
-# «container deploy-db-1 is unhealthy», не називаючи причини.
-ln -sfn ../.env "$REPO_DIR/deploy/.env"
-echo "    deploy/.env → ../.env"
+say "Єдине джерело змінних оточення"
+# Усі production-команди тепер явно запускають compose з
+# --env-file ../.env. Другий deploy/.env більше не потрібний: саме два
+# паралельні env-файли могли розвести паролі Postgres/Redis та API.
+rm -f "$REPO_DIR/deploy/.env"
+echo "    compose використовує тільки ../.env"
 
 
 say "Конфігурація nginx"

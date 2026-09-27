@@ -22,7 +22,7 @@ POSTGRES_PASSWORD=$(env_value POSTGRES_PASSWORD)
 POSTGRES_DB=$(env_value POSTGRES_DB)
 export POSTGRES_USER POSTGRES_PASSWORD POSTGRES_DB
 
-COMPOSE="docker compose -f docker-compose.prod.yml"
+COMPOSE="docker compose --env-file ../.env -f docker-compose.prod.yml"
 STAMP=$(date +%F_%H%M)
 TARGET="backups/elfar-manual-${STAMP}.dump"
 mkdir -p backups

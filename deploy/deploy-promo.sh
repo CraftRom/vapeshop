@@ -3,7 +3,7 @@
 # database, redis, certbot or unrelated services.
 set -euo pipefail
 
-COMPOSE="docker compose -f docker-compose.prod.yml"
+COMPOSE="docker compose --env-file ../.env -f docker-compose.prod.yml"
 cd "$(dirname "$0")"
 
 if [[ ! -f ../.env ]]; then

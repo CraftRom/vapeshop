@@ -197,3 +197,5 @@ echo
 [ $fail -eq 0 ] && echo "Усі набори пройдено" || echo "Є провали — див. вище"
 exit $fail
 
+
+python3 backend/qa/qa_promo_google.py

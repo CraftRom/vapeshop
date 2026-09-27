@@ -19,7 +19,7 @@ POSTGRES_USER=$(env_value POSTGRES_USER)
 POSTGRES_PASSWORD=$(env_value POSTGRES_PASSWORD)
 POSTGRES_DB=$(env_value POSTGRES_DB)
 export POSTGRES_USER POSTGRES_PASSWORD POSTGRES_DB
-COMPOSE="docker compose -f docker-compose.prod.yml"
+COMPOSE="docker compose --env-file ../.env -f docker-compose.prod.yml"
 
 [[ $# -eq 1 ]] || { echo "Вкажіть файл бекапу: ./restore.sh backups/elfar-....dump" >&2; exit 1; }
 [[ -f $1 ]] || { echo "Файл $1 не знайдено" >&2; exit 1; }

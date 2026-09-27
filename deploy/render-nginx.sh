@@ -10,7 +10,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")"
-COMPOSE="docker compose -f docker-compose.prod.yml"
+COMPOSE="docker compose --env-file ../.env -f docker-compose.prod.yml"
 
 env_value() {
     sed -n "s/^$1=//p" ../.env | head -1 | sed 's/^["'"'"']//; s/["'"'"']$//'

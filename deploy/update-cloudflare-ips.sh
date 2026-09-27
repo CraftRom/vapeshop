@@ -11,7 +11,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 TARGET="nginx/cloudflare-realip.conf"
-COMPOSE="docker compose -f docker-compose.prod.yml"
+COMPOSE="docker compose --env-file ../.env -f docker-compose.prod.yml"
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 

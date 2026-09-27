@@ -19,7 +19,7 @@ SCRIPT_VERSION="2026-09-19.1"
 
 cd "$(dirname "$0")"
 echo "certbot-init ${SCRIPT_VERSION}"
-COMPOSE="docker compose -f docker-compose.prod.yml"
+COMPOSE="docker compose --env-file ../.env -f docker-compose.prod.yml"
 
 [[ $# -ge 1 ]] || { echo "Вкажіть домени: ./certbot-init.sh elfar.pp.ua" >&2; exit 1; }
 
