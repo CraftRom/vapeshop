@@ -255,7 +255,7 @@ async def scenario():
     r.check(fresh.crm_state == "pending", "зміна статусу з панелі ставить позначку", fresh.crm_state)
     r.check(order.id in kicked, "і одразу запускає фонову відправку")
     update = salesdrive.update_payload(fresh, shop)
-    r.check(update.get("id") == "5501" and update["data"].get("statusId") == "2"
+    r.check(str(update.get("id")) == "5501" and update["data"].get("statusId") == "2"
             and "comment" not in update["data"],
             "оновлення — за номером заявки, лише статус, чужі правки в CRM не затираються", update)
 
@@ -371,8 +371,10 @@ async def scenario():
             jump = await repo.get_order(jump.id)
         r.check(response.status_code == 200 and response.json()["result"] == "rejected",
                 "недопустимий перехід із CRM відхилено, SalesDrive не повторює", response.text[:160])
-        r.check(jump.status == OrderStatus.NEW and "не застосовано" in (jump.crm_error or ""),
-                "причина відмови видна біля замовлення", jump.crm_error)
+        # CRM є джерелом статусу: пропущені ACCEPTED/PAID застосовуються
+        # послідовно, але SHIPPED без ТТН залишається заблокованим.
+        r.check(jump.status == OrderStatus.PAID and "не застосовано" in (jump.crm_error or ""),
+                "відправлення без ТТН заблоковано, причина видна", (jump.status, jump.crm_error))
 
         unknown = await client.post(f"/api/integrations/salesdrive/webhook/{TOKEN}",
                                     json={"info": {"webhookEvent": "new_order", "account": "elfar"}, "data": {"id": 777, "formId": 4242}})

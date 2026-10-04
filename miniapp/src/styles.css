@@ -138,7 +138,8 @@
 
 * { box-sizing: border-box; }
 
-html, body, #root { min-height: 100%; }
+html, body, #root { min-height: 100%; min-width: 0; }
+html { overflow-y: auto; }
 
 body {
   margin: 0;
@@ -440,8 +441,10 @@ input, textarea, select {
      Плавної прокрутки з окремим шаром тут навмисно немає: саме вона
      піднімала список над формою, через що сусіднє поле переставало
      перемальовуватись. */
-  max-height: 240px;
+  max-height: min(240px, max(96px, calc(var(--viewport-height, 100dvh) - 200px)));
   overflow-y: auto;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
 }
 
 .combo-item {
@@ -749,11 +752,16 @@ input, textarea, select {
   overflow-x: auto;
   scroll-padding-inline: var(--page-x);
   scroll-snap-type: x proximity;
-  scrollbar-width: none;
+  scrollbar-width: thin;
+  scrollbar-color: var(--tg-hint) transparent;
+  min-width: 0;
+  touch-action: pan-x pan-y;
   -webkit-overflow-scrolling: touch;
 }
 
-.rail::-webkit-scrollbar { display: none; }
+.rail::-webkit-scrollbar { height: 6px; }
+.rail::-webkit-scrollbar-thumb { background: var(--tg-hint); border-radius: 8px; }
+.rail:focus-visible { outline-offset: -2px; }
 
 .rail > .chip { scroll-snap-align: start; }
 
@@ -1711,7 +1719,12 @@ input, textarea, select {
   width: 100%;
   max-width: var(--content-max);
   max-height: 80vh;
+  max-height: min(80dvh, calc(var(--viewport-height, 100dvh) - 24px));
   margin: 0 auto;
+  min-height: 0;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
   overflow-y: auto;
   padding: var(--s2) var(--page-x) calc(var(--s4) + var(--safe-bottom));
   border-radius: var(--radius-sheet) var(--radius-sheet) 0 0;
@@ -1736,6 +1749,7 @@ input, textarea, select {
   gap: var(--s3);
 }
 
+.sheet-head { position: sticky; top: -8px; z-index: 1; background: var(--card); padding: 8px 0; }
 .sheet-head strong { font-size: 18px; font-weight: 600; }
 
 .sheet-sub { margin: 2px 0 var(--s3); }

@@ -44,6 +44,10 @@ def boot(db_path):
         def __init__(s): s.sent = []; s._i = 0
         async def send_message(s, cid, text, **kw):
             s._i += 1; s.sent.append((cid, text)); return type("M", (), {"message_id": s._i})()
+        async def send_photo(s, cid, photo, **kw):
+            from types import SimpleNamespace
+            s._i += 1; s.sent.append((cid, kw.get('caption', '')))
+            return SimpleNamespace(message_id=s._i, photo=[SimpleNamespace(file_id=f'qa-photo-{s._i}')])
         async def get_file(s, fid): raise RuntimeError("Telegram недоступний у тесті")
     import api.routers.telegram as tg
     fake = FakeBot()

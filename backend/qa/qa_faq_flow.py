@@ -15,7 +15,7 @@ def check(c,l,d=""):
 
 class Msg:
     def __init__(s, text, reply=False):
-        s.text=text; s.caption=None; s.replies=[]
+        s.text=text; s.caption=None; s.replies=[]; s.message_id=99
         s.reply_to_message = SimpleNamespace(message_id=1) if reply else None
         s.bot = SimpleNamespace(send_message=s._send)
     async def _send(s, *a, **k): return SimpleNamespace(message_id=99)
@@ -86,6 +86,7 @@ async def main():
     async with e.begin() as c: await c.run_sync(Base.metadata.create_all)
     async with async_sessionmaker(e,expire_on_commit=False)() as s:
         await run(SqlRepository(s),"SQL")
+    await e.dispose()
     print(f"\n{'ПРОВАЛЕНО: '+str(len(fails)) if fails else 'усе витримано'}")
     for f in set(fails): print("  -",f)
 

@@ -1,4 +1,6 @@
-import { createContext, useCallback, useContext, useEffect, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
+
+import { mountDialog } from './dialog'
 
 // ------------------------------------------------------------------ сповіщення
 
@@ -46,15 +48,14 @@ export function Field({ label, hint, children }) {
 // -------------------------------------------------------------------- модалка
 
 export function Modal({ title, onClose, children, footer }) {
-  useEffect(() => {
-    const onKey = (e) => e.key === 'Escape' && onClose()
-    document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
-  }, [onClose])
+  const modalRef = useRef(null)
+  const closeRef = useRef(onClose)
+  closeRef.current = onClose
+  useEffect(() => mountDialog(modalRef.current, () => closeRef.current()), [])
 
   return (
     <div className="overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="modal" role="dialog" aria-modal="true" aria-label={title}>
+      <div className="modal" ref={modalRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label={title}>
         <header>
           <h2>{title}</h2>
           <button className="icon-btn" onClick={onClose} aria-label="Закрити">×</button>

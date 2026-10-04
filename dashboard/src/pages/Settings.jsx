@@ -1,14 +1,15 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { api, isAdmin, isSysadmin } from '../api'
 import { ErrorBar, Field, Loading, useToast } from '../components/ui'
+import { SETTINGS_CATEGORIES, categoryFor, changedSettings } from '../settingsModel'
 
 // Менеджер бачить лише реферальну програму: решта параметрів — реквізити,
 // адреси, список менеджерів — за адміністратором. Бекенд це теж перевіряє,
 // тут ми просто не показуємо те, що все одно не збережеться.
 // Доступно адміністраторові магазину.
 const ADMIN_ONLY = new Set([
-  'Магазин', 'Доставка', 'Реквізити продавця',
+  'Магазин', 'Доставка', 'Реквізити продавця', 'Автовідповіді',
 ])
 
 // Доступно ЛИШЕ системному адміністраторові. Це не про довіру, а про ціну
@@ -30,6 +31,21 @@ const PAYMENT_KEYS = [['card', 'Переказ на картку'], ['cod', 'Н�
 const SHIPPING_KEYS = [['warehouse', 'Відділення Нової пошти'], ['courier', 'Курʼєр на адресу']]
 
 const FIELDS = [
+  {
+    title: 'Автовідповіді',
+    toggle: 'auto_replies_enabled',
+    hint: 'Загальний вимикач усієї FAQ-автоматики: приватні повідомлення, підтримка, групи, згадки @бота та привітання при додаванні до групи. Команди, оформлення замовлень, відповіді менеджерів і сповіщення про замовлення працюють далі. Зміни застосовуються протягом 30 секунд.',
+    items: [
+      { key: 'faq_private_enabled', label: 'Приватні повідомлення', bool: true,
+        hint: 'Відповіді на типові питання поза активним зверненням у підтримку.' },
+      { key: 'faq_support_enabled', label: 'Звернення в підтримку', bool: true,
+        hint: 'FAQ в активному зверненні. Коли менеджер уже веде розмову, бот не втручається.' },
+      { key: 'faq_public_enabled', label: 'Звичайні Telegram-групи', bool: true,
+        hint: 'Реакція на типові питання без прямої згадки бота.' },
+      { key: 'faq_admin_chat_enabled', label: 'Робочий чат замовлень', bool: true,
+        hint: 'Реакція без згадки у чаті команди. Поки загальна автоматика ввімкнена, прямі згадки працюють і з вимкненим перемикачем групи.' },
+    ],
+  },
   {
     title: 'Бонуси',
     toggle: 'bonus_enabled',
@@ -96,23 +112,6 @@ const FIELDS = [
     title: 'Telegram-група',
     hint: 'Куди бот надсилає нові замовлення і хто керує ними прямо в чаті.',
     items: [
-      {
-        key: 'faq_public_enabled',
-        label: 'Відповіді на ключові слова у звичайних групах',
-        bool: true,
-        hint: 'Клієнтські чати. Увімкнено — бот сам відповідає, коли впізнає '
-              + 'питання про доставку, оплату чи повернення: людина отримує '
-              + 'відповідь уночі й не чекає менеджера',
-      },
-      {
-        key: 'faq_admin_chat_enabled',
-        label: 'Те саме в робочому чаті замовлень',
-        bool: true,
-        hint: 'Окремо, бо чат інший за призначенням: там працює команда, і '
-              + 'довідка для клієнтів посеред її розмови — шум. Вимкнено за '
-              + 'замовчуванням. Пряме звернення через @ працює за будь-якого '
-              + 'положення обох перемикачів',
-      },
       {
         key: 'admin_chat_id',
         label: 'ID чату для замовлень',
@@ -507,6 +506,7 @@ function WebhookToken({ connected, value, onChange }) {
       <button type="button" className="btn ghost small" onClick={generate}>
         {connected ? 'Згенерувати нову адресу' : 'Згенерувати адресу'}
       </button>
+      {connected && <button type="button" className="btn ghost small" onClick={() => onChange('')} disabled={value === ''}>Відключити вебхук</button>}
       {url ? (
         <p className="faint webhook-url" style={{ margin: '8px 0 0' }}>
           Скопіюйте в SalesDrive (Установки → Інші сервіси → Webhook, події «Нова заявка» й
@@ -558,6 +558,9 @@ export default function Settings() {
   const [initial, setInitial] = useState(null)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const savingRef = useRef(false)
+  const [category, setCategory] = useState(isAdmin() ? 'store' : 'loyalty')
+  const [query, setQuery] = useState('')
   const [sdDicts, setSdDicts] = useState({ statuses: [], payments: [], deliveries: [] })
   const [sdDictError, setSdDictError] = useState('')
   const [sdDictBusy, setSdDictBusy] = useState(false)
@@ -584,7 +587,9 @@ export default function Settings() {
       .catch((err) => setError(err.message))
   }, [])
 
-  useEffect(() => { loadSalesDriveDictionaries() }, [])
+  useEffect(() => {
+    if (isSysadmin() && category === 'integrations') loadSalesDriveDictionaries()
+  }, [category])
 
   const autoMapSalesDrive = () => {
     const norm = (v) => String(v || '').toLowerCase().replace(/[ʼ'’]/g, '').replace(/[^a-zа-яіїєґ0-9]+/giu, ' ').trim()
@@ -615,17 +620,31 @@ export default function Settings() {
 
   const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }))
 
-  const dirty = Boolean(form && initial) && [...editableKeys()].some(
-    (key) => String(form[key]) !== String(initial[key]),
-  )
+  const changes = changedSettings(form, initial, editableKeys())
+  const dirty = Object.keys(changes).length > 0
+  const groups = visibleGroups()
+  const categories = SETTINGS_CATEGORIES.filter((item) => groups.some((group) => categoryFor(group.title) === item.id))
+  const needle = query.trim().toLocaleLowerCase('uk-UA')
+  const shownGroups = groups.filter((group) => needle
+    ? [group.title, group.hint, ...group.items.flatMap((item) => [item.label, item.hint])].join(' ').toLocaleLowerCase('uk-UA').includes(needle)
+    : categoryFor(group.title) === category)
+
+  useEffect(() => {
+    if (!dirty) return
+    const warn = (event) => { event.preventDefault(); event.returnValue = '' }
+    window.addEventListener('beforeunload', warn)
+    return () => window.removeEventListener('beforeunload', warn)
+  }, [dirty])
 
   const save = async () => {
+    if (savingRef.current || !dirty) return
+    savingRef.current = true
     setBusy(true)
     setError('')
     try {
       const mine = editableKeys()
       const payload = Object.fromEntries(
-        Object.entries(form).filter(([key]) => mine.has(key)),
+        Object.entries(changes).filter(([key]) => mine.has(key)),
       )
       const saved = await api.settings.update(payload)
       setForm(saved)
@@ -634,6 +653,7 @@ export default function Settings() {
     } catch (err) {
       setError(err.message)
     } finally {
+      savingRef.current = false
       setBusy(false)
     }
   }
@@ -648,7 +668,7 @@ export default function Settings() {
       <div className="page-head">
         <div>
           <h1>Налаштування</h1>
-          <p>Параметри магазину, які раніше задавалися лише змінними оточення</p>
+          <p>Магазин, автоматизація та інтеграції — за розділами</p>
         </div>
         <div className="row">
           <button className="btn ghost" onClick={reset} disabled={!dirty || busy}>
@@ -662,7 +682,19 @@ export default function Settings() {
 
       <ErrorBar error={error} />
 
-      {visibleGroups().map((group) => (
+      <div className="settings-tools">
+        <input className="input" type="search" aria-label="Пошук налаштувань" placeholder="Знайти налаштування…" value={query} onChange={(event) => setQuery(event.target.value)} />
+        <nav className="settings-tabs" aria-label="Розділи налаштувань" tabIndex={0}>
+          {categories.map((item) => <button type="button" className={`btn ghost small ${category === item.id && !needle ? 'active' : ''}`} key={item.id}
+            aria-pressed={category === item.id && !needle} onClick={() => { setCategory(item.id); setQuery('') }}>
+            {item.label}
+          </button>)}
+        </nav>
+      </div>
+      {needle && <p className="faint settings-search-result" role="status">Знайдено розділів: {shownGroups.length}</p>}
+      {!shownGroups.length && <div className="card"><p>Нічого не знайдено. Спробуйте іншу назву.</p></div>}
+      <fieldset className="settings-form" disabled={busy}>
+      {shownGroups.map((group) => (
         <div className="card" key={group.title} style={{ marginBottom: 18 }}>
           <div className="row-between">
             <h2 style={{ margin: 0 }}>{group.title}</h2>
@@ -670,6 +702,7 @@ export default function Settings() {
               <label className="row" style={{ gap: 8, cursor: 'pointer' }}>
                 <input
                   type="checkbox"
+                  role="switch" aria-label={group.title}
                   checked={Boolean(form[group.toggle])}
                   onChange={(e) =>
                     setForm((f) => ({ ...f, [group.toggle]: e.target.checked }))
@@ -682,7 +715,8 @@ export default function Settings() {
           {group.hint && <p className="faint">{group.hint}</p>}
           {/* Поля вимкненого модуля лишаються видимими, лише приглушеними:
               їх треба налаштувати ДО того, як вмикати */}
-          <div style={{ opacity: group.toggle && !form[group.toggle] ? 0.45 : 1 }}>
+          <div className={group.toggle && !form[group.toggle] ? 'settings-paused' : ''}>
+          {group.title === 'Автовідповіді' && !form.auto_replies_enabled && <p className="faint" role="status">Уся FAQ-автоматика вимкнена. Налаштування каналів збережені для наступного ввімкнення.</p>}
           {group.items.map((item) => (
             <Field key={item.key} label={item.label} hint={item.hint}>
               {item.map ? (
@@ -703,16 +737,20 @@ export default function Settings() {
                 <label className="row" style={{ gap: 8, cursor: 'pointer' }}>
                   <input
                     type="checkbox"
+                    role="switch" aria-label={item.label}
+                    disabled={group.title === 'Автовідповіді' && !form.auto_replies_enabled}
                     checked={Boolean(form[item.key])}
                     onChange={(e) =>
                       setForm((f) => ({ ...f, [item.key]: e.target.checked }))
                     }
                   />
-                  {form[item.key] ? 'Увімкнено' : 'Вимкнено'}
+                  {group.title === 'Автовідповіді' && !form.auto_replies_enabled ? 'Призупинено' : form[item.key] ? 'Увімкнено' : 'Вимкнено'}
                 </label>
               ) : (
               <input
                 className="input"
+                aria-label={item.label}
+                step={item.type === 'number' ? 'any' : undefined}
                 type={item.secret ? 'password' : item.type || 'text'}
                 value={form[item.key] ?? ''}
                 onChange={set(item.key)}
@@ -732,15 +770,20 @@ export default function Settings() {
                   показуємо стан — цього досить, щоб зрозуміти, чи
                   все налаштовано. */}
               {item.secret && (
+                <>
+                {form[item.secret] && <button type="button" className="btn ghost small" onClick={() => setForm((f) => ({ ...f, [item.key]: '' }))} disabled={form[item.key] === ''}>
+                  {form[item.key] === '' ? 'Ключ буде видалено після збереження' : 'Відключити інтеграцію'}
+                </button>}
                 <p className="faint" style={{ margin: '6px 0 0' }}>
                   {form[item.secret]
                     ? 'Підключено. Прочитати збережений ключ назад не можна: '
-                      + 'щоб замінити — впишіть новий, щоб відключити — очистіть '
-                      + 'поле й збережіть.'
+                      + 'щоб замінити — впишіть новий, щоб відключити — натисніть '
+                      + '«Відключити інтеграцію» й збережіть.'
                     // Підказка своя для кожного ключа. Раніше текст про місто
                     // й відділення стояв під будь-яким секретом.
                     : `Не підключено. ${item.secretHint || ''}`}
                 </p>
+                </>
               )}
             </Field>
           ))}
@@ -761,6 +804,14 @@ export default function Settings() {
           </>}
         </div>
       ))}
+      </fieldset>
+      <div className="settings-save-bar" role="region" aria-label="Збереження налаштувань">
+        <span role="status">{busy ? 'Зберігаємо…' : dirty ? `Незбережених змін: ${Object.keys(changes).length}` : 'Усі зміни збережено'}</span>
+        <div className="row">
+          <button type="button" className="btn ghost small" onClick={reset} disabled={!dirty || busy}>Скасувати</button>
+          <button type="button" className="btn small" onClick={save} disabled={!dirty || busy}>{busy ? 'Збереження…' : 'Зберегти'}</button>
+        </div>
+      </div>
 
       {!isSysadmin() && (
         <div className="card" style={{ marginBottom: 18 }}>
@@ -775,9 +826,9 @@ export default function Settings() {
         </div>
       )}
 
-      {isSysadmin() && <EnvironmentCard />}
+      {isSysadmin() && !needle && category === 'system' && <EnvironmentCard />}
 
-      {isSysadmin() && (
+      {isSysadmin() && !needle && category === 'system' && (
       <div className="card" style={{ marginBottom: 18 }}>
         <h2 style={{ marginTop: 0 }}>Що змінюється лише в оточенні</h2>
         <p className="faint" style={{ marginTop: -6 }}>
@@ -794,7 +845,7 @@ export default function Settings() {
       )}
 
       <p className="faint">
-        Порожнє поле повертає значення зі змінних оточення. Зміни доїжджають до бота
+        Зберігаються лише змінені поля. Зміни доїжджають до бота
         протягом 30 секунд. Після зміни адреси сайту або назви Mini App напишіть боту
         <code> /start</code>, щоб кнопка перемалювалася з новим посиланням.
       </p>

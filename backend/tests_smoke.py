@@ -48,8 +48,8 @@ async def main() -> None:
         category = Category(name="Одноразові поди")
         s.add(category)
         await s.flush()
-        pod = Product(category_id=category.id, name="Elf Bar BC5000", price=Decimal(400), stock=10)
-        liquid = Product(category_id=category.id, name="Рідина 30 мл", price=Decimal(250), stock=4)
+        pod = Product(category_id=category.id, name="Elf Bar BC5000", sku="QA-POD", price=Decimal(400), stock=10)
+        liquid = Product(category_id=category.id, name="Рідина 30 мл", sku="QA-LIQUID", price=Decimal(250), stock=4)
         s.add_all([pod, liquid])
         s.add(
             PromoCode(

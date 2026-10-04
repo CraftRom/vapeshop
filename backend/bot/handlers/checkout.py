@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 import secrets
 from decimal import Decimal
+from html import escape
 
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
@@ -48,7 +49,8 @@ async def start_checkout(
     # Старе inline-повідомлення з кнопкою може лишатися в чаті. Подвійний
     # tap або повтор по старій кнопці не повинен запускати другу FSM-форму
     # і перезаписувати checkout_key активної спроби.
-    if await state.get_state():
+    active_state = await state.get_state()
+    if active_state and active_state != Checkout.receipt.state:
         await callback.answer("Оформлення вже розпочато", show_alert=True)
         return
 
@@ -59,6 +61,11 @@ async def start_checkout(
     if not await repo.get_cart(user.id):
         await callback.answer("Кошик порожній", show_alert=True)
         return
+
+    # Очікування квитанції стосується вже створеного замовлення й не
+    # повинно блокувати нову покупку. Квитанцію старого замовлення можна
+    # надіслати через його чат.
+    await state.clear()
 
     # Один ключ на одну спробу оформлення. Якщо Telegram доставить два
     # callback-и від швидкого подвійного натискання «Підтвердити», обидва
@@ -72,8 +79,8 @@ async def start_checkout(
 @router.message(Checkout.name, F.text)
 async def step_name(message: Message, state: FSMContext) -> None:
     name = message.text.strip()
-    if len(name) < 3:
-        await message.answer("Введіть ім'я та прізвище повністю.")
+    if not 3 <= len(name) <= 128:
+        await message.answer("Введіть ім'я та прізвище повністю: від 3 до 128 символів.")
         return
     await state.update_data(name=name)
     await state.set_state(Checkout.phone)
@@ -107,14 +114,22 @@ async def step_phone_text(message: Message, state: FSMContext) -> None:
 
 @router.message(Checkout.city, F.text)
 async def step_city(message: Message, state: FSMContext) -> None:
-    await state.update_data(city=message.text.strip())
+    city = message.text.strip()
+    if not 1 <= len(city) <= 128:
+        await message.answer("Вкажіть місто: від 1 до 128 символів.")
+        return
+    await state.update_data(city=city)
     await state.set_state(Checkout.address)
     await message.answer(texts.CHECKOUT_ADDRESS)
 
 
 @router.message(Checkout.address, F.text)
 async def step_address(message: Message, state: FSMContext) -> None:
-    await state.update_data(address=message.text.strip())
+    address = message.text.strip()
+    if not 1 <= len(address) <= 255:
+        await message.answer("Вкажіть відділення або адресу: від 1 до 255 символів.")
+        return
+    await state.update_data(address=address)
     await state.set_state(Checkout.promo)
     await message.answer(texts.CHECKOUT_PROMO, reply_markup=kb.SKIP)
 
@@ -167,7 +182,11 @@ async def step_bonus(callback: CallbackQuery, state: FSMContext) -> None:
 
 @router.callback_query(Checkout.payment, F.data.startswith("pay:"))
 async def step_payment(callback: CallbackQuery, state: FSMContext) -> None:
-    await state.update_data(payment=callback.data.split(":")[1])
+    payment = callback.data.split(":", 1)[1]
+    if payment not in ("card", "cod"):
+        await callback.answer("Оберіть доступний спосіб оплати", show_alert=True)
+        return
+    await state.update_data(payment=payment)
     await state.set_state(Checkout.comment)
     await callback.message.edit_text(texts.CHECKOUT_COMMENT, reply_markup=kb.SKIP)
     await callback.answer()
@@ -175,6 +194,9 @@ async def step_payment(callback: CallbackQuery, state: FSMContext) -> None:
 
 @router.message(Checkout.comment, F.text)
 async def step_comment(message: Message, state: FSMContext, repo: Repository, user: User) -> None:
+    if len(message.text.strip()) > 500:
+        await message.answer("Скоротіть коментар до 500 символів.")
+        return
     await state.update_data(comment=message.text.strip())
     await _show_summary(message, state, repo, user)
 
@@ -199,22 +221,31 @@ async def _show_summary(message: Message, state: FSMContext, repo: Repository, u
 
     lines = ["<b>Перевірте замовлення</b>\n"]
     for line in items:
-        lines.append(f"• {line.product.name} × {line.qty} — {line.line_total:.0f} грн")
+        lines.append(f"• {escape(line.product.name)} × {line.qty} — {line.line_total:.0f} грн")
     lines.append(f"\nСума: {subtotal:.0f} грн")
     if discount:
-        lines.append(f"Промокод {data.get('promo')}: −{discount:.0f} грн")
+        lines.append(f"Промокод {escape(str(data.get('promo') or ''))}: −{discount:.0f} грн")
     if bonus:
         lines.append(f"Бонуси: −{bonus:.0f} грн")
     lines.append(f"<b>До сплати: {total:.0f} грн</b>\n")
-    lines.append(f"Отримувач: {data.get('name')}")
-    lines.append(f"Телефон: {data.get('phone')}")
-    lines.append(f"Доставка: {data.get('city')}, {data.get('address')}")
+    lines.append(f"Отримувач: {escape(str(data.get('name') or ''))}")
+    lines.append(f"Телефон: {escape(str(data.get('phone') or ''))}")
+    lines.append(f"Доставка: {escape(str(data.get('city') or ''))}, {escape(str(data.get('address') or ''))}")
     lines.append("Оплата: " + ("переказ на картку" if data.get("payment") == "card" else "накладений платіж"))
     if data.get("comment"):
-        lines.append(f"Коментар: {data['comment']}")
+        lines.append(f"Коментар: {escape(str(data['comment']))}")
 
     await state.set_state(Checkout.confirm)
-    await message.answer("\n".join(lines), reply_markup=kb.confirm_order())
+    chunks, chunk = [], ""
+    for line in lines:
+        if chunk and len(chunk) + len(line) + 1 > 3500:
+            chunks.append(chunk)
+            chunk = ""
+        chunk += ("\n" if chunk else "") + line
+    if chunk:
+        chunks.append(chunk)
+    for index, text in enumerate(chunks):
+        await message.answer(text, reply_markup=kb.confirm_order() if index == len(chunks) - 1 else None)
 
 
 @router.callback_query(Checkout.confirm, F.data == "order:cancel")

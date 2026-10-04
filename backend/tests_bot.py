@@ -375,7 +375,7 @@ async def run(backend: str) -> None:
 
     await feed(message_update(bot, "👤 Профіль"))
     profile_text = session.all_text()
-    check("профіль показує посилання", "t.me/test_shop_bot?start=" in profile_text,
+    check("профіль показує посилання", "t.me/elfarshop_bot/elfar?startapp=" in profile_text,
           profile_text[:120])
     check("профіль показує бонуси", "Бонусний рахунок" in profile_text)
 
@@ -432,8 +432,8 @@ async def run(backend: str) -> None:
     await feed(callback_update(bot, f"ao:{order_id}:accepted", tg_id=900001))
     check("статус «Прийняте»", any("Прийняте" in a for a in session.alerts()), str(session.alerts()))
     async with open_repo() as repo:
-        check("зміна з чату стала в чергу SalesDrive",
-              (await repo.get_order(order_id)).crm_state == "pending")
+        check("вимкнений SalesDrive не створює зайвих задач",
+              (await repo.get_order(order_id)).crm_state != "pending")
 
     await feed(callback_update(bot, f"ao:{order_id}:paid", tg_id=900001))
     check("статус змінено на «Оплачене»",

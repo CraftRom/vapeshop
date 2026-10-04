@@ -11,7 +11,8 @@ from aiogram.enums import ChatMemberStatus, ChatType
 from aiogram.types import ChatMemberUpdated
 
 from bot.greeting import send_greeting
-from shop.services.shop_settings import current
+from shop.services.shop_settings import current, get_shop_settings
+from shop.repo.factory import open_repo
 
 router = Router(name="group")
 
@@ -25,6 +26,10 @@ async def added_to_chat(event: ChatMemberUpdated) -> None:
     is_in = event.new_chat_member.status in JOINED
     if was_in or not is_in:
         return  # зміна прав, а не додавання
+    async with open_repo() as repo:
+        await get_shop_settings(repo)
+    if not current().auto_replies_enabled:
+        return
     if current().admin_chat_id and event.chat.id == current().admin_chat_id:
         return  # адмінський чат робочий, привітання там зайве
     await send_greeting(event)

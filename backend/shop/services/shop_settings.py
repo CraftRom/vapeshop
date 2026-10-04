@@ -93,6 +93,9 @@ class ShopSettings:
     salesdrive_payment_map: str
     salesdrive_shipping_map: str
     delivery_courier_enabled: bool
+    auto_replies_enabled: bool
+    faq_private_enabled: bool
+    faq_support_enabled: bool
     faq_public_enabled: bool
     faq_admin_chat_enabled: bool
     delivery_weight_per_item: Decimal
@@ -176,6 +179,9 @@ class ShopSettings:
             salesdrive_payment_map=settings.salesdrive_payment_map,
             salesdrive_shipping_map=settings.salesdrive_shipping_map,
             delivery_courier_enabled=settings.delivery_courier_enabled,
+            auto_replies_enabled=settings.auto_replies_enabled,
+            faq_private_enabled=settings.faq_private_enabled,
+            faq_support_enabled=settings.faq_support_enabled,
             faq_public_enabled=settings.faq_public_enabled,
             faq_admin_chat_enabled=settings.faq_admin_chat_enabled,
             delivery_weight_per_item=Decimal(str(settings.delivery_weight_per_item)),
@@ -378,7 +384,7 @@ async def get_shop_settings(repo) -> ShopSettings:
         raw = await repo.get_settings_map()
     except Exception:
         # Проблема з базою не має валити бота — відкочуємось до .env
-        return ShopSettings.from_env()
+        return _cache[1] if _cache else ShopSettings.from_env()
 
     resolved = ShopSettings.from_storage(raw or {})
     _cache = (now, resolved)
@@ -386,11 +392,14 @@ async def get_shop_settings(repo) -> ShopSettings:
 
 
 async def save_shop_settings(repo, data: dict) -> ShopSettings:
-    current = await get_shop_settings(repo)
+    # Запис спирається на БД, а не на 30-секундний кеш іншого worker-а.
+    current = ShopSettings.from_storage(await repo.get_settings_map() or {})
     merged = ShopSettings.from_storage({**current.to_storage(), **{
         key: str(value) for key, value in data.items() if value is not None
     }})
-    await repo.save_settings_map(merged.to_storage())
+    stored = merged.to_storage()
+    await repo.save_settings_map({key: stored[key] for key, value in data.items()
+                                 if key in stored and value is not None})
     prime_cache(merged)
 
     # Зміна ключа знецінює все, що вже привезли старим. Інакше магазин

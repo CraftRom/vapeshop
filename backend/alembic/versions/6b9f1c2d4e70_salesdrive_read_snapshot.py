@@ -13,7 +13,7 @@ branch_labels = None
 depends_on = None
 
 def upgrade():
-    op.add_column("orders", sa.Column("crm_snapshot", postgresql.JSONB(astext_type=sa.Text()), nullable=True))
+    op.add_column("orders", sa.Column("crm_snapshot", sa.JSON().with_variant(postgresql.JSONB(astext_type=sa.Text()), "postgresql"), nullable=True))
     op.add_column("orders", sa.Column("crm_fetched_at", sa.DateTime(timezone=True), nullable=True))
 
 def downgrade():

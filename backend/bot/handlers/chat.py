@@ -206,6 +206,9 @@ async def _support_auto_reply(
     shop = await get_shop_settings(repo)
 
     # Контекст беремо з уже існуючої історії, без окремого state/Redis-key.
+    if not shop.auto_replies_enabled or not shop.faq_support_enabled:
+        return False
+
     # SQL repository має дешевий DESC-query; тестові repository можуть
     # залишатись на старому list_support_messages() — backward compatible.
     recent_reader = getattr(repo, "recent_support_messages", None)
@@ -359,7 +362,7 @@ async def incoming(
     if not quoted and not claims_payment:
         shop = await get_shop_settings(repo)
         decision = faq.decide(text, shop=shop)
-        rule = decision.rule
+        rule = decision.rule if shop.faq_private_enabled else None
         if rule:
             # FAQ-кандидат є, але спершу перевіряємо, чи менеджер уже веде
             # живу розмову по поточному замовленню. Якщо так — не встряємо.

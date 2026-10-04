@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { api } from '../api'
 import { alert, confirm, haptic, notify} from '../telegram'
 import { ProductCard } from './Catalog'
+import { mountDialog } from '../dialog'
 
 /** Чи лежить товар хоч в одному списку — для стану сердечка. */
 export function isSaved(wishlists, productId) {
@@ -20,6 +21,10 @@ export function SavePicker({ product, wishlists, onClose, onChanged }) {
   const [name, setName] = useState('')
   const [error, setError] = useState('')
   const actionRef = useRef(false)
+  const sheetRef = useRef(null)
+  const closeRef = useRef(onClose)
+  closeRef.current = onClose
+  useEffect(() => mountDialog(sheetRef.current, () => closeRef.current()), [])
 
   const toggle = async (list) => {
     if (actionRef.current) return
@@ -85,7 +90,7 @@ export function SavePicker({ product, wishlists, onClose, onChanged }) {
 
   return (
     <div className="sheet-backdrop" onClick={onClose}>
-      <div className="sheet" onClick={(e) => e.stopPropagation()}>
+      <div className="sheet" ref={sheetRef} role="dialog" aria-modal="true" aria-label="Зберегти в список" tabIndex={-1} onClick={(e) => e.stopPropagation()}>
         <div className="sheet-head">
           <strong>Зберегти в список</strong>
           <button className="chip" onClick={onClose}>Закрити</button>

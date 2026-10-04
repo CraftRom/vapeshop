@@ -145,7 +145,10 @@ class PrivateOnlyMiddleware(BaseMiddleware):
         if chat is None or chat.type == "private":
             return await handler(event, data)
 
-        # current() — синхронний знімок кешу: репозиторій тут ще не відкрито
+        # Публічні апдейти не проходять RepositoryMiddleware. Без цього
+        # читання окремий polling-процес міг назавжди тримати старий вимикач.
+        async with open_repo() as repo:
+            await get_shop_settings(repo)
         admin_chat_id = current().admin_chat_id
         tg_user = data.get("event_from_user") or getattr(event, "from_user", None)
         is_staff = bool(tg_user and tg_user.id in current().admin_id_list)
@@ -216,6 +219,8 @@ class PrivateOnlyMiddleware(BaseMiddleware):
         # Тому робочий чат має власний перемикач і вимкнений за
         # замовчуванням, а клієнтські групи лишаються як були.
         settings_now = current()
+        if not settings_now.auto_replies_enabled:
+            return None
         in_admin_chat = bool(settings_now.admin_chat_id) and chat.id == settings_now.admin_chat_id
         allowed = (settings_now.faq_admin_chat_enabled if in_admin_chat
                    else settings_now.faq_public_enabled)

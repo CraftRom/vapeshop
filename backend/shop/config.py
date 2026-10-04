@@ -92,6 +92,9 @@ class Settings(BaseSettings):
     # покупцеві й недоступна насправді опція коштує скасованого
     # замовлення.
     delivery_courier_enabled: bool = False
+    auto_replies_enabled: bool = True
+    faq_private_enabled: bool = True
+    faq_support_enabled: bool = True
     # Відповіді бота на ключові слова в групових чатах. За замовчуванням
     # увімкнені — так було й до появи перемикача.
     faq_public_enabled: bool = True

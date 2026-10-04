@@ -177,6 +177,8 @@ export function Catalog({ config, cart, onCartChange, onOpenProduct, wishlists, 
   const [sort, setSort] = useState('default')
   const [inStock, setInStock] = useState(false)
   const [error, setError] = useState('')
+  const [loadFailed, setLoadFailed] = useState(false)
+  const [retry, setRetry] = useState(0)
 
   useEffect(() => {
     api.categories().then(setCategories).catch((e) => setError(e.message))
@@ -185,17 +187,21 @@ export function Catalog({ config, cart, onCartChange, onOpenProduct, wishlists, 
   useEffect(() => {
     let cancelled = false
     setProducts(null)
+    setError('')
+    setLoadFailed(false)
     const timer = setTimeout(() => {
       api
         .products({ categoryId: active, search: search.trim() || undefined })
         .then((rows) => !cancelled && setProducts(rows))
-        .catch((e) => !cancelled && setError(e.message))
+        .catch((e) => {
+          if (!cancelled) { setProducts([]); setError(e.message); setLoadFailed(true) }
+        })
     }, search ? 300 : 0) // пошук чекає паузи в наборі, перемикання категорій — ні
     return () => {
       cancelled = true
       clearTimeout(timer)
     }
-  }, [active, search])
+  }, [active, search, retry])
 
   const change = async (product, delta) => {
     haptic('light')
@@ -259,7 +265,7 @@ export function Catalog({ config, cart, onCartChange, onOpenProduct, wishlists, 
       </div>
 
       {categories.length > 0 && (
-        <div className="rail" role="group" aria-label="Категорії">
+        <div className="rail" role="group" aria-label="Категорії" tabIndex={0}>
           <button
             className="chip"
             aria-pressed={active === null}
@@ -280,7 +286,7 @@ export function Catalog({ config, cart, onCartChange, onOpenProduct, wishlists, 
         </div>
       )}
 
-      <div className="rail rail-sort" role="group" aria-label="Сортування і фільтри">
+      <div className="rail rail-sort" role="group" aria-label="Сортування і фільтри" tabIndex={0}>
         <button className="chip" aria-pressed={sort === 'default'}
                 onClick={() => setSort('default')}>
           За порядком
@@ -312,6 +318,12 @@ export function Catalog({ config, cart, onCartChange, onOpenProduct, wishlists, 
           {[0, 1, 2, 3].map((i) => (
             <div key={i} className="skeleton" />
           ))}
+        </div>
+      ) : loadFailed ? (
+        <div className="empty">
+          <h2>Не вдалося завантажити каталог</h2>
+          <p>Перевірте зʼєднання та повторіть спробу.</p>
+          <button className="secondary" onClick={() => setRetry((value) => value + 1)}>Повторити</button>
         </div>
       ) : view.length === 0 ? (
         <div className="empty">

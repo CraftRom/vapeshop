@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { api, AUTH_FAILURE_EVENT, consumeOrderEvents } from './api'
 import { clientLog } from './logger'
+import { horizontalWheel, trackViewport } from './scroll'
 import { AgeGate, Catalog } from './screens/Catalog'
 import { Cart, Checkout } from './screens/Checkout'
 import { ChatList, ChatRoom } from './screens/Chat'
@@ -53,6 +54,12 @@ export default function App() {
     ready()
     applyTheme()
     return onThemeChange(applyTheme)
+  }, [])
+
+  useEffect(() => {
+    const stop = trackViewport()
+    document.addEventListener('wheel', horizontalWheel, { passive: false })
+    return () => { stop(); document.removeEventListener('wheel', horizontalWheel) }
   }, [])
 
   // Telegram initData не оновлюється всередині вже відкритого WebView.
@@ -141,7 +148,7 @@ export default function App() {
         setFatal(err.message || 'Невідома помилка')
       })
   }, [])
-  useEffect(load, [load])
+  useEffect(() => { void load() }, [load])
 
   const refresh = useCallback(async () => {
     const [c, p, o, w] = await Promise.all([

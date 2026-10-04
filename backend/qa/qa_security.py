@@ -178,7 +178,7 @@ r.check(_sec.describe("security.initdata.expired").severity == "info",
 import pathlib                                                        # noqa: E402
 
 _auth = pathlib.Path("api/webapp_auth.py").read_text()
-r.check("security.initdata.missing" in _auth and "if not x_telegram_init_data" in _auth,
+r.check("security.initdata.missing" in _auth and "missing = not x_telegram_init_data" in _auth and "if missing:" in _auth,
         "вибір події залежить від того, чи підпис узагалі був")
 
 sys.exit(1 if r.done() else 0)

@@ -1,0 +1,11 @@
+{
+  "name": "shop-browser-qa",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node browser-ui.mjs"
+  },
+  "devDependencies": {
+    "playwright": "1.62.1"
+  }
+}

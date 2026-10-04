@@ -53,8 +53,8 @@ async def scenario(repo) -> None:
     check("лічильник товарів у категорії = 2", cats[0].products_count == 2,
           f"{cats[0].products_count}")
 
-    found = await repo.list_products(search="elf")
-    check("префіксний пошук знаходить товар", len(found) == 1 and found[0].id == pod.id,
+    found = await repo.list_products(search="BC5000")
+    check("пошук за назвою знаходить потрібний товар", len(found) == 1 and found[0].id == pod.id,
           f"знайдено {len(found)}")
 
     check("мало залишків: 0 при порозі 4", await repo.count_low_stock(4) == 0)
@@ -218,8 +218,8 @@ async def scenario(repo) -> None:
     check("середній чек 945", stats.avg_check == Decimal("945.00"), f"{stats.avg_check}")
 
     series = await repo.stats_series(30)
-    check("графік має 1 день", len(series) == 1, f"{len(series)}")
-    check("виручка в графіку 945", series[0]["revenue"] == Decimal("945.00"))
+    check("графік заповнює весь період", len(series) == 31, f"{len(series)}")
+    check("виручка в графіку 945", sum((row["revenue"] for row in series), Decimal(0)) == Decimal("945.00"))
 
     top = await repo.stats_top_products(30, 10)
     check("топ товарів заповнений", len(top) == 2, f"{len(top)}")

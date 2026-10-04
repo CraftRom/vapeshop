@@ -8,6 +8,7 @@ import { useVisiblePolling } from './components/useVisiblePolling'
 import { NotificationCenter } from './components/NotificationCenter'
 import { RealtimeOrders } from './components/RealtimeOrders'
 import Login from './pages/Login'
+import { horizontalWheel } from './components/scroll'
 
 // Позначка одноразового перезавантаження після оновлення панелі.
 const RELOAD_MARK = 'elfar:chunk-reload'
@@ -190,6 +191,11 @@ function Shell({ children }) {
     }
   }, [pollBadges])
 
+  useEffect(() => {
+    document.addEventListener('wheel', horizontalWheel, { passive: false })
+    return () => document.removeEventListener('wheel', horizontalWheel)
+  }, [])
+
   const logout = () => {
     clearToken()
     navigate('/login')
@@ -208,6 +214,7 @@ function Shell({ children }) {
           <button
             className="nav-toggle"
             type="button"
+            aria-label={mobileNavOpen ? 'Закрити меню' : 'Відкрити меню'}
             aria-expanded={mobileNavOpen}
             aria-controls="main-navigation"
             onClick={() => setMobileNavOpen((open) => !open)}

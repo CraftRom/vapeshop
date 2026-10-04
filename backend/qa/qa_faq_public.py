@@ -100,6 +100,8 @@ async def main():
     check(set(priv) >= {"status","bonus","referral","contacts"},
           "персональні теми закриті для публіки", priv)
 
+    from shop.db import engine
+    await engine.dispose()
     print(f"\n{'ПРОВАЛЕНО: '+str(len(fails)) if fails else 'усе витримано'}")
     for f in fails: print("  -", f)
 

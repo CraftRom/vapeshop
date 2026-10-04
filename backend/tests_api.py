@@ -97,7 +97,7 @@ async def _suite(app, backend: str) -> None:
         check("ціна не зіпсувалась", float(response.json()["price"]) == 400.0)
 
         response = await client.get("/api/catalog/products", headers=headers,
-                              params={"search": "elf"})
+                              params={"search": "BC5000"})
         check("пошук товару працює", len(response.json()) == 1, response.text[:120])
 
         response = await client.patch(f"/api/catalog/products/{product_id}/stock",
@@ -133,7 +133,7 @@ async def _suite(app, backend: str) -> None:
               response.text[:120])
 
         response = await client.get("/api/catalog/products", headers=headers,
-                              params={"search": "elf"})
+                              params={"search": "BC5000"})
         check("робочий товар не зачеплено", len(response.json()) == 1, response.text[:120])
 
         # --- промокоди

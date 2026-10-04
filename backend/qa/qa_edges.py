@@ -45,9 +45,9 @@ async def scenario():
         print("\n--- залишок не йде в мінус ---")
         # Інакше в каталозі зʼявиться «-3 шт», а замовлення пройдуть на
         # товар, якого немає.
-        await repo.adjust_stock(product.id, -500)
+        reservation = await repo.adjust_stock(product.id, -500)
         fresh = await repo.get_product(product.id)
-        r.check(fresh.stock == 0, "залишок обмежений нулем", fresh.stock)
+        r.check(reservation is None and fresh.stock == 50, "надмірне списання відхилено без зміни залишку", fresh.stock)
         await repo.adjust_stock(product.id, 50)
 
         print("\n--- підсумки клієнта не йдуть у мінус ---")

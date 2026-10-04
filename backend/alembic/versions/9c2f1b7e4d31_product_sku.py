@@ -10,8 +10,13 @@ revision='9c2f1b7e4d31'; down_revision='a7c3e1f5d2b9'; branch_labels=None; depen
 def upgrade():
     op.add_column('products', sa.Column('sku', sa.String(32), nullable=True))
     # Existing rows receive stable legacy SKUs before NOT NULL/UNIQUE is enabled.
-    op.execute("UPDATE products SET sku = 'ELF-LEG-' || LPAD(id::text, 8, '0') WHERE sku IS NULL")
-    op.alter_column('products','sku',nullable=False)
+    if op.get_bind().dialect.name == 'sqlite':
+        op.execute("UPDATE products SET sku = 'ELF-LEG-' || printf('%08d', id) WHERE sku IS NULL")
+        with op.batch_alter_table('products') as batch:
+            batch.alter_column('sku', existing_type=sa.String(32), nullable=False)
+    else:
+        op.execute("UPDATE products SET sku = 'ELF-LEG-' || LPAD(id::text, 8, '0') WHERE sku IS NULL")
+        op.alter_column('products','sku',nullable=False)
     op.create_index('ux_products_sku','products',['sku'],unique=True)
 
 def downgrade():

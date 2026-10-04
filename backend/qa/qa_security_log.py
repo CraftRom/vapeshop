@@ -72,8 +72,8 @@ r.check(all(e.severity in seclog.SEVERITIES for e in seclog.CATALOG.values()),
 r.check(all(e.title and e.detail for e in seclog.CATALOG.values()),
         "у кожної події є підпис і пояснення — інакше в панелі буде "
         "голий код, якого ніхто не читає")
-r.check(all(code.startswith("security.") for code in seclog.CATALOG),
-        "усі коди в одному просторі імен — на цьому тримається "
+r.check(all(code.startswith(("security.", "promo.")) for code in seclog.CATALOG),
+        "усі коди в задекларованих просторах security/promo — працює "
         "відбір за префіксом")
 
 print("\n--- невідомий код не зникає мовчки ---")

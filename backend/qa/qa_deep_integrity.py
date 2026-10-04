@@ -45,7 +45,7 @@ check('stale cancel не виконує side-effects',
 
 print('\n--- Telegram / attachments ---')
 check('бот не запускає другу checkout FSM поверх активної',
-      'if await state.get_state()' in bot_checkout and 'Оформлення вже розпочато' in bot_checkout)
+      'active_state and active_state != Checkout.receipt.state' in bot_checkout and 'Оформлення вже розпочато' in bot_checkout)
 check('бот нормалізує телефон до +380 так само, як Mini App',
       'return "+380" + body' in bot_checkout and 'len(body) != 9' in bot_checkout)
 check('manager notification failure не валить уже створене bot order',

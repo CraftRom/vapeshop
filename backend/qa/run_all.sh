@@ -18,13 +18,16 @@ if ! $PY -c "import aiosqlite" 2>/dev/null; then
   exit 2
 fi
 fail=0
+QA_LOG_DIR="${QA_LOG_DIR:-/tmp/elfar-qa-logs}"
+mkdir -p "$QA_LOG_DIR"
 
 run() {
   printf '  %-13s ' "$1"
   rm -f /tmp/qa_*.db 2>/dev/null
-  out=$($PY "$2" 2>&1)
+  out=$(timeout "${QA_TIMEOUT_SECONDS:-60}" $PY "$2" 2>&1)
   code=$?
-  summary=$(echo "$out" | grep -E '^[A-ZА-Я ]+: [0-9]+/[0-9]+|Всього провалено|усі контракти' | tail -1)
+  echo "$out" > "$QA_LOG_DIR/$1.log"
+  summary=$(echo "$out" | grep -E ':[[:space:]]*[0-9]+/[0-9]+|Всього провалено|усі контракти' | tail -1)
   # Код виходу враховується, як і в run_node. Без цього набір, що падав
   # із traceback до першої перевірки, показувався «ok».
   if [[ $code -ne 0 ]] || echo "$out" | grep -qE '✗|ПРОВАЛЕНО'; then
@@ -117,9 +120,12 @@ run_node stats-business-ui tests/stats-business.mjs dashboard
 run_node form-chart tests/form-chart-normalization.mjs dashboard
 run_node deep-actions-ui tests/deep-actions.mjs dashboard
 run_node promo-domain-ux tests/promo-domain-ux.mjs dashboard
+run_node settings-model tests/settings-model.mjs dashboard
+run_node scroll tests/scroll.mjs
 
 echo
 echo "Контракти й дані"
+run bot-inputs qa/qa_bot_inputs.py
 run checkout-integrity qa/qa_checkout_integrity.py
 run tg-contact qa/qa_telegram_contact_bridge.py
 run cart-lock qa/qa_postgres_cart_lock.py
@@ -144,6 +150,7 @@ run headers qa/qa_headers.py
 run transport-sec qa/qa_transport_security.py
 run security-log qa/qa_security_log.py
 run database qa/qa_db.py
+run auto-replies qa/qa_auto_replies.py
 run faq qa/qa_faq.py
 run faq-intent-router qa/qa_faq_intent_router.py
 run faq-delivery qa/qa_dynamic_delivery_faq.py
@@ -154,6 +161,8 @@ run faq-public qa/qa_faq_public.py
 run env qa/qa_env.py
 run docs qa/qa_docs.py
 run legal qa/qa_legal.py
+run deploy-phases qa/qa_deploy_phases.py
+run promo-google qa/qa_promo_google.py
 run promo-landing qa/qa_promo_landing.py
 run promo-cloudflare qa/qa_promo_cloudflare.py
 run scheduler qa/qa_scheduler.py
@@ -197,5 +206,3 @@ echo
 [ $fail -eq 0 ] && echo "Усі набори пройдено" || echo "Є провали — див. вище"
 exit $fail
 
-
-python3 backend/qa/qa_promo_google.py

@@ -615,6 +615,9 @@ class ShopSettingsIn(BaseModel):
     salesdrive_payment_map: str | None = Field(None, max_length=1000)
     salesdrive_shipping_map: str | None = Field(None, max_length=1000)
     delivery_courier_enabled: bool | None = None
+    auto_replies_enabled: bool | None = None
+    faq_private_enabled: bool | None = None
+    faq_support_enabled: bool | None = None
     faq_public_enabled: bool | None = None
     faq_admin_chat_enabled: bool | None = None
     delivery_weight_per_item: Decimal | None = Field(None, gt=0, le=100)
@@ -741,6 +744,9 @@ class ShopSettingsOut(BaseModel):
     salesdrive_payment_map: str
     salesdrive_shipping_map: str
     delivery_courier_enabled: bool
+    auto_replies_enabled: bool
+    faq_private_enabled: bool
+    faq_support_enabled: bool
     faq_public_enabled: bool
     faq_admin_chat_enabled: bool
     delivery_weight_per_item: Decimal
@@ -823,4 +829,3 @@ class OperatorOut(BaseModel):
     is_active: bool
     created_at: datetime | None = None
     last_login_at: datetime | None = None
-

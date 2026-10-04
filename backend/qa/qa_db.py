@@ -21,23 +21,18 @@ from qa_common import Report
 r = Report("DATABASE")
 
 print("\n--- ланцюг міграцій ---")
-import pathlib, re
-vers = {}
-for f in pathlib.Path("alembic/versions").glob("*.py"):
-    t = f.read_text()
-    # Лапки в міграціях різні: генератор ставить одинарні, я писав подвійні
-    rev = re.search(r"""^revision: str = ['"]([^'"]+)['"]""", t, re.M)
-    down = re.search(r"""^down_revision: Union\[str, None\] = (?:['"]([^'"]+)['"]|None)""", t, re.M)
-    if rev: vers[rev.group(1)] = down.group(1) if down else None
-roots = [k for k,v in vers.items() if v is None]
-r.check(len(roots) == 1, "рівно один корінь міграцій", roots)
-children = {}
-for k,v in vers.items(): children.setdefault(v, []).append(k)
-forks = {k: v for k,v in children.items() if k is not None and len(v) > 1}
-r.check(not forks, "гілок у ланцюгу немає", forks)
-missing = [v for v in vers.values() if v is not None and v not in vers]
-r.check(not missing, "усі попередники існують", missing)
-r.check(len(vers) >= 5, f"міграцій у ланцюгу: {len(vers)}")
+from alembic.config import Config
+from alembic.script import ScriptDirectory
+script = ScriptDirectory.from_config(Config('alembic.ini'))
+revisions = list(script.walk_revisions())
+r.check(len(script.get_bases()) == 1, 'рівно один корінь міграцій', script.get_bases())
+r.check(len(script.get_heads()) == 1, 'гілки зведено до одного head', script.get_heads())
+known = {revision.revision for revision in revisions}
+missing = [parent for revision in revisions for parent in
+           ((revision.down_revision,) if isinstance(revision.down_revision, str) else revision.down_revision or ())
+           if parent not in known]
+r.check(not missing, 'усі попередники існують', missing)
+r.check(len(revisions) >= 5, f'міграцій у графі: {len(revisions)}')
 
 print("\n--- upgrade/downgrade на чистій базі ---")
 env = dict(os.environ, PYTHONPATH=os.getcwd(),
