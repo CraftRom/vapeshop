@@ -10,6 +10,7 @@ import { ProductPage } from './screens/ProductPage'
 import { Legal, Footer } from './screens/Legal'
 import { SavePicker, WishlistPage, Wishlists, isSaved } from './screens/Wishlists'
 import { Profile } from './screens/Profile'
+import { StoreNavigation } from './StoreNavigation'
 import {
   applyTheme, backButton, getInitData, hideMainButton, initDataSource, isTelegramContext,
   launchParamNames, notify, onThemeChange, ready, startTarget, waitForInitData,
@@ -20,11 +21,33 @@ export default function App() {
   const [cart, setCart] = useState(null)
   const [profile, setProfile] = useState(null)
   const [tab, setTab] = useState('catalog')
+  const [searchRequest, setSearchRequest] = useState(0)
+  const [catalogState, setCatalogState] = useState({})
+  const [recentProducts, setRecentProducts] = useState([])
+  const navigationRequest = useRef(0)
   const [checkingOut, setCheckingOut] = useState(false)
   const [orders, setOrders] = useState([])
   // Відкрите замовлення в чаті. Кнопка з бота веде сюди напряму.
   const [chatOrder, setChatOrder] = useState(null)
   const [openProduct, setOpenProduct] = useState(null)
+  const showProduct = useCallback((product) => {
+    setOpenProduct(product)
+    setRecentProducts((items) => [product, ...items.filter((item) => item.id !== product.id)].slice(0, 8))
+    window.scrollTo({ top: 0, behavior: 'instant' })
+  }, [])
+  const navigate = async (section) => {
+    const request = ++navigationRequest.current
+    if (section === 'cart') {
+      clearTimeout(flushTimer.current)
+      await flushCart()
+    }
+    if (request !== navigationRequest.current) return
+    setOpenProduct(null)
+    setOpenListId(null)
+    setTab(section)
+    if (section === 'search') setSearchRequest((value) => value + 1)
+    window.scrollTo({ top: 0, behavior: 'instant' })
+  }
   const [wishlists, setWishlists] = useState([])
   // Товар, для якого відкрито вибір списку
   const [saving, setSaving] = useState(null)
@@ -363,9 +386,9 @@ export default function App() {
     if (checkingOut) return backButton(() => setCheckingOut(false))
     if (openProduct) return backButton(() => setOpenProduct(null))
     if (openListId) return backButton(() => setOpenListId(null))
-    if (chatOrder) return backButton(() => setChatOrder(null))
+    if (chatOrder && tab === 'chat') return backButton(() => setChatOrder(null))
     return backButton(null)
-  }, [checkingOut, chatOrder, openProduct, openListId, legal, saving])
+  }, [checkingOut, chatOrder, openProduct, openListId, legal, saving, tab])
 
   useEffect(() => hideMainButton, [])
 
@@ -597,13 +620,18 @@ initData: ${getInitData() ? `${getInitData().length} символів` : 'пор
 
   if (openProduct) {
     return (
-      <div className="app">
+      <div className="app storefront">
         <ProductPage
+          key={openProduct.id}
+          recentProducts={recentProducts}
+          onOpenProduct={showProduct}
+          onCart={() => navigate('cart')}
           config={config}
           product={openProduct}
           cart={shownCart}
           onCartChange={changeCart}
-          onBack={() => setOpenProduct(null)}
+          onBack={() => { setOpenProduct(null); window.scrollTo({ top: 0, behavior: 'instant' }) }}
+          backLabel={openListId ? 'Назад до списку' : 'Назад до каталогу'}
           saved={isSaved(wishlists, openProduct.id)}
           onSave={() => setSaving(openProduct)}
         />
@@ -615,14 +643,16 @@ initData: ${getInitData() ? `${getInitData().length} символів` : 'пор
             onChanged={onWishlistChanged}
           />
         )}
+        {cartError && <div className="banner warn" role="alert">{cartError}</div>}
         <Footer onLegal={() => setLegal(true)} />
+        <StoreNavigation active={openListId ? 'profile' : tab} count={count} onNavigate={navigate} />
       </div>
     )
   }
 
   if (openListId && openedList) {
     return (
-      <div className="app">
+      <div className="app storefront">
         {/* Назад — над списком, як на сторінці товару. Під списком кнопку
             треба було шукати, догортаючи до кінця. */}
         <div className="page-back">
@@ -635,10 +665,12 @@ initData: ${getInitData() ? `${getInitData().length} символів` : 'пор
           list={openedList}
           cart={shownCart}
           onChanged={onWishlistChanged}
-          onOpenProduct={setOpenProduct}
+          onOpenProduct={showProduct}
           onCartChange={(product, delta) => changeCart(product.id, delta)}
         />
+        {cartError && <div className="banner warn" role="alert">{cartError}</div>}
         <Footer onLegal={() => setLegal(true)} />
+        <StoreNavigation active={openListId ? 'profile' : tab} count={count} onNavigate={navigate} />
       </div>
     )
   }
@@ -662,7 +694,7 @@ initData: ${getInitData() ? `${getInitData().length} символів` : 'пор
   }
 
   return (
-    <div className="app">
+    <div className={`app storefront ${count > 0 && tab !== 'chat' ? 'has-cart-bar' : ''}`}>
       {/* Шапка в один рядок: назва магазину й вікова позначка. Раніше тут
           були два рядки й окремий блок-заставка в каталозі — разом вони
           з'їдали пів екрана, і до першого товару доводилось гортати. */}
@@ -673,48 +705,16 @@ initData: ${getInitData() ? `${getInitData().length} символів` : 'пор
         </span>
       </header>
 
-      <div className="tabs" role="tablist" aria-label="Розділи магазину">
-        <button
-          className="tab"
-          role="tab"
-          aria-selected={tab === 'catalog'}
-          onClick={() => setTab('catalog')}
-        >
-          Каталог
-        </button>
-        <button
-          className="tab"
-          role="tab"
-          aria-selected={tab === 'cart'}
-          onClick={() => setTab('cart')}
-        >
-          Кошик
-          {count > 0 && <span className="count num">{count}</span>}
-        </button>
-        <button
-          className="tab"
-          role="tab"
-          aria-selected={tab === 'chat'}
-          onClick={() => setTab('chat')}
-        >
-          Чат
-        </button>
-        <button
-          className="tab"
-          role="tab"
-          aria-selected={tab === 'profile'}
-          onClick={() => setTab('profile')}
-        >
-          Профіль
-        </button>
-      </div>
-
-      {tab === 'catalog' && (
+      {(tab === 'catalog' || tab === 'search') && (
         <Catalog
+          searchRequest={searchRequest}
+          onSearchRequestHandled={setSearchRequest}
+          initialState={catalogState}
+          onStateChange={setCatalogState}
           config={config}
           cart={shownCart}
           onCartChange={changeCart}
-          onOpenProduct={setOpenProduct}
+          onOpenProduct={showProduct}
           wishlists={wishlists}
           onSave={setSaving}
         />
@@ -776,6 +776,7 @@ initData: ${getInitData() ? `${getInitData().length} символів` : 'пор
 
       {/* Панель тримається внизу на всіх вкладках: сума завжди перед очима */}
       {/* У чаті панель кошика перекрила б поле вводу */}
+      <StoreNavigation active={tab} count={count} onNavigate={navigate} />
       <div className="bar" hidden={count === 0 || tab === 'chat'}>
         <div className="bar-info">
           <strong className="num">

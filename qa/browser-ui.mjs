@@ -75,8 +75,12 @@ try {
     await p.goto((process.env.MINIAPP_URL || 'http://127.0.0.1:5174')+'/app/')
     const rails=p.locator('.rail');await rails.first().waitFor()
     check(await p.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),`${viewport.width}px storefront has no page-wide horizontal overflow`)
-    await rails.first().hover();await p.mouse.wheel(0,300)
-    await p.waitForFunction(()=>document.querySelector('.rail').scrollLeft>0)
+    await rails.first().hover()
+    // Wheel dispatch is asynchronous in headless Chromium; wait for each attempt.
+    for (let attempt = 0; attempt < 3; attempt++) {
+      await p.mouse.wheel(0,300)
+      try { await p.waitForFunction(()=>document.querySelector('.rail').scrollLeft>0, null, {timeout:1500}); break } catch (error) { if (attempt === 2) throw error }
+    }
     check(await rails.first().evaluate(e=>e.scrollLeft>0),`${viewport.width}px catalog categories scroll by wheel`)
     await rails.nth(1).hover();await p.mouse.wheel(0,200)
     check(await rails.nth(1).evaluate(e=>e.scrollWidth<=e.clientWidth || e.scrollLeft>0),`${viewport.width}px filters scroll when overflowing`)

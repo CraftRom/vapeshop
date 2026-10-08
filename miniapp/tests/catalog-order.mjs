@@ -8,6 +8,7 @@
  * Перевіряємо саму логіку відбору, а не її наявність у розмітці.
  */
 import { readFileSync } from 'node:fs'
+import { sortProducts as arrange, discountPercent } from '../src/catalogModel.js'
 
 let bad = 0
 const ok = (cond, label, detail) => {
@@ -20,21 +21,9 @@ const ok = (cond, label, detail) => {
 
 const src = readFileSync('src/screens/Catalog.jsx', 'utf8')
 
-const hasFreshStatus = (product) => {
-  if (!product || typeof product !== 'object') return false
-  if (product.is_new === true || product.new === true) return true
-  const raw = product.status ?? product.badge ?? product.label ?? product.tag ?? ''
-  const label = String(raw).trim().toLowerCase()
-  return ['new', 'fresh', 'новинка', 'новинки'].includes(label)
-}
-
-const arrange = (products, sort, inStock) => {
-  let rows = inStock ? products.filter((p) => p.stock > 0) : [...products]
-  if (sort === 'cheap') rows.sort((a, b) => Number(a.price) - Number(b.price))
-  if (sort === 'pricey') rows.sort((a, b) => Number(b.price) - Number(a.price))
-  if (sort === 'fresh') rows = rows.filter(hasFreshStatus)
-  return rows
-}
+ok(discountPercent({ old_price: '400', price: '320' }) === 20, 'точні 20% не перетворюються на 19% через float')
+ok(discountPercent({ old_price: '299', price: '199' }) === 33, 'дробову знижку округлено вниз')
+ok(discountPercent({ old_price: '100', price: '110' }) === 0, 'зростання ціни не знижка')
 
 const goods = [
   { id: 1, price: '300', stock: 5, is_new: true },
@@ -52,6 +41,17 @@ ok(arrange(goods, 'pricey', false).map((p) => p.id).join() === '3,1,2',
 ok(arrange(goods, 'fresh', false).map((p) => p.id).join() === '1,3',
    'новинки показують лише товари з реальним статусом')
 
+const named = [
+  { id: 1, name: 'Яблуко', price: '100', old_price: '120', stock: 2 },
+  { id: 2, name: 'Абрикос 10', price: '90', old_price: '80', stock: 0 },
+  { id: 3, name: 'Абрикос 2', price: '80', old_price: '80', stock: 3 },
+]
+ok(arrange(named, 'nameAsc').map(p => p.id).join() === '3,2,1', 'алфавіт український, числа у назвах у природному порядку')
+ok(arrange(named, 'nameDesc').map(p => p.id).join() === '1,2,3', 'зворотний алфавіт')
+ok(arrange(named, 'sale').map(p => p.id).join() === '1', 'акції тільки зі справжньою вищою старою ціною')
+ok(arrange(goods, 'fresh', true).length === 2, 'новинки та наявність поєднуються')
+ok(named.map(p => p.id).join() === '1,2,3', 'оригінальну відповідь сервера не змінено')
+ok(arrange([], 'nameAsc').length === 0, 'порожня відповідь обробляється')
 console.log('\n--- наявність ---')
 ok(arrange(goods, 'default', true).map((p) => p.id).join() === '1,3',
    'фільтр прибирає те, чого немає на складі')
@@ -65,7 +65,8 @@ ok(arrange(goods, 'fresh', true).map((p) => p.id).join() === '1,3',
 console.log('\n--- фільтр новинок ---')
 ok(src.includes('hasFreshProducts') && src.includes('(products || []).some(hasFreshStatus)'),
    'чіп «Новинки» показується лише коли справді є нові товари')
-ok(src.includes("{hasFreshProducts && ("),
+const sheet = readFileSync('src/screens/SortSheet.jsx', 'utf8')
+ok(sheet.includes("option.value !== 'fresh' || hasFreshProducts"),
    'кнопка «Новинки» умовна, а не постійна')
 
 console.log('\n--- вихід із порожнього екрана ---')

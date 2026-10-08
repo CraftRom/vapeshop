@@ -5,6 +5,7 @@ import App from './App'
 import { clientLog, registerGlobalClientLogging } from './logger'
 import { getInitData, isTelegramContext, legacyHostRedirectUrl, waitForInitData } from './telegram'
 import './styles.css'
+import './storefront.css'
 
 function StorefrontPreparing() {
   return (

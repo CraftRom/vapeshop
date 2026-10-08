@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 
-const checkout = fs.readFileSync(new URL('../src/screens/Checkout.jsx', import.meta.url), 'utf8')
+const checkout = fs.readFileSync(new URL('../src/screens/Checkout.jsx', import.meta.url), 'utf8').replace(/\r\n/g, '\n')
 const styles = fs.readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
 
 const tests = [

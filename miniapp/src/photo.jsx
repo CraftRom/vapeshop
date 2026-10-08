@@ -10,11 +10,13 @@ import { useEffect, useState } from 'react'
 import { api } from './api'
 import { clientLog } from './logger'
 
-export function Photo({ product, className = 'product-photo' }) {
+export function Photo({ product, className = 'product-photo', loading = 'lazy' }) {
   const [blobUrl, setBlobUrl] = useState(null)
   const [failed, setFailed] = useState(false)
 
   useEffect(() => {
+    setBlobUrl(null)
+    setFailed(false)
     // has_photo приходить із ProductOut. Без цієї перевірки кожен товар без
     // картинки робив зайвий GET /photo → 404, що засмічувало мережу й журнал.
     if (product.photo_url || !product.has_photo) return undefined
@@ -51,8 +53,6 @@ export function Photo({ product, className = 'product-photo' }) {
 
   if (!product.has_photo && !product.photo_url) return null
   const src = product.photo_url || blobUrl
-  // Товар без фото — не поломка: у списку тоді просто немає картинки, і
-  // місце під неї не резервується.
   if (failed) return null
   if (!src) return <div className={`${className} skeleton`} />
 
@@ -61,7 +61,7 @@ export function Photo({ product, className = 'product-photo' }) {
       className={className}
       src={src}
       alt={product.name}
-      loading="lazy"
+      loading={loading}
       onError={() => {
         setFailed(true)
         clientLog('storefront.photo.render_failed', {

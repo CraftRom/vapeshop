@@ -22,7 +22,7 @@ check(
     && !catalog.includes('className="catalog-hero"'),
   'каталог починається з корисного пошуку без зайвої hero-заставки',
 )
-check(catalog.includes('className="rail rail-sort"'), 'сортування повернуто в каталог')
+check(catalog.includes('<SortSheet') && catalog.includes('aria-haspopup="dialog"'), 'сортування повернуто в каталог')
 const gate = catalog.slice(catalog.indexOf('export function AgeGate'), catalog.indexOf('function plural'))
 check(!gate.includes("sort ===") && !gate.includes('setInStock'), 'AgeGate більше не звертається до стану каталогу')
 check(app.includes('className="store-head"'), 'основний екран має компактну шапку Mini App')

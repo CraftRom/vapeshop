@@ -337,7 +337,7 @@ export function WishlistPage({ config, list, cart, onChanged, onOpenProduct, onC
           </p>
         </div>
       ) : (
-        <div className="list">
+        <div className="product-grid">
           {products.map((p) => (
             <ProductCard
               key={p.id}

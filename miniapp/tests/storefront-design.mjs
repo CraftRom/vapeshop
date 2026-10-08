@@ -22,6 +22,7 @@ const ok = (cond, label, detail) => {
 }
 
 const css = readFileSync('src/styles.css', 'utf8')
+const storeCss = readFileSync('src/storefront.css', 'utf8')
 const app = readFileSync('src/App.jsx', 'utf8')
 const main = readFileSync('src/main.jsx', 'utf8')
 const catalog = readFileSync('src/screens/Catalog.jsx', 'utf8')
@@ -83,13 +84,15 @@ ok(!catalog.includes('catalog-hero'), 'заставка не відсуває т
 ok(app.includes('className="store-head"') && app.includes('config.shop_name'),
    'шапка в один рядок із назвою магазину')
 const card = catalog.slice(catalog.indexOf('export function ProductCard'), catalog.indexOf('export function Catalog'))
-const foot = card.slice(card.indexOf('className="item-foot"'), card.indexOf('className="item-side"'))
-ok(foot.includes('heart'), '«відкласти» ділить рядок із наявністю, а не займає свій')
-ok(!/item-title[^"]*clamp/.test(card) && !block('.item-title').includes('line-clamp'),
-   'назва не обрізається: міцність і смак стоять у її кінці')
-ok(block('.add').includes('var(--accent-soft)'), 'кнопка в картці тональна, а не залита')
+ok(card.includes('store-card-save') && card.includes('store-card-media'), 'збереження доступне на фото без окремого рядка')
+ok(!storeCss.match(/\.store-card-title\s*\{[^}]*line-clamp/), 'назва товару показується повністю')
+ok(storeCss.includes('.store-card-image') && storeCss.includes('object-fit: contain'), 'велике фото не обрізається')
+ok(storeCss.includes('repeat(2, minmax(0, 1fr))'), 'на мобільному два товари в рядку')
+ok(storeCss.includes('repeat(4, minmax(0, 1fr))'), 'на ПК чотири товари в рядку')
+ok(storeCss.includes('var(--accent-soft)') && !storeCss.includes('--accent:'), 'фірмові кольори збережено')
+ok(app.includes('<StoreNavigation'), 'нижня навігація підключена до застосунку')
 ok(own('.primary').includes('background: var(--accent)'), 'головна дія екрана залита акцентом')
-ok(block('.item-photo').includes('object-fit: contain'), 'фото в картці не обрізається')
+ok(product.includes('detail-image') && product.includes('detail-expand'), 'фото та розкриття опису доступні на сторінці товару')
 
 console.log('\n--- сторінка товару ---')
 ok(!product.includes('product-photo-glow') && !product.includes('product-lead'),

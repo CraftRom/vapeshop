@@ -821,7 +821,11 @@ for _title, _keys in _groups:
 print("\n=== СТИЛІ (клас використано → має існувати) ===")
 for pack, css_path, srcs_glob in [("вітрина","miniapp/src/styles.css","miniapp/src"),
                                   ("панель","dashboard/src/styles.css","dashboard/src")]:
-    css = read(css_path)
+    # Vite entry points can import several stylesheets. Audit all imported CSS.
+    entry = read(f"{srcs_glob}/main.jsx")
+    imports = re.findall(r"import\s+['\"](\./[^'\"]+\.css)['\"]", entry)
+    css_files = [str(pathlib.Path(css_path).parent / name) for name in imports]
+    css = "\n".join(read(path) for path in css_files) if css_files else read(css_path)
     used = set()
     for f in (root/srcs_glob).rglob("*.jsx"):
         for m in re.findall(r'className="([^"{}]+)"', f.read_text()):
