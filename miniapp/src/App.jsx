@@ -780,7 +780,7 @@ initData: ${getInitData() ? `${getInitData().length} символів` : 'пор
       <div className="bar" hidden={count === 0 || tab === 'chat'}>
         <div className="bar-info">
           <strong className="num">
-            {subtotal.toFixed(0)} {config.currency}
+            {subtotal.toLocaleString('uk-UA', { maximumFractionDigits: 2 })} {config.currency}
           </strong>
           <span className="num">
             {count} {count === 1 ? 'товар' : count < 5 ? 'товари' : 'товарів'} у кошику

@@ -4,6 +4,7 @@ import { Photo } from '../photo'
 import { StoreIcon } from '../StoreIcon'
 import { ProductCard } from './Catalog'
 import { haptic } from '../telegram'
+import { catalogPrice, hasSaleStatus } from '../catalogModel'
 
 function stockNote(stock) {
   if (stock <= 0) return { text: 'Немає в наявності', tone: 'out' }
@@ -23,7 +24,7 @@ export function ProductPage({ config, product, cart, onCartChange, onBack, onCar
   const stock = stockNote(product.stock)
   const out = product.stock <= 0
   const oldPrice = Number(product.old_price || 0)
-  const discounted = oldPrice > Number(product.price)
+  const discounted = hasSaleStatus(product)
   const price = Number(product.price)
   const longDescription = (product.description || '').length > 280
   const viewed = recentProducts.filter((p) => p.id !== product.id).slice(0, 6)
@@ -38,7 +39,7 @@ export function ProductPage({ config, product, cart, onCartChange, onBack, onCar
     finally { changing.current = false; setBusy(false) }
   }
   const share = async () => {
-    const text = `${product.name}\n${price.toFixed(0)} ${config.currency}`
+    const text = `${product.name}\n${catalogPrice(price)} ${config.currency}`
     try {
       if (navigator.share) await navigator.share({ title: product.name, text })
       else { await navigator.clipboard.writeText(text); setShareStatus('Назву та ціну скопійовано') }
@@ -50,8 +51,7 @@ export function ProductPage({ config, product, cart, onCartChange, onBack, onCar
     setOpening(true)
     setError('')
     try {
-      const rows = await api.products({ search: item.name })
-      const current = rows.find((row) => row.id === item.id)
+      const current = await api.product(item.id)
       if (!current) throw new Error('Цей товар більше недоступний у каталозі.')
       onOpenProduct(current)
     } catch (err) { setError(err.message) }
@@ -79,13 +79,17 @@ export function ProductPage({ config, product, cart, onCartChange, onBack, onCar
         <div className="detail-info">
           <div className="product-meta">
             {product.category_name && <span className="product-pill">{product.category_name}</span>}
+            {product.subcategory_name && <span className="product-pill">{product.subcategory_name}</span>}
+            {product.is_new && <span className="product-pill">Новинка</span>}
+            {discounted && <span className="product-pill">Акція</span>}
             <span className={`product-pill stock-pill ${stock.tone}`}>{stock.text}</span>
           </div>
           <h1 className="detail-title">{product.name}</h1>
+          {product.sku && <p className="detail-sku hint">Артикул (SKU): <span>{product.sku}</span></p>}
           <div className="detail-buy-row">
             <div className="detail-price num">
-              {discounted && <span className="old-price">{oldPrice.toFixed(0)} {config.currency}</span>}
-              <strong>{price.toFixed(0)} {config.currency}</strong>
+              {discounted && <span className="old-price">{catalogPrice(oldPrice)} {config.currency}</span>}
+              <strong>{catalogPrice(price)} {config.currency}</strong>
               <span className="hint">ціна за шт.</span>
             </div>
             <div className="detail-buy-actions">

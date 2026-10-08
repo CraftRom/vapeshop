@@ -55,7 +55,7 @@ export function ChatList({ config, orders, onOpen }) {
           <div className="order-head">
             <span>№{o.id}</span>
             <span className="num">
-              {Number(o.total).toFixed(0)} {config.currency}
+              {Number(o.total).toLocaleString('uk-UA', { maximumFractionDigits: 2 })} {config.currency}
             </span>
           </div>
           <div className="order-meta">

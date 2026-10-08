@@ -118,7 +118,21 @@ class Category(Base):
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
-    products: Mapped[list[Product]] = relationship(back_populates="category")
+    products: Mapped[list[Product]] = relationship(back_populates="category", passive_deletes=True)
+    subcategories: Mapped[list[Subcategory]] = relationship(back_populates="category", passive_deletes=True)
+
+
+class Subcategory(Base):
+    __tablename__ = "subcategories"
+    __table_args__ = (Index("ix_subcategories_category_active", "category_id", "is_active", "sort_order"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    category_id: Mapped[int | None] = mapped_column(ForeignKey("categories.id", ondelete="SET NULL"))
+    name: Mapped[str] = mapped_column(String(128))
+    description: Mapped[str | None] = mapped_column(Text)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    category: Mapped[Category | None] = relationship(back_populates="subcategories")
+    products: Mapped[list[Product]] = relationship(back_populates="subcategory", passive_deletes=True)
 
 
 class Product(Base):
@@ -127,11 +141,16 @@ class Product(Base):
         # Каталог завжди читається як "активні товари категорії за порядком"
         Index("ix_products_category_active", "category_id", "is_active", "sort_order"),
         Index("ix_products_name_lower", "name_lower"),
+        Index("ix_products_subcategory_active", "subcategory_id", "is_active", "sort_order"),
         Index("ux_products_sku", "sku", unique=True),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    category_id: Mapped[int] = mapped_column(ForeignKey("categories.id", ondelete="CASCADE"))
+    category_id: Mapped[int | None] = mapped_column(ForeignKey("categories.id", ondelete="SET NULL"))
+    subcategory_id: Mapped[int | None] = mapped_column(ForeignKey("subcategories.id", ondelete="SET NULL"))
+    external_sku: Mapped[str | None] = mapped_column(String(255), index=True)
+    is_new: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
+    is_sale: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
     name: Mapped[str] = mapped_column(String(255))
     sku: Mapped[str] = mapped_column(String(32), nullable=False)
     description: Mapped[str | None] = mapped_column(Text)
@@ -145,7 +164,8 @@ class Product(Base):
     # Готове поле для пошуку без урахування регістру (ILIKE не використовує індекс)
     name_lower: Mapped[str] = mapped_column(String(255), default="")
 
-    category: Mapped[Category] = relationship(back_populates="products")
+    category: Mapped[Category | None] = relationship(back_populates="products")
+    subcategory: Mapped[Subcategory | None] = relationship(back_populates="products")
 
 
 class CartItem(Base):

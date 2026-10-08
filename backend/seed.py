@@ -44,17 +44,17 @@ async def main() -> None:
     await init_db()
 
     async with open_repo() as repo:
-        if await repo.list_categories():
+        if await repo.list_products(limit=1) or await repo.list_categories() or await repo.list_subcategories():
             print("У базі вже є дані — сідинг пропущено.")
             return
 
         for order, (name, products) in enumerate(CATALOG.items()):
-            category = await repo.create_category(
+            category = await repo.create_subcategory(
                 {"name": name, "sort_order": order, "is_active": True}
             )
             for p_order, (p_name, description, price, stock) in enumerate(products):
                 await repo.create_product({
-                    "category_id": category.id, "name": p_name,
+                    "subcategory_id": category.id, "name": p_name,
                     "description": description, "price": Decimal(price),
                     "stock": stock, "sort_order": p_order, "is_active": True,
                 })

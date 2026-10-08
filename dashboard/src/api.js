@@ -225,7 +225,22 @@ export const api = {
     purge: (id) => request(`/catalog/categories/${id}/purge`, { method: 'DELETE' }),
   },
 
+  subcategories: {
+    list: () => request('/catalog/subcategories'),
+    create: (data) => request('/catalog/subcategories', { method: 'POST', body: data }),
+    update: (id, data) => request(`/catalog/subcategories/${id}`, { method: 'PUT', body: data }),
+    remove: (id) => request(`/catalog/subcategories/${id}`, { method: 'DELETE' }),
+    purge: (id) => request(`/catalog/subcategories/${id}/purge`, { method: 'DELETE' }),
+  },
+
   products: {
+    photo: async (id) => {
+      const response = await authorizedFetch(new URL(`${BASE}/catalog/products/${id}/photo`, window.location.origin))
+      if (!response.ok) throw new ApiError('Не вдалося завантажити фото товару', response.status)
+      return URL.createObjectURL(await response.blob())
+    },
+    get: (id) => request(`/catalog/products/${id}`),
+    patch: (id, data) => request(`/catalog/products/${id}`, { method: 'PATCH', body: data }),
     list: (params) => request('/catalog/products', { params }),
     create: (data) => request('/catalog/products', { method: 'POST', body: data }),
     update: (id, data) => request(`/catalog/products/${id}`, { method: 'PUT', body: data }),

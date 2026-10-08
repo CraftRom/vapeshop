@@ -214,6 +214,8 @@ export const api = {
   confirmAge: () => request('/age-confirm', { method: 'POST' }),
 
   categories: () => request('/categories'),
+  subcategories: () => request('/subcategories'),
+  product: (id) => request(`/products/${id}`),
   productPhoto: async (productId) => {
     const endpoint = `/products/${productId}/photo`
     for (let attempt = 1; attempt <= GET_RETRIES + 1; attempt += 1) {
@@ -243,9 +245,11 @@ export const api = {
     }
     throw new Error('Не вдалося завантажити фото')
   },
-  products: ({ categoryId, search } = {}) => {
+  products: ({ categoryId, subcategoryId, uncategorized, search } = {}) => {
     const q = new URLSearchParams()
     if (categoryId) q.set('category_id', categoryId)
+    if (subcategoryId) q.set('subcategory_id', subcategoryId)
+    if (uncategorized) q.set('uncategorized', 'true')
     if (search) q.set('search', search)
     const qs = q.toString()
     return request(`/products${qs ? `?${qs}` : ''}`)

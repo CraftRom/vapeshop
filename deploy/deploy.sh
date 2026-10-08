@@ -105,7 +105,12 @@ if [[ -z "$promo_token" || "$promo_token" == change_this* ]]; then
 fi
 
 echo "==> Бекап бази перед оновленням"
-./backup.sh || echo "    (бази ще немає — перший запуск)"
+BACKUP_CREATED=0
+if ./backup.sh; then
+    BACKUP_CREATED=1
+else
+    echo "    Бекап не створено; для першого запуску це очікувано"
+fi
 
 echo "==> Конфігурація nginx"
 ./render-nginx.sh
@@ -128,7 +133,13 @@ import api.main
 print('backend pre-start smoke: OK')
 PY
 
+CATALOG_BREAKING_UPGRADE=0
+
 rollback_core_runtime() {
+    if [[ "$CATALOG_BREAKING_UPGRADE" == 1 ]]; then
+        echo "Каталог уже перейшов на нову схему. Повернення старих образів потребує відновлення резервної копії БД; автоматичний runtime rollback пропущено." >&2
+        return
+    fi
     echo "==> Основний реліз не пройшов health gate. Rollback CORE runtime..." >&2
     if [[ -f "$ROLLBACK_DIR/images.tsv" ]]; then
         while IFS=$'\t' read -r svc sha ref; do
@@ -171,7 +182,16 @@ wait_service_healthy db 45 || exit 1
 wait_service_healthy redis 45 || exit 1
 
 echo "==> ФАЗА 2/6: міграції БД"
-# Міграції йдуть тільки після healthy DB. Ніякі web/promo сервіси ще не чіпаємо.
+# Міграції йдуть тільки після healthy DB. Перехід категорій змінює старий API.
+CATALOG_BREAKING_UPGRADE="$("${COMPOSE[@]}" run --rm --no-deps -T api python -m shop.catalog_upgrade)"
+if [[ "$CATALOG_BREAKING_UPGRADE" == 1 ]]; then
+    if [[ "$BACKUP_CREATED" != 1 ]]; then
+        echo "Перехід каталогу зупинено: спочатку потрібен успішний бекап поточної БД." >&2
+        exit 1
+    fi
+    echo "==> Перехід каталогу: зупиняємо старі API, бот і scheduler до міграції"
+    "${COMPOSE[@]}" stop api bot scheduler
+fi
 "${COMPOSE[@]}" run --rm migrate
 
 echo "==> ФАЗА 3/6: API"

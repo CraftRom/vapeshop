@@ -99,10 +99,10 @@ export function Cart({ config, cart, onCartChange, onCheckout }) {
             <div className="card-body">
               <p className="card-title">{l.name}</p>
               <p className="card-note num">
-                {Number(l.price).toFixed(0)} {config.currency} × {l.qty}
+                {Number(l.price).toLocaleString('uk-UA', { maximumFractionDigits: 2 })} {config.currency} × {l.qty}
               </p>
               <div className="price num">
-                {Number(l.line_total).toFixed(0)} <small>{config.currency}</small>
+                {Number(l.line_total).toLocaleString('uk-UA', { maximumFractionDigits: 2 })} <small>{config.currency}</small>
               </div>
             </div>
             <div className="stepper cart-stepper">
@@ -126,7 +126,7 @@ export function Cart({ config, cart, onCartChange, onCheckout }) {
         <div className="row-between total num">
           <span>Разом</span>
           <span>
-            {Number(cart.subtotal).toFixed(0)} {config.currency}
+            {Number(cart.subtotal).toLocaleString('uk-UA', { maximumFractionDigits: 2 })} {config.currency}
           </span>
         </div>
         {/* Знижки, промокод і бонуси рахуються на оформленні — тут лише
@@ -805,7 +805,7 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
         {promo && (
           <p className={`field-note ${promo.ok ? 'ok' : 'bad'}`}>
             {promo.ok
-              ? `Знижка ${Number(promo.discount).toFixed(0)} ${config.currency}`
+              ? `Знижка ${Number(promo.discount).toLocaleString('uk-UA', { maximumFractionDigits: 2 })} ${config.currency}`
               : promo.error}
           </p>
         )}
@@ -818,8 +818,8 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
             Списати бонуси
             <br />
             <span className="hint num">
-              доступно {Number(profile.max_bonus_now).toFixed(0)} з{' '}
-              {Number(profile.bonus_balance).toFixed(0)} {config.currency}
+              доступно {Number(profile.max_bonus_now).toLocaleString('uk-UA', { maximumFractionDigits: 2 })} з{' '}
+              {Number(profile.bonus_balance).toLocaleString('uk-UA', { maximumFractionDigits: 2 })} {config.currency}
             </span>
           </span>
         </label>
@@ -845,14 +845,14 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
         <div className="row-between num">
           <span className="hint">Товари</span>
           <span>
-            {subtotal.toFixed(0)} {config.currency}
+            {subtotal.toLocaleString('uk-UA', { maximumFractionDigits: 2 })} {config.currency}
           </span>
         </div>
         {discount > 0 && (
           <div className="row-between num discount">
-            <span>{byVolume ? `Знижка від ${Number(config.volume_discount_min).toFixed(0)}` : 'Промокод'}</span>
+            <span>{byVolume ? `Знижка від ${Number(config.volume_discount_min).toLocaleString('uk-UA', { maximumFractionDigits: 2 })}` : 'Промокод'}</span>
             <span>
-              −{discount.toFixed(0)} {config.currency}
+              −{discount.toLocaleString('uk-UA', { maximumFractionDigits: 2 })} {config.currency}
             </span>
           </div>
         )}
@@ -860,14 +860,14 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
           <div className="row-between num discount">
             <span>Бонуси</span>
             <span>
-              −{bonus.toFixed(0)} {config.currency}
+              −{bonus.toLocaleString('uk-UA', { maximumFractionDigits: 2 })} {config.currency}
             </span>
           </div>
         )}
         <div className="row-between total num">
           <span>До сплати</span>
           <span>
-            {total.toFixed(0)} {config.currency}
+            {total.toLocaleString('uk-UA', { maximumFractionDigits: 2 })} {config.currency}
           </span>
         </div>
 
@@ -884,7 +884,7 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
               <span>
                 {shipping.cost
                   ? `≈ ${shipping.cost} ${config.currency}`
-                  : `від ${shipping.cost_from.toFixed(0)} ${config.currency}`}
+                  : `від ${shipping.cost_from.toLocaleString('uk-UA', { maximumFractionDigits: 2 })} ${config.currency}`}
               </span>
             </div>
             {shipping.redelivery > 0 && (

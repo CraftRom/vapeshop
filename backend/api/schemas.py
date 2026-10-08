@@ -36,30 +36,85 @@ class CategoryIn(BaseModel):
     sort_order: int = 0
     is_active: bool = True
 
+    @field_validator("name")
+    @classmethod
+    def nonempty_name(cls, value):
+        if not value.strip(): raise ValueError("Назва групи не може бути порожньою")
+        return value.strip()
+
 
 class CategoryOut(ORMModel, CategoryIn):
     id: int
     products_count: int = 0
 
 
+class SubcategoryIn(CategoryIn):
+    category_id: int | None = Field(None, gt=0)
+
+
+class SubcategoryOut(ORMModel, SubcategoryIn):
+    id: int
+    category_name: str | None = None
+    products_count: int = 0
+
+
 class ProductIn(BaseModel):
-    category_id: int
+    category_id: int | None = Field(None, gt=0)
+    subcategory_id: int | None = Field(None, gt=0)
     name: str = Field(min_length=1, max_length=255)
-    sku: str | None = Field(None, min_length=3, max_length=32)
+    # Accepted for old clients, but never used as the system article.
+    sku: str | None = None
+    external_sku: str | None = Field(None, max_length=255)
     description: str | None = None
-    price: Decimal = Field(ge=0)
-    old_price: Decimal | None = None
+    price: Decimal = Field(ge=0, max_digits=12, decimal_places=2)
+    old_price: Decimal | None = Field(None, ge=0, max_digits=12, decimal_places=2)
     stock: int = Field(ge=0, default=0)
-    photo_url: str | None = None
+    photo_url: str | None = Field(None, max_length=512)
     sort_order: int = 0
     is_active: bool = True
+    is_new: bool = False
+    is_sale: bool = False
+
+    @field_validator("name")
+    @classmethod
+    def nonempty_name(cls, value):
+        if not value.strip():
+            raise ValueError("Назва не може бути порожньою")
+        return value.strip()
+
+
+class ProductPatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    category_id: int | None = Field(None, gt=0)
+    subcategory_id: int | None = Field(None, gt=0)
+    name: str | None = Field(None, min_length=1, max_length=255)
+    external_sku: str | None = Field(None, max_length=255)
+    description: str | None = None
+    price: Decimal | None = Field(None, ge=0, max_digits=12, decimal_places=2)
+    old_price: Decimal | None = Field(None, ge=0, max_digits=12, decimal_places=2)
+    stock: int | None = Field(None, ge=0)
+    photo_url: str | None = Field(None, max_length=512)
+    sort_order: int | None = None
+    is_active: bool | None = None
+    is_new: bool | None = None
+    is_sale: bool | None = None
+
+    @model_validator(mode="after")
+    def required_values(self):
+        for key in {"name", "price", "stock", "sort_order", "is_active", "is_new", "is_sale"} & self.model_fields_set:
+            if getattr(self, key) is None:
+                raise ValueError(f"{key}: null не допускається")
+        if self.name is not None:
+            if not self.name.strip():
+                raise ValueError("Назва не може бути порожньою")
+            self.name = self.name.strip()
+        return self
 
 
 class ProductOut(ORMModel, ProductIn):
     id: int
     category_name: str | None = None
-    # Сам ідентифікатор файлу назовні не потрібен: фото віддає наш проксі.
-    # Клієнту достатньо знати, що воно є.
+    subcategory_name: str | None = None
     photo_file_id: str | None = Field(None, exclude=True)
 
     @computed_field

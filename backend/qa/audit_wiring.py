@@ -268,8 +268,23 @@ check("/api/logs" in read("backend/api/request_log.py"),
 _media_py = read("backend/api/routers/media.py")
 check("SIGNATURES" in _media_py or "_sniff" in _media_py,
       "тип файлу визначається за вмістом, а не за заголовком клієнта")
+def ui_source_graph(path, visited=None):
+    visited = set() if visited is None else visited
+    file = (root / path).resolve()
+    if file in visited or not file.is_file(): return ""
+    visited.add(file)
+    source = file.read_text()
+    for rel in re.findall(r"from ['\"](\.[^'\"]+)['\"]", source):
+        child = file.parent / rel
+        for suffix in (".jsx", ".js"):
+            candidate = child.with_suffix(suffix)
+            if candidate.is_file():
+                source += "\n" + ui_source_graph(candidate, visited)
+                break
+    return source
+
 for _page in ("Catalog", "Broadcasts"):
-    check("ImageField" in read(f"dashboard/src/pages/{_page}.jsx"),
+    check("ImageField" in ui_source_graph(f"dashboard/src/pages/{_page}.jsx"),
           f"{_page}: поле фото використовує завантажувач, а не голе посилання")
 check("media:" in _api_js, "панель уміє завантажувати й перелічувати файли")
 check("/media/" in nginx_conf, "nginx віддає завантажені файли напряму")

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from shop.formatting import money as format_money
+
 from decimal import Decimal
 
 from aiogram import F, Router
@@ -20,10 +22,10 @@ def render(lines) -> str:
     for line in lines:
         total += line.line_total
         out.append(
-            f"• {line.product.name}\n  {line.qty} × {line.product.price:.0f} "
-            f"= {line.line_total:.0f} грн"
+            f"• {line.product.name}\n  {line.qty} × {format_money(line.product.price)} "
+            f"= {format_money(line.line_total)} грн"
         )
-    out.append(f"\n<b>Разом: {total:.0f} грн</b>")
+    out.append(f"\n<b>Разом: {format_money(total)} грн</b>")
     return "\n".join(out)
 
 

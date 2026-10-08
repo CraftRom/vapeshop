@@ -3,7 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node browser-ui.mjs"
+    "test": "bash run-browser.sh",
+    "test:catalog": "QA_BROWSER_SUITE=catalog bash run-browser.sh"
   },
   "devDependencies": {
     "playwright": "1.62.1"

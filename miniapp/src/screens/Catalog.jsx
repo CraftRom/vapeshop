@@ -4,7 +4,7 @@ import { api } from '../api'
 import { Field } from '../fields'
 import { Photo } from '../photo'
 import { StoreIcon } from '../StoreIcon'
-import { SORT_OPTIONS, discountPercent, hasFreshStatus, sortProducts } from '../catalogModel'
+import { SORT_OPTIONS, catalogPrice, discountPercent, hasFreshStatus, hasSaleStatus, sortProducts } from '../catalogModel'
 import { SortSheet } from './SortSheet'
 import { close, haptic } from '../telegram'
 
@@ -66,7 +66,7 @@ function stockLabel(stock) {
 export function ProductCard({ product, qty = 0, currency, onChange, onOpen, saved, onSave, saveLabel }) {
   const out = product.stock <= 0
   const oldPrice = Number(product.old_price || 0)
-  const discounted = oldPrice > Number(product.price)
+  const discounted = hasSaleStatus(product)
   const discount = discountPercent(product)
   return (
     <article className={`store-card ${out ? 'is-out' : ''}`}>
@@ -76,6 +76,7 @@ export function ProductCard({ product, qty = 0, currency, onChange, onOpen, save
           <Photo key={product.id} product={product} className="store-card-image" />
         </button>
         {discount > 0 && <span className="store-card-discount">−{discount}%</span>}
+        {hasFreshStatus(product) && <span className={`store-card-new ${discount > 0 ? 'with-discount' : ''}`}>Новинка</span>}
         {onSave && <button className={`store-card-save store-icon-button ${saved ? 'is-saved' : ''} ${saveLabel ? 'with-label' : ''}`} onClick={() => onSave(product)} aria-label={saveLabel || (saved ? 'У списку бажаного' : 'Відкласти')} title={saveLabel || (saved ? 'У списку бажаного' : 'Відкласти')}>
           {saveLabel || <StoreIcon name="heart" filled={saved} />}
         </button>}
@@ -84,8 +85,8 @@ export function ProductCard({ product, qty = 0, currency, onChange, onOpen, save
       <div className="store-card-stock">{stockLabel(product.stock)}</div>
       <div className="store-card-bottom">
         <div className="store-card-price num">
-          {discounted && <span className="old-price">{oldPrice.toFixed(0)} {currency}</span>}
-          <strong>{Number(product.price).toFixed(0)} {currency}</strong>
+          {discounted && <span className="old-price">{catalogPrice(oldPrice)} {currency}</span>}
+          <strong>{catalogPrice(product.price)} {currency}</strong>
         </div>
         {qty === 0 && <button className="store-card-add store-icon-button" disabled={out} onClick={() => onChange(product, 1)} aria-label={`Додати в кошик: ${product.name}`}><StoreIcon name="cart" /></button>}
       </div>
@@ -100,6 +101,9 @@ export function ProductCard({ product, qty = 0, currency, onChange, onOpen, save
 
 export function Catalog({ config, cart, onCartChange, onOpenProduct, wishlists, onSave, searchRequest = 0, initialState = {}, onStateChange, onSearchRequestHandled }) {
   const [categories, setCategories] = useState([])
+  const [subcategories, setSubcategories] = useState([])
+  const [subcategory, setSubcategory] = useState(initialState.subcategory ?? null)
+  const [ungrouped, setUngrouped] = useState(initialState.ungrouped || false)
   const [products, setProducts] = useState(null)
   const [active, setActive] = useState(initialState.active ?? null)
   const [search, setSearch] = useState(initialState.search || '')
@@ -113,8 +117,8 @@ export function Catalog({ config, cart, onCartChange, onOpenProduct, wishlists, 
   const closeSort = useCallback(() => setSorting(false), [])
 
   useEffect(() => {
-    onStateChange?.({ active, search, sort, inStock })
-  }, [active, search, sort, inStock, onStateChange])
+    onStateChange?.({ active, subcategory, ungrouped, search, sort, inStock })
+  }, [active, subcategory, ungrouped, search, sort, inStock, onStateChange])
 
   useEffect(() => {
     if (searchRequest) {
@@ -124,7 +128,7 @@ export function Catalog({ config, cart, onCartChange, onOpenProduct, wishlists, 
   }, [searchRequest, onSearchRequestHandled])
   useEffect(() => {
     let cancelled = false
-    api.categories().then((rows) => !cancelled && setCategories(rows)).catch((e) => !cancelled && setError(e.message))
+    Promise.all([api.categories(), api.subcategories()]).then(([cats, subs]) => { if (!cancelled) { setCategories(cats); setSubcategories(subs) } }).catch((e) => !cancelled && setError(e.message))
     return () => { cancelled = true }
   }, [])
   useEffect(() => {
@@ -133,14 +137,14 @@ export function Catalog({ config, cart, onCartChange, onOpenProduct, wishlists, 
     setError('')
     setLoadFailed(false)
     const timer = setTimeout(() => {
-      api.products({ categoryId: active, search: search.trim() || undefined })
+      api.products({ categoryId: active, subcategoryId: subcategory, uncategorized: ungrouped, search: search.trim() || undefined })
         .then((rows) => !cancelled && setProducts(rows))
         .catch((e) => {
           if (!cancelled) { setProducts([]); setError(e.message); setLoadFailed(true) }
         })
     }, search ? 300 : 0)
     return () => { cancelled = true; clearTimeout(timer) }
-  }, [active, search, retry])
+  }, [active, subcategory, ungrouped, search, retry])
 
   const change = async (product, delta) => {
     haptic('light')
@@ -148,11 +152,14 @@ export function Catalog({ config, cart, onCartChange, onOpenProduct, wishlists, 
   }
   const view = useMemo(() => products === null ? null : sortProducts(products, sort, inStock), [products, sort, inStock])
   const hasFreshProducts = useMemo(() => (products || []).some(hasFreshStatus), [products])
-  const filtered = sort !== 'default' || inStock || Boolean(search.trim())
+  const filtered = sort !== 'default' || inStock || ungrouped || Boolean(search.trim())
+  const chooseCategory = (id) => { setActive(id); setSubcategory(null); setUngrouped(false) }
+  const visibleSubs = subcategories.filter((s) => active === null || s.category_id === active || s.category_id === null)
   const reset = () => {
     setSearch('')
     setSort('default')
     setInStock(false)
+    setUngrouped(false)
   }
   const qtyOf = (id) => cart?.lines?.find((l) => l.product_id === id)?.qty || 0
   const savedIds = new Set((wishlists || []).flatMap((w) => w.product_ids || []))
@@ -161,15 +168,20 @@ export function Catalog({ config, cart, onCartChange, onOpenProduct, wishlists, 
   return (
     <section className="store-catalog" aria-label="Каталог товарів">
       <div className="field search catalog-search" ref={searchRef}>
-        <Field value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Шукати товар за назвою" aria-label="Пошук товарів" inputMode="search" />
+        <Field value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Назва або артикул (SKU)" aria-label="Пошук товарів" inputMode="search" />
         {search && <button className="search-clear" onClick={() => setSearch('')} aria-label="Очистити">✕</button>}
       </div>
-      {categories.length > 0 && <div className="rail store-categories" role="group" aria-label="Категорії" tabIndex={0}>
-        <button className="chip" aria-pressed={active === null} onClick={() => setActive(null)}>Усе</button>
-        {categories.map((c) => <button key={c.id} className="chip" aria-pressed={active === c.id} onClick={() => setActive(c.id)}>{c.name}</button>)}
+      <div className="rail store-categories" role="group" aria-label="Категорії" tabIndex={0}>
+        <button className="chip" aria-pressed={active === null} onClick={() => chooseCategory(null)}>Усе</button>
+        {categories.map((c) => <button key={c.id} className="chip" aria-pressed={active === c.id} onClick={() => chooseCategory(c.id)}>{c.name}</button>)}
+      </div>
+      {visibleSubs.length > 0 && <div className="rail store-subcategories" role="group" aria-label="Субкатегорії" tabIndex={0}>
+        <button className="chip" aria-pressed={subcategory === null} onClick={() => setSubcategory(null)}>Усі субкатегорії</button>
+        {visibleSubs.map((s) => <button key={s.id} className="chip" aria-pressed={subcategory === s.id} onClick={() => { setSubcategory(s.id); setUngrouped(false) }}>{s.name}</button>)}
       </div>}
       <div className="store-catalog-tools">
         <div className="rail store-filter-rail" role="group" aria-label="Фільтри" tabIndex={0}>
+          <button className="chip" aria-pressed={ungrouped} onClick={() => { setUngrouped((on) => !on); setActive(null); setSubcategory(null) }}>Без груп</button>
           <button className="chip" aria-pressed={inStock} onClick={() => setInStock((on) => !on)}>В наявності</button>
           {filtered && <button className="chip" onClick={reset}>Скинути фільтри</button>}
         </div>

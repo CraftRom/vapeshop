@@ -10,10 +10,10 @@ const failures = []
 const check = (value, label) => { checks++; console.log(`${value ? 'PASS' : 'FAIL'} ${label}`); if (!value) failures.push(label) }
 const photo = (color, type) => 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400"><rect width="400" height="400" fill="#f3f4f6"/>${type === 'bag' ? `<path d="M100 130h200l-15 200H115Z" fill="${color}"/><path d="M155 145V90a45 45 0 0 1 90 0v55" fill="none" stroke="${color}" stroke-width="16"/><path d="M150 190h100" stroke="#fff" stroke-opacity=".3" stroke-width="4"/>` : `<path d="M110 230v-60a90 90 0 0 1 180 0v60" fill="none" stroke="${color}" stroke-width="28"/><rect x="78" y="190" width="64" height="105" rx="28" fill="${color}"/><rect x="258" y="190" width="64" height="105" rx="28" fill="${color}"/>`}</svg>`)
 const goods = [
-  { id: 1, name: 'Тканинна сумка — м’ятна', price: '320', old_price: '400', stock: 2, is_new: true, photo_url: photo('#63ad94', 'bag'), description: 'Містка повсякденна сумка. '.repeat(32) },
+  { id: 1, name: 'Тканинна сумка — м’ятна', price: '320', old_price: '400', is_sale: true, stock: 2, is_new: true, photo_url: photo('#63ad94', 'bag'), description: 'Містка повсякденна сумка. '.repeat(32) },
   { id: 2, name: 'Навушники — графітові', price: '890', stock: 5, photo_url: photo('#354657', 'headphones'), description: 'Зручні навушники для щоденного використання.' },
   { id: 3, name: 'Сумка — пісочна', price: '280', stock: 0, photo_url: photo('#c4ab86', 'bag') },
-  { id: 4, name: 'Навушники — бежеві', price: '760', old_price: '900', stock: 7, photo_url: photo('#c4ab86', 'headphones') },
+  { id: 4, name: 'Навушники — бежеві', price: '760', old_price: '900', is_sale: true, stock: 7, photo_url: photo('#c4ab86', 'headphones') },
   { id: 5, name: 'Подарункова сумка з дуже довгою назвою для перевірки вузького екрана', price: '410', stock: 4 },
   ...Array.from({ length: 7 }, (_, i) => ({ id: i + 6, name: `Аксесуар ${i + 1}`, price: String(200 + i * 10), stock: 8, photo_url: photo(i % 2 ? '#354657' : '#63ad94', i % 2 ? 'headphones' : 'bag') })),
 ]
@@ -46,6 +46,7 @@ try {
         data = route.request().method() === 'POST' ? { id: 2, text: route.request().postDataJSON().text, direction: 'in', created_at: '2026-10-08T12:00:00Z' } : [{ id: 1, text: 'Вітаємо', direction: 'out', created_at: '2026-10-08T12:00:00Z' }]
       } else if (path.endsWith('/profile')) data = { first_name: 'Покупець', bonus_balance: '0', orders_count: 0 }
       else if (path.endsWith('/categories')) data = Array.from({ length: 18 }, (_, i) => ({ id: i + 1, name: i === 0 ? 'Аксесуари' : `Колекція ${i + 1}` }))
+      else if (/\/products\/\d+$/.test(path)) data = goods.find(item => item.id === Number(path.split('/').pop()))
       else if (path.endsWith('/products')) {
         if (failProducts) { await route.fulfill({ status: 503, json: { detail: 'Каталог тимчасово недоступний' } }); return }
         const q = (url.searchParams.get('q') || url.searchParams.get('search') || '').toLowerCase()

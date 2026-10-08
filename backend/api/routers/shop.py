@@ -18,7 +18,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, Respons
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from api.schemas import CategoryOut, ProductOut
+from api.schemas import CategoryOut, SubcategoryOut, ProductOut
 from shop.links import app_link
 from api.webapp_auth import InitDataError, parse_init_data, require_webapp_user
 from shop.entities import OrderStatus, User
@@ -341,6 +341,7 @@ class BootstrapOut(BaseModel):
     cart: CartOut | None = None
     profile: ProfileOut | None = None
     categories: list[CategoryOut] = []
+    subcategories: list[SubcategoryOut] = []
     products: list[ProductOut] = []
     orders: list[dict] = []
     wishlists: list[WishlistOut] = []
@@ -369,12 +370,13 @@ async def bootstrap(
     cart = await _cart_payload(repo, user.id)
     profile_data = await _profile_payload(repo, shop, user)
     categories = await repo.list_categories(only_active=True)
+    subcategories = await repo.list_subcategories(only_active=True)
     products = await repo.list_products(only_active=True)
     orders = await _orders_payload(repo, user.id)
     lists = await wl.hydrate(repo, await wl.ensure_lists(repo, user.id))
     return BootstrapOut(
         config=config, cart=cart, profile=profile_data,
-        categories=categories, products=products, orders=orders,
+        categories=categories, subcategories=subcategories, products=products, orders=orders,
         wishlists=[_wl_out(x) for x in lists],
     )
 
@@ -404,17 +406,21 @@ async def categories(
     return await repo.list_categories(only_active=True)
 
 
-@router.get("/products", response_model=list[ProductOut])
-async def products(
-    category_id: int | None = None,
-    search: str | None = None,
-    user: User = Depends(require_webapp_user),
-    repo: Repository = Depends(get_repo),
-):
+@router.get("/subcategories", response_model=list[SubcategoryOut])
+async def subcategories(category_id: int | None = None, user: User = Depends(require_webapp_user), repo: Repository = Depends(get_repo)):
     _require_age(user)
-    return await repo.list_products(
-        category_id=category_id, search=search, only_active=True
-    )
+    return await repo.list_subcategories(category_id=category_id, only_active=True)
+
+
+@router.get("/products", response_model=list[ProductOut])
+async def products(category_id: int | None = None, subcategory_id: int | None = None,
+                   search: str | None = None, is_new: bool | None = None,
+                   is_sale: bool | None = None, uncategorized: bool = False,
+                   user: User = Depends(require_webapp_user), repo: Repository = Depends(get_repo)):
+    _require_age(user)
+    return await repo.list_products(category_id=category_id, subcategory_id=subcategory_id,
+                                    search=search, only_active=True, is_new=is_new,
+                                    is_sale=is_sale, uncategorized=uncategorized)
 
 
 @router.get("/products/{product_id}", response_model=ProductOut)
@@ -454,8 +460,8 @@ async def product_photo(
     if not bot:
         raise HTTPException(503, "Бот недоступний — фото не отримати")
     try:
-        info = await bot.get_file(found.photo_file_id)
-        content = await bot.download_file(info.file_path)
+        from shop.services.product_media import telegram_product_photo
+        content = await telegram_product_photo(bot, found.photo_file_id)
     except Exception:
         log.warning("Не вдалося отримати фото товару %s", product_id, exc_info=True)
         raise HTTPException(502, "Telegram не віддав фото")

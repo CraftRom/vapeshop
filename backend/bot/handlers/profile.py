@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from shop.formatting import money as format_money
+
 from aiogram import F, Router
 from aiogram.types import CallbackQuery, Message
 
@@ -30,22 +32,22 @@ async def profile(message: Message, repo: Repository, user: User) -> None:
     parts = [
         "<b>Ваш профіль</b>\n",
         f"Замовлень: {fresh.orders_count}",
-        f"Витрачено: {fresh.total_spent:.0f} {shop.currency}",
+        f"Витрачено: {format_money(fresh.total_spent)} {shop.currency}",
     ]
     if shop.bonus_enabled:
         parts.append(
-            f"Бонусний рахунок: <b>{fresh.bonus_balance:.0f} {shop.currency}</b>"
+            f"Бонусний рахунок: <b>{format_money(fresh.bonus_balance)} {shop.currency}</b>"
         )
     if shop.volume_discount_enabled and shop.volume_discount_min > 0:
         parts.append(
-            f"\nЗнижка {shop.volume_discount_percent:.0f}% на замовлення "
-            f"від {shop.volume_discount_min:.0f} {shop.currency}"
+            f"\nЗнижка {format_money(shop.volume_discount_percent)}% на замовлення "
+            f"від {format_money(shop.volume_discount_min)} {shop.currency}"
         )
     if shop.referral_enabled:
         parts += [
             "\n<b>Реферальна програма</b>",
             f"Запрошено друзів: {fresh.referrals_count}",
-            f"Ви отримуєте {shop.referral_percent:.0f}% бонусами від кожного "
+            f"Ви отримуєте {format_money(shop.referral_percent)}% бонусами від кожного "
             f"виконаного замовлення запрошеного друга.",
             f"\nВаше посилання:\n<code>{link}</code>",
         ]
@@ -69,7 +71,7 @@ async def my_orders(callback: CallbackQuery, repo: Repository, user: User) -> No
         items = ", ".join(f"{ln.name} ×{ln.qty}" for ln in order.items)
         lines.append(
             f"<b>№{order.id}</b> — {order_business.display_status_label(order)}\n"
-            f"{order.created_at:%d.%m.%Y} · {order.total:.0f} {shop.currency}\n"
+            f"{order.created_at:%d.%m.%Y} · {format_money(order.total)} {shop.currency}\n"
             f"<i>{items}</i>\n"
         )
     await callback.message.answer("\n".join(lines))

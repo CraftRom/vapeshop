@@ -8,6 +8,8 @@
 """
 from __future__ import annotations
 
+from shop.formatting import money as format_money
+
 from datetime import datetime, timedelta, timezone
 
 from aiogram import F, Router
@@ -145,7 +147,7 @@ async def switch_order(message: Message, repo: Repository, user: User) -> None:
         mark = " ← обрано" if o.id == user.chat_order_id else ""
         operator = f" · {o.operator_name}" if o.operator_name else ""
         lines.append(
-            f"№{o.id} — {o.total:.0f} · {order_business.display_status_label(o)}{operator}{mark}"
+            f"№{o.id} — {format_money(o.total)} · {order_business.display_status_label(o)}{operator}{mark}"
         )
     lines.append("\nОберіть, про яке замовлення писати:")
 

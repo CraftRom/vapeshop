@@ -34,7 +34,7 @@ check(catalog.includes('ProductStatus product={p}'), 'статус винесе�
 check(catalog.includes('catalog-stepper'), 'залишок керується touch-friendly stepper')
 check(catalog.includes("sort: 'name-asc'"), 'сортування зберігається в URL разом із фільтрами')
 check(catalog.includes('paginationNumbers'), 'є клієнтська пагінація каталогу')
-check(catalog.includes("productPayload(product, { is_active: true })"), 'прихований товар можна повернути в каталог')
+check(catalog.includes("api.products.patch(product.id, { is_active: true })"), 'прихований товар можна повернути в каталог')
 check(catalog.includes('Дія з вибраними'), 'на ПК є групові дії для вибраних товарів')
 check(css.includes('@media (max-width: 760px)') && css.includes('.catalog-product'), 'описаний мобільний breakpoint каталогу')
 check(css.includes('grid-template-areas:') && css.includes('"main status"'), 'на вузькому екрані таблиця перебудовується в картки')

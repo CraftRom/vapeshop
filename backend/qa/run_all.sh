@@ -133,6 +133,9 @@ run deep-integrity qa/qa_deep_integrity.py
 run order-chat-history qa/qa_order_chat_history.py
 run contracts tests_contracts.py
 run repo tests_repo.py
+run catalog-hierarchy qa/qa_catalog_hierarchy.py
+run catalog-import qa/qa_catalog_import.py
+run catalog-deploy qa/qa_catalog_deploy.py
 # Наскрізні сценарії бота. Існували, але в зведення не входили — і
 # tests_bot падав непоміченим, відколи маршрут статусів отримав обовʼязкове
 # «Прийнято». Саме він проганяє кнопки статусу в чаті.

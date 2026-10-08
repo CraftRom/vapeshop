@@ -125,3 +125,6 @@
 
 .storefront .sheet { max-width: 560px; }
 .storefront .sort-sheet { max-width: 480px; }
+
+/* Independent taxonomy rails and persisted merchandising flags. */
+.store-subcategories{margin-bottom:14px;padding-bottom:6px}.store-subcategories .chip{font-size:13px}.store-card-new{position:absolute;top:12px;left:12px;padding:5px 9px;border-radius:8px;background:var(--tg-theme-button-color,#65d5ac);color:var(--tg-theme-button-text-color,#142920);font-size:11px;font-weight:700;pointer-events:none}.store-card-new.with-discount{top:46px}.detail-sku{overflow-wrap:anywhere}.detail-sku span{font-family:ui-monospace,monospace}

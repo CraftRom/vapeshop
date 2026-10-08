@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from shop.formatting import money as format_money
+
 from aiogram.types import (
     InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup,
 )
@@ -102,32 +104,39 @@ def age_gate() -> InlineKeyboardMarkup:
 
 # ---------------------------------------------------------------------- каталог
 
-def categories(items: list[Category]) -> InlineKeyboardMarkup:
+def categories(items: list[Category], subcategories=()) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
+    kb.button(text="Усі товари", callback_data="shelf:all")
+    kb.button(text="Новинки", callback_data="shelf:new")
+    kb.button(text="Акції", callback_data="shelf:sale")
     for c in items:
-        kb.button(text=c.name, callback_data=f"cat:{c.id}")
+        kb.button(text=c.name, callback_data=f"root:{c.id}")
+    for c in subcategories:
+        kb.button(text=c.name, callback_data=f"sub:{c.id}")
     kb.adjust(2)
     return kb.as_markup()
 
 
-def products(items: list[Product], category_id: int, page: int, pages: int) -> InlineKeyboardMarkup:
+def products(items: list[Product], category_id, page: int, pages: int, scope=None, children=()) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
+    scope = scope or f"cat:{category_id}"
+    for child in children:
+        kb.button(text=child.name, callback_data=f"sub:{child.id}")
     for p in items:
         mark = "" if p.stock > 0 else " (немає)"
-        kb.button(text=f"{p.name} — {p.price:.0f} грн{mark}", callback_data=f"prod:{p.id}")
+        badge = " · Новинка" if p.is_new else ""
+        if p.is_sale: badge += " · Акція"
+        kb.button(text=f"{p.name} — {p.price:.2f} грн{badge}{mark}", callback_data=f"prod:{p.id}")
     kb.adjust(1)
-
     nav = []
     if page > 0:
-        nav.append(InlineKeyboardButton(text="←", callback_data=f"catpage:{category_id}:{page - 1}"))
+        nav.append(InlineKeyboardButton(text="←", callback_data=f"browse:{scope}:{page-1}"))
     if pages > 1:
-        nav.append(InlineKeyboardButton(text=f"{page + 1}/{pages}", callback_data="noop"))
-    if page < pages - 1:
-        nav.append(InlineKeyboardButton(text="→", callback_data=f"catpage:{category_id}:{page + 1}"))
-    if nav:
-        kb.row(*nav)
-
-    kb.row(InlineKeyboardButton(text="⬅️ До категорій", callback_data="catalog"))
+        nav.append(InlineKeyboardButton(text=f"{page+1}/{pages}", callback_data="noop"))
+    if page < pages-1:
+        nav.append(InlineKeyboardButton(text="→", callback_data=f"browse:{scope}:{page+1}"))
+    if nav: kb.row(*nav)
+    kb.row(InlineKeyboardButton(text="⬅️ До каталогу", callback_data="catalog"))
     return kb.as_markup()
 
 
@@ -143,7 +152,7 @@ def product_card(product: Product, in_cart: int = 0) -> InlineKeyboardMarkup:
             kb.row(InlineKeyboardButton(text="🛒 Перейти в кошик", callback_data="cart"))
         else:
             kb.row(InlineKeyboardButton(text="🛒 Додати в кошик", callback_data=f"add:{product.id}"))
-    kb.row(InlineKeyboardButton(text="⬅️ Назад", callback_data=f"cat:{product.category_id}"))
+    kb.row(InlineKeyboardButton(text="⬅️ Назад", callback_data=(f"sub:{product.subcategory_id}" if product.subcategory_id else f"root:{product.category_id}" if product.category_id else "shelf:all")))
     return kb.as_markup()
 
 
@@ -186,7 +195,7 @@ def payment_methods() -> InlineKeyboardMarkup:
 def bonus_prompt(amount) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text=f"Списати {amount:.0f} грн бонусів", callback_data="bonus:yes")],
+            [InlineKeyboardButton(text=f"Списати {format_money(amount)} грн бонусів", callback_data="bonus:yes")],
             [InlineKeyboardButton(text="Не використовувати", callback_data="bonus:no")],
         ]
     )

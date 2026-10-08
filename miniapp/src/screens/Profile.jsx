@@ -86,7 +86,7 @@ export function Profile({ config, profile, orders, onOrdersChange }) {
         {config.bonus_enabled && (
           <div className="stat">
             <b className="num">
-              {Number(profile.bonus_balance).toFixed(0)} {config.currency}
+              {Number(profile.bonus_balance).toLocaleString('uk-UA', { maximumFractionDigits: 2 })} {config.currency}
             </b>
             <span>Бонусний рахунок</span>
           </div>
@@ -97,7 +97,7 @@ export function Profile({ config, profile, orders, onOrdersChange }) {
         </div>
         <div className="stat">
           <b className="num">
-            {Number(profile.total_spent).toFixed(0)} {config.currency}
+            {Number(profile.total_spent).toLocaleString('uk-UA', { maximumFractionDigits: 2 })} {config.currency}
           </b>
           <span>Витрачено</span>
         </div>
@@ -114,9 +114,9 @@ export function Profile({ config, profile, orders, onOrdersChange }) {
       <div className="section-head">
         <h2>Запрошуйте друзів</h2>
         <p>
-          Отримуйте {Number(config.referral_percent).toFixed(0)}% бонусами з кожного
+          Отримуйте {Number(config.referral_percent).toLocaleString('uk-UA', { maximumFractionDigits: 2 })}% бонусами з кожного
           виконаного замовлення запрошеного. Бонусами можна закрити до{' '}
-          {Number(config.bonus_max_percent).toFixed(0)}% вартості.
+          {Number(config.bonus_max_percent).toLocaleString('uk-UA', { maximumFractionDigits: 2 })}% вартості.
         </p>
       </div>
 
@@ -183,7 +183,7 @@ export function Profile({ config, profile, orders, onOrdersChange }) {
             <div className="order-head">
               <span className="num">№{o.id}</span>
               <span className="num">
-                {Number(o.total).toFixed(0)} {config.currency}
+                {Number(o.total).toLocaleString('uk-UA', { maximumFractionDigits: 2 })} {config.currency}
               </span>
             </div>
             {/* Статус окремою плашкою, а не хвостом після дати: саме його

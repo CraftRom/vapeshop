@@ -90,12 +90,23 @@ class Category:
 
 
 @dataclass
+class Subcategory(Category):
+    category_id: int | None = None
+    category_name: str | None = None
+
+
+@dataclass
 class Product:
     id: int
-    category_id: int
+    category_id: int | None
     name: str
     price: Decimal
     sku: str = ""
+    subcategory_id: int | None = None
+    subcategory_name: str | None = None
+    external_sku: str | None = None
+    is_new: bool = False
+    is_sale: bool = False
     description: str | None = None
     old_price: Decimal | None = None
     stock: int = 0

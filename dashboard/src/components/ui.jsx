@@ -96,7 +96,7 @@ export function ErrorBar({ error }) {
 // ------------------------------------------------------------------ форматери
 
 export const money = (value) =>
-  `${Number(value ?? 0).toLocaleString('uk-UA', { maximumFractionDigits: 0 })} ₴`
+  `${Number(value ?? 0).toLocaleString('uk-UA', { maximumFractionDigits: 2 })} ₴`
 
 export const date = (iso) =>
   new Date(iso).toLocaleDateString('uk-UA', { day: '2-digit', month: '2-digit', year: '2-digit' })

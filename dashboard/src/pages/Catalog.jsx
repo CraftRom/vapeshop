@@ -1,307 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import ImageField from '../components/ImageField'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
+import { useProductImage } from '../components/catalog/useProductImage'
+import NewProductModal from '../components/catalog/NewProductModal'
+import TaxonomyManager from '../components/catalog/TaxonomyManager'
 
 import { api } from '../api'
 import { useFilters } from '../components/useFilters'
 import { Empty, ErrorBar, Field, Loading, Modal, confirmPurge, money, useToast } from '../components/ui'
-
-const EMPTY_PRODUCT = {
-  category_id: '',
-  name: '',
-  sku: '',
-  description: '',
-  price: '',
-  old_price: '',
-  stock: 0,
-  photo_url: '',
-  sort_order: 0,
-  is_active: true,
-}
-
-function ProductForm({ product, categories, onClose, onSaved }) {
-  const notify = useToast()
-  const [form, setForm] = useState({ ...EMPTY_PRODUCT, ...product })
-  const [error, setError] = useState('')
-  const [busy, setBusy] = useState(false)
-
-  const set = (key) => (e) => {
-    const value = e.target.type === 'checkbox' ? e.target.checked : e.target.value
-    setForm((f) => ({ ...f, [key]: value }))
-  }
-
-  const save = async () => {
-    setBusy(true)
-    setError('')
-    const payload = {
-      ...form,
-      category_id: Number(form.category_id),
-      price: Number(form.price),
-      old_price: form.old_price ? Number(form.old_price) : null,
-      stock: Number(form.stock),
-      sort_order: Number(form.sort_order),
-      photo_url: form.photo_url || null,
-      description: form.description || null,
-    }
-    try {
-      const saved = product?.id
-        ? await api.products.update(product.id, payload)
-        : await api.products.create(payload)
-      onSaved(saved)
-      notify(product?.id ? 'Товар оновлено' : 'Товар додано')
-      onClose()
-    } catch (err) {
-      setError(err.message)
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const valid = form.name.trim() && form.category_id && Number(form.price) > 0
-
-  return (
-    <Modal
-      title={product?.id ? 'Редагувати товар' : 'Новий товар'}
-      onClose={onClose}
-      footer={
-        <>
-          <button className="btn ghost" onClick={onClose}>Скасувати</button>
-          <button className="btn" onClick={save} disabled={busy || !valid}>Зберегти</button>
-        </>
-      }
-    >
-      <div className="stack">
-        <ErrorBar error={error} />
-        <Field label="Назва">
-          <input className="input" value={form.name} onChange={set('name')} autoFocus />
-        </Field>
-        <Field label="Артикул (SKU)" hint="3–32 символи: A–Z, 0–9, крапка, дефіс або _. Порожній — згенерується автоматично.">
-          <input className="input mono" value={form.sku || ''} onChange={set('sku')} placeholder="Автоматично" />
-        </Field>
-        <Field label="Категорія">
-          <select className="input" value={form.category_id} onChange={set('category_id')}>
-            <option value="">Оберіть категорію</option>
-            {categories.map((c) => (
-              <option key={c.id} value={c.id}>{c.name}</option>
-            ))}
-          </select>
-        </Field>
-        <Field label="Опис" hint="Показується в картці товару в боті">
-          <textarea className="input" value={form.description || ''} onChange={set('description')} />
-        </Field>
-        <div className="grid k3">
-          <Field label="Ціна, ₴">
-            <input className="input" type="number" min="0" value={form.price} onChange={set('price')} />
-          </Field>
-          <Field label="Стара ціна" hint="Для показу знижки">
-            <input className="input" type="number" min="0" value={form.old_price || ''} onChange={set('old_price')} />
-          </Field>
-          <Field label="Залишок, шт">
-            <input className="input" type="number" min="0" value={form.stock} onChange={set('stock')} />
-          </Field>
-        </div>
-        <ImageField
-          label="Фото товару"
-          value={form.photo_url || ''}
-          onChange={(url) => setForm((f) => ({ ...f, photo_url: url }))}
-          hint="Показується в картці товару в боті та вітрині. JPG, PNG, WebP або GIF, до 5 МБ."
-        />
-        <div className="row">
-          <label className="row" style={{ gap: 8, cursor: 'pointer' }}>
-            <input type="checkbox" checked={form.is_active} onChange={set('is_active')} />
-            Показувати в каталозі
-          </label>
-        </div>
-      </div>
-    </Modal>
-  )
-}
-
-function CategoryForm({ category, onClose, onSaved }) {
-  const notify = useToast()
-  const editing = Boolean(category?.id)
-  const [form, setForm] = useState({
-    name: category?.name || '',
-    sort_order: category?.sort_order ?? 0,
-    is_active: category?.is_active ?? true,
-  })
-  const [error, setError] = useState('')
-  const [busy, setBusy] = useState(false)
-
-  const set = (key) => (e) => {
-    const value = e.target.type === 'checkbox' ? e.target.checked : e.target.value
-    setForm((f) => ({ ...f, [key]: value }))
-  }
-
-  const save = async () => {
-    if (busy) return
-    setBusy(true)
-    setError('')
-    const payload = {
-      name: form.name.trim(),
-      sort_order: Number(form.sort_order) || 0,
-      is_active: form.is_active,
-    }
-    try {
-      const saved = editing
-        ? await api.categories.update(category.id, payload)
-        : await api.categories.create(payload)
-      onSaved(saved)
-      notify(editing ? 'Категорію оновлено' : 'Категорію створено')
-      onClose()
-    } catch (err) {
-      setError(err.message)
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  return (
-    <Modal
-      title={editing ? 'Редагувати категорію' : 'Нова категорія'}
-      onClose={onClose}
-      footer={
-        <>
-          <button className="btn ghost" onClick={onClose}>Скасувати</button>
-          <button className="btn" onClick={save} disabled={busy || !form.name.trim()}>
-            {busy ? 'Зберігаємо…' : editing ? 'Зберегти' : 'Створити'}
-          </button>
-        </>
-      }
-    >
-      <ErrorBar error={error} />
-      <Field label="Назва категорії">
-        <input className="input" value={form.name} onChange={set('name')} autoFocus />
-      </Field>
-      <Field label="Порядок" hint="Менше число — вище у списку в боті">
-        <input className="input" type="number" value={form.sort_order} onChange={set('sort_order')} />
-      </Field>
-      <div className="row">
-        <label className="row" style={{ gap: 8, cursor: 'pointer' }}>
-          <input type="checkbox" checked={form.is_active} onChange={set('is_active')} />
-          Показувати в боті
-        </label>
-      </div>
-    </Modal>
-  )
-}
-
-function CategoryManager({ categories, onClose, onChanged }) {
-  const notify = useToast()
-  const [editing, setEditing] = useState(null)
-
-  const remove = async (category) => {
-    const warning = category.products_count > 0
-      ? ` Разом із нею з каталогу зникнуть товари (${category.products_count} шт).`
-      : ''
-    if (!confirm(
-      `Прибрати категорію «${category.name}» з каталогу?${warning}` +
-      ' Історія замовлень збережеться.'
-    )) return
-    try {
-      const res = await api.categories.remove(category.id)
-      const hidden = res?.hidden_products || 0
-      notify(hidden
-        ? `Категорію прибрано, разом із нею ${hidden} товар(ів)`
-        : 'Категорію прибрано з каталогу')
-      onChanged()
-    } catch (err) {
-      notify(err.message, 'bad')
-    }
-  }
-
-  const purge = async (category) => {
-    const extra = category.products_count > 0
-      ? `Разом з нею назавжди зникнуть товари (${category.products_count} шт).`
-      : ''
-    if (!confirmPurge(category.name, extra)) return
-    try {
-      const res = await api.categories.purge(category.id)
-      notify(`Стерто назавжди${res?.purged_products ? `, товарів: ${res.purged_products}` : ''}`)
-      onChanged()
-    } catch (err) {
-      notify(err.message, 'bad')
-    }
-  }
-
-  return (
-    <>
-      <Modal
-        title="Категорії"
-        onClose={onClose}
-        footer={
-          <>
-            <button className="btn ghost" onClick={onClose}>Закрити</button>
-            <button className="btn" onClick={() => setEditing({})}>Нова категорія</button>
-          </>
-        }
-      >
-        {categories.length === 0 ? (
-          <Empty title="Категорій немає">
-            Створіть першу — без неї товар не додати.
-          </Empty>
-        ) : (
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Назва</th>
-                  <th className="num">Порядок</th>
-                  <th className="num">Товарів</th>
-                  <th>Статус</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
-                {categories.map((c) => (
-                  <tr key={c.id}>
-                    <td>{c.name}</td>
-                    <td className="num">{c.sort_order}</td>
-                    <td className="num">{c.products_count}</td>
-                    <td>
-                      <span className={`chip ${c.is_active ? 'ok' : ''}`}>
-                        {c.is_active ? 'Активна' : 'Прихована'}
-                      </span>
-                    </td>
-                    <td>
-                      <div className="row">
-                        <button className="btn small ghost" onClick={() => setEditing(c)}>
-                          Змінити
-                        </button>
-                        <button
-                          className="btn danger small"
-                          onClick={() => remove(c)}
-                          title="Приховати: зникне з бота, лишиться в базі"
-                        >
-                          Приховати
-                        </button>
-                        <button
-                          className="btn danger small"
-                          onClick={() => purge(c)}
-                          title="Стерти з бази назавжди. Необоротно"
-                        >
-                          Стерти
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </Modal>
-
-
-      {editing && (
-        <CategoryForm
-          category={editing.id ? editing : null}
-          onClose={() => setEditing(null)}
-          onSaved={onChanged}
-        />
-      )}
-    </>
-  )
-}
 
 const SORT_OPTIONS = [
   ['name-asc', 'За назвою (А → Я)'],
@@ -313,7 +18,9 @@ const SORT_OPTIONS = [
 ]
 
 function ProductThumb({ product }) {
+  const [image] = useProductImage(product)
   const [failed, setFailed] = useState(false)
+  useEffect(() => setFailed(false), [image])
   const initials = product.name
     .split(/\s+/)
     .filter(Boolean)
@@ -322,7 +29,7 @@ function ProductThumb({ product }) {
     .join('')
     .toUpperCase()
 
-  if (!product.photo_url || failed) {
+  if (!image || failed) {
     return (
       <div className="catalog-thumb catalog-thumb-fallback" aria-hidden="true">
         {initials || '•'}
@@ -333,7 +40,7 @@ function ProductThumb({ product }) {
   return (
     <img
       className="catalog-thumb"
-      src={product.photo_url}
+      src={image}
       alt=""
       loading="lazy"
       onError={() => setFailed(true)}
@@ -359,21 +66,6 @@ function ProductStatus({ product }) {
   return <span className={`catalog-status ${tone}`}>{label}</span>
 }
 
-function productPayload(product, overrides = {}) {
-  return {
-    category_id: Number(product.category_id),
-    name: product.name,
-    sku: product.sku || null,
-    description: product.description || null,
-    price: Number(product.price),
-    old_price: product.old_price ? Number(product.old_price) : null,
-    stock: Number(product.stock),
-    photo_url: product.photo_url || null,
-    sort_order: Number(product.sort_order) || 0,
-    is_active: Boolean(product.is_active),
-    ...overrides,
-  }
-}
 
 function sortedCatalog(products, sort) {
   const list = [...products]
@@ -420,20 +112,24 @@ function ImportProductsModal({ onClose, onDone }) {
       <Field label="Ціни" hint="За замовчуванням ціни в нашій базі взагалі не змінюються.">
         <select className="input" value={prices} onChange={e=>setPrices(e.target.value)}><option value="none">Не імпортувати ціни</option><option value="regular">Тільки звичайна ціна</option><option value="discount">Ціна зі знижкою + звичайна в поле «Стара ціна»</option><option value="both">Обидві ціни</option></select>
       </Field>
-      <div className="muted">Товар звіряється насамперед за SKU. Порожній або невалідний SKU буде замінено новим унікальним артикулом ELF-… . Новий товар без імпорту ціни створюється прихованим з ціною 0, щоб випадково не потрапити у продаж.</div>
+      <div className="muted">Товари звіряються за системним SKU або зовнішнім артикулом. Кожен новий товар отримує автоматичний SKU ELF-…; при оновленні артикул зберігається. Колонка «Категорія» старого експорту SalesDrive стає субкатегорією. Новий товар без імпорту ціни створюється прихованим з ціною 0, щоб випадково не потрапити у продаж.</div>
       {result && <div className="card"><strong>Готово</strong><div>Рядків: {result.rows} · додано: {result.created} · оновлено: {result.updated} · пропущено: {result.skipped}</div><div>Згенеровано SKU: {result.sku_generated} · змінено цін: {result.prices_changed}</div>{result.errors?.length>0 && <div className="bad">Помилок: {result.errors.length}. Перший рядок: {result.errors[0].row} — {result.errors[0].error}</div>}</div>}
     </div>
   </Modal>
 }
 
 export default function Catalog() {
+  const location = useLocation(), navigate = useNavigate()
+  const catalogBack = location.pathname + location.search
+  const loadSequence = useRef(0)
   const notify = useToast()
   const [categories, setCategories] = useState([])
+  const [subcategories, setSubcategories] = useState([])
   const [products, setProducts] = useState(null)
   // Категорія, пошук і сортування живуть в адресі: менеджер може
   // повернутися зі сторінки товару або надіслати колезі саме цей відбір.
-  const [{ category, search, sort }, setQuery, resetFilters] = useFilters(
-    { category: '', search: '', sort: 'name-asc' },
+  const [{ category, subcategory, feature, search, sort }, setQuery, resetFilters] = useFilters(
+    { category: '', subcategory: '', feature: '', search: '', sort: 'name-asc' },
   )
   const filter = category
   const setFilter = (value) => setQuery('category', value)
@@ -452,28 +148,30 @@ export default function Catalog() {
   const stockQueueRef = useRef(new Map())
 
   const load = useCallback(async () => {
+    const sequence = ++loadSequence.current
     setError('')
     try {
-      const [cats, prods] = await Promise.all([
-        api.categories.list(),
-        api.products.list({ category_id: filter || undefined, search: search || undefined }),
+      const [cats, subs, prods] = await Promise.all([
+        api.categories.list(), api.subcategories.list(),
+        api.products.list({ category_id: filter || undefined, subcategory_id: subcategory || undefined, search: search || undefined, is_new: feature === 'new' ? true : undefined, is_sale: feature === 'sale' ? true : undefined, uncategorized: feature === 'ungrouped' ? true : undefined }),
       ])
-      setCategories(cats)
+      if (sequence !== loadSequence.current) return
+      setCategories(cats); setSubcategories(subs)
       setProducts(prods)
     } catch (err) {
-      setError(err.message)
+      if (sequence === loadSequence.current) setError(err.message)
     }
-  }, [filter, search])
+  }, [filter, subcategory, feature, search])
 
   useEffect(() => {
     const timer = setTimeout(load, search ? 350 : 0)
-    return () => clearTimeout(timer)
+    return () => { clearTimeout(timer); loadSequence.current += 1 }
   }, [load, search])
 
   useEffect(() => {
     setPage(1)
     setSelected(new Set())
-  }, [filter, search, sort, pageSize])
+  }, [filter, subcategory, feature, search, sort, pageSize])
 
   const updateStock = (product, delta) => {
     // Кожен товар має власну Promise-чергу. Серверний delta атомарний, а
@@ -531,10 +229,7 @@ export default function Catalog() {
 
   const show = async (product) => {
     try {
-      const updated = await api.products.update(
-        product.id,
-        productPayload(product, { is_active: true }),
-      )
+      const updated = await api.products.patch(product.id, { is_active: true })
       setProducts((list) => list.map((p) => (p.id === updated.id ? updated : p)))
       notify('Товар повернуто в каталог')
     } catch (err) {
@@ -583,15 +278,10 @@ export default function Catalog() {
 
     setBulkBusy(true)
     try {
-      if (bulkAction === 'hide') {
-        await Promise.all(chosen.filter((p) => p.is_active).map((p) => api.products.remove(p.id)))
-        notify(`Прибрано товарів: ${chosen.filter((p) => p.is_active).length}`)
-      } else if (bulkAction === 'show') {
-        await Promise.all(chosen.filter((p) => !p.is_active).map((p) => (
-          api.products.update(p.id, productPayload(p, { is_active: true }))
-        )))
-        notify(`Повернуто товарів: ${chosen.filter((p) => !p.is_active).length}`)
-      }
+      const targets = chosen.filter((p) => bulkAction === 'hide' ? p.is_active : !p.is_active)
+      const results = await Promise.allSettled(targets.map((p) => api.products.patch(p.id, { is_active: bulkAction === 'show' })))
+      const failed = results.filter((r) => r.status === 'rejected')
+      notify(`Оновлено: ${results.length - failed.length}${failed.length ? ` · Помилки: ${failed.length}` : ''}`, failed.length ? 'bad' : 'ok')
       setSelected(new Set())
       setBulkAction('')
       await load()
@@ -607,7 +297,7 @@ export default function Catalog() {
       <div className="page-head catalog-page-head">
         <div>
           <h1>Каталог</h1>
-          <p>Товари, ціни та залишки — усе, що бачить клієнт у боті</p>
+          <p>Товари, категорії й відображення на вітрині та в боті</p>
         </div>
         <div className="catalog-head-actions">
           <button className="btn ghost" onClick={() => api.products.exportXlsx().catch(e => notify(e.message, 'bad'))}>Експорт XLSX</button>
@@ -667,12 +357,16 @@ export default function Catalog() {
         </div>
       </div>
 
+      <div className="catalog-extra-filters">
+        <label><span>Субкатегорія</span><select className="input" aria-label="Фільтр субкатегорії" value={subcategory} onChange={(e) => setQuery('subcategory', e.target.value)}><option value="">Усі субкатегорії</option>{subcategories.map((s) => <option key={s.id} value={s.id}>{s.name}{s.category_name ? ` · ${s.category_name}` : ''}</option>)}</select></label>
+        <label><span>Відображення</span><select className="input" aria-label="Фільтр відображення" value={feature} onChange={(e) => setQuery('feature', e.target.value)}><option value="">Усі товари</option><option value="new">Новинки</option><option value="sale">Акції</option><option value="ungrouped">Без категорій і субкатегорій</option></select></label>
+      </div>
       <ErrorBar error={error} />
 
       {!products ? (
         <Loading />
       ) : products.length === 0 ? (
-        (category || search) ? (
+        (category || subcategory || feature || search) ? (
           <Empty title="Нічого не знайдено">
             За цим відбором товарів немає. Можливо, вони в іншій категорії.
             <div style={{ marginTop: 12 }}>
@@ -720,18 +414,18 @@ export default function Catalog() {
                 <div className="catalog-product-main">
                   <ProductThumb product={p} />
                   <div className="catalog-product-copy">
-                    <strong title={p.name}>{p.name}</strong>
+                    <Link className="catalog-product-link" to={`/catalog/products/${p.id}`} state={{ catalogBack }}><strong title={p.name}>{p.name}</strong></Link>
                     <span className="mono muted" style={{fontSize: 12}}>{p.sku}</span>
                     {p.description && <p>{p.description}</p>}
-                    <span className="catalog-mobile-category">{p.category_name}</span>
+                    <span className="catalog-mobile-category">{[p.category_name, p.subcategory_name].filter(Boolean).join(" / ") || "Без груп"}</span>
                   </div>
                 </div>
 
-                <div className="catalog-category muted">{p.category_name}</div>
+                <div className="catalog-category muted">{[p.category_name, p.subcategory_name].filter(Boolean).join(" / ") || "Без груп"}</div>
 
                 <div className="catalog-price">
                   <strong>{money(p.price)}</strong>
-                  {p.old_price && <s>{money(p.old_price)}</s>}
+                  {p.is_sale && p.old_price && <s>{money(p.old_price)}</s>}
                 </div>
 
                 <div className="catalog-stock" aria-label={`Залишок ${p.stock}`}>
@@ -754,13 +448,13 @@ export default function Catalog() {
                 </div>
 
                 <div className="catalog-status-cell">
-                  <ProductStatus product={p} />
+                  <ProductStatus product={p} /><div className="catalog-flags">{p.is_new && <span className="chip ok">Новинка</span>}{p.is_sale && <span className="chip">Акція</span>}</div>
                 </div>
 
                 <div className="catalog-actions">
-                  <button className="btn small catalog-edit" onClick={() => setEditing(p)}>
-                    <span aria-hidden="true">✎</span> Змінити
-                  </button>
+                  <Link className="btn small catalog-edit" to={`/catalog/products/${p.id}`} state={{ catalogBack }}>
+                    <span aria-hidden="true">✎</span> Відкрити
+                  </Link>
                   {p.is_active ? (
                     <button
                       className="btn ghost small catalog-visibility"
@@ -858,22 +552,9 @@ export default function Catalog() {
 
       {importing && <ImportProductsModal onClose={() => setImporting(false)} onDone={load} />}
 
-      {editing && (
-        <ProductForm
-          product={editing.id ? editing : null}
-          categories={categories}
-          onClose={() => setEditing(null)}
-          onSaved={load}
-        />
-      )}
+      {editing && <NewProductModal categories={categories} subcategories={subcategories} onClose={() => setEditing(null)} onSaved={(product) => navigate(`/catalog/products/${product.id}`, { state: { catalogBack } })} />}
+      {managingCategories && <TaxonomyManager categories={categories} subcategories={subcategories} onClose={() => setManagingCategories(false)} onChanged={load} />}
 
-      {managingCategories && (
-        <CategoryManager
-          categories={categories}
-          onClose={() => setManagingCategories(false)}
-          onChanged={load}
-        />
-      )}
     </>
   )
 }

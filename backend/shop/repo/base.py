@@ -127,13 +127,33 @@ class Repository(ABC):
         """
 
     @abstractmethod
+    async def list_subcategories(self, category_id=None, only_active=False): ...
+
+    @abstractmethod
+    async def get_subcategory(self, subcategory_id): ...
+
+    @abstractmethod
+    async def create_subcategory(self, data): ...
+
+    @abstractmethod
+    async def update_subcategory(self, subcategory_id, data): ...
+
+    @abstractmethod
+    async def delete_subcategory(self, subcategory_id): ...
+
+    @abstractmethod
+    async def purge_subcategory(self, subcategory_id): ...
+
+    @abstractmethod
     async def list_products(
         self, category_id: int | None = None, search: str | None = None,
         only_active: bool = False, limit: int = 500, offset: int = 0,
+        subcategory_id: int | None = None, is_new: bool | None = None,
+        is_sale: bool | None = None, uncategorized: bool = False,
     ) -> list[Product]: ...
 
     @abstractmethod
-    async def count_products(self, category_id: int, only_active: bool = True) -> int: ...
+    async def count_products(self, category_id=None, only_active: bool = True, **filters) -> int: ...
 
     @abstractmethod
     async def products_by_ids(self, ids: list[int]) -> list[Product]:
@@ -146,6 +166,12 @@ class Repository(ABC):
 
     @abstractmethod
     async def get_product(self, product_id: int) -> Product | None: ...
+
+    @abstractmethod
+    async def get_product_by_sku(self, sku: str) -> Product | None: ...
+
+    @abstractmethod
+    async def get_product_by_external_sku(self, sku: str) -> Product | None: ...
 
     @abstractmethod
     async def create_product(self, data: dict) -> Product: ...

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from shop.formatting import money as format_money
+
 import re
 import secrets
 from decimal import Decimal
@@ -142,7 +144,7 @@ async def step_promo(message: Message, state: FSMContext, repo: Repository, user
         await message.answer(f"{result.error}. Спробуйте інший код або пропустіть крок.", reply_markup=kb.SKIP)
         return
     await state.update_data(promo=result.promo.code, discount=str(result.discount))
-    await message.answer(f"Промокод застосовано: −{result.discount:.0f} грн")
+    await message.answer(f"Промокод застосовано: −{format_money(result.discount)} грн")
     await _ask_bonus(message, state, repo, user)
 
 
@@ -166,8 +168,8 @@ async def _ask_bonus(message: Message, state: FSMContext, repo: Repository, user
 
     await state.set_state(Checkout.bonus)
     await message.answer(
-        f"На вашому бонусному рахунку {user.bonus_balance:.0f} грн.\n"
-        f"На це замовлення можна списати до {available:.0f} грн.",
+        f"На вашому бонусному рахунку {format_money(user.bonus_balance)} грн.\n"
+        f"На це замовлення можна списати до {format_money(available)} грн.",
         reply_markup=kb.bonus_prompt(available),
     )
 
@@ -221,13 +223,13 @@ async def _show_summary(message: Message, state: FSMContext, repo: Repository, u
 
     lines = ["<b>Перевірте замовлення</b>\n"]
     for line in items:
-        lines.append(f"• {escape(line.product.name)} × {line.qty} — {line.line_total:.0f} грн")
-    lines.append(f"\nСума: {subtotal:.0f} грн")
+        lines.append(f"• {escape(line.product.name)} × {line.qty} — {format_money(line.line_total)} грн")
+    lines.append(f"\nСума: {format_money(subtotal)} грн")
     if discount:
-        lines.append(f"Промокод {escape(str(data.get('promo') or ''))}: −{discount:.0f} грн")
+        lines.append(f"Промокод {escape(str(data.get('promo') or ''))}: −{format_money(discount)} грн")
     if bonus:
-        lines.append(f"Бонуси: −{bonus:.0f} грн")
-    lines.append(f"<b>До сплати: {total:.0f} грн</b>\n")
+        lines.append(f"Бонуси: −{format_money(bonus)} грн")
+    lines.append(f"<b>До сплати: {format_money(total)} грн</b>\n")
     lines.append(f"Отримувач: {escape(str(data.get('name') or ''))}")
     lines.append(f"Телефон: {escape(str(data.get('phone') or ''))}")
     lines.append(f"Доставка: {escape(str(data.get('city') or ''))}, {escape(str(data.get('address') or ''))}")
@@ -290,7 +292,7 @@ async def confirm_order(
 
     shop = await get_shop_settings(repo)
     await callback.message.edit_text(
-        texts.ORDER_DONE.format(id=order.id, total=f"{order.total:.0f}", currency=shop.currency)
+        texts.ORDER_DONE.format(id=order.id, total=f"{format_money(order.total)}", currency=shop.currency)
     )
 
     if order.payment_method == "card" and order.total > 0:
@@ -298,7 +300,7 @@ async def confirm_order(
         await state.update_data(order_id=order.id)
         await callback.message.answer(
             texts.PAYMENT_INFO.format(
-                total=f"{order.total:.0f}",
+                total=f"{format_money(order.total)}",
                 currency=shop.currency,
             )
         )

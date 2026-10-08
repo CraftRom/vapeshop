@@ -252,13 +252,13 @@ async def run(backend: str) -> None:
     print("\n2. Каталог")
 
     await feed(message_update(bot, "🛍 Каталог"))
-    check("заголовок каталогу", "Оберіть категорію" in session.all_text(),
+    check("заголовок каталогу", "Оберіть розділ" in session.all_text(),
           session.all_text()[:80])
     # Назви категорій живуть у кнопках, а не в тексті повідомлення
     check("категорія в кнопках", "Одноразові поди" in str(session.keyboards()),
           str(session.keyboards())[:120])
 
-    await feed(callback_update(bot, f"cat:{category.id}"))
+    await feed(callback_update(bot, f"root:{category.id}"))
     check("товар у списку категорії", "Elf Bar" in str(session.keyboards()),
           str(session.keyboards())[:120])
 

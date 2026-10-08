@@ -21,14 +21,14 @@ const ok = (cond, label, detail) => {
 
 const src = readFileSync('src/screens/Catalog.jsx', 'utf8')
 
-ok(discountPercent({ old_price: '400', price: '320' }) === 20, 'точні 20% не перетворюються на 19% через float')
-ok(discountPercent({ old_price: '299', price: '199' }) === 33, 'дробову знижку округлено вниз')
-ok(discountPercent({ old_price: '100', price: '110' }) === 0, 'зростання ціни не знижка')
+ok(discountPercent({ is_sale: true, old_price: '400', price: '320' }) === 20, 'точні 20% не перетворюються на 19% через float')
+ok(discountPercent({ is_sale: true, old_price: '299', price: '199' }) === 33, 'дробову знижку округлено вниз')
+ok(discountPercent({ is_sale: true, old_price: '100', price: '110' }) === 0, 'зростання ціни не знижка')
 
 const goods = [
   { id: 1, price: '300', stock: 5, is_new: true },
   { id: 2, price: '150', stock: 0 },
-  { id: 3, price: '900', stock: 2, badge: 'новинка' },
+  { id: 3, price: '900', stock: 2, is_new: true },
 ]
 
 console.log('\n--- порядок ---')
@@ -42,7 +42,7 @@ ok(arrange(goods, 'fresh', false).map((p) => p.id).join() === '1,3',
    'новинки показують лише товари з реальним статусом')
 
 const named = [
-  { id: 1, name: 'Яблуко', price: '100', old_price: '120', stock: 2 },
+  { id: 1, name: 'Яблуко', is_sale: true, price: '100', old_price: '120', stock: 2 },
   { id: 2, name: 'Абрикос 10', price: '90', old_price: '80', stock: 0 },
   { id: 3, name: 'Абрикос 2', price: '80', old_price: '80', stock: 3 },
 ]
