@@ -14,6 +14,10 @@ def check(ok,label):
 
 class Upstream(BaseHTTPRequestHandler):
  def do_GET(self):
+  if self.path == '/api/health':
+   if self.headers.get('Host') not in {'127.0.0.1', 'example.test'}:
+    self.send_response(400);self.end_headers();self.wfile.write(b'Invalid host header');return
+   self.send_response(200);self.send_header('Content-Type','application/json');self.end_headers();self.wfile.write(b'{"ok":true}');return
   data=b'<html><body>QA</body></html>';self.send_response(200);self.send_header('Content-Type','text/html');self.end_headers();self.wfile.write(data)
  def do_POST(self):self.do_GET()
  def log_message(self,*args):pass
@@ -72,6 +76,11 @@ with tempfile.TemporaryDirectory(prefix='nginx-security-') as directory:
   check(request('/media/unsafe.svg')[0]==404,'active media format rejected')
   check(request('/media/link.png')[0] in (403,404),'symlink media rejected')
   check(request('/api/health',secure=False)[0]==301,'plain HTTP redirects before API')
+  c=http.client.HTTPConnection('127.0.0.1',5780,timeout=3)
+  c.request('GET','/__deploy_api_health');resp=c.getresponse();body=resp.read();c.close()
+  check(resp.status==200 and body==b'{"ok":true}','internal nginx health uses an allowed loopback Host')
+  check(request('/api/health')[0]==200,'main HTTPS health reaches API with main domain Host')
+  check(request('/__deploy_api_health')[1].get('content-type')!='application/json','internal health is not available through public HTTPS')
   for secure in (False,True):
    try:request('/',host='attacker.example',secure=secure);closed=False
    except http.client.RemoteDisconnected:closed=True

@@ -168,6 +168,7 @@ run docs qa/qa_docs.py
 run legal qa/qa_legal.py
 run deploy-phases qa/qa_deploy_phases.py
 run deploy-security qa/qa_deploy_security.py
+run deploy-health qa/qa_deploy_health.py
 run promo-google qa/qa_promo_google.py
 run promo-landing qa/qa_promo_landing.py
 run promo-cloudflare qa/qa_promo_cloudflare.py

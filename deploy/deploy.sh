@@ -237,14 +237,15 @@ echo "==> ФАЗА 5/6: nginx основного сайту"
 
 nginx_core_ok=0
 for i in $(seq 1 30); do
-    if "${COMPOSE[@]}" exec -T nginx wget -q -O /dev/null http://api:8000/api/health 2>/dev/null; then
+    if "${COMPOSE[@]}" exec -T nginx wget -q -T 5 -O /dev/null http://127.0.0.1:8080/__deploy_api_health 2>/dev/null; then
         nginx_core_ok=1
         break
     fi
     sleep 2
 done
 if [[ "$nginx_core_ok" != 1 ]]; then
-    echo "nginx не бачить здоровий API після recreate" >&2
+    echo "Внутрішній nginx→API маршрут не пройшов health-check після recreate" >&2
+    "${COMPOSE[@]}" exec -T nginx wget -S -T 5 -O /dev/null http://127.0.0.1:8080/__deploy_api_health >&2 || true
     "${COMPOSE[@]}" logs --tail=120 nginx api >&2 || true
     rollback_core_runtime
     exit 1
@@ -262,21 +263,25 @@ for raw in Path(sys.argv[1]).read_text(encoding='utf-8').splitlines():
     if not line or line.startswith('#') or '=' not in line: continue
     k,v=line.split('=',1); vals[k.strip()]=v.strip().strip('"\'')
 u=vals.get('PUBLIC_URL','') or vals.get('DASHBOARD_PUBLIC_URL','')
-print(urlsplit(u).hostname or '')
+host = urlsplit(u).hostname or ''
+print('elfar.pp.ua' if host == 'www.elfar.pp.ua' else host)
 PY2
 )"
 
 if [[ -n "$MAIN_HOST" ]]; then
-    # Запит іде через локальний nginx із Host основного домену. Promo-домени тут не беруть участі.
+    # Локальний TLS без зовнішнього DNS/HTTP-редиректу. Host обирає основний
+    # vhost. Перевірка довіри сертифіката вимкнена ТІЛЬКИ для loopback probe:
+    # render-nginx може створити тимчасовий self-signed cert при bootstrap.
     core_route_ok=0
     for i in $(seq 1 20); do
-        if "${COMPOSE[@]}" exec -T nginx wget -q --header="Host: $MAIN_HOST" -O /dev/null http://127.0.0.1/api/health 2>/dev/null; then
+        if "${COMPOSE[@]}" exec -T nginx wget -q -T 5 --no-check-certificate --header="Host: $MAIN_HOST" -O /dev/null https://127.0.0.1/api/health 2>/dev/null; then
             core_route_ok=1; break
         fi
         sleep 2
     done
     if [[ "$core_route_ok" != 1 ]]; then
         echo "Основний nginx route ($MAIN_HOST) не віддає /api/health" >&2
+        "${COMPOSE[@]}" exec -T nginx wget -S -T 5 --no-check-certificate --header="Host: $MAIN_HOST" -O /dev/null https://127.0.0.1/api/health >&2 || true
         "${COMPOSE[@]}" logs --tail=120 nginx api >&2 || true
         rollback_core_runtime
         exit 1
