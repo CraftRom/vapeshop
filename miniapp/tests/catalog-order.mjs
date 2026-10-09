@@ -8,7 +8,7 @@
  * Перевіряємо саму логіку відбору, а не її наявність у розмітці.
  */
 import { readFileSync } from 'node:fs'
-import { sortProducts as arrange, discountPercent } from '../src/catalogModel.js'
+import { sortProducts as arrange, discountPercent, DEFAULT_SORT, SORT_OPTIONS } from '../src/catalogModel.js'
 
 let bad = 0
 const ok = (cond, label, detail) => {
@@ -33,7 +33,7 @@ const goods = [
 
 console.log('\n--- порядок ---')
 ok(arrange(goods, 'default', false).map((p) => p.id).join() === '1,2,3',
-   'без вибору порядок лишається таким, як віддав сервер')
+   '«За порядком» зберігає порядок сервера')
 ok(arrange(goods, 'cheap', false).map((p) => p.id).join() === '2,1,3',
    'спершу дешеві')
 ok(arrange(goods, 'pricey', false).map((p) => p.id).join() === '3,1,2',
@@ -56,18 +56,20 @@ console.log('\n--- наявність ---')
 ok(arrange(goods, 'default', true).map((p) => p.id).join() === '1,3',
    'фільтр прибирає те, чого немає на складі')
 ok(arrange(goods, 'default', false).length === 3,
-   'вимкнений фільтр не ховає нічого: за замовчуванням видно весь асортимент')
+   '«За порядком» без фільтра наявності показує весь асортимент')
 ok(arrange(goods, 'cheap', true).map((p) => p.id).join() === '1,3',
    'порядок і фільтр працюють разом')
 ok(arrange(goods, 'fresh', true).map((p) => p.id).join() === '1,3',
    'фільтр новинок теж поважає наявність')
 
 console.log('\n--- фільтр новинок ---')
-ok(src.includes('hasFreshProducts') && src.includes('(products || []).some(hasFreshStatus)'),
-   'чіп «Новинки» показується лише коли справді є нові товари')
+ok(DEFAULT_SORT === 'fresh' && SORT_OPTIONS[0].value === DEFAULT_SORT,
+   '«Новинки» — перший пункт та початковий вибір')
+ok(src.includes('initialState.sort || DEFAULT_SORT'),
+   'каталог зберігає ручний вибір при поверненні')
 const sheet = readFileSync('src/screens/SortSheet.jsx', 'utf8')
-ok(sheet.includes("option.value !== 'fresh' || hasFreshProducts"),
-   'кнопка «Новинки» умовна, а не постійна')
+ok(sheet.includes('SORT_OPTIONS.map('),
+   'пункт «Новинки» доступний навіть у порожній категорії')
 
 console.log('\n--- вихід із порожнього екрана ---')
 ok(src.includes('Скинути пошук і фільтри'), 'є кнопка скидання')

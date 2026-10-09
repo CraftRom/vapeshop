@@ -75,13 +75,14 @@ async def scenario():
         r.check("вимкнено" in resp.text,
                 "причина названа, а не просто «недійсний токен»", resp.text[:80])
 
-        print("\n--- увімкнення повертає доступ ---")
-        # Щоб вимкнення не виявилось незворотним: адміністратор має мати
-        # змогу передумати, не змушуючи людину входити заново.
+        print("\n--- повторне увімкнення вимагає нового входу ---")
         async with open_repo() as repo:
-            await repo.update_operator(temp.id, {"is_active": True})
+            enabled = await repo.update_operator(temp.id, {"is_active": True})
         resp = await c.get("/api/orders", headers=head(temp_token))
-        r.check(resp.status_code == 200, "доступ відновлено", resp.status_code)
+        r.check(resp.status_code == 401, "старий відкликаний токен не оживає", resp.status_code)
+        temp_token = create_token("temp", OperatorRole.MANAGER, temp.id, "Тарас", auth_version=enabled.auth_version)
+        resp = await c.get("/api/orders", headers=head(temp_token))
+        r.check(resp.status_code == 200, "новий вхід відновлює доступ", resp.status_code)
 
         print("\n--- зниження ролі діє негайно ---")
         # Токен усе ще каже «адміністратор». База каже інше, і слухаємо базу.

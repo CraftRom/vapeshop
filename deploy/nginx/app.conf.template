@@ -1,4 +1,3 @@
-include /etc/nginx/promo.d/*.conf;
 
 # ШАБЛОН. Не редагуйте його руками й не монтуйте напряму.
 #
@@ -19,7 +18,18 @@ include /etc/nginx/promo.d/*.conf;
 # 502. Сам API при цьому живий і здоровий, у його логах порожньо, а
 # перезапуск nginx «магічно» все лікує — саме тому причину так важко
 # знайти. valid=10s змушує перечитувати адресу кожні десять секунд.
+server_tokens off;
 resolver 127.0.0.11 valid=10s ipv6=off;
+# Never include raw query strings or webhook secrets in access logs.
+map $uri $safe_log_uri {
+    ~^/api/telegram/ /api/telegram/[REDACTED];
+    ~^/api/integrations/salesdrive/webhook/ /api/integrations/salesdrive/webhook/[REDACTED];
+    default $uri;
+}
+log_format elfar_safe '$remote_addr - $remote_user [$time_local] "$request_method $safe_log_uri $server_protocol" $status $body_bytes_sent "$http_user_agent"';
+access_log /var/log/nginx/access.log elfar_safe;
+include /etc/nginx/promo.d/*.conf;
+
 
 # Адреси в змінних — теж навмисно. proxy_pass із літеральним іменем
 # резолвиться на старті; proxy_pass зі змінною — під час запиту, вже
@@ -49,6 +59,21 @@ server {
         proxy_connect_timeout 3s;
         proxy_read_timeout 3s;
     }
+}
+
+# Unknown hosts never reach a dashboard, API or open redirect.
+server {
+    listen 80 default_server;
+    server_name _;
+    return 444;
+}
+server {
+    listen 443 ssl default_server;
+    server_name _;
+    ssl_certificate /etc/letsencrypt/live/__DOMAIN__/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/__DOMAIN__/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    return 444;
 }
 
 # ------------------------------------------------------------------------ HTTP
@@ -141,6 +166,7 @@ server {
 
     # Вебхук Telegram: без ліміту швидкості, інакше загубимо апдейти в піках
     location ~ ^/api/telegram/ {
+        client_max_body_size 256k;
         proxy_pass $api_backend;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
@@ -149,7 +175,8 @@ server {
     }
 
     # Захист від перебору пароля до панелі
-    location = /api/auth/login {
+    location ~ ^/api/auth/(login|browser-login)$ {
+        client_max_body_size 16k;
         limit_req zone=login burst=5 nodelay;
         proxy_pass $api_backend;
         proxy_set_header Host $host;
@@ -170,7 +197,10 @@ server {
         add_header Cache-Control "public, immutable";
         # Каталог зі сховищем не має віддавати нічого, крім картинок,
         # навіть якщо туди щось потрапить іншим шляхом.
-        location ~* \.(php|py|sh|html?)$ { deny all; }
+        disable_symlinks on;
+        if ($uri !~* "^/media/[A-Za-z0-9_-]+\.(jpg|jpeg|png|gif|webp)$") { return 404; }
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header Content-Security-Policy "default-src 'none'; sandbox" always;
     }
 
     # Клієнтський журнал Mini App. Публічний за задумом, але жорстко
@@ -220,6 +250,16 @@ server {
         send_timeout 370s;
     }
 
+    location = /api/backups/upload {
+        client_max_body_size 201M;
+        limit_req zone=login burst=2 nodelay;
+        proxy_pass $api_backend;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 120s;
+    }
+
     location /api/ {
         limit_req zone=api burst=20 nodelay;
         proxy_pass $api_backend;
@@ -242,6 +282,8 @@ server {
         include /etc/nginx/hsts.d/*.conf;
         add_header X-Content-Type-Options "nosniff" always;
         add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+        add_header Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=()" always;
+        add_header X-Permitted-Cross-Domain-Policies "none" always;
 
         # X-Frame-Options тут навмисно немає, а frame-ancestors дозволяє
         # Telegram. Telegram Desktop і застосунки на телефоні відкривають
@@ -264,15 +306,14 @@ server {
         include /etc/nginx/hsts.d/*.conf;
         add_header X-Content-Type-Options "nosniff" always;
         add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+        add_header Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=()" always;
+        add_header X-Permitted-Cross-Domain-Policies "none" always;
 
         # Панель у рамку не вставляє ніхто й ніколи — frame-ancestors 'none'
         # жорсткіший за SAMEORIGIN і закриває клікджекінг остаточно.
         add_header X-Frame-Options "DENY" always;
 
-        # Головне тут — script-src без unsafe-inline. Токен панелі лежить
-        # у localStorage, тобто будь-який виконаний на сторінці чужий
-        # скрипт забирає повний доступ до замовлень і клієнтів. Заборона
-        # вбудованих скриптів прибирає основний спосіб його туди занести.
+        # HttpOnly cookie та серверний CSRF-захист доповнюються CSP без inline JS.
         # Панель більше не тягне Google Fonts: зовнішні font/style origin не
         # потрібні. worker-src 'self' явно дозволяє notification service worker.
         add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: https:; connect-src 'self'; worker-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'" always;

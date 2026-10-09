@@ -332,6 +332,7 @@ class Operator:
     created_at: datetime | None = None
     last_login_at: datetime | None = None
     password_hash: str = ""
+    auth_version: int = 0
 
     @property
     def is_admin(self) -> bool:

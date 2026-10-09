@@ -25,7 +25,8 @@ try {
   await context.route('**/api/**', async route => {
    const request = route.request(), url = new URL(request.url()), path = url.pathname, method = request.method()
    let data = [], status = 200
-   if (path.endsWith('/subcategories')) {
+   if (path === '/api/auth/session') data = { role: 'admin', name: 'QA', csrf_token: 'qa-csrf' }
+   else if (path.endsWith('/subcategories')) {
     if (method === 'POST') { const group = request.postDataJSON(); subs.push({ ...group, id: subs.length + 1, category_name: roots.find(c => c.id === group.category_id)?.name || null, products_count: 0 }); writes.push(group); data = subs.at(-1) }
     else data = subs
    } else if (path.endsWith('/categories')) {
@@ -146,6 +147,8 @@ try {
   await store.screenshot({ path: join(output, `catalog-parity-${width}.png`), fullPage: true })
   await store.getByRole('button', { name: 'Назад до каталогу', exact: true }).click()
   await store.getByRole('button', { name: 'Без груп', exact: true }).click()
+  await store.getByRole('button', { name: /^Сортування:/ }).click()
+  await store.getByRole('button', { name: 'За порядком', exact: true }).click()
   await store.getByRole('button', { name: 'Товар без груп', exact: true }).waitFor()
   check(await store.locator('.store-card-title').textContent() === 'Товар без груп', `${width}: completely ungrouped goods remain visible`)
   check(!errors.length, `${width}: no runtime errors: ${errors.join('; ')}`)

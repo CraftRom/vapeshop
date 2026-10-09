@@ -3160,6 +3160,23 @@ class SqlRepository(Repository):
         await self.s.commit()
         return changed
 
+    async def create_dashboard_session(self, data: dict) -> None:
+        await self.s.execute(delete(m.DashboardSession).where(m.DashboardSession.expires_at <= data["created_at"]))
+        self.s.add(m.DashboardSession(**data))
+        await self.s.commit()
+
+    async def get_dashboard_session(self, digest: str) -> dict | None:
+        row = await self.s.get(m.DashboardSession, digest)
+        return {c.name: getattr(row, c.name) for c in m.DashboardSession.__table__.columns} if row else None
+
+    async def delete_dashboard_session(self, digest: str) -> None:
+        await self.s.execute(delete(m.DashboardSession).where(m.DashboardSession.id == digest))
+        await self.s.commit()
+
+    async def touch_dashboard_session(self, digest: str, now: datetime) -> None:
+        await self.s.execute(update(m.DashboardSession).where(m.DashboardSession.id == digest).values(last_seen_at=now))
+        await self.s.commit()
+
     # ------------------------------------------------------ менеджери
 
     async def create_operator(self, data: dict) -> Operator:
@@ -3184,6 +3201,8 @@ class SqlRepository(Repository):
         row = await self.s.get(m.Operator, operator_id)
         if not row:
             return None
+        if "password_hash" in data or (data.get("is_active") is False and row.is_active):
+            row.auth_version += 1
         for key, value in data.items():
             setattr(row, key, value)
         await self.s.commit()
@@ -3207,6 +3226,8 @@ class SqlRepository(Repository):
         row = await self.s.get(m.Operator, operator_id)
         if not row:
             return False
+        if row.is_active:
+            row.auth_version += 1
         row.is_active = False
         await self.s.commit()
         return True
@@ -3219,7 +3240,7 @@ def _operator(row) -> Operator | None:
         id=row.id, login=row.login, name=row.name or "",
         role=OperatorRole(row.role), is_active=row.is_active,
         created_at=row.created_at, last_login_at=row.last_login_at,
-        password_hash=row.password_hash,
+        password_hash=row.password_hash, auth_version=row.auth_version,
     )
 
 

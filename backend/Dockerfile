@@ -3,8 +3,8 @@ ENV PIP_DISABLE_PIP_VERSION_CHECK=1
 WORKDIR /build
 RUN apt-get update && apt-get install -y --no-install-recommends gcc libpq-dev \
     && rm -rf /var/lib/apt/lists/*
-COPY requirements.txt .
-RUN python -m venv /venv && /venv/bin/pip install --no-cache-dir -r requirements.txt
+COPY requirements.txt requirements-lock.txt ./
+RUN python -m venv /venv && /venv/bin/pip install --no-cache-dir -r requirements-lock.txt
 
 FROM python:3.12-slim
 ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app PATH=/venv/bin:$PATH

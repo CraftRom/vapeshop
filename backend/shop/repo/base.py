@@ -581,6 +581,18 @@ class Repository(ABC):
     @abstractmethod
     async def mark_all_panel_notifications_read(self, viewer_key: str) -> int: ...
 
+    @abstractmethod
+    async def create_dashboard_session(self, data: dict) -> None: ...
+
+    @abstractmethod
+    async def get_dashboard_session(self, digest: str) -> dict | None: ...
+
+    @abstractmethod
+    async def delete_dashboard_session(self, digest: str) -> None: ...
+
+    @abstractmethod
+    async def touch_dashboard_session(self, digest: str, now: datetime) -> None: ...
+
     # ------------------------------------------------------ менеджери
 
     @abstractmethod

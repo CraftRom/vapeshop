@@ -12,6 +12,10 @@ serverless-платформ: ідентифікатор, метод, шлях, �
 from __future__ import annotations
 
 import logging
+import ipaddress
+import re
+from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
+from shop.config import settings
 import time
 import uuid
 from contextvars import ContextVar
@@ -35,7 +39,7 @@ current_request_id: ContextVar[str] = ContextVar("request_id", default="")
 # рівно тими записами, крізь які потім довелося б продиратись.
 QUIET_PATHS = ("/api/health", "/api/debug/", "/api/logs", "/api/shop/client-log")
 
-_SECRET_QUERY_NAMES = {"token", "secret", "password", "bot_token", "api_key", "init_data", "initdata", "key"}
+_SECRET_QUERY_NAMES = {"token", "secret", "password", "bot_token", "api_key", "init_data", "initdata", "key", "csrf_token", "sid", "access_token"}
 
 def safe_query(request: Request) -> str:
     """Query string без секретів; службові токени не повинні жити в логах."""
@@ -47,39 +51,40 @@ def safe_query(request: Request) -> str:
 
 
 
+def trusted_proxy(request: Request) -> bool:
+    try:
+        peer = ipaddress.ip_address(request.client.host if request.client else "")
+        return any(peer in ipaddress.ip_network(net.strip()) for net in settings.trusted_proxy_networks.split(",") if net.strip())
+    except ValueError:
+        return False
+
+
 def client_ip(request: Request) -> str:
-    """IP клієнта з урахуванням проксі.
-
-    За nginx усі запити приходять з адреси контейнера, тому справжня
-    адреса — у заголовку X-Real-IP, який nginx ПЕРЕЗАПИСУЄ своїм
-    `$remote_addr` у кожному location, що веде на API.
-
-    Справжнім `$remote_addr` стає завдяки nginx/cloudflare-realip.conf:
-    nginx бере CF-Connecting-IP, але лише від адрес Cloudflare. Тому тут
-    CF-Connecting-IP напряму не читаємо — від клієнта, що звернувся на
-    origin в обхід CDN, такий заголовок підробляється одним рядком.
-
-    X-Forwarded-For теж не беремо: крайню ліву адресу в ньому задає сам
-    клієнт. Саме тому uvicorn не отримує --forwarded-allow-ips.
-    """
-    direct = request.headers.get("x-real-ip", "").strip()
-    if direct:
-        return direct
+    if trusted_proxy(request):
+        try:
+            return str(ipaddress.ip_address(request.headers.get("x-real-ip", "")))
+        except ValueError:
+            pass
     return request.client.host if request.client else ""
 
 
 def client_country(request: Request) -> str:
-    """Країна за IP — від Cloudflare, безкоштовно й без сторонніх сервісів.
+    country = request.headers.get("cf-ipcountry", "").strip().upper()
+    return country if trusted_proxy(request) and re.fullmatch(r"[A-Z0-9]{2}", country) else ""
 
-    Для більшості подій вона не важить, але саме вона відповідає на
-    питання, яке ставлять першим: це наш покупець із поганим зʼєднанням
-    чи хтось перебирає адреси з-за кордону. Магазин возить лише по
-    Україні, тож звернення звідусіль інде вже саме по собі показове.
 
-    XX — Cloudflare не визначив, T1 — мережа Tor. Порожньо означає, що
-    трафік ішов повз CDN, а не що країни немає.
-    """
-    return request.headers.get("cf-ipcountry", "").strip().upper()
+def safe_path(path: str) -> str:
+    path = re.sub(r"(/api/telegram/)[^/]+", r"\1[REDACTED]", path)
+    return re.sub(r"(/api/integrations/salesdrive/webhook/)[^/]+", r"\1[REDACTED]", path)
+
+
+def safe_referer(value: str) -> str:
+    try:
+        url = urlsplit(value[:2048])
+        # Referrer is diagnostic context, never a place for query strings or fragments.
+        return urlunsplit((url.scheme, url.hostname or "", safe_path(url.path), "", ""))
+    except ValueError:
+        return ""
 
 
 def _identify(request: Request) -> tuple[str, str]:
@@ -97,7 +102,7 @@ def _identify(request: Request) -> tuple[str, str]:
 
         from shop.config import settings
 
-        payload = jwt.decode(header[7:], settings.jwt_secret, algorithms=["HS256"])
+        payload = jwt.decode(header[7:], settings.jwt_secret, algorithms=["HS256"], issuer="shop-dashboard", audience="shop-api")
         return str(payload.get("sub", "")), str(payload.get("role", ""))
     except Exception:
         return "", "невалідний токен"
@@ -105,7 +110,8 @@ def _identify(request: Request) -> tuple[str, str]:
 
 class RequestLogMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
-        request_id = request.headers.get("x-request-id") or uuid.uuid4().hex[:16]
+        supplied_id = request.headers.get("x-request-id", "")
+        request_id = supplied_id if re.fullmatch(r"[A-Za-z0-9_-]{8,64}", supplied_id) else uuid.uuid4().hex[:16]
         token = current_request_id.set(request_id)
         # Той самий контекст доклеюється до кожної події безпеки, хоч би
         # з якої глибини її записали. Без цього найважливіші події —
@@ -115,7 +121,7 @@ class RequestLogMiddleware(BaseHTTPMiddleware):
             "ip": client_ip(request),
             "country": client_country(request),
             "userAgent": request.headers.get("user-agent", ""),
-            "path": request.url.path,
+            "path": safe_path(request.url.path),
             "method": request.method,
         })
         started = time.perf_counter()
@@ -137,17 +143,20 @@ class RequestLogMiddleware(BaseHTTPMiddleware):
             log.exception("Необроблена помилка", extra={"requestId": request_id})
             raise
         finally:
+            principal = getattr(request.state, "principal", None)
+            if principal:
+                actor, actor_role = principal.login, principal.role.value
             duration = round((time.perf_counter() - started) * 1000, 1)
             quiet = request.url.path.startswith(QUIET_PATHS)
             log.log(
                 logging.DEBUG if (quiet and status < 400) else
                 logging.WARNING if status >= 400 else logging.INFO,
-                "%s %s → %s", request.method, request.url.path, status,
+                "%s %s → %s", request.method, safe_path(request.url.path), status,
                 extra={
                     "event": "http.request",
                     "requestId": request_id,
                     "method": request.method,
-                    "path": request.url.path,
+                    "path": safe_path(request.url.path),
                     "query": safe_query(request),
                     "host": request.headers.get("host", ""),
                     "ip": client_ip(request),
@@ -160,7 +169,7 @@ class RequestLogMiddleware(BaseHTTPMiddleware):
                     # IP у менеджерів динамічний, а за токеном не шукають.
                     "actor": actor,
                     "actorRole": actor_role,
-                    "referer": request.headers.get("referer", ""),
+                    "referer": safe_referer(request.headers.get("referer", "")),
                 },
             )
             current_request_id.reset(token)

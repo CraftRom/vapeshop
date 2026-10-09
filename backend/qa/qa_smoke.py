@@ -30,7 +30,7 @@ for name, path in [("конфіг","/api/shop/config"), ("bootstrap","/api/shop/
 
 upd = {"update_id":1,"message":{"message_id":1,"date":0,"chat":{"id":9001,"type":"private"},
        "from":{"id":9001,"is_bot":False,"first_name":"К"},"text":"/start"}}
-resp = c.post("/api/telegram/hook/777001", json=upd)
+resp = c.post("/api/telegram/hook/777001", json=upd, headers={"X-Telegram-Bot-Api-Secret-Token": __import__("api.routers.telegram", fromlist=["webhook_header_secret"]).webhook_header_secret()})
 r.check(resp.status_code == 200, "бот приймає апдейт", resp.status_code)
 
 # Документація навмисно вимикається в продакшні — перевіряємо лише узгодженість

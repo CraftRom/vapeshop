@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
-import { api, apiBase, setSession, setToken } from '../api'
+import { api, apiBase, setSession } from '../api'
 import { ErrorBar, Field } from '../components/ui'
 
 export default function Login() {
@@ -31,7 +31,6 @@ export default function Login() {
     setError('')
     try {
       const data = await api.login(login, password)
-      setToken(data.access_token)
       setSession(data)
       navigate('/')
     } catch (err) {
@@ -78,7 +77,10 @@ export default function Login() {
           <Field label="Логін">
             <input
               className="input"
+              aria-label="Логін"
               value={login}
+              autoComplete="username"
+              maxLength={64}
               autoFocus
               onChange={(e) => setLogin(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && submit()}
@@ -87,7 +89,10 @@ export default function Login() {
           <Field label="Пароль">
             <input
               className="input"
+              aria-label="Пароль"
               type="password"
+              autoComplete="current-password"
+              maxLength={1024}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && submit()}

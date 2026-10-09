@@ -1,6 +1,8 @@
+export const DEFAULT_SORT = 'fresh'
+
 export const SORT_OPTIONS = [
-  { value: 'default', label: 'За порядком' },
   { value: 'fresh', label: 'Новинки' },
+  { value: 'default', label: 'За порядком' },
   { value: 'cheap', label: 'За зростанням ціни' },
   { value: 'pricey', label: 'За спаданням ціни' },
   { value: 'sale', label: 'Акції' },

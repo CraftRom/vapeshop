@@ -363,6 +363,7 @@ class Operator(Base):
     login: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     name: Mapped[str] = mapped_column(String(128), default="")
     password_hash: Mapped[str] = mapped_column(String(255))
+    auth_version: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     role: Mapped[str] = mapped_column(String(16), default="operator")
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -641,3 +642,17 @@ class PromoLandingDailyStat(Base):
     day: Mapped[str] = mapped_column(String(10))  # YYYY-MM-DD, UTC; portable SQLite/Postgres
     views: Mapped[int] = mapped_column(Integer, default=0)
     clicks: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class DashboardSession(Base):
+    """Only a digest of the opaque browser cookie is persisted."""
+    __tablename__ = "dashboard_sessions"
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    operator_id: Mapped[int] = mapped_column(Integer, index=True)
+    login: Mapped[str] = mapped_column(String(64))
+    csrf_token: Mapped[str] = mapped_column(String(64))
+    auth_version: Mapped[int] = mapped_column(Integer)
+    owner_fingerprint: Mapped[str] = mapped_column(String(16), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)

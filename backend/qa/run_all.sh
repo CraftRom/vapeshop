@@ -8,6 +8,7 @@
 # упасти до першої позначки ✗.
 set -u
 cd "$(dirname "$0")/.."
+export TRUSTED_HOSTS="testserver,t,test,qa,localhost,127.0.0.1,www.elfar.pp.ua"
 export PYTHONPATH="$PWD:$PWD/qa"
 PY="${PY:-python3}"
 
@@ -147,6 +148,7 @@ echo "Рівні тестування"
 run smoke qa/qa_smoke.py
 run negative qa/qa_negative.py
 run security qa/qa_security.py
+run modern-security qa/qa_modern_security.py
 run session-expiry qa/qa_session_expiry_1519.py
 run revoke qa/qa_revoke.py
 run headers qa/qa_headers.py

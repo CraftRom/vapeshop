@@ -1,5 +1,5 @@
 from __future__ import annotations
-import io, re, secrets, string
+import io, re, secrets, string, zipfile
 from decimal import Decimal, InvalidOperation
 from openpyxl import load_workbook, Workbook
 
@@ -27,6 +27,15 @@ def dec(v):
     except (InvalidOperation, ValueError): return None
 
 def parse_salesdrive_xlsx(raw: bytes):
+    if len(raw) > 10 * 1024 * 1024:
+        raise ValueError('XLSX більший за 10 МБ')
+    try:
+        with zipfile.ZipFile(io.BytesIO(raw)) as archive:
+            entries = archive.infolist()
+            if len(entries) > 1000 or sum(x.file_size for x in entries) > 64 * 1024 * 1024 or any(x.flag_bits & 1 for x in entries):
+                raise ValueError('XLSX перевищує межі розпакування')
+    except zipfile.BadZipFile:
+        raise ValueError('Пошкоджений XLSX')
     wb=load_workbook(io.BytesIO(raw), read_only=True, data_only=True)
     try:
         rows=wb.active.iter_rows(values_only=True)
@@ -36,7 +45,9 @@ def parse_salesdrive_xlsx(raw: bytes):
         if name_key not in idx:
             raise ValueError('Немає колонки Товар/Послуга або Товар')
         out=[]
-        for r in rows:
+        for number, r in enumerate(rows, 1):
+            if number > 50000:
+                raise ValueError("XLSX містить понад 50 000 рядків")
             def get(k): return r[idx[k]] if k in idx and idx[k] < len(r) else None
             def flag(k):
                 value=get(k)

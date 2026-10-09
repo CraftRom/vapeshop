@@ -5,36 +5,37 @@ const TOKEN_KEY = 'shop_dashboard_token'
 
 const SESSION_KEY = 'shop_dashboard_session'
 
-export const getToken = () => sessionStorage.getItem(TOKEN_KEY)
-export const setToken = (t) => {
-  sessionStorage.setItem(TOKEN_KEY, t)
-  // При оновленні старої версії прибираємо довгоживучий токен з localStorage.
-  localStorage.removeItem(TOKEN_KEY)
-}
+// Authentication lives in an HttpOnly cookie. This marker only controls UI routing.
+let authenticated = false
+let csrfToken = ''
+export const getToken = () => authenticated
 export const clearToken = () => {
+  authenticated = false
+  csrfToken = ''
+  for (const storage of [sessionStorage, localStorage]) {
+    storage.removeItem(TOKEN_KEY)
+    storage.removeItem(SESSION_KEY)
+  }
+}
+export const setSession = (data) => {
+  authenticated = true
+  csrfToken = data.csrf_token || ''
+  sessionStorage.setItem(SESSION_KEY, JSON.stringify({ role: data.role, name: data.name }))
   sessionStorage.removeItem(TOKEN_KEY)
-  sessionStorage.removeItem(SESSION_KEY)
   localStorage.removeItem(TOKEN_KEY)
   localStorage.removeItem(SESSION_KEY)
 }
-
-/** Роль і імʼя того, хто увійшов.
- *
- * Використовується лише для того, щоб не показувати недоступні розділи.
- * Справжнє обмеження — на бекенді: підміна цього запису в браузері нічого
- * не дає, сервер усе одно поверне 403.
- */
-export const setSession = (data) => {
-  sessionStorage.setItem(SESSION_KEY, JSON.stringify({ role: data.role, name: data.name }))
-  localStorage.removeItem(SESSION_KEY)
-}
-
 export const getSession = () => {
-  try {
-    return JSON.parse(sessionStorage.getItem(SESSION_KEY)) || { role: 'admin', name: '' }
-  } catch {
-    return { role: 'admin', name: '' }
-  }
+  try { return JSON.parse(sessionStorage.getItem(SESSION_KEY)) || { role: 'operator', name: '' } }
+  catch { return { role: 'operator', name: '' } }
+}
+export async function restoreSession() {
+  clearToken()
+  const response = await fetch(`${BASE}/auth/session`, { credentials: 'include', cache: 'no-store', signal: AbortSignal.timeout(20000), headers: { 'X-Dashboard-Request': '1' } })
+  if (response.status === 401) return false
+  if (!response.ok) throw new Error('Не вдалося перевірити сесію. Спробуйте ще раз.')
+  setSession(await response.json())
+  return true
 }
 
 // Адміністратор магазину або системний: обидва керують каталогом,
@@ -65,12 +66,12 @@ export async function authorizedFetch(url, options = {}, timeoutMs = REQUEST_TIM
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeoutMs)
   const headers = new Headers(options.headers || {})
-  const token = getToken()
-  if (token && !headers.has('Authorization')) headers.set('Authorization', `Bearer ${token}`)
+  headers.set('X-Dashboard-Request', '1')
+  if (!['GET', 'HEAD', 'OPTIONS'].includes((options.method || 'GET').toUpperCase()) && csrfToken) headers.set('X-CSRF-Token', csrfToken)
 
   try {
-    const response = await fetch(url, { ...options, headers, signal: controller.signal })
-    if (response.status === 401) {
+    const response = await fetch(url, { ...options, credentials: 'include', cache: 'no-store', headers, signal: controller.signal })
+    if (response.status === 401 && !String(url).includes('/auth/browser-login')) {
       clearToken()
       window.location.href = '/login'
       throw new ApiError('Сесія завершилась', 401)
@@ -91,7 +92,8 @@ export async function consumeOrderEvents(onOrder, signal) {
   if (!token) throw new ApiError('Сесія завершилась', 401)
   const url = new URL(`${BASE}/realtime/orders`, window.location.origin)
   const response = await fetch(url, {
-    headers: { Accept: 'text/event-stream', Authorization: `Bearer ${token}` },
+    headers: { Accept: 'text/event-stream', 'X-Dashboard-Request': '1' },
+    credentials: 'include',
     cache: 'no-store',
     signal,
   })
@@ -203,7 +205,9 @@ export const api = {
   health: () => request('/health'),
 
 
-  login: (login, password) => request('/auth/login', { method: 'POST', body: { login, password } }),
+  login: (login, password) => request('/auth/browser-login', { method: 'POST', body: { login, password } }),
+
+  logout: () => request('/auth/logout', { method: 'POST' }),
 
   stats: {
     badges: () => request('/stats/badges'),

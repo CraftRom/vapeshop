@@ -186,7 +186,8 @@ _defined = set(_re.findall(r"^([A-Z_]+)=", cert, _re.M)) | {"CERTBOT_EMAIL"}
 check(not (_used - _defined), "у скрипті немає невизначених змінних",
       sorted(_used - _defined))
 nginx_conf = read("deploy/nginx/app.conf.template")
-http_part = nginx_conf[nginx_conf.index("listen 80;"):nginx_conf.index("listen 443")]
+http_start = nginx_conf.index("server {\n    listen 80;")
+http_part = nginx_conf[http_start:nginx_conf.index("# ---------------------------------------------------------------------- HTTPS", http_start)]
 check("return 301 https://$host$request_uri;" in http_part
       and "proxy_pass" not in http_part,
       "порт 80 віддає лише ACME та редіректить застосунок на HTTPS")
@@ -221,7 +222,7 @@ check("cloudflare-realip.conf" in _nginx_vols, "налаштування адр�
 check("./nginx/deny.d:/etc/nginx/deny.d" in _nginx_vols, "список банів змонтований каталогом")
 check("forwarded-allow-ips" not in compose_src,
       "uvicorn не довіряє X-Forwarded-For від будь-кого")
-_https_part = nginx_conf[nginx_conf.index("listen 443"):]
+_https_part = nginx_conf[nginx_conf.index("# ---------------------------------------------------------------------- HTTPS"):]
 check("include /etc/nginx/deny.d/*.conf;" in http_part and "include /etc/nginx/deny.d/*.conf;" in _https_part,
       "бани fail2ban діють і на HTTP, і на HTTPS")
 _api_blocks = nginx_conf.split("proxy_pass $api_backend;")[1:]
@@ -463,7 +464,7 @@ check("_live" in _auth and "get_operator" in _auth,
       "токен звіряється з чинним станом менеджера в базі")
 for _dep in ("require_staff", "require_admin", "require_sysadmin"):
     _body = _auth.split(f"async def {_dep}(")[1].split("async def ")[0]
-    check("_live(" in _body,
+    check("_request_principal(" in _body and "_live(_decode(creds), repo)" in _auth,
           f"{_dep} звіряє токен із базою — інакше вимкнений менеджер "
           f"працює до кінця строку")
 check("password_fingerprint" in _auth,
@@ -538,7 +539,7 @@ check(_declared <= _called,
 # шаблон: його правильність стереже окремий набір qa_recon, який ганяє
 # правило по всіх справжніх маршрутах застосунку.
 _ngx = read("deploy/nginx/app.conf.template")
-check(_ngx.count("return 444") == 1
+check(_ngx.count("return 444") == 3 and "listen 443 ssl default_server" in _ngx
       and "return 301 https://$host$request_uri;" in http_part,
       "розвідка відсікається на HTTPS, а HTTP до API взагалі не доходить",
       _ngx.count("return 444"))

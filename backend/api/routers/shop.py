@@ -862,6 +862,15 @@ async def order_chat_photo(
     if actual_mime not in PHOTO_TYPES:
         raise HTTPException(422, "Файл не є підтримуваним фото JPEG, PNG або WebP")
 
+    # Validate and re-encode customer receipts, stripping metadata and appended payloads.
+    from api.routers.media import _canonical_image, _DECODE_SLOTS
+    from starlette.concurrency import run_in_threadpool
+    async with _DECODE_SLOTS:
+        try:
+            blob, _, actual_mime = await run_in_threadpool(_canonical_image, blob)
+        except HTTPException as exc:
+            raise HTTPException(422, exc.detail)
+
     bot = None
     try:
         from api.routers.telegram import _instances

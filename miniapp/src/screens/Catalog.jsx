@@ -4,7 +4,7 @@ import { api } from '../api'
 import { Field } from '../fields'
 import { Photo } from '../photo'
 import { StoreIcon } from '../StoreIcon'
-import { SORT_OPTIONS, catalogPrice, discountPercent, hasFreshStatus, hasSaleStatus, sortProducts } from '../catalogModel'
+import { DEFAULT_SORT, SORT_OPTIONS, catalogPrice, discountPercent, hasFreshStatus, hasSaleStatus, sortProducts } from '../catalogModel'
 import { SortSheet } from './SortSheet'
 import { close, haptic } from '../telegram'
 
@@ -107,7 +107,7 @@ export function Catalog({ config, cart, onCartChange, onOpenProduct, wishlists, 
   const [products, setProducts] = useState(null)
   const [active, setActive] = useState(initialState.active ?? null)
   const [search, setSearch] = useState(initialState.search || '')
-  const [sort, setSort] = useState(initialState.sort || 'default')
+  const [sort, setSort] = useState(initialState.sort || DEFAULT_SORT)
   const [inStock, setInStock] = useState(initialState.inStock || false)
   const [sorting, setSorting] = useState(false)
   const [error, setError] = useState('')
@@ -151,7 +151,6 @@ export function Catalog({ config, cart, onCartChange, onOpenProduct, wishlists, 
     try { await onCartChange(product.id, delta) } catch (err) { setError(err.message) }
   }
   const view = useMemo(() => products === null ? null : sortProducts(products, sort, inStock), [products, sort, inStock])
-  const hasFreshProducts = useMemo(() => (products || []).some(hasFreshStatus), [products])
   const filtered = sort !== 'default' || inStock || ungrouped || Boolean(search.trim())
   const chooseCategory = (id) => { setActive(id); setSubcategory(null); setUngrouped(false) }
   const visibleSubs = subcategories.filter((s) => active === null || s.category_id === active || s.category_id === null)
@@ -192,7 +191,7 @@ export function Catalog({ config, cart, onCartChange, onOpenProduct, wishlists, 
         : loadFailed ? <div className="empty"><h2>Не вдалося завантажити каталог</h2><p>Перевірте зʼєднання та повторіть спробу.</p><button className="secondary" onClick={() => setRetry((value) => value + 1)}>Повторити</button></div>
         : view.length === 0 ? <div className="empty"><h2>Нічого не знайшли</h2><p>{inStock && products.length > 0 ? 'Усе з цього переліку зараз закінчилось.' : search ? 'Спробуйте іншу назву або оберіть категорію.' : sort !== 'default' ? 'За цими фільтрами немає товарів.' : 'У цій категорії поки порожньо.'}</p>{filtered && <div className="actions"><button className="secondary" onClick={reset}>Скинути пошук і фільтри</button></div>}</div>
         : <><p className="store-found" aria-live="polite">{view.length === products.length ? `${view.length} ${plural(view.length)}` : `${view.length} із ${products.length}`}</p><div className="product-grid">{view.map((p) => <ProductCard key={p.id} product={p} qty={qtyOf(p.id)} currency={config.currency} onChange={change} onOpen={onOpenProduct} saved={savedIds.has(p.id)} onSave={onSave} />)}</div></>}
-      {sorting && <SortSheet value={sort} hasFreshProducts={hasFreshProducts} onSelect={setSort} onClose={closeSort} />}
+      {sorting && <SortSheet value={sort} onSelect={setSort} onClose={closeSort} />}
     </section>
   )
 }

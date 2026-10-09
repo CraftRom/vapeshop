@@ -4,10 +4,10 @@ import asyncio
 import logging
 from contextlib import asynccontextmanager, suppress
 
-from fastapi import Depends, FastAPI, HTTPException, Request, status
+from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 
-from api.auth import authenticate, create_token, Principal, require_sysadmin
+from api.auth import authenticate, create_token, Principal, require_sysadmin, require_staff
 from api.routers import (
     backups as backups_router, broadcasts, catalog, customers,
     logs as logs_router, media as media_router,
@@ -31,6 +31,14 @@ setup_logging("api")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     log = logging.getLogger("api")
+    if settings.public_url.startswith("https://"):
+        invalid = []
+        if len(settings.jwt_secret) < 32 or settings.jwt_secret.startswith(("change", "your_")):
+            invalid.append("JWT_SECRET")
+        if len(settings.dashboard_password) < 12 or settings.dashboard_password.startswith(("change", "your_")):
+            invalid.append("DASHBOARD_PASSWORD")
+        if invalid:
+            raise RuntimeError("Небезпечна production-конфігурація: " + ", ".join(invalid))
 
     # Схему накочує сервіс migrate до старту API. Тут лише перевіряємо
     # звʼязок, і це принципово: init_db() робить create_all, а він при
@@ -99,7 +107,7 @@ app = FastAPI(
     title=f"{settings.shop_name} — Dashboard API",
     # Версія API піднімається разом зі змінами read/write контракту.
     # 1.10: актуальна нормалізація доставки SalesDrive order/list.
-    version="1.17.0",
+    version="1.18.0",
     lifespan=lifespan,
     docs_url="/docs" if _docs_on else None,
     redoc_url=None,
@@ -116,13 +124,27 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_list,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-Telegram-Init-Data", "X-CSRF-Token", "X-Dashboard-Request", "X-Request-Id", "Idempotency-Key"],
 )
 
+from api.security_middleware import SecurityMiddleware, SiteHostMiddleware
+from starlette.middleware.trustedhost import TrustedHostMiddleware
+from urllib.parse import urlsplit
+allowed_hosts = [h.strip() for h in settings.trusted_hosts.split(",") if h.strip()]
+if not allowed_hosts:
+    allowed_hosts = ["localhost", "127.0.0.1", "[::1]"]
+    for url in [settings.public_url, *settings.cors_list]:
+        host = urlsplit(url).hostname
+        if host:
+            allowed_hosts.append(host)
+app.add_middleware(SecurityMiddleware)
+if "*" in allowed_hosts:
+    raise ValueError("TRUSTED_HOSTS має містити конкретні дозволені хости")
+app.add_middleware(SiteHostMiddleware, allowed_hosts=allowed_hosts)
 
-@app.post("/api/auth/login", response_model=TokenOut, tags=["auth"])
-async def login(request: Request, data: LoginIn, repo=Depends(get_repo)):
+
+async def _login_principal(request: Request, data: LoginIn, repo=Depends(get_repo)):
     auth_log = logging.getLogger("api.auth")
     context = {
         "requestId": current_request_id.get(),
@@ -180,13 +202,41 @@ async def login(request: Request, data: LoginIn, repo=Depends(get_repo)):
     )
     login_guard.note_success(data.login)
     security.record("security.login.ok", **context, role=principal.role.value)
-    return TokenOut(
-        access_token=create_token(
-            principal.login, principal.role, principal.operator_id, principal.name
-        ),
-        role=principal.role.value,
-        name=principal.name or principal.login,
-    )
+    return principal
+
+
+@app.post("/api/auth/login", response_model=TokenOut, tags=["auth"])
+async def login(request: Request, data: LoginIn, repo=Depends(get_repo)):
+    principal = await _login_principal(request, data, repo)
+    return TokenOut(access_token=create_token(principal.login, principal.role, principal.operator_id,
+        principal.name, auth_version=principal.auth_version), role=principal.role.value, name=principal.name)
+
+
+@app.post("/api/auth/browser-login", tags=["auth"])
+async def browser_login(request: Request, response: Response, data: LoginIn, repo=Depends(get_repo)):
+    from api.browser_sessions import check_browser_request, open_session
+    check_browser_request(request)
+    principal = await _login_principal(request, data, repo)
+    return await open_session(request, response, repo, principal)
+
+
+@app.get("/api/auth/session", tags=["auth"])
+async def browser_session(request: Request, who: Principal = Depends(require_staff)):
+    from api.browser_sessions import profile
+    row = getattr(request.state, "dashboard_session", None)
+    if not row:
+        raise HTTPException(401, "Потрібна браузерна сесія")
+    return profile(who, row["csrf_token"])
+
+
+@app.post("/api/auth/logout", status_code=204, tags=["auth"])
+async def browser_logout(request: Request, response: Response, repo=Depends(get_repo), who: Principal = Depends(require_staff)):
+    from api.browser_sessions import cookie_name, secure_cookie
+    row = getattr(request.state, "dashboard_session", None)
+    if not row:
+        raise HTTPException(400, "Цей вихід призначено для браузерної сесії")
+    await repo.delete_dashboard_session(row["id"])
+    response.delete_cookie(cookie_name(), path="/", secure=secure_cookie(), httponly=True, samesite="strict")
 
 
 @app.get("/api/health", tags=["service"])
@@ -265,3 +315,14 @@ app.include_router(integrations.router, prefix="/api/integrations", tags=["integ
 # Вітрина Mini App — окрема автентифікація (Telegram initData), не JWT панелі
 app.include_router(shop_router.router, prefix="/api/shop", tags=["shop"])
 app.include_router(telegram.router, prefix="/api", tags=["telegram"])
+
+
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+
+@app.exception_handler(RequestValidationError)
+async def validation_error(request: Request, exc: RequestValidationError):
+    return JSONResponse(status_code=422, content={"detail": [
+        {"loc": error["loc"], "msg": error["msg"], "type": error["type"]}
+        for error in exc.errors()
+    ]})

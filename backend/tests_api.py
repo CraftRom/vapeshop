@@ -277,6 +277,7 @@ async def _suite(app, backend: str) -> None:
               (await client.post("/api/telegram/nope/1", json={})).status_code == 404)
         check("вебхук з правильним секретом і ботом",
               (await client.post("/api/telegram/hook-secret/1",
+                                   headers={"X-Telegram-Bot-Api-Secret-Token": __import__("api.routers.telegram", fromlist=["webhook_header_secret"]).webhook_header_secret()},
                                  json={"update_id": 1})).status_code == 200)
 
         response = await client.delete(f"/api/broadcasts/{broadcast_id}", headers=headers)

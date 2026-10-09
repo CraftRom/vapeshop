@@ -9,6 +9,8 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import hmac
+import json
+from pydantic import ValidationError
 import logging
 
 from aiogram import Bot
@@ -99,12 +101,10 @@ async def legacy_webhook(secret: str):
 def webhook_header_secret() -> str:
     """Секрет для заголовка X-Telegram-Bot-Api-Secret-Token.
 
-    Похідний від WEBHOOK_SECRET, а не він сам: секрет зі шляху світиться
-    в логах проксі, і повторювати його в заголовку означало б не додати
-    нічого. Telegram дозволяє тут 1–256 символів A-Z a-z 0-9 _ -.
+    HMAC із серверним ключем: знання шляху не дає змоги обчислити заголовок. Telegram дозволяє тут 1–256 символів A-Z a-z 0-9 _ -.
     """
-    material = f"{settings.webhook_secret}:header".encode()
-    return hashlib.sha256(material).hexdigest()
+    material = f"telegram-webhook:{settings.webhook_secret}".encode()
+    return hmac.new(settings.jwt_secret.encode(), material, hashlib.sha256).hexdigest()
 
 
 @router.post("/telegram/{secret}/{hook_bot_id}")
@@ -132,10 +132,8 @@ async def telegram_webhook(
         # Не уточнюємо причину — стороннім знати нічого не треба
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
 
-    # Заголовок ставить сам Telegram. Порожній він буває лише в апдейтів,
-    # надісланих до переналаштування вебхука, — тому не вимагаємо його,
-    # коли він відсутній, але підроблений відхиляємо.
-    if x_telegram_bot_api_secret_token and not hmac.compare_digest(
+    # Обовʼязковий незалежний заголовок Telegram; шлях сам по собі не авторизує.
+    if not hmac.compare_digest(
         x_telegram_bot_api_secret_token.encode("utf-8"),
         webhook_header_secret().encode("utf-8"),
     ):
@@ -157,6 +155,9 @@ async def telegram_webhook(
     bot, dp = _instances()
     try:
         update = Update.model_validate(await request.json(), context={"bot": bot})
+    except (json.JSONDecodeError, ValidationError):
+        raise HTTPException(400, "Некоректний апдейт Telegram")
+    try:
         await dp.feed_update(bot, update)
     except Exception:
         # Помилку логуємо, але віддаємо 200: інакше Telegram нескінченно

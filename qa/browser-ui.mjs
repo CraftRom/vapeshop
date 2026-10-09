@@ -16,7 +16,8 @@ try {
   await page.route('**/api/**',async route=>{
     const path=new URL(route.request().url()).pathname
     let data={}
-    if(path==='/api/settings') {
+    if(path==='/api/auth/session') data={role:'admin',name:'QA',csrf_token:'qa-csrf'}
+    else if(path==='/api/settings') {
       if(route.request().method()==='PUT'){const body=route.request().postDataJSON();updates.push(body);settings={...settings,...body}}
       data=settings
     } else if(path.includes('notifications')) data={items:[],unread:0}
@@ -84,6 +85,8 @@ try {
     check(await rails.first().evaluate(e=>e.scrollLeft>0),`${viewport.width}px catalog categories scroll by wheel`)
     await rails.nth(1).hover();await p.mouse.wheel(0,200)
     check(await rails.nth(1).evaluate(e=>e.scrollWidth<=e.clientWidth || e.scrollLeft>0),`${viewport.width}px filters scroll when overflowing`)
+    await p.getByRole('button',{name:/^Сортування:/}).click()
+    await p.getByRole('button',{name:'За порядком',exact:true}).click()
     const save=p.getByRole('button',{name:'Відкласти'}).first();await save.click()
     const sheet=p.getByRole('dialog',{name:'Зберегти в список'});await sheet.waitFor()
     check(await sheet.evaluate(e=>e.scrollHeight>e.clientHeight), `${viewport.width}px long wishlist menu scrolls`)

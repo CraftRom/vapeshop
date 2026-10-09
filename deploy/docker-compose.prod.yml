@@ -87,7 +87,7 @@ services:
     command: >
       uvicorn api.main:app
       --host 0.0.0.0 --port 8000
-      --workers 1
+      --workers 1 --no-server-header --no-access-log --no-proxy-headers
     env_file: ../.env
     depends_on:
       migrate:
@@ -184,7 +184,7 @@ services:
 
   # Єдина точка входу ззовні. Термінує TLS, роздає статику, проксює API.
   nginx:
-    image: nginx:alpine
+    image: nginx:1.30.5-alpine@sha256:0985e772fb9f729e6fa0980da05fca5d9c468e870eed43071545afa9d2e27d94
     restart: always
     ports:
       - "80:80"

@@ -1,7 +1,7 @@
 import { Component, Suspense, lazy, memo, useCallback, useEffect, useMemo, useState } from 'react'
 import { NavLink, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 
-import { api, clearToken, getSession, getToken } from './api'
+import { api, clearToken, getSession, getToken, restoreSession } from './api'
 import { APP_VERSION } from './version'
 import { Loading, ToastProvider } from './components/ui'
 import { useVisiblePolling } from './components/useVisiblePolling'
@@ -197,14 +197,20 @@ function Shell({ children }) {
     return () => document.removeEventListener('wheel', horizontalWheel)
   }, [])
 
-  const logout = () => {
-    clearToken()
-    navigate('/login')
+  const [logoutError, setLogoutError] = useState('')
+  const [loggingOut, setLoggingOut] = useState(false)
+  const logout = async () => {
+    setLoggingOut(true)
+    setLogoutError('')
+    try { await api.logout(); clearToken(); navigate('/login') }
+    catch (err) { setLogoutError(err.message) }
+    finally { setLoggingOut(false) }
   }
 
   return (
     <div className="shell">
       <RealtimeOrders />
+      {logoutError && <div className="error-bar" role="alert">{logoutError}</div>}
       <aside className={`sidebar ${mobileNavOpen ? 'nav-open' : ''}`}>
         <div className="sidebar-head">
           <div className="brand" title="Панель магазину">
@@ -249,7 +255,7 @@ function Shell({ children }) {
                   : 'Менеджер'}
             </span>
           </div>
-          <button className="btn ghost small" onClick={logout}>Вийти</button>
+          <button className="btn ghost small" disabled={loggingOut} onClick={logout}>Вийти</button>
         </div>
         <div className="sidebar-foot">
           <div className="faint" style={{ marginBottom: 8, fontSize: 12.5 }}>
@@ -260,7 +266,7 @@ function Shell({ children }) {
                 ? ' · адміністратор'
                 : ' · менеджер'}
           </div>
-          <button className="btn ghost small" onClick={logout} style={{ width: '100%' }}>
+          <button className="btn ghost small" disabled={loggingOut} onClick={logout} style={{ width: '100%' }}>
             Вийти
           </button>
 
@@ -280,6 +286,15 @@ function Protected({ children }) {
 }
 
 export default function App() {
+  const [sessionState, setSessionState] = useState('loading')
+  const [sessionError, setSessionError] = useState('')
+  const restore = () => {
+    setSessionState('loading')
+    restoreSession().then(() => setSessionState('ready')).catch(err => { setSessionError(err.message); setSessionState('error') })
+  }
+  useEffect(restore, [])
+  if (sessionState === 'loading') return <div className="login-screen">Перевіряємо сесію…</div>
+  if (sessionState === 'error') return <div className="login-screen"><div role="alert">{sessionError}<button className="btn" onClick={restore}>Повторити</button></div></div>
   return (
     <ToastProvider>
       <Routes>

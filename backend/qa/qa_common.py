@@ -16,6 +16,7 @@ def boot(db_path):
     for suffix in ("", "-wal", "-shm"):
         pathlib.Path(f"{db_path}{suffix}").unlink(missing_ok=True)
 
+    os.environ.setdefault("TRUSTED_HOSTS", "testserver,t,test,qa,localhost,127.0.0.1,www.elfar.pp.ua")
     os.environ.update(BOT_TOKEN=TOKEN, JWT_SECRET="t"*32, DASHBOARD_PASSWORD="secret",
                       CRON_SECRET="cron", WEBHOOK_SECRET="hook", ADMIN_CHAT_ID="-100111",
                       BOT_USERNAME="elfar1_bot", MINIAPP_SHORT_NAME="elfar",

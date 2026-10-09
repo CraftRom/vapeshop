@@ -5,6 +5,7 @@ import json
 import os
 import re
 import hashlib
+import base64
 import secrets
 
 import httpx
@@ -894,6 +895,18 @@ async def page_stats(
     return {"views": views, "clicks": clicks, "ctr": round(clicks / views * 100, 2) if views else 0, "items": items}
 
 
+def _html_response(document: str, headers: dict) -> HTMLResponse:
+    hashes = {"'sha256-" + base64.b64encode(hashlib.sha256(script.encode()).digest()).decode() + "'"
+              for script in re.findall(r"<script(?:\s[^>]*)?>(.*?)</script>", document, re.S | re.I)}
+    google = "https://www.googletagmanager.com https://www.googleadservices.com https://googleads.g.doubleclick.net"
+    policy = ("default-src 'none'; script-src " + " ".join(sorted(hashes)) + " " + google + "; "
+              "style-src 'unsafe-inline'; img-src 'self' data: https://www.googleadservices.com https://*.google-analytics.com https://*.doubleclick.net https://www.google.com; "
+              "connect-src https://www.google-analytics.com https://*.google-analytics.com https://www.googleadservices.com https://*.doubleclick.net https://*.googletagmanager.com https://www.google.com; "
+              "frame-src https://www.googletagmanager.com; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; object-src 'none'")
+    return HTMLResponse(document, headers={**headers, "Content-Security-Policy": policy,
+                                         "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer"})
+
+
 @router.get("/{page_id}/preview", response_class=HTMLResponse)
 async def preview_page(
     page_id: int,
@@ -903,7 +916,7 @@ async def preview_page(
     row = await db.get(PromoLandingPage, page_id)
     if not row:
         raise HTTPException(404, "Промо-сторінку не знайдено")
-    return HTMLResponse(_render(row, row.draft_config or {}, preview=True), headers={"Cache-Control": "no-store"})
+    return _html_response(_render(row, row.draft_config or {}, preview=True), headers={"Cache-Control": "no-store"})
 
 
 async def _bump(db: AsyncSession, page_id: int, field: str) -> None:
@@ -944,7 +957,7 @@ async def public_render(request: Request, db: AsyncSession = Depends(get_session
         raise HTTPException(404, "Сторінка не опублікована")
     if not _BOT_RE.search(request.headers.get("user-agent", "")):
         await _bump(db, row.id, "views")
-    return HTMLResponse(
+    return _html_response(
         _render(row, row.published_config, preview=False),
         headers={
             "Cache-Control": "public, max-age=60, stale-while-revalidate=300",

@@ -17,8 +17,8 @@ class ORMModel(BaseModel):
 # ------------------------------------------------------------------------ auth
 
 class LoginIn(BaseModel):
-    login: str
-    password: str
+    login: str = Field(min_length=1, max_length=64)
+    password: str = Field(min_length=1, max_length=1024)
 
 
 class TokenOut(BaseModel):

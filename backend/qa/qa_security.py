@@ -5,7 +5,7 @@ from qa_common import boot, init_data, Report, TOKEN
 app, Session, fake = boot("/tmp/qa_sec.db")
 from fastapi.testclient import TestClient
 import jwt as pyjwt
-c = TestClient(app); r = Report("SECURITY")
+c = TestClient(app, client=("127.0.0.1", 50000)); r = Report("SECURITY")
 
 A = {"Authorization": "Bearer " + c.post("/api/auth/login", json={"login":"admin","password":"secret"}).json()["access_token"]}
 c.post("/api/operators", json={"login":"olena","name":"Олена","password":"kvitka-sadok-2026"}, headers=A)
@@ -76,7 +76,7 @@ print("\n--- службові точки ---")
 r.check(c.get("/api/telegram-setup").status_code == 404, "setup без секрета закритий")
 r.check(c.get("/api/telegram-detach?token=невірний").status_code == 404, "detach без секрета закритий")
 r.check(c.post("/api/telegram/невірний/777001", json={}).status_code == 404, "вебхук із чужим секретом")
-r.check(c.post("/api/telegram/hook/999999", json={}).status_code == 409, "вебхук чужого бота")
+r.check(c.post("/api/telegram/hook/999999", json={}, headers={"X-Telegram-Bot-Api-Secret-Token": __import__("api.routers.telegram", fromlist=["webhook_header_secret"]).webhook_header_secret()}).status_code == 409, "вебхук чужого бота")
 
 print("\n--- перебір пароля ---")
 from shop.services import login_guard                          # noqa: E402

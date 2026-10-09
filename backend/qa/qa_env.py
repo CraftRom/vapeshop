@@ -18,7 +18,7 @@ SECRETS = {"bot_token","jwt_secret","dashboard_password","dashboard_login","webh
            "data_encryption_key","redis_password"}
 INFRA = {"salesdrive_background_batch", "salesdrive_background_refresh_seconds", "serverless","db_pool_size","db_pool_overflow","postgres_host",
          "postgres_port","postgres_user","postgres_db","enable_api_docs","cors_origins",
-         "backup_dir","scheduler_interval_seconds","log_dir","log_json","log_level","media_dir"}
+         "backup_dir","scheduler_interval_seconds","log_dir","log_json","log_level","media_dir","dashboard_idle_minutes","trusted_hosts","trusted_proxy_networks"}
 unclassified = sorted(set(Settings.model_fields) - runtime - SECRETS - INFRA)
 r.check(not unclassified, "кожна змінна віднесена до категорії", unclassified)
 

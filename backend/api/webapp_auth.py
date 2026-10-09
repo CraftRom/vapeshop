@@ -50,12 +50,11 @@ def parse_init_data(init_data: str, bot_token: str, max_age: int = MAX_AGE_SECON
 
     raw_pairs = parse_qsl(init_data, keep_blank_values=True)
     names = [k for k, _ in raw_pairs]
-    for critical in ("hash", "auth_date", "user", "query_id"):
-        if names.count(critical) > 1:
-            raise InitDataError(f"Дубльований параметр {critical}")
+    if len(names) != len(set(names)):
+        raise InitDataError("Дубльований параметр initData")
     pairs = dict(raw_pairs)
     received = pairs.pop("hash", None)
-    if not received:
+    if not received or len(received) != 64 or any(c not in "0123456789abcdefABCDEF" for c in received):
         raise InitDataError("У initData немає підпису")
 
     check_string = "\n".join(f"{k}={pairs[k]}" for k in sorted(pairs))
@@ -63,25 +62,28 @@ def parse_init_data(init_data: str, bot_token: str, max_age: int = MAX_AGE_SECON
     expected = hmac.new(secret_key, check_string.encode(), hashlib.sha256).hexdigest()
 
     # compare_digest — щоб не зливати підпис через час порівняння
-    if not hmac.compare_digest(expected, received):
+    if not hmac.compare_digest(expected, received.lower()):
         raise InitDataError("Підпис не збігається")
 
-    auth_date = pairs.get("auth_date")
-    if auth_date and max_age:
-        try:
-            age = time.time() - int(auth_date)
-        except ValueError:
-            raise InitDataError("Зіпсований auth_date")
-        if age < -300:
-            raise InitDataError("auth_date з майбутнього")
-        if age > max_age:
-            raise InitDataError("Сесію прострочено, перезапустіть застосунок")
+    auth_date = pairs.get("auth_date", "")
+    if not auth_date.isascii() or not auth_date.isdecimal() or int(auth_date) <= 0:
+        raise InitDataError("Зіпсований або відсутній auth_date")
+    age = time.time() - int(auth_date)
+    if age < -300:
+        raise InitDataError("auth_date з майбутнього")
+    if max_age and age > max_age:
+        raise InitDataError("Сесію прострочено, перезапустіть застосунок")
 
-    if "user" in pairs:
-        try:
-            pairs["user"] = json.loads(pairs["user"])
-        except json.JSONDecodeError:
-            raise InitDataError("Зіпсовані дані користувача")
+    try:
+        user = json.loads(pairs.get("user", ""))
+        if not isinstance(user, dict) or type(user.get("id")) is not int or not 0 < user["id"] < 2 ** 52:
+            raise ValueError()
+        for field, limit in (("username", 64), ("first_name", 128), ("last_name", 128)):
+            if field in user and (not isinstance(user[field], str) or len(user[field]) > limit):
+                raise ValueError()
+        pairs["user"] = user
+    except (json.JSONDecodeError, ValueError, TypeError):
+        raise InitDataError("Зіпсовані дані користувача")
 
     return pairs
 
@@ -105,7 +107,7 @@ async def require_webapp_user(
             "initData відхилено: %s (довжина заголовка: %d, поля: %s)",
             exc,
             len(x_telegram_init_data or ""),
-            ",".join(sorted(dict(parse_qsl(x_telegram_init_data or "")).keys())) or "—",
+            "не зберігаються",
         )
         if missing:
             event = "security.initdata.missing"

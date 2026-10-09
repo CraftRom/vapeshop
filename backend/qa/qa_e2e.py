@@ -170,9 +170,11 @@ r.check(all(m["is_read"] for m in _mine),
 
 # Скріншот квитанції — те, чого просить текст після оформлення. Досі
 # вітрина це обіцяла, а надіслати не давала.
-_png = base64.b64decode(
-    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
-)
+from io import BytesIO
+from PIL import Image
+_image = BytesIO()
+Image.new('RGB', (10, 10), 'white').save(_image, format='PNG')
+_png = _image.getvalue()
 _up = c.post(f"/api/shop/orders/{oid}/chat/photo", headers=H,
              files={"file": ("receipt.png", _png, "image/png")})
 r.check(_up.status_code == 201, "вкладення приймається", _up.status_code)

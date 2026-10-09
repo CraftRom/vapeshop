@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import time
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request, HTTPException
 from fastapi.responses import StreamingResponse
 
 from api.auth import Principal, require_staff
@@ -22,7 +22,7 @@ def _frame(payload: dict) -> str:
 
 
 @router.get("/orders")
-async def order_events(_who: Principal = Depends(require_staff)):
+async def order_events(request: Request, _who: Principal = Depends(require_staff)):
     """Авторизований live-stream інвалідації замовлень для панелі.
 
     Стрім навмисно закривається раз на 5 хвилин: reconnect повторно проходить
@@ -33,6 +33,20 @@ async def order_events(_who: Principal = Depends(require_staff)):
         started = time.monotonic()
         yield "retry: 1500\nevent: ready\ndata: {}\n\n"
         async for payload in subscribe_order_events():
+            # Re-check credentials on each event/heartbeat using a fresh DB session.
+            # Logout and password/role changes close an already open stream too.
+            from shop.repo.factory import get_repo
+            from api.auth import _request_principal, security
+            dependency = request.app.dependency_overrides.get(get_repo, get_repo)
+            generator = dependency()
+            try:
+                repo = await generator.__anext__()
+                await _request_principal(request, await security(request), repo)
+            except HTTPException:
+                yield "event: session-ended\ndata: {}\n\n"
+                break
+            finally:
+                await generator.aclose()
             if time.monotonic() - started >= STREAM_MAX_SECONDS:
                 yield "event: reconnect\ndata: {}\n\n"
                 break

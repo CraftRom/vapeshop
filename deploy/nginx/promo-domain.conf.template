@@ -1,5 +1,6 @@
 # Generated promo domain. Do not edit by hand; use promo-domain-add.sh.
 server {
+    access_log /var/log/nginx/access.log elfar_safe;
     listen 80;
     server_name __PROMO_DOMAIN__;
     include /etc/nginx/deny.d/*.conf;
@@ -33,7 +34,9 @@ server {
         expires 30d;
         add_header Cache-Control "public, immutable";
         add_header X-Content-Type-Options "nosniff" always;
-        location ~* \.(php|py|sh|html?)$ { deny all; }
+        disable_symlinks on;
+        if ($uri !~* "^/media/[A-Za-z0-9_-]+\.(jpg|jpeg|png|gif|webp)$") { return 404; }
+        add_header Content-Security-Policy "default-src 'none'; sandbox" always;
     }
 
     location = /go {

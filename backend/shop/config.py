@@ -187,6 +187,9 @@ class Settings(BaseSettings):
     # --- Дашборд ---
     jwt_secret: str = "change-me"
     jwt_ttl_hours: int = 12
+    dashboard_idle_minutes: int = 60
+    trusted_hosts: str = ""
+    trusted_proxy_networks: str = "127.0.0.1/32,::1/128,172.16.0.0/12"
     dashboard_login: str = "admin"
     dashboard_password: str = "admin"   # змінити при першому запуску
     cors_origins: str = "http://localhost:5173"
@@ -255,7 +258,13 @@ class Settings(BaseSettings):
 
     @property
     def cors_list(self) -> list[str]:
-        return [x.strip() for x in self.cors_origins.split(",") if x.strip()]
+        from urllib.parse import urlsplit
+        origins = [x.strip().rstrip("/") for x in self.cors_origins.split(",") if x.strip()]
+        for origin in origins:
+            url = urlsplit(origin)
+            if url.scheme not in ("http", "https") or not url.hostname or "*" in origin or url.username or url.path or url.query or url.fragment:
+                raise ValueError("CORS_ORIGINS має містити точні http(s) origin без шляхів та wildcard")
+        return origins
 
 
     @model_validator(mode="before")
@@ -343,6 +352,12 @@ class Settings(BaseSettings):
                   "important", "Потрібен для кнопки переходу з групи в особистий чат"),
             entry("Коротка назва Mini App", effective("miniapp_short_name"), "important",
                   "Без неї реферальні посилання не відкривають вітрину напряму"),
+            entry("Браузерні сесії", 5 <= self.dashboard_idle_minutes <= 1440, "important",
+                  f"HttpOnly cookie, CSRF, серверне відкликання. Неактивність API: {self.dashboard_idle_minutes} хв"),
+            entry("Дозволені хости", "*" not in self.trusted_hosts, "critical",
+                  "Перевірка Host: явний список або домен PUBLIC_URL; публічні промо звіряються з опублікованими сторінками"),
+            entry("Довірені проксі", bool(self.trusted_proxy_networks), "important",
+                  "X-Real-IP приймається лише від налаштованих мереж проксі"),
             entry("CRON_SECRET", self.cron_secret, "important",
                   "Захищає службові точки: setup і видалення вебхука"),
             entry("REDIS_URL", self.redis_url, "important" if serverless else "optional",
