@@ -105,7 +105,7 @@ check('rm -f "$REPO_DIR/deploy/.env"' in boot, 'bootstrap прибирає др�
 deploy_sh = read("deploy/deploy.sh")
 check('--env-file "$ENV_FILE"' in deploy_sh, 'deploy.sh завжди використовує один ../.env')
 check("config --quiet" in deploy_sh, "deploy.sh перевіряє compose до restart")
-check("backend pre-start smoke" in deploy_sh, "новий API image перевіряється до міграцій/restart")
+check("python -m shop.preflight" in deploy_sh, "новий API image перевіряється до міграцій/restart")
 check("rollback_core_runtime" in deploy_sh, "невдалий API запускає автоматичний rollback")
 cert = read("deploy/certbot-init.sh")
 check("--entrypoint certbot" in cert, "certbot-init обходить entrypoint із циклом продовження")

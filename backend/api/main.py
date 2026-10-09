@@ -31,14 +31,7 @@ setup_logging("api")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     log = logging.getLogger("api")
-    if settings.public_url.startswith("https://"):
-        invalid = []
-        if len(settings.jwt_secret) < 32 or settings.jwt_secret.startswith(("change", "your_")):
-            invalid.append("JWT_SECRET")
-        if len(settings.dashboard_password) < 12 or settings.dashboard_password.startswith(("change", "your_")):
-            invalid.append("DASHBOARD_PASSWORD")
-        if invalid:
-            raise RuntimeError("Небезпечна production-конфігурація: " + ", ".join(invalid))
+    settings.validate_production_security()
 
     # Схему накочує сервіс migrate до старту API. Тут лише перевіряємо
     # звʼязок, і це принципово: init_db() робить create_all, а він при
@@ -107,7 +100,7 @@ app = FastAPI(
     title=f"{settings.shop_name} — Dashboard API",
     # Версія API піднімається разом зі змінами read/write контракту.
     # 1.10: актуальна нормалізація доставки SalesDrive order/list.
-    version="1.18.0",
+    version="1.18.1",
     lifespan=lifespan,
     docs_url="/docs" if _docs_on else None,
     redoc_url=None,

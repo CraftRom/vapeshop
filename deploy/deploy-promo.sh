@@ -30,6 +30,9 @@ python3 -m py_compile ../backend/api/routers/landing_pages.py ./promo-controller
 echo "==> Збірка тільки API/dashboard/promo-controller"
 $COMPOSE build api dashboard promo-controller
 
+echo "==> Перевірка нового backend image до заміни promo-контейнерів"
+$COMPOSE run --rm --no-deps -T api python -m shop.preflight
+
 echo "==> Оновлення тільки promo-залежних контейнерів"
 # --no-deps is deliberate: never restart postgres/redis/nginx/bot/etc here.
 $COMPOSE up -d --no-deps api dashboard promo-controller

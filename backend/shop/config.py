@@ -302,6 +302,10 @@ class Settings(BaseSettings):
         # «@bot» і «/app» копіюють просто з адреси або з профілю
         return value.lstrip("@").strip("/") if value else value
 
+    def validate_production_security(self) -> None:
+        from shop.production_security import validate_production_security
+        validate_production_security(self.public_url, self.jwt_secret, self.dashboard_password)
+
     def missing_required(self) -> list[str]:
         """Змінні, без яких магазин не працюватиме. Значень не розкриваємо."""
         problems = []
@@ -336,13 +340,15 @@ class Settings(BaseSettings):
         def entry(key, ok, level, note):
             return {"key": key, "ok": bool(ok), "level": level, "note": note}
 
+        from shop.production_security import unsafe_secrets
+        invalid_secrets = unsafe_secrets(self.jwt_secret, self.dashboard_password)
         report = [
             entry("BOT_TOKEN", self.bot_token, "critical",
                   "Без нього бот не працює зовсім"),
-            entry("JWT_SECRET", self.jwt_secret not in ("", "change-me"), "critical",
-                  "Дефолтне значення означає, що вхід у панель можна підробити"),
-            entry("DASHBOARD_PASSWORD", self.dashboard_password not in ("", "admin"), "critical",
-                  "Дефолтний пароль відомий будь-кому"),
+            entry("JWT_SECRET", "JWT_SECRET" not in invalid_secrets, "critical",
+                  "Щонайменше 32 символи, без шаблонного значення"),
+            entry("DASHBOARD_PASSWORD", "DASHBOARD_PASSWORD" not in invalid_secrets, "critical",
+                  "Щонайменше 12 символів, без шаблонного значення"),
             entry("WEBHOOK_SECRET", self.webhook_secret, "critical" if serverless else "optional",
                   "Адреса, на яку Telegram шле оновлення. Потрібен у serverless"),
             entry("Адреса сайту", str(effective("public_url")).startswith("https://"), "critical",

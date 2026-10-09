@@ -20,3 +20,4 @@
 - `bash qa/run-security-browser.sh`: реальний API, SQLite і браузерний вхід/CSRF/вихід. Потрібен `backend/.qa-venv` або задайте `QA_PYTHON` та встановіть `requirements-qa.txt`.
 - `NGINX_BINARY=/path/to/nginx python3 qa/qa-nginx-security.py`: синтаксис та HTTP/TLS/Host/CSP/media/rate-limit/log-redaction на Nginx 1.30.5+. Використовуються лише локальні порти 5080, 5443, 5780 та самопідписаний QA-сертифікат.
 - `npm audit --json` у `dashboard`/`miniapp`; `pip-audit -r backend/requirements-lock.txt` для зафіксованих Python-залежностей.
+- `PYTHONPATH=backend:backend/qa python3 backend/qa/qa_deploy_security.py`: перевірка пароля до Docker/БД та фактичного середовища backend; Docker підмінений, production-сервіси не використовуються.

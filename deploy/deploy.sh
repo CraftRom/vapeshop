@@ -48,6 +48,12 @@ required = [
 missing = [k for k in required if not vals.get(k)]
 if missing:
     raise SystemExit('Не заповнені обов’язкові змінні: ' + ', '.join(missing))
+sys.path.insert(0, str(env_path.resolve().parent / 'backend'))
+from shop.production_security import validate_production_security
+try:
+    validate_production_security(vals.get('PUBLIC_URL', ''), vals['JWT_SECRET'], vals['DASHBOARD_PASSWORD'])
+except RuntimeError as exc:
+    raise SystemExit(str(exc)) from None
 if vals['JWT_SECRET'] in {'change-me','change_this','change_this_to_a_long_random_string'}:
     raise SystemExit('JWT_SECRET має дефолтне/небезпечне значення')
 if vals['DASHBOARD_PASSWORD'] in {'admin','change_this_password_too'}:
@@ -120,18 +126,7 @@ echo "==> Збірка образів (поточні сервіси ще пра
 
 # Smoke нового backend image ДО міграцій і ДО заміни контейнерів.
 echo "==> Перевірка нового backend image"
-"${COMPOSE[@]}" run --rm --no-deps api python - <<'PY'
-from cryptography.fernet import Fernet
-from shop.config import settings
-missing = settings.missing_required()
-if missing:
-    raise SystemExit('В image бракує обов’язкових налаштувань: ' + ', '.join(missing))
-if not settings.data_encryption_key:
-    raise SystemExit('DATA_ENCRYPTION_KEY порожній')
-Fernet(settings.data_encryption_key.encode())
-import api.main
-print('backend pre-start smoke: OK')
-PY
+"${COMPOSE[@]}" run --rm --no-deps -T api python -m shop.preflight
 
 CATALOG_BREAKING_UPGRADE=0
 
