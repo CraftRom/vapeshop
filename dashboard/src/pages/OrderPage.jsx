@@ -1621,6 +1621,7 @@ export default function OrderPage() {
 
           <div className="card">
             <h2 style={{ marginTop: 0 }}>Замовлення</h2>
+            <div className="analytics-order-source"><b>Джерело: </b>{order.attribution?.source || 'Невідомо'}{order.attribution?.medium && ` / ${order.attribution.medium}`}<br /><span className="faint">Кампанія: {order.attribution?.campaign || '—'} · content: {order.attribution?.content || '—'} · term: {order.attribution?.term || '—'}</span></div>
             <div className="table-wrap">
               <table>
                 <tbody>

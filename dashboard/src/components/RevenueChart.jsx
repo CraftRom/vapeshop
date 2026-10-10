@@ -1,5 +1,5 @@
 import {
-  Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis,
+  Area, ComposedChart, Line, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts'
 
 import { money } from './ui'
@@ -31,7 +31,7 @@ function displayDate(value) {
   if (!value || typeof value !== 'string') return value
   const [year, month, day] = value.split('-').map(Number)
   if (!year || !month || !day) return value
-  return new Intl.DateTimeFormat('uk-UA', { day: '2-digit', month: '2-digit' })
+  return new Intl.DateTimeFormat('uk-UA', { day: '2-digit', month: '2-digit', timeZone: 'UTC' })
     .format(new Date(Date.UTC(year, month - 1, day)))
 }
 
@@ -45,18 +45,20 @@ function displayDate(value) {
  * дискретні денні підсумки. Сплайн між нульовим днем і великим продажем
  * створював вигадані проміжні піки та дуги, яких у даних не існувало.
  */
-export default function RevenueChart({ data }) {
-  const chartData = normalizeSeries(data)
+export default function RevenueChart({ data, previous }) {
+  const comparison = normalizeSeries(previous)
+  const chartData = normalizeSeries(data).map((row, index) => ({ ...row, previousSales: comparison[index]?.sales ?? null, previousDate: comparison[index]?.date }))
 
   return (
     <div className="stats-revenue-chart-shell">
       <div className="stats-chart-legend" aria-label="Легенда графіка">
         <span><i className="turnover" />Оборот продажів</span>
         <span><i className="received" />Отримано</span>
+        {!!comparison.length && <span><i className="comparison" />Виручка порівняння · за порядком дня / місяця</span>}
       </div>
       <div className="stats-revenue-chart">
         <ResponsiveContainer width="100%" height="100%">
-        <AreaChart data={chartData} margin={{ top: 10, right: 12, left: 4, bottom: 2 }}>
+        <ComposedChart data={chartData} margin={{ top: 10, right: 12, left: 4, bottom: 2 }}>
           <defs>
             <linearGradient id="received" x1="0" y1="0" x2="0" y2="1">
               <stop offset="0%" stopColor="#66d9b8" stopOpacity={0.26} />
@@ -91,7 +93,8 @@ export default function RevenueChart({ data }) {
               background: '#221e31', border: '1px solid #2e2840', borderRadius: 10, color: '#ece9f5',
             }}
             labelFormatter={(value) => `Дата: ${displayDate(value)}`}
-            formatter={(value, name) => {
+            formatter={(value, name, item) => {
+              if (name === 'previousSales') return [money(value), `Порівняння (${item.payload.previousDate})`]
               if (name === 'sales') return [money(value), 'Оборот продажів']
               if (name === 'revenue') return [money(value), 'Отримано']
               return [value, name]
@@ -121,7 +124,8 @@ export default function RevenueChart({ data }) {
             dot={false}
             activeDot={{ r: 4 }}
           />
-        </AreaChart>
+          {!!comparison.length && <Line type="linear" dataKey="previousSales" stroke="#e2b96f" strokeWidth={2} strokeDasharray="5 5" dot={false} isAnimationActive={false} connectNulls={false} />}
+        </ComposedChart>
         </ResponsiveContainer>
       </div>
     </div>

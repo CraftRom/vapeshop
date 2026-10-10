@@ -264,6 +264,7 @@ export const api = {
   profile: () => request('/profile'),
   contactPhone: () => request(`/contact-phone?_=${Date.now()}`),
   orders: () => request('/orders'),
+  visit: (data) => request('/analytics/visit', { method: 'POST', body: data }),
   checkout: (data) => request('/checkout', { method: 'POST', body: data }),
 
   // Довідник Нової пошти. Ходимо через свій бекенд, а не напряму до

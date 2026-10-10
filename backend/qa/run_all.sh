@@ -80,6 +80,7 @@ run_node() {
 
 echo
 echo "Вітрина"
+run_node attribution tests/attribution.mjs
 run_node cart-response tests/cart-response.mjs
 run_node catalog-order tests/catalog-order.mjs
 run_node wishlist-state tests/wishlist-state.mjs
@@ -183,6 +184,7 @@ run logs-api qa/qa_logs_api.py
 run backups-api qa/qa_backups_api.py
 run status-flow qa/qa_status_flow.py
 run stats-business qa/qa_stats_business.py
+run acquisition qa/qa_acquisition_analytics.py
 run crm-terminal qa/qa_crm_terminal_outcomes.py
 run background-crm-identity qa/qa_background_crm_and_identity.py
 run salesdrive-background-batch qa/qa_salesdrive_background_batch.py

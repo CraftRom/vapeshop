@@ -195,3 +195,135 @@ async def insights(
         previous_since=window["previous_since"],
         tz=window["tz"],
     )
+
+
+# The report endpoint keeps all widgets on the same explicit calendar window.
+from datetime import date
+from decimal import Decimal
+from pydantic import BaseModel, Field
+from fastapi import HTTPException
+from api.auth import Principal, require_admin
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
+from shop import models as m
+from shop.services import analytics as analytics_service
+
+
+async def report_window(
+    period: str = "month", month: str | None = None,
+    date_from: str | None = None, date_to: str | None = None,
+    compare: str = "previous", compare_month: str | None = None,
+    repo: Repository = Depends(get_repo),
+):
+    shop = await get_shop_settings(repo)
+    return analytics_service.window(shop.tz, period=period, month=month,
+        date_from=date_from, date_to=date_to, compare=compare, compare_month=compare_month,
+        earliest=await analytics_service.earliest_date(repo.s) if period == "all" else None)
+
+
+@router.get("/months")
+async def available_months(repo: Repository = Depends(get_repo)):
+    shop = await get_shop_settings(repo)
+    return {"months": await analytics_service.months(repo.s, shop.tz), "timezone": str(shop.tz)}
+
+
+@router.get("/report")
+async def report(w: dict = Depends(report_window),
+                 granularity: str = Query("day", pattern="^(day|month)$"),
+                 repo: Repository = Depends(get_repo)):
+    # Keep at most one point per month for multi-year reports.
+    if (w["until"] - w["since"]).days > 730:
+        granularity = "month"
+    current = await analytics_service.aggregate(repo.s, w, granularity)
+    previous = None
+    if w["previous_since"]:
+        previous = await analytics_service.aggregate(repo.s,
+            {**w, "since": w["previous_since"], "until": w["previous_until"]}, granularity)
+    args = {"since": w["since"], "until": w["until"]}
+    summary_data = await repo.stats_summary(0, **args)
+    summary_data.orders_new = await _display_new_count(repo)
+    insights_data = await repo.stats_insights(0, **args, previous_since=None, tz=w["tz"])
+    for key, metric in (("revenue", "revenue"), ("turnover", "sales"), ("avg_check", "avg_check")):
+        insights_data[key]["change"] = analytics_service.delta(current["metrics"][metric], previous["metrics"][metric]) if previous else None
+    return {
+        "summary": summary_data, "insights": insights_data,
+        "series": current["series"], "top": await repo.stats_top_products(0, 10, **args),
+        "breakdown": await status_breakdown_for_window(repo, args),
+        "operators": await repo.stats_by_operator(0, **args),
+        "analytics": current, "previous": previous,
+        "changes": {key: analytics_service.delta(value, previous["metrics"].get(key)) if previous else None
+                    for key, value in current["metrics"].items()},
+        "window": {"from": w["since"].isoformat(), "to": w["until"].isoformat(),
+                   "previous_from": w["previous_since"].isoformat() if w["previous_since"] else None,
+                   "previous_to": w["previous_until"].isoformat() if w["previous_until"] else None,
+                   "partial": w["partial"], "timezone": str(w["tz"]), "granularity": granularity},
+    }
+
+
+async def status_breakdown_for_window(repo, args):
+    rows = await repo.display_status_breakdown(**args)
+    # Cached CRM names on orders avoid an external CRM call on every refresh.
+    names = dict((await repo.s.execute(select(m.Order.crm_status_id, m.Order.crm_status_name)
+                 .where(m.Order.crm_status_name.is_not(None)).distinct())).all())
+    for row in rows:
+        if row.get("source") == "crm":
+            row["name"] = names.get(str(row.get("status"))) or row.get("name") or ""
+    return rows
+
+
+@router.get("/order-sources")
+async def order_sources(w: dict = Depends(report_window),
+                        source: str | None = Query(None, max_length=80),
+                        offset: int = Query(0, ge=0), limit: int = Query(25, ge=1, le=100),
+                        repo: Repository = Depends(get_repo)):
+    return await analytics_service.order_sources(repo.s, w, source, offset, limit)
+
+
+class SpendIn(BaseModel):
+    day: date
+    source: str = Field(..., min_length=1, max_length=80)
+    campaign: str = Field("", max_length=160)
+    amount: Decimal = Field(..., ge=0, le=Decimal("9999999999.99"), decimal_places=2)
+
+
+@router.get("/spend")
+async def list_spend(w: dict = Depends(report_window), repo: Repository = Depends(get_repo)):
+    rows = await repo.s.scalars(select(m.MarketingSpend).where(
+        m.MarketingSpend.day >= w["since"].astimezone(w["tz"]).date(),
+        m.MarketingSpend.day <= (w["until"] - timedelta(microseconds=1)).astimezone(w["tz"]).date())
+        .order_by(m.MarketingSpend.day.desc(), m.MarketingSpend.id.desc()))
+    return [{"id": r.id, "day": r.day, "source": r.source, "campaign": r.campaign,
+             "amount": r.amount, "updated_by": r.updated_by} for r in rows]
+
+
+@router.put("/spend")
+async def save_spend(data: SpendIn, repo: Repository = Depends(get_repo),
+                     who: Principal = Depends(require_admin)):
+    shop = await get_shop_settings(repo)
+    if data.day > datetime.now(timezone.utc).astimezone(shop.tz).date() or data.day.year < 1970:
+        raise HTTPException(422, "Витрати доступні лише за поточну або минулу дату")
+    source = analytics_service.clean_attribution({"source": data.source})["source"]
+    campaign = data.campaign.strip()
+    row = await repo.s.scalar(select(m.MarketingSpend).where(m.MarketingSpend.day == data.day,
+        m.MarketingSpend.source == source, m.MarketingSpend.campaign == campaign))
+    if not row:
+        row = m.MarketingSpend(day=data.day, source=source, campaign=campaign)
+        repo.s.add(row)
+    row.amount, row.updated_by, row.updated_at = data.amount, who.login, datetime.now(timezone.utc)
+    try:
+        await repo.s.commit()
+    except IntegrityError:
+        await repo.s.rollback()
+        raise HTTPException(409, "Цей запис щойно змінено. Оновіть список і повторіть")
+    return {"ok": True}
+
+
+@router.delete("/spend/{spend_id}")
+async def remove_spend(spend_id: int, repo: Repository = Depends(get_repo),
+                       who: Principal = Depends(require_admin)):
+    row = await repo.s.get(m.MarketingSpend, spend_id)
+    if not row:
+        raise HTTPException(404, "Запис витрат не знайдено")
+    await repo.s.delete(row)
+    await repo.s.commit()
+    return {"ok": True}

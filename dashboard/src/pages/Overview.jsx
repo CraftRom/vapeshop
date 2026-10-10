@@ -1,6 +1,8 @@
-import { Suspense, lazy, useCallback, useEffect, useState } from 'react'
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
+import { useSearchParams } from 'react-router-dom'
 import { api } from '../api'
+import { AnalyticsControls, MarketingMetrics, AnalyticsOrders, SpendEditor, dateInZone } from '../components/AnalyticsPanels'
 import { STATUS_LABELS } from '../components/StatusRail'
 import { StatusBadge } from '../components/OrderStatus'
 import { ErrorBar, Loading, money } from '../components/ui'
@@ -14,6 +16,7 @@ const PERIODS = [
   { key: 'month', label: 'Цей місяць' },
   { key: '90d', label: '90 днів' },
   { key: 'all', label: 'Весь час' },
+  { key: 'custom', label: 'Довільні дати' },
 ]
 
 function Metric({ label, value, sub, tone, change }) {
@@ -122,37 +125,52 @@ function periodCaption(insights) {
   if (!start || !end) return ''
   const options = { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: insights.timezone || undefined }
   try {
-    return `${new Date(start).toLocaleDateString('uk-UA', options)} — ${new Date(end).toLocaleDateString('uk-UA', options)}`
+    return `${new Date(start).toLocaleDateString('uk-UA', options)} — ${new Date(new Date(end).getTime() - 1).toLocaleDateString('uk-UA', options)}`
   } catch {
     return ''
   }
 }
 
 export default function Overview() {
-  const [period, setPeriod] = useState('month')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const [months, setMonths] = useState([])
+  const [timezone, setTimezone] = useState('Europe/Kyiv')
+  const today = dateInZone(Date.now(), timezone)
+  const selection = useMemo(() => ({
+    period: searchParams.get('period') || 'month', month: searchParams.get('month') || undefined,
+    date_from: searchParams.get('date_from') || `${today.slice(0, 7)}-01`,
+    date_to: searchParams.get('date_to') || today,
+    compare: searchParams.get('compare') || 'previous',
+    compare_month: searchParams.get('compare_month') || today.slice(0, 7),
+    granularity: searchParams.get('granularity') || 'day',
+  }), [searchParams, today])
+  const period = selection.period
+  const setSelection = (value) => setSearchParams(Object.fromEntries(Object.entries(value).filter(([, v]) => v != null && v !== '')), { replace: true })
+  const setPeriod = (value) => setSelection({ ...selection, period: value, month: undefined })
   const [data, setData] = useState(null)
   const [error, setError] = useState('')
-
+  const [busy, setBusy] = useState(false)
+  const requestId = useRef(0)
+  useEffect(() => {
+    api.stats.months().then((value) => { setMonths(value.months); setTimezone(value.timezone) }).catch((e) => setError(e.message))
+    return () => { requestId.current++ }
+  }, [])
   const load = useCallback(async ({ skeleton = false } = {}) => {
+    const seq = ++requestId.current
     if (skeleton) setData(null)
-    setError('')
+    setBusy(true); setError('')
     try {
-      const [summary, series, top, breakdown, operators, insights] = await Promise.all([
-        api.stats.summary(period),
-        api.stats.series(period),
-        api.stats.topProducts(period),
-        api.stats.breakdown(period),
-        api.stats.byOperator(period),
-        api.stats.insights(period),
-      ])
-      setData({ summary, series, top, breakdown, operators, insights })
+      const result = await api.stats.report(selection)
+      if (seq === requestId.current) setData(result)
     } catch (err) {
-      setError(err.message)
+      if (seq === requestId.current) setError(err.message)
+    } finally {
+      if (seq === requestId.current) setBusy(false)
     }
-  }, [period])
+  }, [selection])
 
   useEffect(() => { load({ skeleton: true }) }, [load])
-  useVisiblePolling(load, 30000)
+  useVisiblePolling(load, 60000)
 
   useEffect(() => {
     let timer = null
@@ -181,7 +199,8 @@ export default function Overview() {
           {PERIODS.map((p) => (
             <button
               key={p.key}
-              className={`btn small ${period === p.key ? '' : 'ghost'}`}
+              className={`btn small ${period === p.key && !selection.month ? '' : 'ghost'}`}
+              aria-pressed={period === p.key && !selection.month}
               onClick={() => setPeriod(p.key)}
             >
               {p.label}
@@ -190,12 +209,15 @@ export default function Overview() {
         </div>
       </div>
 
+      <AnalyticsControls selection={selection} setSelection={setSelection} months={months} timezone={timezone} busy={busy} refresh={() => load()} />
       <ErrorBar error={error} />
+      {error && <button className="btn ghost" onClick={() => load()}>Повторити завантаження</button>}
 
       {!data ? (
-        <Loading rows={4} />
+        busy ? <Loading rows={4} /> : <p className="muted">Статистика недоступна для вибраного періоду.</p>
       ) : (
         <div className="stack">
+          <div className="stats-section-title"><div><h2>Фінансовий результат</h2><p className="faint">{data.window.partial ? 'Період ще триває. ' : ''}{data.window.previous_from ? `Порівняння: ${new Date(data.window.previous_from).toLocaleDateString('uk-UA', { timeZone: timezone })} — ${new Date(new Date(data.window.previous_to).getTime() - 1).toLocaleDateString('uk-UA', { timeZone: timezone })}` : 'Порівняння вимкнено'}</p></div></div>
           <div className="grid k4 stats-primary-metrics">
             <Metric
               label="Отримано"
@@ -205,7 +227,7 @@ export default function Overview() {
               tone="accent"
             />
             <Metric
-              label="Оборот продажів"
+              label="Виручка продажів"
               value={money(data.summary.sales_period)}
               change={data.insights?.turnover?.change}
               sub={`${data.summary.sales_orders_period} замовлень зі статусом «Продаж»`}
@@ -251,6 +273,8 @@ export default function Overview() {
           </div>
 
           <FinanceLegend summary={data.summary} />
+          <MarketingMetrics data={data} />
+          <SpendEditor selection={selection} timezone={timezone} onSaved={() => load()} />
 
           <div className="grid k2">
             <Metric
@@ -279,18 +303,22 @@ export default function Overview() {
           <div className="card">
             <div className="stats-section-title">
               <div>
-                <h2>Оборот і отримані кошти по днях</h2>
+                <h2>Виручка й отримані кошти: {data.window.granularity === 'month' ? 'по місяцях' : 'по днях'}</h2>
                 <p className="faint">Оборот містить тільки замовлення, що отримали CRM-статус «Продаж»; «отримано» показує лише вже зараховані за правилами оплати кошти.</p>
               </div>
             </div>
             <Suspense fallback={<div className="skeleton" style={{ height: 260, marginTop: 14 }} />}>
-              <RevenueChart data={data.series} />
+              <RevenueChart data={data.series} previous={data.previous?.series} />
             </Suspense>
             {data.series.length === 0 && (
               <p className="muted" style={{ textAlign: 'center' }}>За цей період продажів ще не було.</p>
             )}
           </div>
 
+          <details className="card analytics-details"><summary>Таблиця динаміки · {data.window.granularity === 'month' ? 'місяці' : 'дні'}</summary>
+            <div className="table-wrap"><table><thead><tr><th>Період</th><th className="num">Виручка</th><th className="num">Отримано</th><th className="num">Продажі</th><th className="num">Сер. чек</th><th className="num">Нові покупці</th><th className="num">Витрати</th><th className="num">CAC</th><th className="num">ROAS</th><th className="num">Візити</th><th className="num">Конверсія</th></tr></thead><tbody>{data.series.map((r) => <tr key={r.date}><td>{r.date}</td><td className="num">{money(r.sales)}</td><td className="num">{money(r.revenue)}</td><td className="num">{r.orders}</td><td className="num">{r.avg_check == null ? '—' : money(r.avg_check)}</td><td className="num">{r.new_customers}</td><td className="num">{money(r.spend)}</td><td className="num">{r.cac == null ? '—' : money(r.cac)}</td><td className="num">{r.roas == null ? '—' : `${r.roas}×`}</td><td className="num">{r.sessions}</td><td className="num">{r.conversion == null ? '—' : `${r.conversion}%`}</td></tr>)}</tbody></table></div>
+          </details>
+          <AnalyticsOrders selection={selection} data={data} />
           <div className="grid k2">
             <div className="card">
               <h2>Топ товарів</h2>
@@ -365,7 +393,7 @@ export default function Overview() {
             <div className="stats-section-title">
               <div>
                 <h2>Активність користувачів</h2>
-                <p className="faint">Активність визначається за last_seen у вітрині/боті, покупки — тільки за CRM-статусом «Продаж».</p>
+                <p className="faint">Оперативний зріз last_seen у вітрині/боті. Для історичної конверсії використовуйте блок відвідувань вище: last_seen перезаписується після нового входу.</p>
               </div>
               <span className="chip">{data.insights.timezone || 'Europe/Kyiv'}</span>
             </div>
@@ -374,7 +402,7 @@ export default function Overview() {
               <div><span>Активні 24 год</span><strong>{activity.active_24h ?? 0}</strong></div>
               <div><span>Нові користувачі</span><strong>{activity.new_users ?? 0}</strong></div>
               <div><span>Покупці</span><strong>{activity.buyers ?? 0}</strong></div>
-              <div><span>Конверсія активних</span><strong>{activity.buyer_share ?? 0}%</strong></div>
+              <div><span>Покупці серед last_seen</span><strong>{activity.buyer_share ?? 0}%</strong></div>
             </div>
           </div>
 

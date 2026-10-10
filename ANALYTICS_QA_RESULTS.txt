@@ -1,0 +1,211 @@
+ELFAR — перевірка аналітики 10.10.2026
+Панель 1.66.0 / Вітрина 2.19.0
+
+Production build dashboard: PASS
+Production build miniapp: PASS
+Python compileall: PASS
+Alembic head: f2c8a1d96b40 (єдина вершина)
+PostgreSQL migration DDL generation: PASS
+SQLite analytics migration downgrade + upgrade: PASS
+Attribution Node behavior: 12/12
+Statistics UI compatibility: 15/15
+Chart/form normalization: 9/9
+
+Контрольна БД й тестові HTTP-клієнти; браузер — контрольні відповіді API.
+На робочому VPS зміни не розгорнуто.
+
+=== ACQUISITION ===
+Чат для замовлень не заданий — №7 нікуди надіслати
+✓ leap February full calendar month
+✓ previous full month is January
+✓ MTD same elapsed calendar portion
+✓ DST month preserves local boundaries
+✓ custom end date inclusive
+✓ invalid calendar rejected {'month': '2024-13'}
+✓ invalid calendar rejected {'month': '2025-01'}
+✓ invalid calendar rejected {'period': 'custom', 'date_from': '2024-04-02', 'date_to': '2024-04-01'}
+✓ invalid calendar rejected {'compare': 'month'}
+✓ promo UTM survives Telegram boundary incl unicode
+✓ promo attribution preserves chat destination
+✓ actual historical CRM UTM reused without inventing metadata
+✓ checkout attribution wins over later CRM metadata
+✓ zero denominators are unavailable
+✓ migration downgrade removes only analytics additions
+✓ migration upgrade restores attribution and visit/spend tables
+✓ visits deduplicated and source immutable
+✓ cannot link another user visit
+✓ owned session links at checkout
+✓ sale finance excludes refused order
+✓ first purchase unique despite identical timestamps
+✓ blended CAC uses first paying customers
+✓ ROAS excludes organic and unbudgeted channels
+✓ conversion deduplicates checkout sessions incl cancellations
+✓ zero calendar days filled with 0
+✓ unknown historical sources preserved
+✓ coverage calculated from actual attribution
+✓ monthly totals reconcile with daily
+✓ source totals reconcile
+✓ unknown filter includes legacy NULL attribution
+✓ order sources paginated incl non-sales
+✓ consolidated API report serializes finance and selected comparison
+✓ all historical months available
+✓ spend upsert normalizes source
+✓ spend repeated save replaces rather than duplicates
+✓ negative spend rejected
+✓ visit API replay returns no content
+✓ checkout succeeds with attribution in atomic order transaction
+✓ checkout stores source and owned visit id
+✓ idempotent checkout does not replace original attribution
+✓ spend writes require privileged auth
+✓ ROAS only funded campaigns in channel and time buckets
+✓ historical CRM source filter uses display normalization
+✓ historical CRM UTM included in channel revenue
+✓ legacy without metadata remains unknown
+ACQUISITION ANALYTICS: 45/45
+
+=== BROWSER ===
+PASS historical selection survives URL reload
+PASS financial cards render
+PASS marketing metrics render
+PASS each order links to its detail
+PASS desktop no page overflow
+PASS order source filter reaches API
+PASS orders pagination loads next page
+PASS monthly granularity reaches API
+PASS custom inclusive range reaches API
+PASS spend form saves actual entered amount
+PASS CSV export downloadable
+PASS mobile no page overflow
+PASS wide analytics tables scroll locally on phone
+PASS no React runtime errors: 
+BROWSER ANALYTICS: 14/14
+
+=== FULL REGRESSION ===
+Комплектність
+  wiring        усі рівні звʼязані
+
+Вітрина
+  attribution   ATTRIBUTION: 12/12
+  cart-response КОШИК: усе витримано
+  catalog-order КАТАЛОГ: усе витримано
+  wishlist-state СТАН СПИСКІВ: усе витримано
+  wishlist-wiring ЗБЕРЕЖЕНЕ: усе витримано
+  checkout      ОФОРМЛЕННЯ: усе витримано
+  tg-contact    TELEGRAM CHECKOUT HOTFIX: OK
+  input-visibility ПОЛЯ ВВОДУ: усе витримано
+  field-paint   ПОЛЕ МАЛЮЄ САМЕ: усе витримано
+  phone         ТЕЛЕФОН: усе витримано
+  client-logging ЖУРНАЛ ВІТРИНИ: усе витримано
+  legacy-bridge МІСТОК LEGACY-HOST: усе витримано
+  bridge-runtime МІСТОК У РОБОТІ: усе витримано
+  field-guard   СТОРОЖ ПОЛІВ: усе витримано
+  text-input    ПОЛЕ ВВЕДЕННЯ: усе витримано
+  design        ДИЗАЙН ВІТРИНИ: усе витримано
+  ui-refresh    UI REFRESH: усе витримано
+  checkout-required CHECKOUT REQUIRED: 12/12
+  deep-actions  DEEP ACTIONS: усі перевірки пройдено
+  crm-status-ui CRM STATUS SOURCE: OK
+  crm-api-rich  ✓ CRM API richness: 8/8
+  crm-order-update CRM order-update UX: 10/10
+  crm-card-payment-rule ✓ CRM card payment rule: 15/15
+  order-live-sync ✓ Order live sync UX: 14/14
+  order-chat-history ✓ failed delivery has its own visual state
+  filters       ВІДБІР У ПАНЕЛІ: усе витримано
+  new-markers   NEW MARKERS: OK
+  catalog-ux    КАТАЛОГ UX: усе витримано
+  support-ux    ПІДТРИМКА UX: усе витримано
+  notifications СПОВІЩЕННЯ UX: усе витримано
+  payment-ux    ОПЛАТА В ЗАМОВЛЕННІ: усе витримано
+  volume        ГУЧНІСТЬ СПОВІЩЕНЬ: усе витримано
+  performance   PERFORMANCE: усе витримано
+  stats-business-ui STATS UI: 15/15
+  form-chart    FORM/CHART NORMALIZATION: 9/9
+  deep-actions-ui DASHBOARD DEEP ACTIONS: усі перевірки пройдено
+  promo-domain-ux promo domain UX: 6/6
+  settings-model SETTINGS MODEL: 7/7
+  scroll        SCROLL: 14/14
+
+Контракти й дані
+  domains       ok
+  bot-inputs    BOT INPUTS: 11/11
+  checkout-integrity CHECKOUT INTEGRITY: 36/36
+  tg-contact    ok
+  cart-lock     ok
+  deep-integrity DEEP INTEGRITY: 18/18
+  order-chat-history ok
+  contracts     усі контракти узгоджені
+  repo          Всього провалено: 0
+  catalog-hierarchy CATALOG HIERARCHY: 32/32
+  catalog-import CATALOG IMPORT: 12/12
+  catalog-deploy CATALOG DEPLOY: 6/6
+  bot           Всього провалено: 0
+  smoke-api     ok
+  api           ok
+
+Рівні тестування
+  smoke         SMOKE: 22/22
+  negative      NEGATIVE: 23/23
+  security      SECURITY: 47/47
+  modern-security MODERN SECURITY: 61/61
+  session-expiry SESSION EXPIRY QA: 10/10
+  revoke        ВІДКЛИКАННЯ: 20/20
+  headers       ЗАГОЛОВКИ: 25/25
+  transport-sec ok
+  security-log  ЖУРНАЛ БЕЗПЕКИ: 48/48
+  database      DATABASE: 13/13
+  auto-replies  AUTO REPLIES: 20/20
+  faq           FAQ: 113/113
+  faq-intent-router SMART FAQ ROUTER: 58/58
+  faq-delivery  DYNAMIC DELIVERY FAQ: 12/12
+  faq-flow      ok
+  support       ПІДТРИМКА: 32/32
+  panel-notify  PANEL NOTIFICATIONS: 14/14
+  faq-public    ok
+  env           ENV: 20/20
+  docs          ok
+  legal         LEGAL: 10/10
+  deploy-phases ok
+  deploy-security ok
+  deploy-health ok
+  promo-google  ok
+  promo-landing ok
+  promo-cloudflare ok
+  scheduler     ПЛАНУВАЛЬНИК: 32/32
+  public        ПУБЛІЧНІ ЧАТИ: 224/224
+  logging       ЖУРНАЛ: 87/87
+  storefront-log ok
+  storage-lifecycle ok
+  logs-api      ЖУРНАЛ У ПАНЕЛІ: 51/51
+  backups-api   КОПІЇ: 39/39
+  status-flow   СТАТУСИ: 42/42
+  stats-business STATS BUSINESS: 48/48
+  acquisition   ACQUISITION ANALYTICS: 45/45
+  crm-terminal  CRM TERMINAL OUTCOMES: 15/15
+  background-crm-identity ok
+  salesdrive-background-batch ok
+  runtime-freshness ok
+  realtime-status ok
+  status-autonomy ok
+  auto-accept   АВТОПРИЙНЯТТЯ: 17/17
+  recon         РОЗВІДКА: 45/45
+  alerts        СПОВІЩЕННЯ: 27/27
+  edges         МЕЖІ: 11/11
+  dialect       ДІАЛЕКТ: 16/16
+  orders_delete ВИДАЛЕННЯ ЗАМОВЛЕНЬ: 18/18
+  settings_save НАЛАШТУВАННЯ: 35/35
+  novaposhta    НОВА ПОШТА: 54/54
+  product-io    ok
+  e2e           E2E: 59/59
+  salesdrive    SALESDRIVE І ТТН: 54/54
+  sd-dicts      ✓ SalesDrive dictionaries/formId: 5/5
+  sd-no-backfill ok
+  sd-read-side  ✓ SalesDrive read-side: 6/6
+  sd-rich-read  ✓ SalesDrive rich read: 29/29
+  sd-order-update SalesDrive order-update QA: 15/15
+  crm-live-sync ✓ CRM live sync: 18/18
+  crm-status    ✓ CRM status authority: 14/14
+  salesdrive-source ok
+  wishlists     СПИСКИ БАЖАНОГО: 31/31
+  performance   PERFORMANCE: 11/11
+
+Усі набори пройдено

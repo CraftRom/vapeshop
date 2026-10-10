@@ -1,6 +1,8 @@
 """Репозиторій поверх SQLAlchemy — для власного сервера."""
 from __future__ import annotations
 
+from shop.services.attribution import order_attribution
+
 import gzip
 import json
 import logging
@@ -310,7 +312,7 @@ def _order(row, with_user: bool = False) -> Order | None:
         subtotal=_dec(row.subtotal), discount=_dec(row.discount),
         bonus_used=_dec(row.bonus_used), total=_dec(row.total),
         promo_code_id=row.promo_code_id, payment_method=row.payment_method,
-        checkout_key=row.checkout_key,
+        attribution=order_attribution(row.attribution, row.crm_snapshot), checkout_key=row.checkout_key,
         receipt_file_id=row.receipt_file_id, contact_name=row.contact_name,
         contact_surname=row.contact_surname, contact_patronymic=row.contact_patronymic,
         contact_phone=row.contact_phone, delivery_city=row.delivery_city,
@@ -939,7 +941,7 @@ class SqlRepository(Repository):
             user_id=order.user_id, subtotal=order.subtotal, discount=order.discount,
             bonus_used=order.bonus_used, total=order.total,
             promo_code_id=order.promo_code_id, payment_method=order.payment_method,
-            checkout_key=order.checkout_key, crm_state=order.crm_state,
+            attribution=order.attribution, checkout_key=order.checkout_key, crm_state=order.crm_state,
             contact_name=order.contact_name, contact_surname=order.contact_surname,
             contact_patronymic=order.contact_patronymic, contact_phone=order.contact_phone,
             delivery_city=order.delivery_city, delivery_address=order.delivery_address,
@@ -1099,7 +1101,7 @@ class SqlRepository(Repository):
                 user_id=order.user_id, subtotal=order.subtotal, discount=order.discount,
                 bonus_used=order.bonus_used, total=order.total,
                 promo_code_id=order.promo_code_id, payment_method=order.payment_method,
-                checkout_key=order.checkout_key, crm_state=order.crm_state,
+                attribution=order.attribution, checkout_key=order.checkout_key, crm_state=order.crm_state,
                 contact_name=order.contact_name, contact_surname=order.contact_surname,
                 contact_patronymic=order.contact_patronymic, contact_phone=order.contact_phone,
                 delivery_city=order.delivery_city, delivery_address=order.delivery_address,

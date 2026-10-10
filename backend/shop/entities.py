@@ -162,6 +162,7 @@ class Order:
     payment_method: str | None = None
     # Ідемпотентний ключ оформлення з Mini App. Повтор того самого POST
     # повертає вже створене замовлення замість дублювання.
+    attribution: dict | None = None
     checkout_key: str | None = None
     # Внутрішня ознака: цей Order повернуто як ідемпотентний replay,
     # а не створено поточним запитом. У БД не зберігається.

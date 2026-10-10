@@ -151,6 +151,7 @@ class OrderCustomer(ORMModel):
 
 
 class OrderOut(ORMModel):
+    attribution: dict | None = None
     id: int
     status: OrderStatus
     subtotal: Decimal

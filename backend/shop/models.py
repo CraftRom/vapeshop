@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import enum
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 
 from sqlalchemy import (
-    JSON, BigInteger, Index, Boolean, DateTime, Enum, ForeignKey, Integer, LargeBinary, Numeric,
+    JSON, BigInteger, Index, Boolean, Date, DateTime, Enum, ForeignKey, Integer, LargeBinary, Numeric,
     String, Text, UniqueConstraint, func, text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
@@ -204,6 +204,7 @@ class Order(Base):
 
     promo_code_id: Mapped[int | None] = mapped_column(ForeignKey("promo_codes.id"))
     payment_method: Mapped[str | None] = mapped_column(String(32))   # card | cod
+    attribution: Mapped[dict | None] = mapped_column(JsonType, nullable=True)
     checkout_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
     receipt_file_id: Mapped[str | None] = mapped_column(String(255))
 
@@ -656,3 +657,27 @@ class DashboardSession(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
+class AnalyticsSession(Base):
+    __tablename__ = "analytics_sessions"
+    __table_args__ = (UniqueConstraint("user_id", "session_id", name="uq_analytics_user_session"),
+                      Index("ix_analytics_sessions_started", "started_at"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    session_id: Mapped[str] = mapped_column(String(64))
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    attribution: Mapped[dict | None] = mapped_column(JsonType)
+
+
+class MarketingSpend(Base):
+    __tablename__ = "marketing_spend"
+    __table_args__ = (UniqueConstraint("day", "source", "campaign", name="uq_marketing_spend_key"),
+                      Index("ix_marketing_spend_day", "day"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    day: Mapped[date] = mapped_column(Date, nullable=False)
+    source: Mapped[str] = mapped_column(String(80), nullable=False)
+    campaign: Mapped[str] = mapped_column(String(160), nullable=False, default="", server_default="")
+    amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    updated_by: Mapped[str] = mapped_column(String(64), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

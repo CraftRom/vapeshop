@@ -159,6 +159,7 @@ async def create_order(
     contact_surname: str | None = None, contact_patronymic: str | None = None,
     delivery_method: str | None = None, delivery_city_ref: str | None = None,
     delivery_warehouse_ref: str | None = None, checkout_key: str | None = None,
+    attribution: dict | None = None,
 ) -> tuple[Order | None, str | None]:
     lines = await repo.get_cart(user.id)
     if not lines:
@@ -207,6 +208,7 @@ async def create_order(
     draft = Order(
         id=0, user_id=user.id, subtotal=subtotal, discount=discount,
         bonus_used=bonus_used, total=total, promo_code_id=promo_id,
+        attribution=attribution or {"source": "telegram_bot", "medium": "bot"},
         payment_method=payment_method, checkout_key=(checkout_key or "").strip() or None,
         # CRM queue-state записується разом із самим замовленням. Інакше
         # crash після COMMIT order, але до окремого UPDATE crm_state лишав

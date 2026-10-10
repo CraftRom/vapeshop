@@ -7,7 +7,7 @@ const chart = fs.readFileSync(new URL('../src/components/RevenueChart.jsx', impo
 const tests = [
   ['calendar period keys', ['today', '7d', 'month', '90d', 'all'].every((x) => overview.includes(`key: '${x}'`))],
   ['received metric', overview.includes('label="Отримано"') && overview.includes('actual_received_period')],
-  ['sale turnover metric', overview.includes('Оборот продажів') && overview.includes('sales_period') && overview.includes('sales_orders_period')],
+  ['sale turnover metric', overview.includes('Виручка продажів') && overview.includes('sales_period') && overview.includes('sales_orders_period')],
   ['sale semantics explained', overview.includes('CRM-статусу «Продаж»') && !overview.includes('Підтверджений оборот')],
   ['expected money metric', overview.includes('Очікуємо отримання') && overview.includes('expected_period')],
   ['shipped amount metric', overview.includes('shipped_period') && overview.includes('shipped_orders_period')],

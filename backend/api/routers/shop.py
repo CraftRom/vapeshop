@@ -220,7 +220,29 @@ class ProfileOut(BaseModel):
     max_bonus_now: Decimal
 
 
+class AttributionIn(BaseModel):
+    source: str = Field("unknown", max_length=80)
+    medium: str = Field("", max_length=160)
+    campaign: str = Field("", max_length=160)
+    content: str = Field("", max_length=160)
+    term: str = Field("", max_length=160)
+    session_id: str | None = Field(None, min_length=12, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")
+
+
+class VisitIn(BaseModel):
+    session_id: str = Field(..., min_length=12, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")
+    attribution: AttributionIn = Field(default_factory=AttributionIn)
+
+
+@router.post("/analytics/visit", status_code=204)
+async def analytics_visit(data: VisitIn, user: User = Depends(require_webapp_user), repo: Repository = Depends(get_repo)):
+    from shop.services.analytics import record_session
+    await record_session(repo.s, user.id, data.session_id, data.attribution.model_dump())
+    return Response(status_code=204)
+
+
 class CheckoutIn(BaseModel):
+    attribution: AttributionIn | None = None
     # Ключ генерує Mini App один раз на відкриття checkout. Він не є
     # секретом; потрібен лише для ідемпотентності повторного POST після
     # timeout/поганого звʼязку.
@@ -1295,8 +1317,14 @@ async def checkout(
             422, "Доставка курʼєром зараз недоступна — оберіть відділення",
         )
 
+    from shop.services.analytics import checkout_attribution
+    attribution = await checkout_attribution(
+        repo.s, user.id, data.attribution.session_id if data.attribution else None,
+        data.attribution.model_dump() if data.attribution else {"source": "unknown"},
+    )
     order, error = await svc.create_order(
         repo, user,
+        attribution=attribution,
         contact_name=data.contact_name, contact_surname=data.contact_surname,
         contact_patronymic=data.contact_patronymic, contact_phone=data.contact_phone,
         city=data.city, address=data.address, payment_method=data.payment_method,

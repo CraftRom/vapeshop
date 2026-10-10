@@ -34,6 +34,7 @@ export function phoneError(value) {
 import { useEffect, useRef, useState } from 'react'
 
 import { api } from '../api'
+import { acquisition, trackVisit } from '../attribution'
 import { clientLog } from '../logger'
 import { Field } from '../fields'
 import {
@@ -516,7 +517,10 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
     setBusy(true)
     setError('')
     try {
+      // Record this session before linking it; failed telemetry never rejects checkout.
+      await Promise.race([trackVisit(api), new Promise((resolve) => setTimeout(resolve, 600))])
       const order = await api.checkout({
+        attribution: acquisition(),
         ...form,
         checkout_key: checkoutKey.current,
         // Курʼєра могли вимкнути, поки вкладка була відкрита. Шлемо те,

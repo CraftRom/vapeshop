@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "test": "bash run-browser.sh",
+    "test:analytics": "QA_BROWSER_SUITE=analytics bash run-browser.sh",
     "test:catalog": "QA_BROWSER_SUITE=catalog bash run-browser.sh"
   },
   "devDependencies": {

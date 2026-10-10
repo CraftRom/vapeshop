@@ -982,6 +982,8 @@ async def public_click(request: Request, db: AsyncSession = Depends(get_session)
         raise HTTPException(409, "Посилання кнопки не налаштоване")
     if not _BOT_RE.search(request.headers.get("user-agent", "")):
         await _bump(db, row.id, "clicks")
+    from shop.services.analytics import attributed_button_url
+    target = attributed_button_url(target, request.query_params, campaign=f"promo_{row.id}")
     return RedirectResponse(target, status_code=302, headers={"Cache-Control": "no-store"})
 
 
@@ -1067,7 +1069,8 @@ function pushEvent(name,data){window.dataLayer=window.dataLayer||[];window.dataL
 function emitEvent(name,data){if(mode==='google_tag'&&typeof gtag==='function')gtag('event',name,data||{});else pushEvent(name,data);}
 function setConsent(value){try{localStorage.setItem('promo_google_consent',value)}catch(e){};if(typeof gtag==='function')gtag('consent','update',{analytics_storage:value,ad_storage:value,ad_user_data:value,ad_personalization:value});pushEvent('promo_consent_update',{consent:value});}
 if(consentMode==='banner'){var saved='';try{saved=localStorage.getItem('promo_google_consent')||''}catch(e){};var box=document.getElementById('googleConsent');if(saved==='granted'||saved==='denied')setConsent(saved);else if(box)box.hidden=false;if(box)box.addEventListener('click',function(e){var v=e.target&&e.target.getAttribute('data-consent');if(!v)return;setConsent(v==='grant'?'granted':'denied');box.hidden=true;});}
-var cta=document.querySelector('.cta');if(cta)cta.addEventListener('click',function(e){var href=cta.getAttribute('href');emitEvent('promo_cta_click',{promo_code:(document.querySelector('.code')||{}).textContent||'',destination:href});if(mode==='google_tag'&&sendTo&&typeof gtag==='function'){e.preventDefault();var done=false;var go=function(){if(done)return;done=true;location.href=href};gtag('event','conversion',{send_to:sendTo,event_callback:go});setTimeout(go,700);}});
+var cta=document.querySelector('.cta');if(cta&&cta.getAttribute('href')!=='#'){var entry=new URLSearchParams(location.search),dest=new URL(cta.getAttribute('href'),location.href);['source','medium','campaign','content','term'].forEach(function(k){var v=entry.get('utm_'+k);if(v)dest.searchParams.set('utm_'+k,v.slice(0,160));});cta.setAttribute('href',dest.pathname+dest.search);}
+if(cta)cta.addEventListener('click',function(e){var href=cta.getAttribute('href');emitEvent('promo_cta_click',{promo_code:(document.querySelector('.code')||{}).textContent||'',destination:href});if(mode==='google_tag'&&sendTo&&typeof gtag==='function'){e.preventDefault();var done=false;var go=function(){if(done)return;done=true;location.href=href};gtag('event','conversion',{send_to:sendTo,event_callback:go});setTimeout(go,700);}});
 })();</script>'''
     runtime = runtime.replace("__MODE__", json.dumps(mode)).replace("__CONSENT__", json.dumps(consent)).replace("__SENDTO__", json.dumps(send_to))
     body.append(runtime)

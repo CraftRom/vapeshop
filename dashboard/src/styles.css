@@ -5069,3 +5069,30 @@ button.support-stat:hover { border-color: rgba(139, 123, 240, 0.38); }
   .settings-save-bar .row { flex-shrink: 0; gap: 6px; }
   .settings-save-bar > span { max-width: 42%; }
 }
+
+/* Acquisition overview: controls and tables keep their own scroll surface. */
+.analytics-controls { margin-bottom: 20px; }
+.analytics-fields { display: flex; flex-wrap: wrap; gap: 14px; align-items: flex-end; }
+.analytics-fields label { display: grid; gap: 7px; flex: 1 1 160px; min-width: 0; color: var(--muted, #aba4bf); font-size: 13px; }
+.analytics-fields .input { width: 100%; min-width: 0; }
+.analytics-fields button { flex: 0 0 auto; }
+.analytics-controls .analytics-fields + .analytics-fields { margin-top: 14px; }
+.analytics-details summary { cursor: pointer; font-weight: 600; padding: 5px 0; }
+.analytics-details[open] summary { margin-bottom: 14px; }
+.analytics-details .table-wrap { max-height: 430px; overflow: auto; }
+.analytics-details thead { position: sticky; top: 0; background: #221e31; z-index: 1; }
+.analytics-quality p { color: #bcb5ce; line-height: 1.65; }
+.analytics-cell-note { display: block; color: #a39ab8; font-size: 12px; margin-top: 4px; }
+.analytics-pagination { margin-top: 14px; gap: 16px; flex-wrap: wrap; }
+.analytics-order-source { overflow-wrap: anywhere; line-height: 1.65; margin-bottom: 14px; }
+.stats-chart-legend i.comparison { background: #e2b96f; }
+.stats-primary-metrics .value { font-variant-numeric: tabular-nums; }
+@media (max-width: 640px) {
+  .analytics-fields { gap: 12px; }
+  .analytics-fields label { flex-basis: calc(50% - 12px); }
+  .analytics-fields button { width: 100%; }
+  .stats-section-title { flex-wrap: wrap; gap: 12px; }
+  .stats-section-title > * { min-width: 0; max-width: 100%; }
+  .metric .value { overflow-wrap: anywhere; font-size: 26px; }
+  .analytics-quality p { font-size: 13px; }
+}

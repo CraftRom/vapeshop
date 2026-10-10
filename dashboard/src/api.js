@@ -210,6 +210,12 @@ export const api = {
   logout: () => request('/auth/logout', { method: 'POST' }),
 
   stats: {
+    report: (params) => request('/stats/report', { params }),
+    months: () => request('/stats/months'),
+    orderSources: (params) => request('/stats/order-sources', { params }),
+    spend: (params) => request('/stats/spend', { params }),
+    saveSpend: (body) => request('/stats/spend', { method: 'PUT', body }),
+    removeSpend: (id) => request(`/stats/spend/${id}`, { method: 'DELETE' }),
     badges: () => request('/stats/badges'),
     // period — календарний ключ, а не «N * 24 годин». Так «Сьогодні»
     // починається опівночі в часовій зоні магазину, а «Цей місяць» — 1 числа.

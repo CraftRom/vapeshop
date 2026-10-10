@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { api, AUTH_FAILURE_EVENT, consumeOrderEvents } from './api'
 import { clientLog } from './logger'
+import { trackVisit } from './attribution'
 import { horizontalWheel, trackViewport } from './scroll'
 import { AgeGate, Catalog } from './screens/Catalog'
 import { Cart, Checkout } from './screens/Checkout'
@@ -36,6 +37,7 @@ export default function App() {
     window.scrollTo({ top: 0, behavior: 'instant' })
   }, [])
   const navigate = async (section) => {
+    trackVisit(api)
     const request = ++navigationRequest.current
     if (section === 'cart') {
       clearTimeout(flushTimer.current)
@@ -156,6 +158,7 @@ export default function App() {
     api.config()
       .then((value) => {
         setConfig(value)
+        trackVisit(api)
         clientLog('storefront.open.ok', {
           message: 'Вітрина успішно отримала конфігурацію',
           once: 'open-ok',
