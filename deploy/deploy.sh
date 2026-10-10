@@ -253,20 +253,7 @@ fi
 
 # Перевіряємо саме nginx-маршрут головного сайту, окремо від будь-якого promo Host.
 # PUBLIC_URL використовується тільки для Host основної системи.
-MAIN_HOST="$(python3 - "$ENV_FILE" <<'PY2'
-import sys
-from pathlib import Path
-from urllib.parse import urlsplit
-vals={}
-for raw in Path(sys.argv[1]).read_text(encoding='utf-8').splitlines():
-    line=raw.strip()
-    if not line or line.startswith('#') or '=' not in line: continue
-    k,v=line.split('=',1); vals[k.strip()]=v.strip().strip('"\'')
-u=vals.get('PUBLIC_URL','') or vals.get('DASHBOARD_PUBLIC_URL','')
-host = urlsplit(u).hostname or ''
-print('elfar.pp.ua' if host == 'www.elfar.pp.ua' else host)
-PY2
-)"
+MAIN_HOST="$(python3 "./domain_config.py" primary --env "$ENV_FILE")"
 
 if [[ -n "$MAIN_HOST" ]]; then
     # Локальний TLS без зовнішнього DNS/HTTP-редиректу. Host обирає основний
@@ -289,6 +276,18 @@ if [[ -n "$MAIN_HOST" ]]; then
     echo "    Main route health ($MAIN_HOST): OK"
 else
     echo "    PUBLIC_URL не заданий — Host-перевірку головного домену пропущено; internal nginx→API: OK"
+fi
+
+# Catch historic-host 444/Cloudflare 520 and a broken storefront asset before declaring success.
+public_routes_ok=0
+for attempt in 1 2 3 4 5; do
+    if python3 "./check-public-routes.py" --env "$ENV_FILE"; then public_routes_ok=1; break; fi
+    sleep 2
+done
+if [[ "$public_routes_ok" != 1 ]]; then
+    echo "Основні/старі домени або вітрина не пройшли health gate." >&2
+    rollback_core_runtime
+    exit 1
 fi
 
 echo "==> ФАЗА 6/6: промо-система"

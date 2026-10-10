@@ -9,10 +9,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 def canonical_public_url(value: str) -> str:
     """Канонічна адреса цього магазину.
 
-    `www.elfar.pp.ua` історично потрапив у BotFather/налаштування, але DNS
-    магазину працює на apex-домені. Через це Telegram WebView показував
-    «host www.elfar.pp.ua refused connection». Нормалізуємо старе значення
-    на вході, щоб усі нові кнопки й menu button вели на робочий хост.
+    Історичний www-домен приймає лише редиректи на apex. Нові кнопки,
+    webhook і налаштування завжди використовують канонічну адресу.
     """
     raw = (value or "").strip().rstrip("/")
     if not raw:

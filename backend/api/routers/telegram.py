@@ -19,10 +19,11 @@ from fastapi import APIRouter, Header, HTTPException, Request, status
 from fastapi.security.utils import get_authorization_scheme_param
 
 from bot.factory import bot_id, build_bot, build_dispatcher, webhook_path
-from aiogram.types import BotCommand, MenuButtonWebApp, WebAppInfo
+from aiogram.types import BotCommand
 
 from shop import security_log as security
 from shop.config import canonical_public_url, settings
+from shop.telegram_menu import storefront_url, sync_menu
 from shop.repo.factory import open_repo
 from shop.services.shop_settings import get_shop_settings
 
@@ -229,19 +230,14 @@ async def setup_webhook(authorization: str = Header(default="")):
     # справді від Telegram, а не підкинутий тим, хто підгледів адресу.
     await bot.set_webhook(
         url,
-        drop_pending_updates=True,
+        drop_pending_updates=False,
         secret_token=webhook_header_secret(),
     )
 
     # Синя кнопка біля поля вводу — головний вхід у вітрину.
     # Telegram вимагає https, тож на локальному хості вона не зʼявиться.
-    shop_url = public_url + "/app/"
-    menu_set = False
-    if shop_url.startswith("https://"):
-        await bot.set_chat_menu_button(
-            menu_button=MenuButtonWebApp(text="Магазин", web_app=WebAppInfo(url=shop_url))
-        )
-        menu_set = True
+    shop_url = storefront_url(public_url)
+    menu_set = await sync_menu(bot, public_url)
 
     me = await bot.get_me()
     # Перелік команд у меню біля поля вводу. Без нього користувач не знає,

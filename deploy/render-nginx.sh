@@ -12,31 +12,11 @@ set -euo pipefail
 cd "$(dirname "$0")"
 COMPOSE="docker compose --env-file ../.env -f docker-compose.prod.yml"
 
-env_value() {
-    sed -n "s/^$1=//p" ../.env | head -1 | sed 's/^["'"'"']//; s/["'"'"']$//'
-}
-
-PUBLIC_URL=$(env_value PUBLIC_URL)
-DOMAIN=${PUBLIC_URL#https://}
-DOMAIN=${DOMAIN#http://}
-DOMAIN=${DOMAIN%%/*}
-
-# Старе значення www.elfar.pp.ua лишалося в .env/резервних копіях після
-# переходу на apex-домен. Якщо підставити його буквально, шаблон отримає
-# server_name www.elfar.pp.ua, а сертифікат шукатиметься в іншому каталозі.
-# Канонічний host для цього магазину один — elfar.pp.ua.
-if [[ "$DOMAIN" == "www.elfar.pp.ua" ]]; then
-    echo "    PUBLIC_URL містить застарілий www — використовую elfar.pp.ua" >&2
-    DOMAIN="elfar.pp.ua"
-fi
-
-if [[ -z "$DOMAIN" ]]; then
-    echo "У .env не заповнено PUBLIC_URL — nginx не знатиме, який домен обслуговувати." >&2
-    exit 1
-fi
-
-mkdir -p nginx/generated
-sed "s|__DOMAIN__|${DOMAIN}|g" nginx/app.conf.template > nginx/generated/app.conf
+DOMAIN=$(python3 domain_config.py primary)
+mapfile -t CERT_DOMAINS < <(python3 domain_config.py domains)
+CERT_SAN=$(printf 'DNS:%s,' "${CERT_DOMAINS[@]}")
+CERT_SAN=${CERT_SAN%,}
+python3 domain_config.py render
 echo "    nginx/generated/app.conf для ${DOMAIN}"
 
 # Сертифікат. Nginx не стартує, якщо файл відсутній, — разом із блоком на
@@ -51,7 +31,7 @@ else
         mkdir -p ${LIVE} &&
         openssl req -x509 -nodes -newkey rsa:2048 -days 90 \
             -keyout ${LIVE}/privkey.pem -out ${LIVE}/fullchain.pem \
-            -subj '/CN=${DOMAIN}' 2>/dev/null
+            -subj '/CN=${DOMAIN}' -addext 'subjectAltName=${CERT_SAN}' 2>/dev/null
     " >/dev/null
     echo "    отримайте справжній:  ./certbot-init.sh ${DOMAIN}"
 fi

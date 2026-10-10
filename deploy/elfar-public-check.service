@@ -1,0 +1,16 @@
+[Unit]
+Description=ELFAR public storefront and historic links check
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=shop
+Group=shop
+WorkingDirectory=/opt/elfar/deploy
+ExecStart=/usr/bin/python3 /opt/elfar/deploy/check-public-routes.py --external
+TimeoutStartSec=90
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true

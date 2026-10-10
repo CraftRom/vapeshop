@@ -1,0 +1,11 @@
+[Unit]
+Description=Check ELFAR public and historic domain routes every 5 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+RandomizedDelaySec=15
+Unit=elfar-public-check.service
+
+[Install]
+WantedBy=timers.target

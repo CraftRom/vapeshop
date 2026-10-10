@@ -111,7 +111,7 @@ cert = read("deploy/certbot-init.sh")
 check("--entrypoint certbot" in cert, "certbot-init обходить entrypoint із циклом продовження")
 check("openssl req -x509" in cert,
       "certbot-init кладе тимчасовий сертифікат — інакше nginx не підніметься")
-check("--force-renewal" in cert,
+check("--expand" in cert,
       "справжній сертифікат замінює тимчасовий, а не пропускається")
 before(cert, "render-nginx.sh", "openssl req -x509",
       "домен підставляється до створення сертифіката, інакше nginx шукає не той файл")
@@ -128,8 +128,8 @@ check("renewal/${DOMAIN}.conf" in cert,
       "заглушка відрізняється від справжнього сертифіката за renewal-конфігом")
 before(cert, "rm -rf /etc/letsencrypt/live", "certonly --webroot",
       "заглушка прибирається до запиту — інакше certbot скаржиться на live directory")
-check("--force-renewal" in cert and "FORCE=()" in cert,
-      "--force-renewal лише при поновленні, щоб не палити ліміт Let's Encrypt")
+check("--keep-until-expiring" in cert and "--non-interactive" in cert,
+      "повторні запуски зберігають чинний сертифікат без зайвого випуску")
 check("--staging" in cert, "є режим перевірки без витрати лімітів")
 before(cert, "STAGING=0", "DOMAIN_ARGS=()",
       "прапорці розбираються до доменів — інакше поїдуть у certbot як -d")

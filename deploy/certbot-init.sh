@@ -15,7 +15,7 @@
 # Тому тут entrypoint явно перевизначається на сам certbot.
 set -euo pipefail
 
-SCRIPT_VERSION="2026-09-19.1"
+SCRIPT_VERSION="2026-10-10.1"
 
 cd "$(dirname "$0")"
 echo "certbot-init ${SCRIPT_VERSION}"
@@ -54,12 +54,6 @@ for arg in "$@"; do
             exit 1
             ;;
         *)
-            # www.elfar.pp.ua не має бути окремою основною адресою: у
-            # Telegram уже залишалось таке старе посилання й WebView отримував
-            # connection refused. Якщо його випадково скопіювали сюди,
-            # нормалізуємо до робочого apex замість випуску сертифіката на
-            # неіснуючий хост.
-            [[ "$arg" == "www.elfar.pp.ua" ]] && arg="elfar.pp.ua"
             DOMAINS+=("$arg")
             ;;
     esac
@@ -70,17 +64,17 @@ done
     exit 1
 }
 
-# При нормалізації www -> apex два однакові аргументи не повинні двічі
-# потрапити в certbot.
-UNIQUE_DOMAINS=()
-for d in "${DOMAINS[@]}"; do
-    seen=0
-    for existing in "${UNIQUE_DOMAINS[@]}"; do
-        [[ "$existing" == "$d" ]] && seen=1 && break
+# The nginx aliases and the certificate SAN must use the same domain set.
+CONFIGURED_DOMAIN=$(python3 domain_config.py primary)
+mapfile -t CONFIGURED_DOMAINS < <(python3 domain_config.py domains)
+for requested in "${DOMAINS[@]}"; do
+    found=0
+    for configured in "${CONFIGURED_DOMAINS[@]}"; do
+        [[ "$requested" == "$configured" ]] && found=1
     done
-    [[ $seen -eq 0 ]] && UNIQUE_DOMAINS+=("$d")
+    [[ $found == 1 ]] || { echo "Домен не налаштований у PUBLIC_URL/MAIN_DOMAIN_ALIASES: $requested" >&2; exit 1; }
 done
-DOMAINS=("${UNIQUE_DOMAINS[@]}")
+DOMAINS=("${CONFIGURED_DOMAINS[@]}")
 
 DOMAIN_ARGS=()
 for d in "${DOMAINS[@]}"; do
@@ -123,7 +117,7 @@ echo "==> Готую конфігурацію nginx"
 # «cannot load certificate .../example.com/fullchain.pem».
 ./render-nginx.sh
 
-configured=$(grep -m1 -oP 'server_name \K[^ ;]+' nginx/generated/app.conf || true)
+configured="$CONFIGURED_DOMAIN"
 if [[ "$configured" != "$DOMAIN" ]]; then
     echo "" >&2
     echo "У .env вказано домен ${configured:-невідомо}, а сертифікат просимо на ${DOMAIN}." >&2
@@ -149,10 +143,15 @@ else
     }
 fi
 
-echo "==> Піднімаю nginx"
-# --force-recreate, а не просто up: контейнер міг зациклитись у рестарті
-# зі старим конфігом, і звичайний up вважав би, що він уже «запущений».
-$COMPOSE up -d --force-recreate nginx
+echo "==> Застосовую конфігурацію nginx"
+state=$($COMPOSE ps --format '{{.State}}' nginx 2>/dev/null | head -1)
+if [[ "$state" == "running" ]]; then
+    $COMPOSE exec -T nginx nginx -t
+    $COMPOSE exec -T nginx nginx -s reload
+else
+    # Recover a missing/restarting container; a healthy one only needs reload.
+    $COMPOSE up -d --force-recreate nginx
+fi
 
 for attempt in 1 2 3 4 5 6 7 8 9 10; do
     state=$($COMPOSE ps --format '{{.State}}' nginx 2>/dev/null | head -1)
@@ -183,7 +182,7 @@ fi
 echo "    Локально віддає"
 
 echo "==> Перевіряю доступ ззовні"
-if ! curl -sS --max-time 10 -o /dev/null -w '%{http_code}' "http://${DOMAIN}/" 2>/dev/null | grep -qE '^[2345]'; then
+if ! curl -sS --max-time 10 -o /dev/null -w '%{http_code}' "http://${DOMAIN}/" 2>/dev/null | grep -qE '^[23]'; then
     echo "Порт 80 на ${DOMAIN} не відповідає ззовні, хоча локально nginx працює." >&2
     echo "" >&2
     echo "Що перевірити:" >&2
@@ -218,41 +217,45 @@ else
         >/dev/null 2>&1 || true
 fi
 
-# --force-renewal доречний лише при поновленні. Для першого випуску він
-# зайвий і марно витрачає ліміт Let's Encrypt: 5 сертифікатів на однаковий
-# набір доменів за тиждень, і кожна невдала спроба теж рахується.
-FORCE=()
-[[ $MANAGED -eq 1 ]] && FORCE=(--force-renewal)
+# Expand SAN when adding www; otherwise retain an unexpired certificate.
+# Never force a fresh issuance on every deploy.
+FORCE=(--expand --keep-until-expiring --non-interactive)
+if [[ $STAGING -eq 1 && $MANAGED -eq 1 ]]; then
+    echo "Не замінюю чинний сертифікат тестовим. Для staging використайте окреме тестове середовище." >&2
+    exit 1
+fi
 
 if [[ $STAGING -eq 1 ]]; then
     echo "==> Тестовий сервер: сертифікат буде недовірений браузером"
 fi
 
 echo "==> Замовляю сертифікат"
-# --force-renewal: інакше certbot побачить свіжий самопідписаний файл
-# і вирішить, що поновлювати ще рано.
 # --cert-name прибиває шлях до сертифіката намертво.
 #
 # Без нього certbot іменує каталог за першим доменом, але при зміні набору
 # доменів вважає це новим сертифікатом і створює live/<домен>-0001. Nginx
 # продовжує дивитись у live/<домен>, не знаходить оновлення й падає —
 # при тому що certbot щойно написав «Successfully received certificate».
-$COMPOSE run --rm --entrypoint certbot certbot \
+if ! $COMPOSE run --rm --entrypoint certbot certbot \
     certonly --webroot -w /var/www/certbot \
     --cert-name "$DOMAIN" \
     "${DOMAIN_ARGS[@]}" \
     --email "$EMAIL" --agree-tos --no-eff-email \
-    "${ACME_ARGS[@]}" "${FORCE[@]}"
+    "${ACME_ARGS[@]}" "${FORCE[@]}"; then
+    # Restore bootstrap certificate files if first issuance failed after removing the placeholder.
+    ./render-nginx.sh
+    echo "Сертифікат не отримано. Перевірте DNS та ACME для всіх налаштованих доменів." >&2
+    exit 1
+fi
 
-echo "==> Вмикаю HSTS для перевіреного сертифіката"
-# Порт 80 завжди лишається тільки ACME + редіректом на HTTPS. До появи
-# довіреного сертифіката ми не вмикаємо лише HSTS: інакше браузер може
-# закешувати HTTPS для домену, на якому ще стоїть тимчасова заглушка.
-mkdir -p nginx/hsts.d
-echo 'add_header Strict-Transport-Security "max-age=31536000" always;' > nginx/hsts.d/hsts.conf
+if [[ $STAGING -eq 0 ]]; then
+    mkdir -p nginx/hsts.d
+    echo 'add_header Strict-Transport-Security "max-age=31536000" always;' > nginx/hsts.d/hsts.conf
+fi
 
-echo "==> Перезапускаю nginx із сертифікатом"
-$COMPOSE restart nginx
+echo "==> Перечитую nginx із сертифікатом"
+$COMPOSE exec -T nginx nginx -t
+$COMPOSE exec -T nginx nginx -s reload
 
 for attempt in 1 2 3 4 5 6 7 8 9 10; do
     state=$($COMPOSE ps --format '{{.State}}' nginx 2>/dev/null | head -1)

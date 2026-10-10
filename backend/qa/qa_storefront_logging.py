@@ -12,6 +12,8 @@ rate = (ROOT.parent / "deploy/nginx/ratelimit.conf").read_text()
 bot_main = (ROOT / "bot/__main__.py").read_text()
 links = (ROOT / "shop/links.py").read_text()
 render = (ROOT.parent / "deploy/render-nginx.sh").read_text()
+menu = (ROOT / "shop/telegram_menu.py").read_text()
+domains = (ROOT.parent / "deploy/domain_config.py").read_text()
 mini_main = (ROOT.parent / "miniapp/src/main.jsx").read_text()
 mini_tg = (ROOT.parent / "miniapp/src/telegram.js").read_text()
 
@@ -26,9 +28,9 @@ checks = {
     "telemetry body capped": 'client_max_body_size 16k' in nginx,
     "telemetry schema forbids extras": 'ConfigDict(extra="forbid")' in shop,
     "api request log keeps telemetry quiet": '"/api/shop/client-log"' in (ROOT / "api/request_log.py").read_text(),
-    "polling refreshes telegram menu url": 'set_chat_menu_button' in bot_main and 'canonical_public_url' in bot_main,
+    "polling refreshes telegram menu url": 'sync_menu' in bot_main and 'canonical_public_url' in menu,
     "public links use canonical named app url": 'NAMED_MINIAPP_URL = "https://t.me/elfarshop_bot/elfar"' in links and '?startapp=' in links,
-    "deploy renderer canonicalizes stale www": 'www.elfar.pp.ua' in render and 'DOMAIN="elfar.pp.ua"' in render,
+    "deploy renderer canonicalizes stale www": 'domain_config.py' in render and "primary = 'elfar.pp.ua'" in domains,
     "miniapp self-heals stale www before React": 'legacyHostRedirectUrl' in mini_main and 'window.location.replace' in mini_main,
     "miniapp accepts launch data from query": 'fromSearch()' in mini_tg and 'window.location.search' in mini_tg,
 }

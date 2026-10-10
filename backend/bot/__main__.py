@@ -5,14 +5,15 @@ import asyncio
 import logging
 
 from aiogram.utils.backoff import BackoffConfig
-from aiogram.types import BotCommand, MenuButtonWebApp, WebAppInfo
+from aiogram.types import BotCommand
 
 from shop.logging_setup import setup as setup_logging
 
 from bot.factory import build_bot, build_dispatcher
 from bot.version import BOT_VERSION
 from shop.db import init_db
-from shop.config import canonical_public_url, settings
+from shop.config import settings
+from shop.telegram_menu import storefront_url, sync_menu
 from shop.repo.factory import open_repo
 from shop.services.shop_settings import get_shop_settings
 
@@ -44,14 +45,9 @@ async def main() -> None:
     try:
         async with open_repo() as repo:
             shop = await get_shop_settings(repo)
-        public_url = canonical_public_url(shop.public_url or settings.public_url or "")
-        if public_url.startswith("https://"):
-            shop_url = public_url.rstrip("/") + "/app/"
-            await bot.set_chat_menu_button(
-                menu_button=MenuButtonWebApp(
-                    text="Магазин", web_app=WebAppInfo(url=shop_url),
-                )
-            )
+        public_url = shop.public_url or settings.public_url or ""
+        shop_url = storefront_url(public_url)
+        if await sync_menu(bot, public_url):
             log.info(
                 "Кнопку меню Telegram синхронізовано: %s", shop_url,
                 extra={"event": "bot.menu_button.updated", "shopUrl": shop_url},

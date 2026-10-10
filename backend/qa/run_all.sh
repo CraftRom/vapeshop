@@ -126,6 +126,8 @@ run_node scroll tests/scroll.mjs
 
 echo
 echo "Контракти й дані"
+run domains qa/qa_domain_compatibility.py
+
 run bot-inputs qa/qa_bot_inputs.py
 run checkout-integrity qa/qa_checkout_integrity.py
 run tg-contact qa/qa_telegram_contact_bridge.py

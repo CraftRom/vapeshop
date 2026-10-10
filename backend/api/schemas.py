@@ -491,6 +491,12 @@ class BroadcastIn(BaseModel):
     # і обіцяти хвилинну точність було б неправдою.
     scheduled_at: datetime | None = None
 
+    @field_validator('button_url')
+    @classmethod
+    def canonical_button(cls, value: str | None) -> str | None:
+        from shop.links import canonical_button_url
+        return canonical_button_url(value) if value else value
+
 
 class ScheduleIn(BaseModel):
     scheduled_at: datetime

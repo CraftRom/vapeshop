@@ -8,6 +8,7 @@ import logging
 import httpx
 
 from shop.config import settings
+from shop.links import canonical_button_url
 from shop.services.status_messages import is_permanent_delivery_error
 
 log = logging.getLogger("telegram")
@@ -133,7 +134,7 @@ async def send_broadcast_message(
 
     if button_text and button_url:
         payload["reply_markup"] = {
-            "inline_keyboard": [[{"text": button_text, "url": button_url}]]
+            "inline_keyboard": [[{"text": button_text, "url": canonical_button_url(button_url)}]]
         }
 
     if photo_url:

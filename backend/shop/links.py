@@ -7,7 +7,7 @@
 """
 from __future__ import annotations
 
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit, urlunsplit
 
 from shop.services.shop_settings import current
 
@@ -16,6 +16,17 @@ from shop.services.shop_settings import current
 # а не нашим сайтом, тому URL фіксуємо явно: кнопки не повинні залежати від
 # випадково застарілого PUBLIC_URL або значення в БД.
 NAMED_MINIAPP_URL = "https://t.me/elfarshop_bot/elfar"
+
+
+def canonical_button_url(url: str) -> str:
+    """Rewrite historic shop links only, preserving deep-link query and fragment."""
+    try:
+        parts = urlsplit(url)
+    except ValueError:
+        return url
+    if parts.scheme in ('http', 'https') and (parts.hostname or '').lower() == 'www.elfar.pp.ua':
+        return urlunsplit(('https', 'elfar.pp.ua', parts.path, parts.query, parts.fragment))
+    return url
 
 
 def bot_name() -> str:
@@ -53,4 +64,4 @@ def chat_link(start_param: str | None = None) -> str:
 
 def share_link(url: str, text: str = "Раджу цей магазин") -> str:
     """Нативний діалог «поділитися» Telegram."""
-    return f"https://t.me/share/url?url={quote(url, safe='')}&text={quote(text)}"
+    return f"https://t.me/share/url?url={quote(canonical_button_url(url), safe='')}&text={quote(text)}"

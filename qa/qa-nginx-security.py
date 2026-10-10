@@ -13,12 +13,15 @@ def check(ok,label):
  if not ok:raise AssertionError(label)
 
 class Upstream(BaseHTTPRequestHandler):
+ broken_asset=False
  def do_GET(self):
+  if self.path == '/app/assets/test.js' and self.broken_asset:
+   self.send_response(200);self.send_header('Content-Type','text/html');self.end_headers();self.wfile.write(b'<html>missing bundle</html>');return
   if self.path == '/api/health':
    if self.headers.get('Host') not in {'127.0.0.1', 'example.test'}:
     self.send_response(400);self.end_headers();self.wfile.write(b'Invalid host header');return
    self.send_response(200);self.send_header('Content-Type','application/json');self.end_headers();self.wfile.write(b'{"ok":true}');return
-  data=b'<html><body>QA</body></html>';self.send_response(200);self.send_header('Content-Type','text/html');self.end_headers();self.wfile.write(data)
+  data = b'console.log(1)' if self.path == '/app/assets/test.js' else b'<html><script src="/app/assets/test.js"></script><body>QA</body></html>';self.send_response(200);self.send_header('Content-Type','application/javascript' if self.path == '/app/assets/test.js' else 'text/html');self.end_headers();self.wfile.write(data)
  def do_POST(self):self.do_GET()
  def log_message(self,*args):pass
 
@@ -28,10 +31,14 @@ with tempfile.TemporaryDirectory(prefix='nginx-security-') as directory:
  upstream=ThreadingHTTPServer(('127.0.0.1',0),Upstream)
  threading.Thread(target=upstream.serve_forever,daemon=True).start()
  port=upstream.server_port
- subprocess.run(['openssl','req','-x509','-nodes','-newkey','rsa:2048','-days','1','-keyout',str(p/'cert/key.pem'),'-out',str(p/'cert/cert.pem'),'-subj','/CN=example.test'],check=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
- app=(ROOT/'deploy/nginx/app.conf.template').read_text().replace('__DOMAIN__','example.test')
+ subprocess.run(['openssl','req','-x509','-nodes','-newkey','rsa:2048','-days','1','-keyout',str(p/'cert/key.pem'),'-out',str(p/'cert/cert.pem'),'-subj','/CN=example.test','-addext','subjectAltName=DNS:example.test,DNS:www.example.test'],check=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+ spec=importlib.util.spec_from_file_location('domain_config',ROOT/'deploy/domain_config.py');domains=importlib.util.module_from_spec(spec);spec.loader.exec_module(domains)
+ app=domains.render((ROOT/'deploy/nginx/app.conf.template').read_text(), 'example.test', ['www.example.test'])
  app=app.replace('/etc/nginx/',str(p)+'/').replace('/var/log/nginx/',str(p/'logs')+'/')
  app=app.replace('/etc/letsencrypt/live/example.test/fullchain.pem',str(p/'cert/cert.pem')).replace('/etc/letsencrypt/live/example.test/privkey.pem',str(p/'cert/key.pem'))
+ app=app.replace('/var/www/certbot',str(p/'acme'))
+ (p/'acme/.well-known/acme-challenge').mkdir(parents=True)
+ (p/'acme/.well-known/acme-challenge/probe').write_text('challenge-ok')
  app=app.replace('listen 80','listen 127.0.0.1:5080').replace('listen 443','listen 127.0.0.1:5443').replace('listen 127.0.0.1:8080','listen 127.0.0.1:5780')
  app=app.replace('http://api:8000',f'http://127.0.0.1:{port}').replace('http://miniapp:80',f'http://127.0.0.1:{port}').replace('http://dashboard:80',f'http://127.0.0.1:{port}').replace('/data/media/',str(p/'media')+'/')
  (p/'app.conf').write_text(app)
@@ -76,6 +83,21 @@ with tempfile.TemporaryDirectory(prefix='nginx-security-') as directory:
   check(request('/media/unsafe.svg')[0]==404,'active media format rejected')
   check(request('/media/link.png')[0] in (403,404),'symlink media rejected')
   check(request('/api/health',secure=False)[0]==301,'plain HTTP redirects before API')
+  for secure in (False, True):
+   for method in ('GET', 'POST'):
+    status,headers=request('/app/?tgWebAppStartParam=old&source=saved', host='www.example.test', secure=secure, method=method)
+    check(status==308 and headers.get('location')=='https://example.test/app/?tgWebAppStartParam=old&source=saved','legacy redirect preserves path/query/method '+str(secure)+' '+method)
+  check(request('/.well-known/acme-challenge/probe', host='www.example.test', secure=False)[0]==200,'legacy domain serves ACME challenge without redirect')
+  (p/'routes.env').write_text('PUBLIC_URL=https://example.test\nMAIN_DOMAIN_ALIASES=www.example.test\n')
+  gate=subprocess.run(['python3',str(ROOT/'deploy/check-public-routes.py'),'--env',str(p/'routes.env'),'--http-port','5080','--https-port','5443','--ca-file',str(p/'cert/cert.pem')],capture_output=True,text=True)
+  check(gate.returncode==0,'real route gate and TLS SAN verification: '+gate.stdout+gate.stderr)
+  Upstream.broken_asset=True
+  broken=subprocess.run(['python3',str(ROOT/'deploy/check-public-routes.py'),'--env',str(p/'routes.env'),'--http-port','5080','--https-port','5443'],capture_output=True,text=True)
+  check(broken.returncode!=0,'gate rejects HTML fallback instead of JavaScript bundle')
+  Upstream.broken_asset=False
+  (p/'routes.env').write_text('PUBLIC_URL=https://example.test\nMAIN_DOMAIN_ALIASES=missing.test\n')
+  broken=subprocess.run(['python3',str(ROOT/'deploy/check-public-routes.py'),'--env',str(p/'routes.env'),'--http-port','5080','--https-port','5443'],capture_output=True,text=True)
+  check(broken.returncode!=0,'gate rejects historic host with a closed connection')
   c=http.client.HTTPConnection('127.0.0.1',5780,timeout=3)
   c.request('GET','/__deploy_api_health');resp=c.getresponse();body=resp.read();c.close()
   check(resp.status==200 and body==b'{"ok":true}','internal nginx health uses an allowed loopback Host')

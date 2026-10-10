@@ -37,6 +37,8 @@ class DeployHealth(unittest.TestCase):
             (root/'backend/shop').mkdir(parents=True)
             (root/'bin').mkdir()
             shutil.copy(ROOT/'deploy/deploy.sh',root/'deploy/deploy.sh')
+            shutil.copy(ROOT/'deploy/domain_config.py',root/'deploy/domain_config.py')
+            (root/'deploy/check-public-routes.py').write_text("import os,sys\nsys.exit(1 if os.environ.get('QA_FAIL_PUBLIC') == '1' else 0)\n")
             shutil.copy(ROOT/'backend/shop/production_security.py',root/'backend/shop/production_security.py')
             for name in ['backup.sh','render-nginx.sh']:
                 script=root/'deploy'/name;script.write_text('#!/bin/sh\nexit 0\n');script.chmod(0o700)
@@ -81,6 +83,12 @@ class DeployHealth(unittest.TestCase):
         result,calls=self.deploy(QA_FAIL_TLS='1')
         self.assertNotEqual(result.returncode,0)
         self.assertIn('Основний nginx route',result.stderr)
+        self.assertIn('Rollback CORE runtime',result.stderr)
+        self.assertNotIn('ФАЗА 6/6',result.stdout)
+
+    def test_broken_legacy_or_storefront_route_triggers_rollback(self):
+        result,calls=self.deploy(QA_FAIL_PUBLIC='1')
+        self.assertNotEqual(result.returncode,0)
         self.assertIn('Rollback CORE runtime',result.stderr)
         self.assertNotIn('ФАЗА 6/6',result.stdout)
 
