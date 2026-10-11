@@ -65,6 +65,23 @@ async def repository_checks():
    created=await repo.create_product({'name':'Колізія','price':Decimal('10')})
   r.check(created.sku=='ELF-GEN-UNIQUE01','колізія під час INSERT повторює генерацію')
 asyncio.run(repository_checks())
+# Pagination preserves filters and covers products beyond the legacy 500-row cap.
+async def seed_large_catalog():
+ from shop import models as m
+ async with Session() as session:
+  session.add_all([m.Product(name=f'Великий каталог {i:04}', name_lower=f'великий каталог {i:04}', sku=f'ELF-PAGE-{i:04}', price=Decimal('10'), stock=1, is_new=i==502) for i in range(503)])
+  await session.commit()
+asyncio.run(seed_large_catalog())
+first=public(search='Великий каталог',limit=500,offset=0)
+last=public(search='Великий каталог',limit=500,offset=500)
+r.check(len(first)==500 and len(last)==3,'понад 500 товарів доступні наступною сторінкою')
+r.check(len({p['id'] for p in first+last})==503,'сторінки не дублюють і не гублять товари')
+r.check(last[-1]['is_new'],'новинка за межами першої сторінки збережена')
+r.check(public(search='Великий каталог',limit=2,offset=2)==first[2:4],'offset працює разом із пошуком')
+r.check(not public(search='Великий каталог',category_id=root['id'],limit=2),'наступні сторінки поважають категорію')
+r.check(c.get('/api/shop/products',params={'limit':0},headers=H).status_code==422,'нульовий розмір сторінки відхиляється')
+r.check(c.get('/api/shop/products',params={'limit':501},headers=H).status_code==422,'завеликий розмір сторінки відхиляється')
+r.check(c.get('/api/shop/products',params={'offset':-1},headers=H).status_code==422,'від’ємний offset відхиляється')
 spec=importlib.util.spec_from_file_location('catalog_migration','alembic/versions/d7a24c10b853_catalog_taxonomy.py'); mig=importlib.util.module_from_spec(spec); spec.loader.exec_module(mig)
 with create_engine('sqlite:///:memory:').begin() as conn:
  conn.execute(text('CREATE TABLE categories (id INTEGER PRIMARY KEY,name VARCHAR(128) NOT NULL,description TEXT,sort_order INTEGER NOT NULL,is_active BOOLEAN NOT NULL)'))

@@ -7,6 +7,7 @@ const paths = {
   heart: <path d="M20.5 4.5a5.5 5.5 0 0 0-8.5 1 5.5 5.5 0 0 0-8.5 7L12 21l8.5-8.5a5.5 5.5 0 0 0 0-8Z" />,
   sort: <><path d="M3 6h10M3 12h7M3 18h4M18 3v18m-3-3 3 3 3-3m-6-12 3-3 3 3" /></>,
   back: <path d="m15 4-8 8 8 8" />,
+  forward: <path d="m9 4 8 8-8 8" />,
   share: <><path d="M12 15V2m-4 4 4-4 4 4M7 9H4v13h16V9h-3" /></>,
   box: <><path d="m12 3 9 5v10l-9 5-9-5V8Z M3 8l9 5 9-5M12 13v10M7.5 5.5l9 5" /></>,
   check: <path d="m5 12 4 4L19 6" />,

@@ -438,11 +438,13 @@ async def subcategories(category_id: int | None = None, user: User = Depends(req
 async def products(category_id: int | None = None, subcategory_id: int | None = None,
                    search: str | None = None, is_new: bool | None = None,
                    is_sale: bool | None = None, uncategorized: bool = False,
+                   limit: int = Query(500, ge=1, le=500), offset: int = Query(0, ge=0),
                    user: User = Depends(require_webapp_user), repo: Repository = Depends(get_repo)):
     _require_age(user)
     return await repo.list_products(category_id=category_id, subcategory_id=subcategory_id,
                                     search=search, only_active=True, is_new=is_new,
-                                    is_sale=is_sale, uncategorized=uncategorized)
+                                    is_sale=is_sale, uncategorized=uncategorized,
+                                    limit=limit, offset=offset)
 
 
 @router.get("/products/{product_id}", response_model=ProductOut)

@@ -245,12 +245,14 @@ export const api = {
     }
     throw new Error('Не вдалося завантажити фото')
   },
-  products: ({ categoryId, subcategoryId, uncategorized, search } = {}) => {
+  products: ({ categoryId, subcategoryId, uncategorized, search, limit, offset } = {}) => {
     const q = new URLSearchParams()
     if (categoryId) q.set('category_id', categoryId)
     if (subcategoryId) q.set('subcategory_id', subcategoryId)
     if (uncategorized) q.set('uncategorized', 'true')
     if (search) q.set('search', search)
+    if (limit !== undefined) q.set('limit', limit)
+    if (offset !== undefined) q.set('offset', offset)
     const qs = q.toString()
     return request(`/products${qs ? `?${qs}` : ''}`)
   },

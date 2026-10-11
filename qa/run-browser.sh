@@ -13,9 +13,14 @@ if [[ "${QA_BROWSER_SUITE:-all}" == "analytics" ]]; then
   node qa/browser-analytics.mjs
 elif [[ "${QA_BROWSER_SUITE:-all}" == "catalog" ]]; then
   node qa/browser-catalog.mjs
+elif [[ "${QA_BROWSER_SUITE:-all}" == "navigation" ]]; then
+  node qa/browser-storefront-navigation.mjs
+elif [[ "${QA_BROWSER_SUITE:-all}" == "storefront" ]]; then
+  node qa/browser-storefront.mjs
 else
   node qa/browser-ui.mjs
   node qa/browser-storefront.mjs
   node qa/browser-catalog.mjs
+  node qa/browser-storefront-navigation.mjs
   node qa/browser-analytics.mjs
 fi

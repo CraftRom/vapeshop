@@ -4,8 +4,9 @@ import { api } from '../api'
 import { Field } from '../fields'
 import { Photo } from '../photo'
 import { StoreIcon } from '../StoreIcon'
-import { DEFAULT_SORT, SORT_OPTIONS, catalogPrice, discountPercent, hasFreshStatus, hasSaleStatus, sortProducts } from '../catalogModel'
+import { DEFAULT_SORT, SORT_OPTIONS, catalogPrice, discountPercent, hasFreshStatus, hasSaleStatus, sortProducts, normalizeCatalogState, resolveCatalogState, loadCatalogProducts } from '../catalogModel'
 import { SortSheet } from './SortSheet'
+import { CategoryNavigator } from './CategoryNavigator'
 import { close, haptic } from '../telegram'
 
 /** Той самий 18+ бар'єр, що й у боті. Каталог до підтвердження недоступний. */
@@ -100,25 +101,23 @@ export function ProductCard({ product, qty = 0, currency, onChange, onOpen, save
 }
 
 export function Catalog({ config, cart, onCartChange, onOpenProduct, wishlists, onSave, searchRequest = 0, initialState = {}, onStateChange, onSearchRequestHandled }) {
-  const [categories, setCategories] = useState([])
-  const [subcategories, setSubcategories] = useState([])
-  const [subcategory, setSubcategory] = useState(initialState.subcategory ?? null)
-  const [ungrouped, setUngrouped] = useState(initialState.ungrouped || false)
+  const [selection, setSelection] = useState(() => normalizeCatalogState(initialState))
+  const { active, subcategory, ungrouped, search, sort, inStock } = selection
+  const [taxonomy, setTaxonomy] = useState(null)
+  const [taxonomyError, setTaxonomyError] = useState('')
+  const [taxonomyRetry, setTaxonomyRetry] = useState(0)
   const [products, setProducts] = useState(null)
-  const [active, setActive] = useState(initialState.active ?? null)
-  const [search, setSearch] = useState(initialState.search || '')
-  const [sort, setSort] = useState(initialState.sort || DEFAULT_SORT)
-  const [inStock, setInStock] = useState(initialState.inStock || false)
   const [sorting, setSorting] = useState(false)
   const [error, setError] = useState('')
   const [loadFailed, setLoadFailed] = useState(false)
   const [retry, setRetry] = useState(0)
   const searchRef = useRef(null)
   const closeSort = useCallback(() => setSorting(false), [])
+  const update = (patch) => setSelection((state) => ({ ...state, ...patch }))
 
   useEffect(() => {
-    onStateChange?.({ active, subcategory, ungrouped, search, sort, inStock })
-  }, [active, subcategory, ungrouped, search, sort, inStock, onStateChange])
+    if (taxonomy) onStateChange?.(selection)
+  }, [selection, taxonomy, onStateChange])
 
   useEffect(() => {
     if (searchRequest) {
@@ -128,70 +127,77 @@ export function Catalog({ config, cart, onCartChange, onOpenProduct, wishlists, 
   }, [searchRequest, onSearchRequestHandled])
   useEffect(() => {
     let cancelled = false
-    Promise.all([api.categories(), api.subcategories()]).then(([cats, subs]) => { if (!cancelled) { setCategories(cats); setSubcategories(subs) } }).catch((e) => !cancelled && setError(e.message))
+    setTaxonomyError('')
+    Promise.all([api.categories(), api.subcategories()]).then(([cats, subs]) => {
+      if (cancelled) return
+      const categories = cats.map((item) => ({ ...item, id: Number(item.id) }))
+      const subcategories = subs.map((item) => ({ ...item, id: Number(item.id), category_id: item.category_id == null ? null : Number(item.category_id) }))
+      setSelection((state) => resolveCatalogState(state, categories, subcategories))
+      setTaxonomy({ categories, subcategories })
+    }).catch((err) => { if (!cancelled) setTaxonomyError(err.message) })
     return () => { cancelled = true }
-  }, [])
+  }, [taxonomyRetry])
   useEffect(() => {
+    // Resolve restored group IDs before the first products request.
+    if (!taxonomy) return
     let cancelled = false
     setProducts(null)
     setError('')
     setLoadFailed(false)
     const timer = setTimeout(() => {
-      api.products({ categoryId: active, subcategoryId: subcategory, uncategorized: ungrouped, search: search.trim() || undefined })
-        .then((rows) => !cancelled && setProducts(rows))
-        .catch((e) => {
-          if (!cancelled) { setProducts([]); setError(e.message); setLoadFailed(true) }
+      loadCatalogProducts(api.products, { categoryId: active, subcategoryId: subcategory, uncategorized: ungrouped, search: search.trim() || undefined }, () => cancelled)
+        .then((rows) => { if (!cancelled) setProducts(rows) })
+        .catch((err) => {
+          if (!cancelled) { setProducts([]); setError(err.message); setLoadFailed(true) }
         })
-    }, search ? 300 : 0)
+    }, search.trim() ? 300 : 0)
     return () => { cancelled = true; clearTimeout(timer) }
-  }, [active, subcategory, ungrouped, search, retry])
+  }, [active, subcategory, ungrouped, search, retry, taxonomy])
 
   const change = async (product, delta) => {
     haptic('light')
     try { await onCartChange(product.id, delta) } catch (err) { setError(err.message) }
   }
   const view = useMemo(() => products === null ? null : sortProducts(products, sort, inStock), [products, sort, inStock])
-  const filtered = sort !== 'default' || inStock || ungrouped || Boolean(search.trim())
-  const chooseCategory = (id) => { setActive(id); setSubcategory(null); setUngrouped(false) }
-  const visibleSubs = subcategories.filter((s) => active === null || s.category_id === active || s.category_id === null)
-  const reset = () => {
-    setSearch('')
-    setSort('default')
-    setInStock(false)
-    setUngrouped(false)
-  }
-  const qtyOf = (id) => cart?.lines?.find((l) => l.product_id === id)?.qty || 0
-  const savedIds = new Set((wishlists || []).flatMap((w) => w.product_ids || []))
+  const narrowed = inStock || ungrouped || active !== null || subcategory !== null || Boolean(search.trim())
+  const filtered = narrowed || sort !== DEFAULT_SORT
+  const chooseCategory = (id) => update({ active: id, subcategory: null, ungrouped: false })
+  const chooseSubcategory = (sub) => update({ active: sub.category_id, subcategory: sub.id, ungrouped: false })
+  const chooseUngrouped = (value) => update({ ungrouped: value, active: null, subcategory: null })
+  const reset = () => setSelection(normalizeCatalogState())
+  const clearRefinements = () => update({ search: '', inStock: false })
+  const qtyOf = (id) => cart?.lines?.find((line) => line.product_id === id)?.qty || 0
+  const savedIds = new Set((wishlists || []).flatMap((list) => list.product_ids || []))
   const sortLabel = SORT_OPTIONS.find((option) => option.value === sort)?.label
+  const refinementActive = inStock || Boolean(search.trim())
 
   return (
     <section className="store-catalog" aria-label="Каталог товарів">
       <div className="field search catalog-search" ref={searchRef}>
-        <Field value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Назва або артикул (SKU)" aria-label="Пошук товарів" inputMode="search" />
-        {search && <button className="search-clear" onClick={() => setSearch('')} aria-label="Очистити">✕</button>}
+        <Field value={search} onChange={(event) => update({ search: event.target.value })} placeholder="Назва або артикул (SKU)" aria-label="Пошук товарів" inputMode="search" />
+        {search && <button className="search-clear" onClick={() => update({ search: '' })} aria-label="Очистити">✕</button>}
       </div>
-      <div className="rail store-categories" role="group" aria-label="Категорії" tabIndex={0}>
-        <button className="chip" aria-pressed={active === null} onClick={() => chooseCategory(null)}>Усе</button>
-        {categories.map((c) => <button key={c.id} className="chip" aria-pressed={active === c.id} onClick={() => chooseCategory(c.id)}>{c.name}</button>)}
-      </div>
-      {visibleSubs.length > 0 && <div className="rail store-subcategories" role="group" aria-label="Субкатегорії" tabIndex={0}>
-        <button className="chip" aria-pressed={subcategory === null} onClick={() => setSubcategory(null)}>Усі субкатегорії</button>
-        {visibleSubs.map((s) => <button key={s.id} className="chip" aria-pressed={subcategory === s.id} onClick={() => { setSubcategory(s.id); setUngrouped(false) }}>{s.name}</button>)}
-      </div>}
+      {taxonomyError ? <div className="catalog-taxonomy-error banner warn" role="alert"><p>Не вдалося завантажити категорії: {taxonomyError}</p><button className="secondary" onClick={() => setTaxonomyRetry((value) => value + 1)}>Повторити завантаження категорій</button></div>
+        : taxonomy ? <CategoryNavigator {...taxonomy} active={active} subcategory={subcategory} ungrouped={ungrouped} onCategory={chooseCategory} onSubcategory={chooseSubcategory} onUngrouped={chooseUngrouped} />
+        : <p className="store-found" role="status">Завантажуємо категорії…</p>}
       <div className="store-catalog-tools">
         <div className="rail store-filter-rail" role="group" aria-label="Фільтри" tabIndex={0}>
-          <button className="chip" aria-pressed={ungrouped} onClick={() => { setUngrouped((on) => !on); setActive(null); setSubcategory(null) }}>Без груп</button>
-          <button className="chip" aria-pressed={inStock} onClick={() => setInStock((on) => !on)}>В наявності</button>
+          <button className="chip" aria-pressed={ungrouped} onClick={() => chooseUngrouped(!ungrouped)}>Без груп</button>
+          <button className="chip" aria-pressed={inStock} onClick={() => update({ inStock: !inStock })}>В наявності</button>
           {filtered && <button className="chip" onClick={reset}>Скинути фільтри</button>}
         </div>
         <button className="store-sort-button" onClick={() => setSorting(true)} aria-haspopup="dialog" aria-expanded={sorting} aria-label={`Сортування: ${sortLabel}`}><span>{sortLabel}</span><StoreIcon name="sort" /></button>
       </div>
+      {refinementActive && <div className="catalog-active-filters" role="group" aria-label="Активні фільтри">
+        {search.trim() && <button onClick={() => update({ search: '' })} aria-label="Прибрати фільтр пошуку"><span>Пошук: {search.trim()}</span><StoreIcon name="close" /></button>}
+        {inStock && <button onClick={() => update({ inStock: false })} aria-label="Прибрати фільтр наявності"><span>Лише в наявності</span><StoreIcon name="close" /></button>}
+      </div>}
       {error && <div className="banner warn" role="alert">{error}</div>}
-      {products === null ? <div className="product-grid" aria-label="Завантаження товарів" aria-busy="true">{[0, 1, 2, 3].map((i) => <div key={i} className="skeleton store-card-loading" />)}</div>
+      {taxonomyError && !taxonomy ? null : products === null ? <div className="product-grid" aria-label="Завантаження товарів" aria-busy="true">{[0, 1, 2, 3].map((id) => <div key={id} className="skeleton store-card-loading" />)}</div>
         : loadFailed ? <div className="empty"><h2>Не вдалося завантажити каталог</h2><p>Перевірте зʼєднання та повторіть спробу.</p><button className="secondary" onClick={() => setRetry((value) => value + 1)}>Повторити</button></div>
-        : view.length === 0 ? <div className="empty"><h2>Нічого не знайшли</h2><p>{inStock && products.length > 0 ? 'Усе з цього переліку зараз закінчилось.' : search ? 'Спробуйте іншу назву або оберіть категорію.' : sort !== 'default' ? 'За цими фільтрами немає товарів.' : 'У цій категорії поки порожньо.'}</p>{filtered && <div className="actions"><button className="secondary" onClick={reset}>Скинути пошук і фільтри</button></div>}</div>
-        : <><p className="store-found" aria-live="polite">{view.length === products.length ? `${view.length} ${plural(view.length)}` : `${view.length} із ${products.length}`}</p><div className="product-grid">{view.map((p) => <ProductCard key={p.id} product={p} qty={qtyOf(p.id)} currency={config.currency} onChange={change} onOpen={onOpenProduct} saved={savedIds.has(p.id)} onSave={onSave} />)}</div></>}
-      {sorting && <SortSheet value={sort} onSelect={setSort} onClose={closeSort} />}
+        : view.length === 0 ? <div className="empty"><StoreIcon name="search" /><h2>Нічого не знайшли</h2><p>{inStock && products.length > 0 ? 'Усе з цього переліку зараз закінчилось.' : refinementActive ? 'У вибраному розділі немає товарів за цими умовами. Змініть пошук або фільтри.' : narrowed ? 'У цьому розділі поки немає товарів. Перегляньте іншу категорію.' : 'Асортимент скоро зʼявиться.'}</p><div className="actions">{refinementActive && <button className="secondary" onClick={clearRefinements}>Показати всі товари розділу</button>}{filtered && <button className="secondary" onClick={reset}>Скинути пошук і фільтри</button>}</div></div>
+        : <><div className="catalog-results-heading"><p className="store-found" aria-live="polite">{view.length} {plural(view.length)}</p>{(sort === 'fresh' || sort === 'sale') && <p className="catalog-order-note">{sort === 'fresh' ? 'Новинки першими, далі весь асортимент' : 'Акції першими, далі весь асортимент'}</p>}</div><div className="product-grid">{view.map((product) => <ProductCard key={product.id} product={product} qty={qtyOf(product.id)} currency={config.currency} onChange={change} onOpen={onOpenProduct} saved={savedIds.has(product.id)} onSave={onSave} />)}</div></>}
+      {sorting && <SortSheet value={sort} onSelect={(value) => update({ sort: value })} onClose={closeSort} />}
     </section>
   )
 }
