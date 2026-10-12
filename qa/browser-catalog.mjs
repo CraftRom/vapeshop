@@ -146,7 +146,7 @@ try {
   check((await store.locator('.detail-price').textContent()).includes('199,9') && (await store.locator('.detail-description').textContent()).includes('Колір: м’ятний.'), `${width}: prices and description match saved blocks`)
   await store.screenshot({ path: join(output, `catalog-parity-${width}.png`), fullPage: true })
   await store.getByRole('button', { name: 'Назад до каталогу', exact: true }).click()
-  await store.getByRole('button', { name: 'Без груп', exact: true }).click()
+  await store.getByRole('button', { name: 'Без категорії', exact: true }).click()
   await store.getByRole('button', { name: /^Сортування:/ }).click()
   await store.getByRole('button', { name: 'За порядком', exact: true }).click()
   await store.getByRole('button', { name: 'Товар без груп', exact: true }).waitFor()

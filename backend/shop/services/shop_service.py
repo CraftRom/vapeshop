@@ -7,11 +7,14 @@ Postgres, і на Firestore. Тут живуть усі правила — зн�
 from __future__ import annotations
 
 import logging
+import hashlib
+import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from decimal import Decimal
 
 from shop.config import settings
+from shop.formatting import money as format_money
 from shop.services.shop_settings import get_shop_settings
 from shop.services.identity import safe_telegram_first_name
 from shop.entities import (
@@ -81,7 +84,7 @@ async def check_promo(
         shop = await get_shop_settings(repo)
         return PromoResult(
             False,
-            error=f"Мінімальна сума замовлення — {promo.min_order:.0f} {shop.currency}",
+            error=f"Мінімальна сума замовлення — {format_money(promo.min_order)} {shop.currency}",
         )
 
     if await repo.promo_uses_by_user(promo.id, user_id) >= promo.per_user_limit:
@@ -125,8 +128,12 @@ async def cart_subtotal(repo: Repository, user_id: int) -> Decimal:
 
 
 async def validate_cart(repo: Repository, user_id: int) -> list[str]:
+    return cart_problems(await repo.get_cart(user_id))
+
+
+def cart_problems(lines) -> list[str]:
     problems = []
-    for line in await repo.get_cart(user_id):
+    for line in lines:
         product = line.product
         if not product or not product.is_active:
             problems.append(f"«{product.name if product else 'товар'}» більше недоступний")
@@ -152,6 +159,99 @@ async def max_bonus_for_repo(repo, subtotal: Decimal, balance: Decimal) -> Decim
     return max_bonus_for(subtotal, balance, shop.bonus_max_percent)
 
 
+CHECKOUT_CHANGED = "Кошик або сума змінилися. Перевірте оновлений підсумок і підтвердьте ще раз"
+
+
+class CheckoutQuoteError(ValueError):
+    def __init__(self, message, kind="cart"):
+        super().__init__(message)
+        self.kind = kind
+
+
+@dataclass
+class CheckoutQuote:
+    lines: list
+    subtotal: Decimal
+    discount: Decimal
+    discount_source: str | None
+    promo_id: int | None
+    bonus_available: Decimal
+    bonus_used: Decimal
+    total: Decimal
+    currency: str
+    token: str
+
+    def payload(self) -> dict:
+        # Decimal strings keep cents intact all the way to the browser.
+        return {
+            "subtotal": f"{self.subtotal:.2f}", "discount": f"{self.discount:.2f}",
+            "discount_source": self.discount_source,
+            "bonus_available": f"{self.bonus_available:.2f}",
+            "bonus_used": f"{self.bonus_used:.2f}", "total": f"{self.total:.2f}",
+            "currency": self.currency, "quote_token": self.token,
+        }
+
+
+async def checkout_quote(repo: Repository, user: User, *, promo_code=None,
+                         use_bonus=False, lines=None, shop=None) -> CheckoutQuote:
+    """One calculation for preview and checkout; a quote reserves nothing."""
+    if lines is None:
+        lines = await repo.get_cart(user.id)
+    if not lines:
+        raise CheckoutQuoteError("Кошик порожній")
+    problems = cart_problems(lines)
+    if problems:
+        raise CheckoutQuoteError("Змінилася наявність:\n• " + "\n• ".join(problems))
+    shop = shop or await get_shop_settings(repo)
+    subtotal = sum((line.line_total for line in lines), Decimal(0))
+    promo_discount, promo_id = Decimal(0), None
+    if promo_code:
+        result = await check_promo(repo, promo_code, user.id, subtotal)
+        if not result.ok:
+            raise CheckoutQuoteError(result.error, "promo")
+        promo_discount, promo_id = result.discount, result.promo.id
+    volume_discount = shop.volume_discount_for(subtotal)
+    discount = max(promo_discount, volume_discount)
+    source = "promo" if promo_id and promo_discount >= volume_discount else "volume"
+    if source != "promo":
+        promo_id = None
+    if not discount:
+        source = None
+    # A bot middleware / API caller may hold an older User snapshot.
+    get_user = getattr(repo, "get_user", None)
+    fresh = await get_user(user.id) if callable(get_user) else None
+    balance = fresh.bonus_balance if fresh else user.bonus_balance
+    user.bonus_balance = balance
+    available = max_bonus_for(subtotal - discount, balance, shop.bonus_max_percent) \
+        if shop.bonus_enabled else Decimal(0)
+    bonus = available if use_bonus else Decimal(0)
+    total = max(Decimal(0), subtotal - discount - bonus)
+    snapshot = {
+        "user": user.id, "currency": shop.currency,
+        "lines": sorted((line.product_id, line.qty, f"{line.product.price:.2f}",
+                         line.product.name) for line in lines),
+        "subtotal": f"{subtotal:.2f}", "discount": f"{discount:.2f}",
+        "source": source, "promo": promo_id, "bonus": f"{bonus:.2f}",
+        "total": f"{total:.2f}",
+    }
+    token = hashlib.sha256(json.dumps(snapshot, sort_keys=True, ensure_ascii=False)
+                           .encode()).hexdigest()
+    return CheckoutQuote(lines, subtotal, discount, source, promo_id,
+                         available, bonus, total, shop.currency, token)
+
+
+async def _checkout_replay(repo, user_id, checkout_key):
+    lookup = getattr(repo, "get_order_by_checkout_key", None)
+    if checkout_key and callable(lookup):
+        existing = await lookup(checkout_key)
+        if existing:
+            if existing.user_id != user_id:
+                return None, "Ключ оформлення вже використано"
+            existing.checkout_replayed = True
+            return existing, None
+    return None
+
+
 async def create_order(
     repo: Repository, user: User, *, contact_name: str, contact_phone: str,
     city: str, address: str, payment_method: str, comment: str | None = None,
@@ -160,40 +260,24 @@ async def create_order(
     delivery_method: str | None = None, delivery_city_ref: str | None = None,
     delivery_warehouse_ref: str | None = None, checkout_key: str | None = None,
     attribution: dict | None = None,
+    expected_quote: str | None = None,
 ) -> tuple[Order | None, str | None]:
+    checkout_key = (checkout_key or "").strip() or None
+    replay = await _checkout_replay(repo, user.id, checkout_key)
+    if replay:
+        return replay
     lines = await repo.get_cart(user.id)
-    if not lines:
-        return None, "Кошик порожній"
-
-    problems = await validate_cart(repo, user.id)
-    if problems:
-        return None, "Змінилася наявність:\n• " + "\n• ".join(problems)
-
-    subtotal = sum((line.line_total for line in lines), Decimal(0))
-
     shop = await get_shop_settings(repo)
-
-    promo_discount = Decimal(0)
-    promo_id = None
-    if promo_code:
-        result = await check_promo(repo, promo_code, user.id, subtotal)
-        if not result.ok:
-            return None, result.error
-        promo_discount, promo_id = result.discount, result.promo.id
-
-    # Знижка за суму й промокод не додаються, а конкурують: діє більша.
-    # Складання давало б несподівані подарунки на великих чеках, і власник
-    # магазину помітив би це вже за виторгом.
-    volume_discount = shop.volume_discount_for(subtotal)
-    discount = max(promo_discount, volume_discount)
-    if discount == volume_discount and volume_discount > promo_discount:
-        promo_id = None  # промокод не застосувався, лічильник використань не рухаємо
-
-    bonus_used = (
-        await max_bonus_for_repo(repo, subtotal - discount, user.bonus_balance)
-        if use_bonus and shop.bonus_enabled else Decimal(0)
-    )
-    total = max(Decimal(0), subtotal - discount - bonus_used)
+    try:
+        quote = await checkout_quote(repo, user, promo_code=promo_code,
+                                     use_bonus=use_bonus, lines=lines, shop=shop)
+    except CheckoutQuoteError as exc:
+        # The first request can commit between the initial lookup and cart read.
+        return await _checkout_replay(repo, user.id, checkout_key) or (None, str(exc))
+    if expected_quote and expected_quote != quote.token:
+        return await _checkout_replay(repo, user.id, checkout_key) or (None, CHECKOUT_CHANGED)
+    subtotal, discount, promo_id = quote.subtotal, quote.discount, quote.promo_id
+    bonus_used, total = quote.bonus_used, quote.total
 
     # Повний ПІБ одним рядком: на нього спираються пошук менеджера,
     # сповіщення і вся наявна історія замовлень

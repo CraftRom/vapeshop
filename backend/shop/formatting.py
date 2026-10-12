@@ -2,5 +2,5 @@ from decimal import Decimal
 
 
 def money(value) -> str:
-    """Preserve currency cents while keeping whole-price messages compact."""
-    return format(Decimal(str(value)), '.2f').rstrip('0').rstrip('.')
+    """Ukrainian monetary display, always preserving both currency cents."""
+    return format(Decimal(str(value or 0)), '.2f').replace('.', ',')

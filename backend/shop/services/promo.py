@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from shop.formatting import money as format_money
+
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -31,7 +33,7 @@ async def apply(session: AsyncSession, code: str, user_id: int, subtotal: Decima
         return PromoResult(False, error="Ліміт використань вичерпано")
 
     if subtotal < promo.min_order:
-        return PromoResult(False, error=f"Мінімальна сума замовлення — {promo.min_order:.0f} грн")
+        return PromoResult(False, error=f"Мінімальна сума замовлення — {format_money(promo.min_order)} грн")
 
     used_by_user = await session.scalar(
         select(func.count(PromoUsage.id)).where(

@@ -12,6 +12,8 @@
 """
 from __future__ import annotations
 
+from shop.formatting import money as format_money
+
 import logging
 from html import escape
 
@@ -52,16 +54,16 @@ async def build_order_text(repo: Repository, order: Order, user: User) -> str:
     cur = esc(shop.currency)
 
     items = "\n".join(
-        f"• {esc(ln.name)} × {ln.qty} — {ln.line_total:.0f} {cur}" for ln in order.items
+        f"• {esc(ln.name)} × {ln.qty} — {format_money(ln.line_total)} {cur}" for ln in order.items
     )
     who = f"@{esc(user.username)}" if user.username else f"id{user.tg_id}"
 
     text = (
         f"🆕 <b>Замовлення №{order.id}</b>\n\n"
         f"{items}\n\n"
-        f"Сума: {order.subtotal:.0f} {cur}\n"
-        f"Знижка: {order.discount:.0f} {cur} | Бонуси: {order.bonus_used:.0f} {cur}\n"
-        f"<b>До сплати: {order.total:.0f} {cur}</b>\n\n"
+        f"Сума: {format_money(order.subtotal)} {cur}\n"
+        f"Знижка: {format_money(order.discount)} {cur} | Бонуси: {format_money(order.bonus_used)} {cur}\n"
+        f"<b>До сплати: {format_money(order.total)} {cur}</b>\n\n"
         f"Клієнт: {esc(order.contact_name)} ({who})\n"
         f"Телефон: {esc(order.contact_phone)}\n"
         f"{DELIVERY_LABELS.get(order.delivery_method or '', 'Доставка')}: "
@@ -87,7 +89,7 @@ async def notify_new_order(bot, repo: Repository, order: Order, user: User) -> b
         repo,
         "order.created",
         f"Нове замовлення №{order.id}",
-        f"{order.contact_name or who_name} · {order.total:.0f} грн",
+        f"{order.contact_name or who_name} · {format_money(order.total)} грн",
         href=f"/orders/{order.id}",
         entity_id=order.id,
         actor=who_name,
@@ -141,7 +143,7 @@ async def notify_cancelled_by_client(bot, repo, order, user) -> None:
             shop.admin_chat_id,
             f"🚫 <b>Замовлення №{order.id} скасоване покупцем</b>\n"
             f"Хто: {who}\n"
-            f"Сума: {order.total} грн\n\n"
+            f"Сума: {format_money(order.total)} грн\n\n"
             "<i>Товар повернуто в наявність, бонуси — на рахунок. "
             "Якщо посилку вже зібрано — розберіть.</i>",
             **topic_kwargs(shop.admin_topic_id),

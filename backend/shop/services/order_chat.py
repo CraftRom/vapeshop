@@ -8,6 +8,8 @@
 """
 from __future__ import annotations
 
+from shop.formatting import money as format_money
+
 import logging
 from datetime import datetime, timedelta
 from html import escape
@@ -330,8 +332,8 @@ def pick_order_keyboard(orders: list[Order]) -> InlineKeyboardMarkup:
     """Кнопки вибору замовлення, коли їх кілька."""
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(
-            text=f"№{o.id} · {o.total:.0f} · {o.created_at:%d.%m}" if o.created_at
-                 else f"№{o.id} · {o.total:.0f}",
+            text=f"№{o.id} · {format_money(o.total)} · {o.created_at:%d.%m}" if o.created_at
+                 else f"№{o.id} · {format_money(o.total)}",
             callback_data=f"chat:{o.id}",
         )]
         for o in orders[:8]

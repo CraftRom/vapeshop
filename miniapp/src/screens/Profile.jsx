@@ -1,3 +1,4 @@
+import { money } from '../money'
 import { useRef, useState } from 'react'
 
 import { api } from '../api'
@@ -86,7 +87,7 @@ export function Profile({ config, profile, orders, onOrdersChange }) {
         {config.bonus_enabled && (
           <div className="stat">
             <b className="num">
-              {Number(profile.bonus_balance).toLocaleString('uk-UA', { maximumFractionDigits: 2 })} {config.currency}
+              {money(profile.bonus_balance)} {config.currency}
             </b>
             <span>Бонусний рахунок</span>
           </div>
@@ -97,7 +98,7 @@ export function Profile({ config, profile, orders, onOrdersChange }) {
         </div>
         <div className="stat">
           <b className="num">
-            {Number(profile.total_spent).toLocaleString('uk-UA', { maximumFractionDigits: 2 })} {config.currency}
+            {money(profile.total_spent)} {config.currency}
           </b>
           <span>Витрачено</span>
         </div>
@@ -183,7 +184,7 @@ export function Profile({ config, profile, orders, onOrdersChange }) {
             <div className="order-head">
               <span className="num">№{o.id}</span>
               <span className="num">
-                {Number(o.total).toLocaleString('uk-UA', { maximumFractionDigits: 2 })} {config.currency}
+                {money(o.total)} {config.currency}
               </span>
             </div>
             {/* Статус окремою плашкою, а не хвостом після дати: саме його

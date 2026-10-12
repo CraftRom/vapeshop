@@ -20,6 +20,8 @@ SalesDrive, не відправляємо назад у SalesDrive. Інакше
 """
 from __future__ import annotations
 
+from shop.formatting import money as format_money
+
 import logging
 from dataclasses import dataclass
 from decimal import Decimal
@@ -339,7 +341,7 @@ async def _notify_referrer(repo, bot, order: Order, reward) -> None:
     try:
         await bot.send_message(
             referrer.tg_id,
-            f"🎁 Вам нараховано {reward:.0f} {shop.currency} бонусів "
+            f"🎁 Вам нараховано {format_money(reward)} {shop.currency} бонусів "
             f"за замовлення запрошеного друга.",
         )
     except Exception:

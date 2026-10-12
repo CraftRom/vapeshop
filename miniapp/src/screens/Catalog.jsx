@@ -181,12 +181,12 @@ export function Catalog({ config, cart, onCartChange, onOpenProduct, wishlists, 
         : taxonomy ? <CategoryNavigator {...taxonomy} active={active} subcategory={subcategory} ungrouped={ungrouped} onCategory={chooseCategory} onSubcategory={chooseSubcategory} onUngrouped={chooseUngrouped} />
         : <p className="store-found" role="status">Завантажуємо категорії…</p>}
       <div className="store-catalog-tools">
-        <div className="rail store-filter-rail" role="group" aria-label="Фільтри" tabIndex={0}>
-          <button className="chip" aria-pressed={ungrouped} onClick={() => chooseUngrouped(!ungrouped)}>Без груп</button>
-          <button className="chip" aria-pressed={inStock} onClick={() => update({ inStock: !inStock })}>В наявності</button>
-          {filtered && <button className="chip" onClick={reset}>Скинути фільтри</button>}
-        </div>
-        <button className="store-sort-button" onClick={() => setSorting(true)} aria-haspopup="dialog" aria-expanded={sorting} aria-label={`Сортування: ${sortLabel}`}><span>{sortLabel}</span><StoreIcon name="sort" /></button>
+        <div className="catalog-availability" role="group" aria-label="Наявність товарів"><span className="catalog-tool-label">Наявність</span><div className="availability-options">
+          <button aria-pressed={!inStock} onClick={() => update({ inStock: false })}>Усі</button>
+          <button aria-pressed={inStock} onClick={() => update({ inStock: true })}><StoreIcon name="check" />В наявності</button>
+        </div></div>
+        <div className="catalog-sorting"><span className="catalog-tool-label">Порядок товарів</span><button className="store-sort-button" onClick={() => setSorting(true)} aria-haspopup="dialog" aria-expanded={sorting} aria-label={`Сортування: ${sortLabel}`}><span>{sortLabel}</span><StoreIcon name="sort" /></button></div>
+        {filtered && <button className="catalog-reset" onClick={reset}><StoreIcon name="close" />Скинути фільтри</button>}
       </div>
       {refinementActive && <div className="catalog-active-filters" role="group" aria-label="Активні фільтри">
         {search.trim() && <button onClick={() => update({ search: '' })} aria-label="Прибрати фільтр пошуку"><span>Пошук: {search.trim()}</span><StoreIcon name="close" /></button>}

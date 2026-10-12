@@ -343,7 +343,10 @@ async def run(backend: str) -> None:
     check("підсумок: до сплати 720", "720" in summary, summary[:200])
     check("підсумок містить телефон", "380671112233" in summary)
 
-    await feed(callback_update(bot, "order:confirm"))
+    confirmation = next(button["callback_data"] for _, payload in reversed(session.calls)
+                        for row in payload.get("reply_markup", {}).get("inline_keyboard", [])
+                        for button in row if button.get("callback_data", "").startswith("order:confirm:"))
+    await feed(callback_update(bot, confirmation))
     check("замовлення прийнято", "прийнято" in session.all_text(),
           session.all_text()[:100])
     # Реквізити картки більше не надсилаються автоматично: їх дає менеджер
@@ -489,7 +492,10 @@ async def run(backend: str) -> None:
     check("накладений платіж у підсумку", "накладений" in session.all_text(),
           session.all_text()[:200])
 
-    await feed(callback_update(bot, "order:cancel"))
+    cancellation = next(button["callback_data"] for _, payload in reversed(session.calls)
+                        for row in payload.get("reply_markup", {}).get("inline_keyboard", [])
+                        for button in row if button.get("callback_data", "").startswith("order:cancel:"))
+    await feed(callback_update(bot, cancellation))
     check("скасування не чіпає кошик", "Кошик залишився" in session.all_text(),
           session.all_text()[:100])
 

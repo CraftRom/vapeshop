@@ -201,11 +201,12 @@ def bonus_prompt(amount) -> InlineKeyboardMarkup:
     )
 
 
-def confirm_order() -> InlineKeyboardMarkup:
+def confirm_order(confirmation_id: str | None = None) -> InlineKeyboardMarkup:
+    suffix = f":{confirmation_id}" if confirmation_id else ""
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="✅ Підтвердити", callback_data="order:confirm")],
-            [InlineKeyboardButton(text="❌ Скасувати", callback_data="order:cancel")],
+            [InlineKeyboardButton(text="✅ Підтвердити", callback_data=f"order:confirm{suffix}")],
+            [InlineKeyboardButton(text="❌ Скасувати", callback_data=f"order:cancel{suffix}")],
         ]
     )
 

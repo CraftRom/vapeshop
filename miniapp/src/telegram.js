@@ -315,50 +315,13 @@ function contrast(first, second) {
   return Math.abs(luminance(a) - luminance(b))
 }
 
-/** Кольори з клієнта користувача: міні-апп має збігатися з його темою.
- *
- *  Застосовуємо все разом або нічого. Раніше кожна змінна ставилась
- *  окремо, і цього було досить, щоб зламати вигляд: клієнти зі світлою
- *  темою часто не надсилають secondary_bg_color. Тоді текст ставав
- *  темним, підкладка полів лишалась нашою темною за замовчуванням — і
- *  введений текст ставав невидимим.Половина теми гірша за жодну.
+/** Telegram supplies the scheme; CSS owns the complete Shop palette.
+ * Never mix custom client text colours with system backgrounds.
  */
 export function applyTheme() {
-  if (!webApp()) return
   const root = document.documentElement
-  const p = webApp()?.themeParams || {}
-
-  // Фон і текст — основа. Без них решта не має сенсу: змішувати чужий
-  // текст із нашим фоном і означає отримати невидимі поля.
-  const bg = parseHex(p.bg_color) ? p.bg_color : null
-  const text = parseHex(p.text_color) ? p.text_color : null
-  if (!bg || !text) {
-    root.dataset.scheme = webApp()?.colorScheme || 'dark'
-    return
-  }
-
-  // Підкладка полів — єдиний колір, який ми перевіряємо, а не беремо на
-  // віру. Решта тільки псує вигляд; ця — робить введений текст
-  // невидимим, і людина бачить не «негарно», а «зламано».
-  const fieldBackground = (sent, background, foreground) => {
-    const own = deriveSecondary(background, foreground)
-    if (!sent || !parseHex(sent)) return own
-    return contrast(sent, foreground) < 0.2 ? own : sent
-  }
-
-  const map = {
-    '--tg-bg': bg,
-    '--tg-text': text,
-    '--tg-hint': p.hint_color || deriveSecondary(text, bg),
-    '--tg-link': p.link_color,
-    '--tg-button': p.button_color,
-    '--tg-button-text': p.button_text_color,
-    '--tg-secondary-bg': fieldBackground(p.secondary_bg_color, bg, text),
-  }
-  for (const [name, value] of Object.entries(map)) {
-    if (value) root.style.setProperty(name, value)
-  }
-  root.dataset.scheme = webApp()?.colorScheme || 'dark'
+  root.dataset.scheme = webApp()?.colorScheme === 'light' ? 'light' : 'dark'
+  for (const name of ['--tg-bg', '--tg-text', '--tg-hint', '--tg-link', '--tg-button', '--tg-button-text', '--tg-secondary-bg']) root.style.removeProperty(name)
 }
 
 // Експортуємо для тестів: логіка кольорів надто дорога, щоб перевіряти

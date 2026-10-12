@@ -1,3 +1,4 @@
+import { money } from './money'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { api, AUTH_FAILURE_EVENT, consumeOrderEvents } from './api'
@@ -783,7 +784,7 @@ initData: ${getInitData() ? `${getInitData().length} символів` : 'пор
       <div className="bar" hidden={count === 0 || tab === 'chat'}>
         <div className="bar-info">
           <strong className="num">
-            {subtotal.toLocaleString('uk-UA', { maximumFractionDigits: 2 })} {config.currency}
+            {money(subtotal)} {config.currency}
           </strong>
           <span className="num">
             {count} {count === 1 ? 'товар' : count < 5 ? 'товари' : 'товарів'} у кошику

@@ -33,6 +33,7 @@ from shop.services.notifications import notify_cancelled_by_client, notify_new_o
 from shop.services import wishlist as wl
 from shop.services.shop_settings import get_shop_settings
 from shop.config import settings
+from shop.formatting import money as format_money
 
 log = logging.getLogger(__name__)
 
@@ -263,6 +264,7 @@ class CheckoutIn(BaseModel):
     comment: str | None = Field(None, max_length=500)
     promo_code: str | None = Field(None, max_length=64)
     use_bonus: bool = False
+    quote_token: str | None = Field(None, pattern=r"^[a-f0-9]{64}$")
 
     @field_validator("contact_surname", "contact_name", "city", "address")
     @classmethod
@@ -1285,6 +1287,26 @@ async def delivery_price(
 # ------------------------------------------------------------- оформлення
 
 
+class CheckoutQuoteIn(BaseModel):
+    promo_code: str | None = Field(None, max_length=64)
+    use_bonus: bool = False
+
+
+@router.post("/checkout/quote")
+async def preview_checkout(
+    data: CheckoutQuoteIn,
+    user: User = Depends(require_webapp_user),
+    repo: Repository = Depends(get_repo),
+):
+    _require_age(user)
+    try:
+        quote = await svc.checkout_quote(repo, user, promo_code=data.promo_code,
+                                         use_bonus=data.use_bonus)
+    except svc.CheckoutQuoteError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return quote.payload()
+
+
 @router.post("/checkout", response_model=CheckoutOut)
 async def checkout(
     data: CheckoutIn,
@@ -1335,8 +1357,11 @@ async def checkout(
         delivery_warehouse_ref=data.delivery_warehouse_ref,
         comment=data.comment, promo_code=data.promo_code, use_bonus=data.use_bonus,
         checkout_key=data.checkout_key,
+        expected_quote=data.quote_token,
     )
     if error or not order:
+        if error == svc.CHECKOUT_CHANGED:
+            raise HTTPException(409, error)
         raise HTTPException(400, error or "Не вдалося створити замовлення")
 
     # При одночасному double-submit unique checkout_key повертає той самий
@@ -1381,11 +1406,11 @@ async def checkout(
             from bot import texts
 
             confirmation = texts.ORDER_DONE.format(
-                id=order.id, total=f"{order.total:.0f}", currency=shop.currency,
+                id=order.id, total=format_money(order.total), currency=shop.currency,
             )
             if order.payment_method == "card":
                 confirmation += "\n\n" + texts.PAYMENT_INFO.format(
-                    total=f"{order.total:.0f}", currency=shop.currency,
+                    total=format_money(order.total), currency=shop.currency,
                 )
 
             if user.bot_reachable is False:

@@ -4,12 +4,12 @@ from shop.formatting import money as format_money
 
 import re
 import secrets
-from decimal import Decimal
+import logging
 from html import escape
 
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, Message, ReplyKeyboardRemove
+from aiogram.types import CallbackQuery, Message, ReplyKeyboardRemove, InlineKeyboardButton, InlineKeyboardMarkup
 from bot import keyboards as kb
 from bot import texts
 from bot.states import Checkout
@@ -21,6 +21,7 @@ from shop.repo.base import Repository
 from shop.services import shop_service as svc
 
 router = Router()
+log = logging.getLogger(__name__)
 
 
 
@@ -151,15 +152,19 @@ async def step_promo(message: Message, state: FSMContext, repo: Repository, user
 @router.callback_query(Checkout.promo, F.data == "skip")
 async def skip_promo(callback: CallbackQuery, state: FSMContext, repo: Repository, user: User) -> None:
     await callback.message.edit_reply_markup(reply_markup=None)
+    await state.update_data(promo=None, discount="0")
     await _ask_bonus(callback.message, state, repo, user)
     await callback.answer()
 
 
 async def _ask_bonus(message: Message, state: FSMContext, repo: Repository, user: User) -> None:
     data = await state.get_data()
-    subtotal = await svc.cart_subtotal(repo, user.id)
-    discount = Decimal(data.get("discount", "0"))
-    available = await svc.max_bonus_for_repo(repo, subtotal - discount, user.bonus_balance)
+    try:
+        quote = await svc.checkout_quote(repo, user, promo_code=data.get("promo"))
+    except svc.CheckoutQuoteError as exc:
+        await _quote_error(message, state, data, str(exc), kind=exc.kind)
+        return
+    available = quote.bonus_available
 
     if available <= 0:
         await state.set_state(Checkout.payment)
@@ -168,8 +173,8 @@ async def _ask_bonus(message: Message, state: FSMContext, repo: Repository, user
 
     await state.set_state(Checkout.bonus)
     await message.answer(
-        f"На вашому бонусному рахунку {format_money(user.bonus_balance)} грн.\n"
-        f"На це замовлення можна списати до {format_money(available)} грн.",
+        f"На це замовлення можна списати до {format_money(available)} {escape(quote.currency)}.\n"
+        "Ліміт уже враховує знижку.",
         reply_markup=kb.bonus_prompt(available),
     )
 
@@ -212,24 +217,28 @@ async def skip_comment(callback: CallbackQuery, state: FSMContext, repo: Reposit
 
 async def _show_summary(message: Message, state: FSMContext, repo: Repository, user: User) -> None:
     data = await state.get_data()
-    items = await repo.get_cart(user.id)
-    subtotal = sum((i.product.price * i.qty for i in items), Decimal(0))
-    discount = Decimal(data.get("discount", "0"))
-    bonus = (
-        await svc.max_bonus_for_repo(repo, subtotal - discount, user.bonus_balance)
-        if data.get("use_bonus") else Decimal(0)
-    )
-    total = max(Decimal(0), subtotal - discount - bonus)
+    try:
+        quote = await svc.checkout_quote(repo, user, promo_code=data.get("promo"),
+                                         use_bonus=bool(data.get("use_bonus")))
+    except svc.CheckoutQuoteError as exc:
+        await _quote_error(message, state, data, str(exc), kind=exc.kind)
+        return
+    items = quote.lines
+    subtotal, discount, bonus, total = quote.subtotal, quote.discount, quote.bonus_used, quote.total
+    currency = escape(quote.currency)
+    confirmation_id = secrets.token_hex(8)
+    await state.update_data(quote_token=quote.token, confirmation_id=confirmation_id)
 
     lines = ["<b>Перевірте замовлення</b>\n"]
     for line in items:
-        lines.append(f"• {escape(line.product.name)} × {line.qty} — {format_money(line.line_total)} грн")
-    lines.append(f"\nСума: {format_money(subtotal)} грн")
+        lines.append(f"• {escape(line.product.name)} × {line.qty} — {format_money(line.line_total)} {currency}")
+    lines.append(f"\nСума: {format_money(subtotal)} {currency}")
     if discount:
-        lines.append(f"Промокод {escape(str(data.get('promo') or ''))}: −{format_money(discount)} грн")
+        label = "Знижка за суму" if quote.discount_source == "volume" else f"Промокод {escape(str(data.get('promo') or ''))}"
+        lines.append(f"{label}: −{format_money(discount)} {currency}")
     if bonus:
-        lines.append(f"Бонуси: −{format_money(bonus)} грн")
-    lines.append(f"<b>До сплати: {format_money(total)} грн</b>\n")
+        lines.append(f"Бонуси: −{format_money(bonus)} {currency}")
+    lines.append(f"<b>До сплати: {format_money(total)} {currency}</b>\n")
     lines.append(f"Отримувач: {escape(str(data.get('name') or ''))}")
     lines.append(f"Телефон: {escape(str(data.get('phone') or ''))}")
     lines.append(f"Доставка: {escape(str(data.get('city') or ''))}, {escape(str(data.get('address') or ''))}")
@@ -247,22 +256,67 @@ async def _show_summary(message: Message, state: FSMContext, repo: Repository, u
     if chunk:
         chunks.append(chunk)
     for index, text in enumerate(chunks):
-        await message.answer(text, reply_markup=kb.confirm_order() if index == len(chunks) - 1 else None)
+        await message.answer(text, reply_markup=kb.confirm_order(confirmation_id) if index == len(chunks) - 1 else None)
 
 
-@router.callback_query(Checkout.confirm, F.data == "order:cancel")
+async def _quote_error(message, state, data, error, kind="cart"):
+    await state.update_data(quote_token=None, confirmation_id=None)
+    if kind == "promo":
+        await state.set_state(Checkout.promo)
+        await message.answer(escape(error) + ". Введіть інший промокод або пропустіть крок.",
+                             reply_markup=kb.SKIP)
+    else:
+        await state.set_state(Checkout.confirm)
+        confirmation_id = secrets.token_hex(8)
+        await state.update_data(confirmation_id=confirmation_id)
+        await message.answer(escape(error) + ". Перевірте кошик перед оформленням.",
+                             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                                 [InlineKeyboardButton(text="🛒 Кошик", callback_data="cart")],
+                                 [InlineKeyboardButton(text="Оновити підсумок", callback_data=f"order:refresh:{confirmation_id}")],
+                                 [InlineKeyboardButton(text="❌ Вийти з оформлення", callback_data=f"order:cancel:{confirmation_id}")],
+                             ]))
+
+
+def _current_confirmation(callback, data):
+    suffix = callback.data.rsplit(":", 1)[-1]
+    return bool(data.get("confirmation_id") and suffix == data["confirmation_id"])
+
+
+@router.callback_query(Checkout.confirm, F.data.startswith("order:refresh:"))
+async def refresh_summary(callback: CallbackQuery, state: FSMContext, repo: Repository, user: User):
+    if _current_confirmation(callback, await state.get_data()):
+        await _show_summary(callback.message, state, repo, user)
+    await callback.answer()
+
+
+@router.callback_query(Checkout.confirm, F.data.startswith("order:cancel"))
 async def cancel_order(callback: CallbackQuery, state: FSMContext) -> None:
+    if not _current_confirmation(callback, await state.get_data()):
+        await callback.answer("Ця кнопка застаріла. Використайте останній підсумок", show_alert=True)
+        return
     await state.clear()
     await callback.message.edit_text("Замовлення скасовано. Кошик залишився без змін.")
     await callback.message.answer(texts.MENU_HINT, reply_markup=kb.main_menu())
     await callback.answer()
 
 
-@router.callback_query(Checkout.confirm, F.data == "order:confirm")
+@router.callback_query(Checkout.confirm, F.data.startswith("order:confirm"))
 async def confirm_order(
     callback: CallbackQuery, state: FSMContext, repo: Repository, user: User
 ) -> None:
     data = await state.get_data()
+    if not _current_confirmation(callback, data):
+        # Migrate a pre-update FSM summary without buying at an unseen total.
+        if callback.data == "order:confirm" and not data.get("confirmation_id"):
+            await _show_summary(callback.message, state, repo, user)
+            await callback.answer("Перевірте оновлений підсумок")
+            return
+        await callback.answer("Ця кнопка застаріла. Використайте останній підсумок", show_alert=True)
+        return
+    if not data.get("quote_token"):
+        await _show_summary(callback.message, state, repo, user)
+        await callback.answer("Перевірте підсумок")
+        return
     order, error = await svc.create_order(
         repo,
         user,
@@ -275,11 +329,14 @@ async def confirm_order(
         promo_code=data.get("promo"),
         use_bonus=bool(data.get("use_bonus")),
         checkout_key=data.get("checkout_key"),
+        expected_quote=data.get("quote_token"),
     )
 
     if error:
-        await state.clear()
-        await callback.message.edit_text(f"Не вдалося оформити замовлення.\n\n{error}")
+        # Keep contact fields and show a fresh quote for explicit reconfirmation.
+        await callback.message.edit_reply_markup(reply_markup=None)
+        await callback.message.answer(f"Не вдалося оформити замовлення.\n\n{escape(error)}")
+        await _show_summary(callback.message, state, repo, user)
         await callback.answer()
         return
 
@@ -287,37 +344,50 @@ async def confirm_order(
     # FSM state. Другий отримає той самий Order за checkout_key; не шлемо
     # повторно PAYMENT_INFO і сповіщення менеджеру.
     if getattr(order, "checkout_replayed", False):
+        await state.update_data(order_id=order.id, completed_confirmation_id=data["confirmation_id"])
+        await state.set_state(Checkout.receipt if order.payment_method == "card" and order.total > 0 else None)
         await callback.answer("Замовлення вже оформлено")
         return
 
     shop = await get_shop_settings(repo)
-    await callback.message.edit_text(
-        texts.ORDER_DONE.format(id=order.id, total=f"{format_money(order.total)}", currency=shop.currency)
-    )
-
+    # Persist receipt / replay state before Telegram I/O: an edit failure must
+    # not leave a successfully committed order in Checkout.confirm.
+    await state.update_data(order_id=order.id, completed_confirmation_id=data["confirmation_id"])
     if order.payment_method == "card" and order.total > 0:
         await state.set_state(Checkout.receipt)
-        await state.update_data(order_id=order.id)
-        await callback.message.answer(
-            texts.PAYMENT_INFO.format(
-                total=f"{format_money(order.total)}",
-                currency=shop.currency,
-            )
-        )
     else:
-        await state.clear()
-        await callback.message.answer(texts.MENU_HINT, reply_markup=kb.main_menu())
-
+        await state.set_state(None)
     try:
         await notify_new_order(callback.bot, repo, order, user)
     except Exception:
         # Замовлення вже записане. Збій Telegram-сповіщення менеджеру не
         # повинен залишати клієнту нескінченний spinner і провокувати повтор.
-        import logging
-        logging.getLogger(__name__).exception(
+        log.exception(
             "Замовлення №%s створено, але менеджер не отримав сповіщення", order.id
         )
+    try:
+        confirmation = texts.ORDER_DONE.format(id=order.id, total=format_money(order.total), currency=shop.currency)
+        try:
+            await callback.message.edit_text(confirmation)
+        except Exception:
+            await callback.message.answer(confirmation)
+        if order.payment_method == "card" and order.total > 0:
+            await callback.message.answer(texts.PAYMENT_INFO.format(total=format_money(order.total), currency=shop.currency))
+        else:
+            await callback.message.answer(texts.MENU_HINT, reply_markup=kb.main_menu())
+    except Exception:
+        log.exception("Замовлення №%s створено, але підтвердження клієнту не доставлено", order.id)
     await callback.answer()
+
+
+@router.callback_query(F.data.startswith("order:confirm"))
+async def completed_confirmation(callback: CallbackQuery, state: FSMContext) -> None:
+    data = await state.get_data()
+    suffix = callback.data.rsplit(":", 1)[-1]
+    if data.get("order_id") and suffix == data.get("completed_confirmation_id"):
+        await callback.answer(f"Замовлення №{data['order_id']} вже оформлено")
+    else:
+        await callback.answer("Ця кнопка застаріла. Відкрийте останній підсумок", show_alert=True)
 
 
 @router.message(Checkout.receipt, F.photo)

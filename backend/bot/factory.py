@@ -11,7 +11,7 @@ import logging
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
-from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.fsm.storage.memory import MemoryStorage, SimpleEventIsolation
 
 from shop.config import settings
 
@@ -53,7 +53,11 @@ def build_dispatcher() -> Dispatcher:
         RepositoryMiddleware,
     )
 
-    dp = Dispatcher(storage=build_storage())
+    storage = build_storage()
+    create_isolation = getattr(storage, "create_isolation", None)
+    isolation = create_isolation(lock_kwargs={"timeout": 300}) \
+        if callable(create_isolation) else SimpleEventIsolation()
+    dp = Dispatcher(storage=storage, events_isolation=isolation)
 
     for observer in (dp.message, dp.callback_query):
         # PrivateOnlyMiddleware — найпершим: у публічному чаті апдейт не має

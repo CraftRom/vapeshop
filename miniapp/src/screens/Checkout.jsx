@@ -36,6 +36,7 @@ import { useEffect, useRef, useState } from 'react'
 import { api } from '../api'
 import { acquisition, trackVisit } from '../attribution'
 import { clientLog } from '../logger'
+import { money } from '../money'
 import { Field } from '../fields'
 import {
   alert, canRequestContact, close, confirm, haptic, notify, requestContact,
@@ -100,10 +101,10 @@ export function Cart({ config, cart, onCartChange, onCheckout }) {
             <div className="card-body">
               <p className="card-title">{l.name}</p>
               <p className="card-note num">
-                {Number(l.price).toLocaleString('uk-UA', { maximumFractionDigits: 2 })} {config.currency} × {l.qty}
+                {money(l.price)} {config.currency} × {l.qty}
               </p>
               <div className="price num">
-                {Number(l.line_total).toLocaleString('uk-UA', { maximumFractionDigits: 2 })} <small>{config.currency}</small>
+                {money(l.line_total)} <small>{config.currency}</small>
               </div>
             </div>
             <div className="stepper cart-stepper">
@@ -127,7 +128,7 @@ export function Cart({ config, cart, onCartChange, onCheckout }) {
         <div className="row-between total num">
           <span>Разом</span>
           <span>
-            {Number(cart.subtotal).toLocaleString('uk-UA', { maximumFractionDigits: 2 })} {config.currency}
+            {money(cart.subtotal)} {config.currency}
           </span>
         </div>
         {/* Знижки, промокод і бонуси рахуються на оформленні — тут лише
@@ -176,6 +177,8 @@ function Requirement({ optional = false }) {
 
 export function Checkout({ config, cart, profile, onDone, onLegal }) {
   const submittingRef = useRef(false)
+  const pendingPayload = useRef(null)
+  const [replayPending, setReplayPending] = useState(false)
   const checkoutKey = useRef(
     globalThis.crypto?.randomUUID?.().replace(/-/g, '')
       || `${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`,
@@ -189,6 +192,29 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
   // порожній номер, поки людина його ще набирає, — це причіпка, а не поміч.
   const [touched, setTouched] = useState({})
   const [error, setError] = useState('')
+  const [quoteState, setQuoteState] = useState({ data: null, input: '', error: '' })
+  const [quoteRetry, setQuoteRetry] = useState(0)
+  const promoCode = promo?.ok ? form.promo_code.trim() : null
+  const quoteInput = JSON.stringify({
+    lines: cart?.lines?.map((line) => [line.product_id, line.qty, line.price, line.stock]),
+    promo: promoCode, use_bonus: form.use_bonus,
+    balance: profile?.bonus_balance,
+    volume: [config.volume_discount_enabled, config.volume_discount_min, config.volume_discount_percent],
+    bonus: [config.bonus_enabled, config.bonus_max_percent],
+  })
+  useEffect(() => {
+    let alive = true
+    setQuoteState((previous) => ({ ...previous, input: '', error: '' }))
+    api.checkoutQuote({ promo_code: promoCode, use_bonus: form.use_bonus })
+      .then((data) => {
+        if (alive) setQuoteState({ data, input: quoteInput, error: '' })
+      })
+      .catch((err) => {
+        if (alive) setQuoteState((previous) => ({ ...previous, input: '', error: err.message }))
+      })
+    return () => { alive = false }
+  }, [quoteInput, quoteRetry])
+  const quoteReady = quoteState.input === quoteInput && Boolean(quoteState.data?.quote_token)
 
   // Довідник Нової пошти. Обраний пункт тримаємо окремо від форми: щоб
   // спитати відділення, потрібні обидва коди — CityRef для міст і
@@ -435,27 +461,13 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
     }
   }
 
-  const subtotal = Number(cart?.subtotal || 0)
-  const promoDiscount = promo?.ok ? Number(promo.discount) : 0
-
-  // Знижка за суму й промокод не додаються — діє більша. Так само рахує
-  // бекенд, тож підсумок у вітрині збігається з рахунком.
-  const volumeDiscount =
-    config.volume_discount_enabled &&
-    Number(config.volume_discount_min) > 0 &&
-    subtotal >= Number(config.volume_discount_min)
-      ? Math.round(subtotal * Number(config.volume_discount_percent)) / 100
-      : 0
-  const discount = Math.max(promoDiscount, volumeDiscount)
-  const byVolume = volumeDiscount > promoDiscount
-  // Ліміт бонусів backend рахує ПІСЛЯ найбільшої знижки. Старий UI
-  // брав profile.max_bonus_now, який порахований від subtotal ДО промокоду,
-  // і міг показати меншу суму до сплати, ніж реально створював сервер.
-  const afterDiscount = Math.max(0, subtotal - discount)
-  const bonusCap = afterDiscount * Number(config.bonus_max_percent || 0) / 100
-  const bonus = config.bonus_enabled && form.use_bonus
-    ? Math.max(0, Math.min(Number(profile?.bonus_balance || 0), bonusCap)) : 0
-  const total = Math.max(0, afterDiscount - bonus)
+  const quote = quoteState.data
+  const subtotal = quote?.subtotal
+  const discount = quote?.discount
+  const byVolume = quote?.discount_source === 'volume'
+  const bonus = quote?.bonus_used
+  const total = quote?.total
+  const checkoutCurrency = quote?.currency || config.currency
 
   // Порядок збігається з порядком полів на екрані: за ним ведемо людину
   // до першого незаповненого, а не до випадкового.
@@ -474,7 +486,11 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
     // потрапити сюди до того, як кнопка стане неактивною. Сервер має
     // ідемпотентність, але локальний guard прибирає зайвий запит зовсім.
     if (submittingRef.current) return
-    if (!filled) {
+    if (!quoteReady && !replayPending) {
+      setError('Дочекайтеся розрахунку суми або повторіть його завантаження.')
+      return
+    }
+    if (!replayPending && !filled) {
       // Раніше тут був один банер з переліком усіх пʼяти полів, а
       // підсвічувався лише телефон. Людина читала речення й сама шукала
       // очима, яке саме поле пропустила — на телефоні, де на екран
@@ -496,7 +512,7 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
       return
     }
     const phoneProblem = phoneError(form.contact_phone)
-    if (phoneProblem) {
+    if (!replayPending && phoneProblem) {
       setTouched((t) => ({ ...t, contact_phone: true }))
       setError(`Телефон: ${phoneProblem.toLowerCase()}`)
       const node = document.getElementById('phone')
@@ -505,7 +521,7 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
     }
     // Накладений платіж у поштомат не приймають. Дізнатися про це при
     // спробі забрати посилку — це зіпсоване замовлення й повернення.
-    if (chosenPoint?.is_postomat && form.payment_method === 'cod') {
+    if (!replayPending && chosenPoint?.is_postomat && form.payment_method === 'cod') {
       notify('error')
       setError('У поштоматі накладений платіж не приймають — оберіть '
                + 'відділення або оплату на картку.')
@@ -516,20 +532,27 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
     submittingRef.current = true
     setBusy(true)
     setError('')
+    let completed = false
     try {
       // Record this session before linking it; failed telemetry never rejects checkout.
       await Promise.race([trackVisit(api), new Promise((resolve) => setTimeout(resolve, 600))])
-      const order = await api.checkout({
+      const payload = replayPending ? pendingPayload.current : {
         attribution: acquisition(),
         ...form,
         checkout_key: checkoutKey.current,
+        quote_token: quote.quote_token,
         // Курʼєра могли вимкнути, поки вкладка була відкрита. Шлемо те,
         // що покупець реально бачив на екрані, інакше замовлення
         // відхилиться з приводу, якого людина не розуміє.
         delivery_method: toWarehouse ? 'warehouse' : 'courier',
         comment: form.comment.trim() || null,
-        promo_code: promo?.ok ? form.promo_code.trim() : null,
-      })
+        promo_code: promoCode,
+      }
+      pendingPayload.current = payload
+      const order = await api.checkout(payload)
+      completed = true
+      pendingPayload.current = null
+      setReplayPending(false)
       notify('success')
       // Реквізити тут не показуємо: їх надсилає менеджер у чат під
       // конкретне замовлення. Номер картки, розісланий усім наперед,
@@ -546,16 +569,21 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
       setBusy(false)
       onDone()
       await alert(
-        `Замовлення №${order.order_id} прийнято.\nДо сплати ${Number(order.total).toFixed(
-          0,
-        )} ${config.currency}.${payment}\n\nДеталі надійдуть у чат з ботом.`,
+        `Замовлення №${order.order_id} прийнято.\nДо сплати ${money(order.total)} ${checkoutCurrency}.${payment}\n\nДеталі надійдуть у чат з ботом.`,
       )
       close()
     } catch (err) {
+      if (completed) return
       submittingRef.current = false
       notify('error')
       setError(err.message)
       setBusy(false)
+      const uncertain = !err.status || err.status >= 500
+      setReplayPending(uncertain)
+      if (!uncertain) {
+        pendingPayload.current = null
+        setQuoteRetry((value) => value + 1)
+      }
     }
   }
 
@@ -809,7 +837,7 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
         {promo && (
           <p className={`field-note ${promo.ok ? 'ok' : 'bad'}`}>
             {promo.ok
-              ? `Знижка ${Number(promo.discount).toLocaleString('uk-UA', { maximumFractionDigits: 2 })} ${config.currency}`
+              ? `Знижка ${money(promo.discount)} ${checkoutCurrency}`
               : promo.error}
           </p>
         )}
@@ -822,8 +850,8 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
             Списати бонуси
             <br />
             <span className="hint num">
-              доступно {Number(profile.max_bonus_now).toLocaleString('uk-UA', { maximumFractionDigits: 2 })} з{' '}
-              {Number(profile.bonus_balance).toLocaleString('uk-UA', { maximumFractionDigits: 2 })} {config.currency}
+              доступно {money(quote?.bonus_available)} з{' '}
+              {money(profile.bonus_balance)} {checkoutCurrency}
             </span>
           </span>
         </label>
@@ -846,17 +874,23 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
       </section>
 
       <div className="summary">
+        {!quoteReady && (
+          <div role="status" className="field-note">
+            {quoteState.error || 'Оновлюємо суму замовлення…'}
+            {quoteState.error && <button className="secondary" onClick={() => setQuoteRetry((value) => value + 1)}>Повторити розрахунок</button>}
+          </div>
+        )}
         <div className="row-between num">
           <span className="hint">Товари</span>
           <span>
-            {subtotal.toLocaleString('uk-UA', { maximumFractionDigits: 2 })} {config.currency}
+            {money(subtotal)} {checkoutCurrency}
           </span>
         </div>
         {discount > 0 && (
           <div className="row-between num discount">
-            <span>{byVolume ? `Знижка від ${Number(config.volume_discount_min).toLocaleString('uk-UA', { maximumFractionDigits: 2 })}` : 'Промокод'}</span>
+            <span>{byVolume ? `Знижка за суму` : 'Промокод'}</span>
             <span>
-              −{discount.toLocaleString('uk-UA', { maximumFractionDigits: 2 })} {config.currency}
+              −{money(discount)} {checkoutCurrency}
             </span>
           </div>
         )}
@@ -864,14 +898,14 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
           <div className="row-between num discount">
             <span>Бонуси</span>
             <span>
-              −{bonus.toLocaleString('uk-UA', { maximumFractionDigits: 2 })} {config.currency}
+              −{money(bonus)} {checkoutCurrency}
             </span>
           </div>
         )}
         <div className="row-between total num">
           <span>До сплати</span>
           <span>
-            {total.toLocaleString('uk-UA', { maximumFractionDigits: 2 })} {config.currency}
+            {money(total)} {checkoutCurrency}
           </span>
         </div>
 
@@ -887,14 +921,14 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
               </span>
               <span>
                 {shipping.cost
-                  ? `≈ ${shipping.cost} ${config.currency}`
-                  : `від ${shipping.cost_from.toLocaleString('uk-UA', { maximumFractionDigits: 2 })} ${config.currency}`}
+                  ? `≈ ${money(shipping.cost)} ${checkoutCurrency}`
+                  : `від ${money(shipping.cost_from)} ${checkoutCurrency}`}
               </span>
             </div>
             {shipping.redelivery > 0 && (
               <div className="row-between num">
                 <span className="hint">Переказ накладеного платежу</span>
-                <span>≈ {shipping.redelivery} {config.currency}</span>
+                <span>≈ {money(shipping.redelivery)} {checkoutCurrency}</span>
               </div>
             )}
             {/* Слово «приблизно» тут не осторога заради остороги.
@@ -933,9 +967,9 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
         <button
           className="primary"
           onClick={submit}
-          disabled={busy}
+          disabled={busy || (!quoteReady && !replayPending)}
         >
-          {busy ? 'Оформлюємо…' : 'Підтвердити замовлення'}
+          {busy ? 'Оформлюємо…' : replayPending ? 'Перевірити замовлення' : 'Підтвердити замовлення'}
         </button>
       </div>
     </>

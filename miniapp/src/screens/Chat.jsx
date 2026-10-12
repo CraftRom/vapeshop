@@ -1,3 +1,4 @@
+import { money } from '../money'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { api } from '../api'
@@ -55,7 +56,7 @@ export function ChatList({ config, orders, onOpen }) {
           <div className="order-head">
             <span>№{o.id}</span>
             <span className="num">
-              {Number(o.total).toLocaleString('uk-UA', { maximumFractionDigits: 2 })} {config.currency}
+              {money(o.total)} {config.currency}
             </span>
           </div>
           <div className="order-meta">

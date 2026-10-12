@@ -83,8 +83,11 @@ try {
       try { await p.waitForFunction(()=>document.querySelector('.rail').scrollLeft>0, null, {timeout:1500}); break } catch (error) { if (attempt === 2) throw error }
     }
     check(await rails.first().evaluate(e=>e.scrollLeft>0),`${viewport.width}px catalog categories scroll by wheel`)
-    await rails.nth(1).hover();await p.mouse.wheel(0,200)
-    check(await rails.nth(1).evaluate(e=>e.scrollWidth<=e.clientWidth || e.scrollLeft>0),`${viewport.width}px filters scroll when overflowing`)
+    const availability=p.getByRole('group',{name:'Наявність товарів'})
+    await availability.getByRole('button',{name:'В наявності',exact:true}).click()
+    check(await availability.getByRole('button',{name:'В наявності',exact:true}).getAttribute('aria-pressed')==='true',`${viewport.width}px availability filter is selected`)
+    await availability.getByRole('button',{name:'Усі',exact:true}).click()
+    check(await availability.getByRole('button',{name:'Усі',exact:true}).getAttribute('aria-pressed')==='true',`${viewport.width}px availability resets to all products`)
     await p.getByRole('button',{name:/^Сортування:/}).click()
     await p.getByRole('button',{name:'За порядком',exact:true}).click()
     const save=p.getByRole('button',{name:'Відкласти'}).first();await save.click()

@@ -49,7 +49,7 @@ check(checkout.includes('const submittingRef = useRef(false)') && checkout.inclu
 check(checkout.includes('checkout_key: checkoutKey.current'), 'checkout має idempotency key')
 const successBlock = checkout.slice(checkout.indexOf("const payment ="), checkout.indexOf('} catch (err)', checkout.indexOf("const payment =")))
 check(successBlock.indexOf('onDone()') >= 0 && successBlock.indexOf('onDone()') < successBlock.indexOf('await alert('), 'успішний checkout виходить із pending-стану до Telegram alert')
-check(checkout.includes('const afterDiscount = Math.max(0, subtotal - discount)') && !checkout.includes('? Number(profile?.max_bonus_now'), 'бонус у UI рахується після знижки як на backend')
+check(checkout.includes('api.checkoutQuote(') && checkout.includes('quote_token: quote.quote_token') && !checkout.includes('const bonusCap ='), 'UI бере серверний підсумок і підтверджує його token')
 check(api.includes("const maxAttempts = method === 'GET' ? GET_RETRIES + 1 : 1"), 'POST checkout не ретраїться автоматично')
 
 console.log('\n--- чат і toggle-дії ---')

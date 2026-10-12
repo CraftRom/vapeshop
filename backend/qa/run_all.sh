@@ -86,6 +86,7 @@ run_node catalog-order tests/catalog-order.mjs
 run_node wishlist-state tests/wishlist-state.mjs
 run_node wishlist-wiring tests/wishlist-wiring.mjs
 run_node checkout tests/checkout-validation.mjs
+run_node money tests/money.mjs
 run_node tg-contact tests/checkout-telegram-contact.mjs
 run_node input-visibility tests/input-visibility.mjs
 run_node field-paint tests/field-paint.mjs
@@ -131,6 +132,7 @@ run domains qa/qa_domain_compatibility.py
 
 run bot-inputs qa/qa_bot_inputs.py
 run checkout-integrity qa/qa_checkout_integrity.py
+run checkout-precision qa/qa_checkout_precision.py
 run tg-contact qa/qa_telegram_contact_bridge.py
 run cart-lock qa/qa_postgres_cart_lock.py
 run deep-integrity qa/qa_deep_integrity.py

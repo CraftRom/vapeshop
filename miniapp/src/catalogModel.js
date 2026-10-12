@@ -1,3 +1,4 @@
+import { money } from './money.js'
 export const DEFAULT_SORT = 'fresh'
 
 export const SORT_OPTIONS = [
@@ -12,7 +13,7 @@ export const SORT_OPTIONS = [
 
 export function hasFreshStatus(product) { return product?.is_new === true }
 export function hasSaleStatus(product) { return product?.is_sale === true && Number(product.old_price) > Number(product.price) }
-export const catalogPrice = (value) => Number(value).toLocaleString('uk-UA', { maximumFractionDigits: 2 })
+export const catalogPrice = money
 
 const names = new Intl.Collator('uk', { numeric: true, sensitivity: 'base' })
 

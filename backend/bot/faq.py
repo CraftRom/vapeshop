@@ -1100,4 +1100,4 @@ def render(rule: Rule, shop=None, public: bool = False) -> str:
 
 
 def _num(value) -> str:
-    return f"{Decimal(str(value)):.0f}"
+    return format(Decimal(str(value)), ".2f").rstrip("0").rstrip(".").replace(".", ",")

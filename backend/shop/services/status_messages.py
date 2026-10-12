@@ -12,6 +12,8 @@
 """
 from __future__ import annotations
 
+from shop.formatting import money as format_money
+
 from shop.entities import Order, OrderStatus
 
 
@@ -43,7 +45,7 @@ def is_permanent_delivery_error(error: object) -> bool:
 
 
 def _money(value, currency: str) -> str:
-    return f"{value:.0f} {currency}"
+    return f"{format_money(value)} {currency}"
 
 
 def compose(order: Order, status: OrderStatus, shop) -> str | None:

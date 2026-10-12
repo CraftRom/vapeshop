@@ -61,12 +61,12 @@ for (const sel of ['.item', '.add', '.chip', '.tabs', '.bar', '.primary', '.step
 }
 // Типова тема — рівно дві копії (темна й світла). Третя означала б, що
 // хтось знову зашив палітру поверх теми Telegram.
-ok((css.match(/--tg-bg:/g) || []).length === 2, 'палітра Telegram не перезаписується поверх',
+ok((css.match(/--tg-bg:/g) || []).length === 2, 'системні палітри оголошені лише для темної та світлої схем',
    (css.match(/--tg-bg:/g) || []).length)
 
-console.log('\n--- поверхні від теми клієнта ---')
-ok(block(':root').includes('--card: var(--tg-secondary-bg)'), 'темна: картка — вторинне тло теми')
-ok(block(":root[data-scheme='light']").includes('--card: var(--tg-bg)'), 'світла: картка — основне тло теми')
+console.log('\n--- поверхні від системної палітри ---')
+ok(block(':root').includes('--card: var(--tg-secondary-bg)'), 'темна: картка — системне вторинне тло')
+ok(block(":root[data-scheme='light']").includes('--card: var(--tg-bg)'), 'світла: картка — системне основне тло')
 ok(css.includes('@supports (color: color-mix('), 'лінії від кольору тексту, із запасом для старих WebView')
 
 console.log('\n--- відступи з одного джерела ---')

@@ -29,7 +29,7 @@ try {
       { id: 8, name: 'Акційний набір', subcategory_id: 21, price: '150', old_price: '200', is_sale: true, stock: 4 },
     ].map(item => ({ category_id: null, subcategory_id: null, ...item, sku: `ELF-${item.id}`, photo_url: photo }))
     await p.addInitScript(scheme => {
-      window.Telegram = { WebApp: { initData: 'user=%7B%22id%22%3A123%7D&auth_date=1&hash=test', platform: 'tdesktop', colorScheme: scheme, initDataUnsafe: { user: { id: 123 } }, ready() {}, expand() {}, disableVerticalSwipes() {}, onEvent() {}, offEvent() {}, BackButton: { show() {}, hide() {}, onClick(callback) { window.__qaBack = callback }, offClick() {} } } }
+      window.Telegram = { WebApp: { initData: 'user=%7B%22id%22%3A123%7D&auth_date=1&hash=test', platform: 'tdesktop', colorScheme: scheme, initDataUnsafe: { user: { id: 123 } }, ready() {}, expand() {}, disableVerticalSwipes() {}, onEvent(name, callback) { (window.__qaEvents ||= {})[name] = callback }, offEvent() {}, BackButton: { show() {}, hide() {}, onClick(callback) { window.__qaBack = callback }, offClick() {} } } }
     }, variant.scheme)
     await p.route('https://telegram.org/**', route => route.fulfill({ body: '' }))
     await p.route('**/api/**', async route => {
@@ -63,6 +63,20 @@ try {
     check((await titles())[0] === 'Нова сумка', `${label}: new goods first, entire assortment visible`)
     check(await p.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `${label}: no page overflow`)
     await p.screenshot({ path: join(output, `navigation-${variant.width}-${variant.scheme}.png`) })
+    check(!await p.locator('.store-catalog-tools').getByRole('button', { name: 'Без категорії', exact: true }).count(), `${label}: taxonomy never appears as an availability filter`)
+    check(await p.getByRole('group', { name: 'Наявність товарів' }).getByRole('button', { name: 'Усі', exact: true }).getAttribute('aria-pressed') === 'true', `${label}: availability explicitly defaults to all goods`)
+    check(!await p.locator('.category-tile-detail').filter({ hasText: 'Самостійна група' }).count(), `${label}: category cards have customer-facing labels`)
+    const palette = await p.evaluate(() => { const css = getComputedStyle(document.documentElement); return { accent: css.getPropertyValue('--accent').trim(), page: css.getPropertyValue('--tg-bg').trim() } })
+    check(palette.accent === (variant.scheme === 'dark' ? '#8b7bf0' : '#6453c6') && palette.page === (variant.scheme === 'dark' ? '#100e18' : '#ffffff'), `${label}: system palette matches the dashboard brand`)
+    await p.evaluate(() => { window.Telegram.WebApp.themeParams = { bg_color: '#ff0000', text_color: '#ff0000', secondary_bg_color: '#ff0000' }; window.__qaEvents.themeChanged?.() })
+    check(await p.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--tg-bg').trim()) === palette.page, `${label}: custom Telegram colours cannot break brand text contrast`)
+    if (variant.width >= 700) {
+      await p.getByRole('button', { name: 'Наступні категорії' }).click()
+      await p.waitForFunction(() => document.querySelector('.store-categories').scrollLeft > 0)
+      await p.waitForFunction(() => !document.querySelector('[aria-label="Попередні категорії"]').disabled)
+      check(await p.getByRole('button', { name: 'Попередні категорії' }).isEnabled(), `${label}: desktop category arrows work`)
+    }
+
     await sort('Спочатку акції')
     check((await titles()).slice(0, 2).join() === 'Акційна сумка,Акційний набір' && (await titles()).length === 8, `${label}: sales first, ordinary goods retained`)
     await root('Подарунки').click(); await waitCount(2)
@@ -84,11 +98,25 @@ try {
     await p.getByRole('button', { name: 'Прибрати фільтр пошуку' }).click(); await waitCount(8)
     await p.getByRole('button', { name: 'В наявності', exact: true }).click()
     check((await titles()).length === 7, `${label}: stock is the only inventory filter`)
+    await p.getByRole('button', { name: 'В наявності', exact: true }).click()
+    check((await titles()).length === 7 && await p.getByRole('button', { name: 'В наявності', exact: true }).getAttribute('aria-pressed') === 'true', `${label}: selecting stock twice is idempotent`)
+    await root('Аксесуари').click(); await waitCount(3)
+    await p.getByRole('group', { name: 'Наявність товарів' }).getByRole('button', { name: 'Усі', exact: true }).click(); await waitCount(4)
+    check(await root('Аксесуари').getAttribute('aria-pressed') === 'true', `${label}: availability all preserves the category`)
+    await root('Усе').click(); await waitCount(8)
+    await p.getByRole('button', { name: 'В наявності', exact: true }).click()
+
     await p.getByRole('button', { name: 'Прибрати фільтр наявності' }).click(); await waitCount(8)
     await p.getByRole('button', { name: 'Усі категорії', exact: true }).click()
     const picker = p.getByRole('dialog', { name: 'Категорії та підкатегорії' })
     await picker.waitFor()
     check(await p.evaluate(() => document.body.style.overflow === 'hidden'), `${label}: category picker locks background`)
+    const giftToggle = picker.getByRole('button', { name: 'Підкатегорії: Подарунки', exact: true })
+    check(await giftToggle.getAttribute('aria-expanded') === 'false' && !await picker.getByRole('button', { name: 'Подарункові набори', exact: true }).isVisible(), `${label}: unopened category children are collapsed`)
+    await giftToggle.click()
+    check(await giftToggle.getAttribute('aria-expanded') === 'true' && await picker.getByRole('button', { name: 'Подарункові набори', exact: true }).isVisible(), `${label}: expanding a category reveals its subcategories`)
+    await giftToggle.click()
+
     await p.setViewportSize({ width: variant.width, height: 360 })
     await p.waitForFunction(() => document.querySelector('.category-sheet').clientHeight <= innerHeight - 24)
     check(await picker.evaluate(element => element.scrollHeight > element.clientHeight && element.clientHeight <= innerHeight - 24), `${label}: long category tree has bounded scroll`)
@@ -102,7 +130,7 @@ try {
     await picker.getByRole('button', { name: 'Самостійна група', exact: true }).click(); await waitCount(1)
     await p.getByRole('button', { name: 'Самостійний товар', exact: true }).waitFor()
     check((await titles())[0] === 'Самостійний товар' && !requests.at(-1).category_id, `${label}: independent group never combines with parent`)
-    await p.getByRole('button', { name: 'Без груп', exact: true }).click(); await waitCount(1)
+    await p.getByRole('button', { name: 'Без категорії', exact: true }).click(); await waitCount(1)
     await p.getByRole('button', { name: 'Товар без груп', exact: true }).waitFor()
     check((await titles())[0] === 'Товар без груп' && requests.at(-1).uncategorized === 'true' && !requests.at(-1).subcategory_id, `${label}: ungrouped excludes taxonomy selection`)
     await root('Порожній розділ').click()

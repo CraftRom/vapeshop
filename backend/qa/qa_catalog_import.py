@@ -45,7 +45,7 @@ result=upload([['Товар','SKU','Субкатегорія','Ціна','Зов
 copied=next(p for p in req('GET','/products') if p['name']=='Новий аксесуар')
 r.check(result['created']==1 and copied['sku']!='EXPORT-COPY-001' and copied['external_sku']=='ORIGIN-COPY','перенесення власного XLSX зберігає зовнішній артикул і генерує системний')
 from shop.formatting import money
-r.check(money(Decimal('129.90'))=='129.9' and money(Decimal('100'))=='100','грошовий формат зберігає копійки')
+r.check(money(Decimal('129.90'))=='129,90' and money(Decimal('100'))=='100,00','грошовий формат зберігає копійки')
 r.check(c.post('/api/catalog/categories',json={'name':'   '},headers=A).status_code==422,'порожня назва групи відхиляється')
 async def photo_setup():
  from shop.repo.sql import SqlRepository
