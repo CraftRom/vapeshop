@@ -324,7 +324,7 @@ export const api = {
   customers: {
     list: (params) => request('/customers', { params }),
     patch: (id, data) => request(`/customers/${id}`, { method: 'PATCH', body: data }),
-    orders: (id) => request(`/customers/${id}/orders`),
+    orders: (id, params) => request(`/customers/${id}/orders`, { params }),
     wishlists: (id) => request(`/customers/${id}/wishlists`),
   },
 

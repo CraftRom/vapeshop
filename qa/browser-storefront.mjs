@@ -1,3 +1,4 @@
+import { pageFixture } from './paged-fixture.mjs'
 // Portable browser checks with neutral demo goods; all API traffic is intercepted.
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
@@ -41,7 +42,7 @@ try {
           if (body.product_id === 1) cartQty = Math.max(0, Math.min(2, cartQty + body.delta))
         }
         data = cart()
-      } else if (path.endsWith('/orders')) data = [{ id: 1, status: 'new', total: '320', items: [{ name: 'Тканинна сумка', qty: 1, price: '320' }], created_at: '2026-10-08T12:00:00Z' }]
+      } else if ((path.endsWith('/orders') || path.endsWith('/orders/active'))) data = [{ id: 1, status: 'new', total: '320', items: [{ name: 'Тканинна сумка', qty: 1, price: '320' }], created_at: '2026-10-08T12:00:00Z' }]
       else if (path.endsWith('/chat')) {
         data = route.request().method() === 'POST' ? { id: 2, text: route.request().postDataJSON().text, direction: 'in', created_at: '2026-10-08T12:00:00Z' } : [{ id: 1, text: 'Вітаємо', direction: 'out', created_at: '2026-10-08T12:00:00Z' }]
       } else if (path.endsWith('/profile')) data = { first_name: 'Покупець', bonus_balance: '0', orders_count: 0 }
@@ -52,7 +53,7 @@ try {
         const q = (url.searchParams.get('q') || url.searchParams.get('search') || '').toLowerCase()
         data = goods.filter(item => item.name.toLowerCase().includes(q))
       } else if (path.endsWith('/wishlists')) data = Array.from({ length: 25 }, (_, i) => ({ id: i + 1, name: `Список ${i + 1}`, product_ids: [], size: 0 }))
-      await route.fulfill({ json: data })
+      await route.fulfill({ json: pageFixture(route, data) })
     })
     await p.goto((process.env.MINIAPP_URL || 'http://127.0.0.1:5174') + '/app/')
     await p.locator('.store-card').first().waitFor()

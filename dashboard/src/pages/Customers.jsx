@@ -1,3 +1,5 @@
+import { usePagedResource } from '../components/usePagedResource'
+import { Pagination, PAGE_SIZE, pageNumber } from '../components/Pagination'
 import { useCallback, useEffect, useState } from 'react'
 
 import { api } from '../api'
@@ -64,20 +66,18 @@ function BonusForm({ customer, onClose, onSaved }) {
 }
 
 function CustomerOrders({ customer, onClose }) {
-  const [orders, setOrders] = useState(null)
-  const [saved, setSaved] = useState(null)
-
-  const loadOrders = useCallback(() => (
-    api.customers.orders(customer.id).then(setOrders).catch(() => setOrders([]))
-  ), [customer.id])
-
-  useEffect(() => {
-    loadOrders()
-    // Відкладене вантажимо поруч із замовленнями: менеджер відкриває
-    // картку клієнта саме тоді, коли з ним говорить, і питання «те, що я
-    // відкладав» приходить у тій самій розмові.
-    api.customers.wishlists(customer.id).then(setSaved).catch(() => setSaved([]))
-  }, [customer.id, loadOrders])
+  const [page, setPage] = useState(1)
+  const fetchOrders = useCallback(() => api.customers.orders(customer.id, {
+    paginated: true, limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE,
+  }), [customer.id, page])
+  const fetchSaved = useCallback(async () => {
+    const items = await api.customers.wishlists(customer.id)
+    return { items, total: items.length }
+  }, [customer.id])
+  const { data: orders, total, loading: ordersLoading, error: ordersError, load: loadOrders } = usePagedResource(
+    JSON.stringify([customer.id, page]), fetchOrders)
+  const { data: saved, loading: savedLoading, error: savedError, load: loadSaved } = usePagedResource(
+    String(customer.id), fetchSaved)
 
   useEffect(() => {
     let timer = null
@@ -95,9 +95,12 @@ function CustomerOrders({ customer, onClose }) {
 
   return (
     <Modal title={`Замовлення: ${customer.first_name || customer.tg_id}`} onClose={onClose}>
+      <ErrorBar error={ordersError} />
+      {ordersError && <div className="row"><span className="faint">{orders ? 'Попередні замовлення можуть бути застарілими.' : 'Замовлення не завантажено.'}</span><button className="btn ghost small" disabled={ordersLoading} onClick={loadOrders}>Повторити замовлення</button></div>}
+      {orders && <Pagination page={page} total={total} count={orders.length} loading={ordersLoading} onPage={setPage} />}
       {!orders ? (
-        <Loading rows={3} />
-      ) : orders.length === 0 ? (
+        ordersLoading ? <Loading rows={3} /> : null
+      ) : orders.length === 0 && ordersError ? null : orders.length === 0 ? (
         <p className="muted">Клієнт ще нічого не замовляв.</p>
       ) : (
         <div className="table-wrap">
@@ -126,6 +129,11 @@ function CustomerOrders({ customer, onClose }) {
         </div>
       )}
 
+      <h3 style={{ marginTop: 18 }}>Збережені списки</h3>
+      <ErrorBar error={savedError} />
+      {savedError && <div className="row"><span className="faint">{saved ? 'Попередні списки можуть бути застарілими.' : 'Списки не завантажено.'}</span><button className="btn ghost small" disabled={savedLoading} onClick={loadSaved}>Повторити списки</button></div>}
+      {savedLoading && !saved && <Loading rows={2} />}
+      {saved && !savedError && !saved.some((w) => w.products.length > 0) && <p className="faint">Збережених товарів немає.</p>}
       {saved && saved.some((w) => w.products.length > 0) && (
         <div style={{ marginTop: 18 }}>
           <h3 style={{ marginBottom: 6 }}>Відкладене</h3>
@@ -157,26 +165,17 @@ function CustomerOrders({ customer, onClose }) {
 
 export default function Customers() {
   const notify = useToast()
-  const [customers, setCustomers] = useState(null)
-  const [{ search }, setQuery, resetFilters] = useFilters({ search: '' })
+  const [{ search, page: rawPage }, setQuery, resetFilters] = useFilters({ search: '', page: 1 })
   const setSearch = (v) => setQuery('search', v)
-  const [error, setError] = useState('')
   const [bonusFor, setBonusFor] = useState(null)
   const [ordersFor, setOrdersFor] = useState(null)
 
-  const load = useCallback(async () => {
-    setError('')
-    try {
-      setCustomers(await api.customers.list({ search: search || undefined }))
-    } catch (err) {
-      setError(err.message)
-    }
-  }, [search])
+  const page = pageNumber(rawPage)
+  const fetchPage = useCallback(() => api.customers.list({ search: search || undefined,
+    paginated: true, limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE }), [search, page])
+  const { data: customers, setData: setCustomers, total, loading, error, load } = usePagedResource(
+    JSON.stringify([search, page]), fetchPage, search ? 350 : 0)
 
-  useEffect(() => {
-    const timer = setTimeout(load, search ? 350 : 0)
-    return () => clearTimeout(timer)
-  }, [load, search])
   useVisiblePolling(load, 30000)
 
   useEffect(() => {
@@ -221,10 +220,13 @@ export default function Customers() {
       </div>
 
       <ErrorBar error={error} />
+      {error && <div className="row"><span className="faint">{customers ? 'Показано попередні дані. Вони можуть бути застарілими.' : 'Дані не завантажено.'}</span><button className="btn ghost small" disabled={loading} onClick={load}>Спробувати ще раз</button></div>}
+      {loading && customers && <p className="faint" role="status">Оновлюємо…</p>}
+      {customers && <Pagination page={page} total={total} count={customers.length} loading={loading} onPage={(v) => setQuery('page', v)} />}
 
       {!customers ? (
-        <Loading />
-      ) : customers.length === 0 ? (
+        loading ? <Loading /> : null
+      ) : customers.length === 0 && error ? null : customers.length === 0 ? (
         search ? (
           <Empty title="Нічого не знайдено">
             За запитом «{search}» клієнтів немає. Пошук працює за імʼям
@@ -300,7 +302,7 @@ export default function Customers() {
         />
       )}
 
-      {ordersFor && <CustomerOrders customer={ordersFor} onClose={() => setOrdersFor(null)} />}
+      {ordersFor && <CustomerOrders key={ordersFor.id} customer={ordersFor} onClose={() => setOrdersFor(null)} />}
     </>
   )
 }

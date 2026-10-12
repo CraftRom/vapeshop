@@ -7,7 +7,7 @@ import { readFileSync } from 'node:fs'
 
 const src = readFileSync('src/App.jsx', 'utf8')
 const start = src.indexOf('const onWishlistChanged')
-const end = src.indexOf('}, [])', start) + 6
+const end = src.indexOf('}, [readSaved, setWishlists])', start) + '}, [readSaved, setWishlists])'.length
 const body = src.slice(start, end)
 
 // Підміняємо гачки React на прості функції: нас цікавить рішення
@@ -17,9 +17,9 @@ const setWishlists = (fn) => { state = typeof fn === 'function' ? fn(state) : fn
 const api = { wishlists: { list: async () => state } }
 const useCallback = (fn) => fn
 const handler = new Function(
-  'setWishlists', 'api', 'useCallback',
+  'setWishlists', 'api', 'useCallback', 'readSaved',
   body + '\nreturn onWishlistChanged',
-)(setWishlists, api, useCallback)
+)(setWishlists, api, useCallback, () => api.wishlists.list().then(setWishlists))
 
 let bad = 0
 const eq = (got, want, label) => {

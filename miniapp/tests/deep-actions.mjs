@@ -43,7 +43,7 @@ check(back.indexOf('if (saving)') < back.indexOf('if (checkingOut)'), 'Back сп
 
 console.log('\n--- кошик і checkout ---')
 check(src.includes('flushInFlight.current.catch(() => null).then(run)'), 'flush кошика серіалізований')
-check(src.includes('const clearRun = flushInFlight.current.catch(() => null).then(() => api.clearCart())'), 'очищення кошика не гониться паралельно з +/-')
+check(src.includes('const clearRun = flushInFlight.current.catch(() => null).then(async () => {'), 'очищення кошика не гониться паралельно з +/-')
 check(src.includes('await flushCart()') && src.indexOf('await flushCart()') < src.indexOf('setCheckingOut(true)'), 'checkout чекає останні зміни кошика')
 check(checkout.includes('const submittingRef = useRef(false)') && checkout.includes('if (submittingRef.current) return'), 'double-click checkout блокується синхронним ref')
 check(checkout.includes('checkout_key: checkoutKey.current'), 'checkout має idempotency key')

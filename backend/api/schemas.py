@@ -891,3 +891,19 @@ class OperatorOut(BaseModel):
     is_active: bool
     created_at: datetime | None = None
     last_login_at: datetime | None = None
+
+
+class OrderPage(BaseModel):
+    items: list[OrderOut]
+    total: int
+    limit: int
+    offset: int
+    has_more: bool
+
+
+class CustomerPage(BaseModel):
+    items: list[CustomerOut]
+    total: int
+    limit: int
+    offset: int
+    has_more: bool

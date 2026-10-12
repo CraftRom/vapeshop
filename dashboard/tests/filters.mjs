@@ -76,7 +76,7 @@ check(/previousService\.current !== null/.test(effect),
 
 console.log('\n--- типове значення не засмічує адресу ---')
 const hook = read('src/components/useFilters.js')
-check(/value === defaults\[key\]/.test(hook),
+check(/val === defaults\[name\]/.test(hook),
       'значення за замовчуванням в адресу не пишеться')
 check(/replace: true/.test(hook),
       'зміна фільтра не додає запис в історію — інакше «назад» довелося б '

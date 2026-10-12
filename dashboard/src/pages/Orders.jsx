@@ -1,3 +1,5 @@
+import { usePagedResource } from '../components/usePagedResource'
+import { Pagination, PAGE_SIZE, pageNumber } from '../components/Pagination'
 import { memo, useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 
@@ -312,50 +314,35 @@ const OrderRow = memo(function OrderRow({
 export default function Orders() {
   const navigate = useNavigate()
   const notify = useToast()
-  const [orders, setOrders] = useState(null)
   // Фільтри — в адресі сторінки. Менеджер відбирає замовлення, відкриває
   // одне, повертається — і відбір на місці. З useState він щоразу
   // скидався, а за зміну таких повернень десятки.
-  const [{ status, dateFrom, dateTo, search }, setFilter, resetFilters] = useFilters(
-    { status: '', dateFrom: '', dateTo: '', search: '' },
+  const [{ status, dateFrom, dateTo, search, page: rawPage }, setFilter, resetFilters] = useFilters(
+    { status: '', dateFrom: '', dateTo: '', search: '', page: 1 },
   )
   const setStatus = (v) => setFilter('status', v)
   const setDateFrom = (v) => setFilter('dateFrom', v)
   const setDateTo = (v) => setFilter('dateTo', v)
   const setSearch = (v) => setFilter('search', v)
   const filtered = Boolean(status || dateFrom || dateTo || search)
-  const [error, setError] = useState('')
   const [selected, setSelected] = useState(null)
   // Клієнт відповідає в боті, тож панель має сама помічати нові повідомлення
   const [unread, setUnread] = useState({})
   const [crmStatuses, setCrmStatuses] = useState([])
   const [crmStatusesError, setCrmStatusesError] = useState('')
 
-  const load = useCallback(async () => {
-    setError('')
-    try {
-      const crmFilter = status.startsWith('crm:') ? status.slice(4) : ''
-      const legacyFilter = status.startsWith('legacy:')
-        ? status.slice(7)
-        : LEGACY_FILTERS.some((item) => item.value === status) ? status : ''
-      setOrders(await api.orders.list({
-        crm_status_id: crmFilter || undefined,
-        status: legacyFilter || undefined,
-        legacy_only: legacyFilter ? true : undefined,
-        search,
-        // Порожнє поле не надсилаємо: бекенд перевіряє формат дати
-        date_from: dateFrom || undefined,
-        date_to: dateTo || undefined,
-      }))
-    } catch (err) {
-      setError(err.message)
-    }
-  }, [status, search, dateFrom, dateTo])
-
-  useEffect(() => {
-    const timer = setTimeout(load, search ? 350 : 0)
-    return () => clearTimeout(timer)
-  }, [load, search])
+  const page = pageNumber(rawPage)
+  const fetchPage = useCallback(() => {
+    const crmFilter = status.startsWith('crm:') ? status.slice(4) : ''
+    const legacyFilter = status.startsWith('legacy:') ? status.slice(7)
+      : LEGACY_FILTERS.some((item) => item.value === status) ? status : ''
+    return api.orders.list({ crm_status_id: crmFilter || undefined,
+      status: legacyFilter || undefined, legacy_only: legacyFilter ? true : undefined,
+      search, date_from: dateFrom || undefined, date_to: dateTo || undefined,
+      paginated: true, limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE })
+  }, [status, search, dateFrom, dateTo, page])
+  const { data: orders, setData: setOrders, total, loading, error, load } = usePagedResource(
+    JSON.stringify([status, search, dateFrom, dateTo, page]), fetchPage, search ? 350 : 0)
 
   const loadCrmStatuses = useCallback(async () => {
     try {
@@ -587,7 +574,7 @@ export default function Orders() {
           {(dateFrom || dateTo) && (
             <button
               className="btn ghost small"
-              onClick={() => { setDateFrom(''); setDateTo('') }}
+              onClick={() => setFilter({ dateFrom: '', dateTo: '' })}
             >
               Скинути дати
             </button>
@@ -602,10 +589,13 @@ export default function Orders() {
       </div>
 
       <ErrorBar error={error} />
+      {error && <div className="row"><span className="faint">{orders ? 'Показано попередні дані. Вони можуть бути застарілими.' : 'Дані не завантажено.'}</span><button className="btn ghost small" disabled={loading} onClick={load}>Спробувати ще раз</button></div>}
+      {loading && orders && <p className="faint" role="status">Оновлюємо…</p>}
+      {orders && <Pagination page={page} total={total} count={orders.length} loading={loading} onPage={(v) => setFilter('page', v)} />}
 
       {!orders ? (
-        <Loading />
-      ) : orders.length === 0 ? (
+        loading ? <Loading /> : null
+      ) : orders.length === 0 && error ? null : orders.length === 0 ? (
         /* Порожньо через фільтр і порожньо взагалі — різні речі, а текст
            був один. Менеджер відбирав за датою, нічого не знаходив і читав
            «щойно клієнт оформить замовлення, воно зʼявиться тут» — тобто
@@ -629,7 +619,7 @@ export default function Orders() {
         <section className="orders-panel" aria-label="Список замовлень">
           {filtered && (
             <div className="orders-result-bar">
-              <span>Знайдено: <strong>{orders.length}</strong></span>
+              <span>Знайдено: <strong>{total}</strong></span>
               <button className="btn ghost small" onClick={resetFilters}>
                 Скинути відбір
               </button>

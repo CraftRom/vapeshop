@@ -38,9 +38,9 @@ const block = (src, start, stop) => {
 
 console.log('\n--- списки читаються при відкритті ---')
 const refresh = block(app, 'const refresh = useCallback', '}, [])')
-check(refresh.includes('api.wishlists.list'),
+check(app.includes('useResource(api.wishlists.list)') && refresh.includes('readSaved()'),
       'refresh() читає списки бажаного')
-check(refresh.includes('setWishlists'),
+check(app.includes('setData: setWishlists'),
       'прочитане потрапляє в стан')
 
 console.log('\n--- вікно вибору списку доступне з каталогу ---')

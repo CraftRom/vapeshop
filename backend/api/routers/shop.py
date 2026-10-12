@@ -975,8 +975,8 @@ async def order_chat_send(
     return messages[-1]
 
 
-async def _orders_payload(repo: Repository, user_id: int) -> list[dict]:
-    orders = await repo.list_orders(user_id=user_id, limit=20)
+async def _orders_payload(repo: Repository, user_id: int, limit=20, offset=0, active_only=False) -> list[dict]:
+    orders = await repo.list_orders(user_id=user_id, limit=limit, offset=offset, **({"active_only": True} if active_only else {}))
     result = []
     for o in orders:
         crm_name = order_business.effective_crm_status_name(o)
@@ -1006,10 +1006,21 @@ async def _orders_payload(repo: Repository, user_id: int) -> list[dict]:
 
 @router.get("/orders")
 async def my_orders(
+    limit: int = Query(20, ge=1, le=100), offset: int = Query(0, ge=0), paginated: bool = False,
     user: User = Depends(require_webapp_user), repo: Repository = Depends(get_repo)
 ):
     _require_age(user)
-    return await _orders_payload(repo, user.id)
+    items = await _orders_payload(repo, user.id, limit=limit, offset=offset)
+    if not paginated:
+        return items
+    total = await repo.count_filtered_orders(user_id=user.id)
+    return dict(items=items, total=total, limit=limit, offset=offset, has_more=offset + len(items) < total)
+
+
+@router.get("/orders/active")
+async def active_orders(user: User = Depends(require_webapp_user), repo: Repository = Depends(get_repo)):
+    _require_age(user)
+    return await _orders_payload(repo, user.id, limit=None, active_only=True)
 
 
 @router.get("/orders/stream")

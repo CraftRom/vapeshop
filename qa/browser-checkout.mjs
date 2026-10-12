@@ -1,3 +1,4 @@
+import { pageFixture } from './paged-fixture.mjs'
 import assert from 'node:assert/strict'
 import { chromium } from 'playwright'
 
@@ -47,7 +48,7 @@ async function setup(width = 390) {
     else if (path.endsWith('/profile')) data = { first_name: 'Дмитро', phone: '+380671234567', bonus_balance: '100.00', max_bonus_now: '59.97', orders_count: 0 }
     else if (path.endsWith('/categories')) data = [{ id: 1, name: 'Товари' }]
     else if (path.endsWith('/products')) data = [{ id: 1, category_id: 1, name: 'Товар', price: '199.90', stock: 10 }]
-    await route.fulfill({ json: data })
+    await route.fulfill({ json: pageFixture(route, data) })
   })
   await page.goto((process.env.MINIAPP_URL || 'http://127.0.0.1:5174') + '/app/')
   await page.getByRole('button', { name: 'Оформити', exact: true }).click()

@@ -24,7 +24,7 @@ checks = [
     ("background pull uses one SalesDrive batch", "salesdrive.pull_orders_batch" in reconciler and "await salesdrive.pull_order(" not in reconciler),
     ("manual-only duplicate business commits removed", "set_order_business_state(" not in sales),
     ("storefront chat uses delta polling", "afterId" in mini_chat and "5000" in mini_chat),
-    ("storefront silently refreshes orders/profile", "backgroundSyncRef" in mini_app and "api.orders()" in mini_app and "api.profile()" in mini_app),
+    ("storefront silently refreshes orders/profile", "backgroundSyncRef" in mini_app and "readHistory()" in mini_app and "readProfile()" in mini_app),
     ("chat API accepts after_id", "after_id: int | None = Query" in api),
     ("checkout blocks Telegram handle as name", "contains_telegram_handle" in api),
 ]

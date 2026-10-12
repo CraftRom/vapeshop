@@ -6,7 +6,7 @@ from urllib.parse import quote
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
 from api.auth import Principal, require_staff, require_sysadmin
-from api.schemas import OrderMessageIn, OrderMessageOut, OrderMessageResult, OrderOut, OrderPatch, SalesDriveOrderPatch, SalesDriveStatusPatch
+from api.schemas import OrderMessageIn, OrderMessageOut, OrderMessageResult, OrderPage, OrderOut, OrderPatch, SalesDriveOrderPatch, SalesDriveStatusPatch
 from shop.entities import OrderStatus
 from shop.repo.base import Repository
 from shop.repo.factory import get_repo
@@ -19,7 +19,7 @@ log = logging.getLogger(__name__)
 router = APIRouter(dependencies=[Depends(require_staff)])
 
 
-@router.get("", response_model=list[OrderOut])
+@router.get("", response_model=list[OrderOut] | OrderPage)
 async def list_orders(
     status: OrderStatus | None = None,
     crm_status_id: str | None = Query(None, max_length=32),
@@ -28,14 +28,24 @@ async def list_orders(
     # Дати у форматі YYYY-MM-DD, обидві межі включно
     date_from: str | None = Query(None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
     date_to: str | None = Query(None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
-    limit: int = Query(100, le=500),
-    offset: int = 0,
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    paginated: bool = False,
     repo: Repository = Depends(get_repo),
 ):
-    return await repo.list_orders(
-        status=status, crm_status_id=crm_status_id, legacy_only=legacy_only,
-        search=search, date_from=date_from, date_to=date_to, limit=limit, offset=offset,
-    )
+    from shop.services.calendar import validate_dates
+    try:
+        validate_dates(date_from, date_to)
+    except (ValueError, OverflowError) as exc:
+        raise HTTPException(422, "Вкажіть коректні календарні дати й порядок меж") from exc
+    filters = dict(status=status, crm_status_id=crm_status_id, legacy_only=legacy_only,
+                   search=search, date_from=date_from, date_to=date_to)
+    items = await repo.list_orders(**filters, limit=limit, offset=offset)
+    if not paginated:
+        return items
+    total = await repo.count_filtered_orders(**filters)
+    return dict(items=items, total=total, limit=limit, offset=offset,
+                has_more=offset + len(items) < total)
 
 
 @router.get("/salesdrive-statuses")

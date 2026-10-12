@@ -1,3 +1,4 @@
+import { pageFixture } from './paged-fixture.mjs'
 import {readFileSync, mkdirSync} from 'node:fs'
 import {fileURLToPath} from 'node:url'
 import {join} from 'node:path'
@@ -24,7 +25,7 @@ try {
     else if(path.includes('badges')) data={orders_new:0,support_unread:0}
     else if(path.includes('dictionaries')) data={statuses:[],payments:[],deliveries:[]}
     else if(path.includes('environment')) data={items:[]}
-    await route.fulfill({json:data})
+    await route.fulfill({json:pageFixture(route, data)})
   })
   await page.goto((process.env.DASHBOARD_URL || 'http://127.0.0.1:5173')+'/settings');await page.getByRole('heading',{name:'Налаштування',exact:true}).waitFor()
   const nav=page.locator('#main-navigation')
@@ -71,7 +72,7 @@ try {
       else if(path.endsWith('/categories'))data=Array.from({length:18},(_,i)=>({id:i+1,name:`Категорія ${i+1}`}))
       else if(path.endsWith('/products'))data=Array.from({length:12},(_,i)=>({id:i+1,name:`Товар ${i+1}`,stock:5,price:'100',category_id:1}))
       else if(path.endsWith('/wishlists'))data=Array.from({length:25},(_,i)=>({id:i+1,name:`Список ${i+1}`,product_ids:[],size:0}))
-      await route.fulfill({json:data})
+      await route.fulfill({json:pageFixture(route, data)})
     })
     await p.goto((process.env.MINIAPP_URL || 'http://127.0.0.1:5174')+'/app/')
     const rails=p.locator('.rail');await rails.first().waitFor()

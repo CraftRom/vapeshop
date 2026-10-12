@@ -1,3 +1,4 @@
+import { pageFixture } from './paged-fixture.mjs'
 // Regression for the real React storefront; neutral demo fixtures and intercepted API.
 import { chromium } from 'playwright'
 import { mkdirSync, writeFileSync } from 'node:fs'
@@ -51,7 +52,7 @@ try {
         data = rows.slice(Number(query.offset || 0), Number(query.offset || 0) + Number(query.limit || 500))
         if (delayedCategory && cid === 1) await new Promise(resolve => setTimeout(resolve, 500))
       }
-      await route.fulfill({ json: data })
+      await route.fulfill({ json: pageFixture(route, data) })
     })
     const titles = () => p.locator('.store-card-title').allTextContents()
     const waitCount = count => p.waitForFunction(n => document.querySelectorAll('.store-card').length === n, count)

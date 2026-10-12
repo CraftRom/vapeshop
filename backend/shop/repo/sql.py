@@ -571,12 +571,21 @@ class SqlRepository(Repository):
             raise
 
     async def list_users(self, search=None, blocked=None, limit=100, offset=0) -> list[User]:
-        query = select(m.User).order_by(m.User.created_at.desc()).limit(limit).offset(offset)
+        query = self._user_filters(select(m.User), search, blocked)
+        query = query.order_by(m.User.created_at.desc(), m.User.id.desc()).limit(limit).offset(offset)
+        return [_user(r) for r in await self.s.scalars(query)]
+
+    @staticmethod
+    def _user_filters(query, search=None, blocked=None):
         if search:
-            query = query.where(m.User.search_key.like(f"%{search.lower()}%"))
+            query = query.where(m.User.search_key.contains(search.lower(), autoescape=True))
         if blocked is not None:
             query = query.where(m.User.is_blocked.is_(blocked))
-        return [_user(r) for r in await self.s.scalars(query)]
+        return query
+
+    async def count_filtered_users(self, search=None, blocked=None):
+        query = self._user_filters(select(func.count()).select_from(m.User), search, blocked)
+        return int(await self.s.scalar(query) or 0)
 
     # ---------------------------------------------------------- catalog
 
@@ -1169,31 +1178,46 @@ class SqlRepository(Repository):
         )
         return _order(row, with_user=True)
 
-    async def list_orders(self, status=None, search=None, user_id=None,
-                          date_from=None, date_to=None, limit=100, offset=0,
-                          crm_status_id=None, legacy_only=False):
-        query = (
-            select(m.Order)
-            .options(selectinload(m.Order.items), selectinload(m.Order.user))
-            .order_by(m.Order.created_at.desc()).limit(limit).offset(offset)
-        )
+    async def _order_filters(self, query, status=None, search=None, user_id=None,
+                             date_from=None, date_to=None, crm_status_id=None,
+                             legacy_only=False, active_only=False):
         if status:
             query = query.where(m.Order.status == status)
         if crm_status_id is not None:
             query = query.where(m.Order.crm_id.is_not(None), m.Order.crm_status_id == str(crm_status_id))
         if legacy_only:
             query = query.where(m.Order.crm_id.is_(None))
-        if user_id:
+        if user_id is not None:
             query = query.where(m.Order.user_id == user_id)
+        if active_only:
+            from shop.services.order_chat import OPEN_STATUSES
+            query = query.where(m.Order.status.in_(OPEN_STATUSES))
         if search:
-            query = query.where(m.Order.search_key.like(f"%{search.lower()}%"))
-        if date_from:
-            query = query.where(m.Order.created_at >= _day_start(date_from))
-        if date_to:
-            # Кінець доби включно: інакше фільтр «по сьогодні» відкидав би
-            # усе, що оформили сьогодні після півночі
-            query = query.where(m.Order.created_at < _day_end(date_to))
+            query = query.where(m.Order.search_key.contains(search.lower(), autoescape=True))
+        if date_from or date_to:
+            from shop.services.calendar import day_bounds, validate_dates
+            from shop.services.shop_settings import get_shop_settings
+            validate_dates(date_from, date_to)
+            tz = (await get_shop_settings(self)).tz
+            if date_from:
+                query = query.where(m.Order.created_at >= day_bounds(date_from, tz)[0])
+            if date_to:
+                query = query.where(m.Order.created_at < day_bounds(date_to, tz)[1])
+        return query
+
+    async def list_orders(self, status=None, search=None, user_id=None,
+                          date_from=None, date_to=None, limit=100, offset=0,
+                          crm_status_id=None, legacy_only=False, active_only=False):
+        query = await self._order_filters(
+            select(m.Order), status, search, user_id, date_from, date_to,
+            crm_status_id, legacy_only, active_only)
+        query = query.options(selectinload(m.Order.items), selectinload(m.Order.user))
+        query = query.order_by(m.Order.created_at.desc(), m.Order.id.desc()).limit(limit).offset(offset)
         return [_order(r, with_user=True) for r in await self.s.scalars(query)]
+
+    async def count_filtered_orders(self, **filters):
+        query = await self._order_filters(select(func.count()).select_from(m.Order), **filters)
+        return int(await self.s.scalar(query) or 0)
 
     async def list_crm_refresh_candidates(
         self, *, stale_before: datetime,
@@ -3256,13 +3280,6 @@ def _order_message(row) -> OrderMessage:
         delivery_error=getattr(row, "delivery_error", None),
     )
 
-
-def _day_start(value: str) -> datetime:
-    return datetime.fromisoformat(str(value)[:10]).replace(tzinfo=timezone.utc)
-
-
-def _day_end(value: str) -> datetime:
-    return _day_start(value) + timedelta(days=1)
 
 def _support_message(row) -> SupportMessage:
     return SupportMessage(

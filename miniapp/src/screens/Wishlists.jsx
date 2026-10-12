@@ -1,3 +1,4 @@
+import { ResourceStatus } from '../useResource'
 import { useEffect, useRef, useState } from 'react'
 
 import { api } from '../api'
@@ -15,7 +16,7 @@ export function isSaved(wishlists, productId) {
  * Показуємо навіть коли список один: інакше при появі другого поведінка
  * кнопки змінилася б без попередження, а тут одразу видно, куди пішов товар.
  */
-export function SavePicker({ product, wishlists, onClose, onChanged }) {
+export function SavePicker({ product, wishlists, resource, onClose, onChanged }) {
   const [busy, setBusy] = useState(0)
   const [creating, setCreating] = useState(false)
   const [name, setName] = useState('')
@@ -96,6 +97,7 @@ export function SavePicker({ product, wishlists, onClose, onChanged }) {
           <button className="chip" onClick={onClose}>Закрити</button>
         </div>
         <p className="hint sheet-sub">{product.name}</p>
+        {resource && <ResourceStatus resource={resource} label="Збережені списки" />}
 
         {error && <div className="banner warn">{error}</div>}
 
@@ -107,7 +109,7 @@ export function SavePicker({ product, wishlists, onClose, onChanged }) {
                 key={w.id}
                 className={`sheet-row ${inList ? 'on' : ''}`}
                 onClick={() => toggle(w)}
-                disabled={busy === w.id}
+                disabled={busy === w.id || Boolean(resource?.error)}
               >
                 <span className="mark">{inList ? '✓' : '+'}</span>
                 <span className="grow">{w.name}</span>
@@ -117,7 +119,7 @@ export function SavePicker({ product, wishlists, onClose, onChanged }) {
           })}
         </div>
 
-        {creating ? (
+        {resource?.data === null ? null : creating ? (
           <div className="inline-field sheet-create">
             <input
               className="input"

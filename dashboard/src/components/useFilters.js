@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from 'react'
+import { useCallback, useLayoutEffect, useMemo, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
 /**
@@ -27,6 +27,8 @@ import { useSearchParams } from 'react-router-dom'
  */
 export function useFilters(defaults) {
   const [params, setParams] = useSearchParams()
+  const pendingParams = useRef(params)
+  useLayoutEffect(() => { pendingParams.current = params }, [params.toString()])
 
   const values = useMemo(() => {
     const out = {}
@@ -50,13 +52,14 @@ export function useFilters(defaults) {
 
   const set = useCallback((key, value) => {
     setParams((prev) => {
-      const next = new URLSearchParams(prev)
-      if (value === '' || value === null || value === undefined
-          || value === defaults[key]) {
-        next.delete(key)
-      } else {
-        next.set(key, String(value))
+      const next = new URLSearchParams(pendingParams.current)
+      const updates = typeof key === 'object' ? key : { [key]: value }
+      if ('page' in defaults && Object.keys(updates).some((name) => name !== 'page')) next.delete('page')
+      for (const [name, val] of Object.entries(updates)) {
+        if (val === '' || val === null || val === undefined || val === defaults[name]) next.delete(name)
+        else next.set(name, String(val))
       }
+      pendingParams.current = next
       return next
       // replace: зміна фільтра не має додавати запис в історію браузера.
       // Інакше після п'яти уточнень «назад» треба тиснути п'ять разів,
@@ -65,7 +68,8 @@ export function useFilters(defaults) {
   }, [setParams, defaults])
 
   const reset = useCallback(() => {
-    setParams(new URLSearchParams(), { replace: true })
+    pendingParams.current = new URLSearchParams()
+    setParams(pendingParams.current, { replace: true })
   }, [setParams])
 
   return [values, set, reset]

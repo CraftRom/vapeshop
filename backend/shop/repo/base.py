@@ -85,6 +85,12 @@ class Repository(ABC):
         limit: int = 100, offset: int = 0,
     ) -> list[User]: ...
 
+    async def count_filtered_users(self, search=None, blocked=None) -> int:
+        raise NotImplementedError("Filtered counts require repository support")
+
+    async def count_filtered_orders(self, **filters) -> int:
+        raise NotImplementedError("Filtered counts require repository support")
+
     # ---------------------------------------------------------- catalog
 
     @abstractmethod
@@ -228,7 +234,7 @@ class Repository(ABC):
         self, status: OrderStatus | None = None, search: str | None = None,
         user_id: int | None = None, date_from: str | None = None,
         date_to: str | None = None, limit: int = 100, offset: int = 0,
-        crm_status_id: str | None = None, legacy_only: bool = False,
+        crm_status_id: str | None = None, legacy_only: bool = False, active_only: bool = False,
     ) -> list[Order]: ...
 
     @abstractmethod

@@ -45,8 +45,10 @@ def window(tz, *, period="month", month=None, date_from=None, date_to=None,
         end = min(next_month(start), now)
     elif period == "custom":
         try:
-            start = datetime.combine(date.fromisoformat(date_from), time.min, tz)
-            end = datetime.combine(date.fromisoformat(date_to) + timedelta(days=1), time.min, tz)
+            from shop.services.calendar import day_bounds, validate_dates
+            validate_dates(date_from, date_to)
+            start = day_bounds(date_from, tz)[0].astimezone(tz)
+            end = day_bounds(date_to, tz)[1].astimezone(tz)
         except (ValueError, TypeError, OverflowError):
             raise HTTPException(422, "Вкажіть коректні початкову й кінцеву дати")
         end = min(end, now)

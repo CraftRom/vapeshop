@@ -1,3 +1,4 @@
+import { pageFixture } from './paged-fixture.mjs'
 // Catalog lifecycle and dashboard/storefront parity with shared neutral fixtures.
 import { chromium } from 'playwright'
 import { mkdirSync, writeFileSync } from 'node:fs'
@@ -53,7 +54,7 @@ try {
    else if (path.endsWith('/profile')) data = { first_name: 'QA', bonus_balance: '0', orders_count: 0 }
    else if (path.includes('notifications')) data = { items: [], unread: 0 }
    else if (path.includes('badges')) data = { orders_new: 0, support_unread: 0 }
-   await route.fulfill({ status, json: data })
+   await route.fulfill({ status, json: pageFixture(route, data) })
   })
   const p = await context.newPage(); p.on('pageerror', e => errors.push(e.message))
   await p.goto('http://127.0.0.1:5173/catalog')

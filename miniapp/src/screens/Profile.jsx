@@ -1,3 +1,4 @@
+import { ResourceStatus } from '../useResource'
 import { money } from '../money'
 import { useRef, useState } from 'react'
 
@@ -14,7 +15,7 @@ const STATUS = {
   cancelled: 'Скасовано',
 }
 
-export function Profile({ config, profile, orders, onOrdersChange }) {
+export function Profile({ config, profile, profileFailed, orders, ordersState, onOrdersChange, onLoadMore }) {
   const [copied, setCopied] = useState(false)
   // Номер замовлення, яке саме скасовується. Не булеве значення: із
   // кількома замовленнями на екрані треба знати, на якій саме кнопці
@@ -41,7 +42,7 @@ export function Profile({ config, profile, orders, onOrdersChange }) {
 
       setCancelError('')
       const data = await api.cancelOrder(order.id)
-      onOrdersChange?.(data.orders || [])
+      await onOrdersChange?.(data.orders)
       notify('success')
     } catch (err) {
       // Найчастіша причина — менеджер устиг узяти замовлення в роботу
@@ -74,7 +75,6 @@ export function Profile({ config, profile, orders, onOrdersChange }) {
     }
   }
 
-  if (!profile) return <div className="list"><div className="skeleton" /></div>
 
   return (
     <>
@@ -83,7 +83,8 @@ export function Profile({ config, profile, orders, onOrdersChange }) {
         <p>Бонуси, запрошення та історія замовлень</p>
       </div>
 
-      <div className="stats">
+      {!profile && !profileFailed && <div className="list"><div className="skeleton" /></div>}
+      {profile && <div className="stats">
         {config.bonus_enabled && (
           <div className="stat">
             <b className="num">
@@ -108,9 +109,9 @@ export function Profile({ config, profile, orders, onOrdersChange }) {
             <span>Запрошено друзів</span>
           </div>
         )}
-      </div>
+      </div>}
 
-      {config.referral_enabled && (
+      {profile && config.referral_enabled && (
         <>
       <div className="section-head">
         <h2>Запрошуйте друзів</h2>
@@ -169,11 +170,10 @@ export function Profile({ config, profile, orders, onOrdersChange }) {
 
       {cancelError && <div className="banner warn">{cancelError}</div>}
 
+      <ResourceStatus resource={ordersState} label="Історія замовлень" />
       {orders === null ? (
-        <div className="list">
-          <div className="skeleton" />
-        </div>
-      ) : orders.length === 0 ? (
+        null
+      ) : orders.length === 0 && ordersState.error ? null : orders.length === 0 ? (
         <div className="empty">
           <h2>Історія замовлень поки порожня</h2>
           <p>Після першого оформлення покупки записи зʼявляться тут автоматично.</p>
@@ -219,6 +219,10 @@ export function Profile({ config, profile, orders, onOrdersChange }) {
           </div>
         ))
       )}
+      {orders && <div className="actions">
+        <span className="hint">Показано {orders.length} із {ordersState.data.total}</span>
+        {ordersState.data.has_more && <button className="secondary" disabled={ordersState.loading} onClick={onLoadMore}>Показати ще</button>}
+      </div>}
 
     </>
   )

@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from api.auth import Principal, require_staff
-from api.schemas import CustomerOut, CustomerPatch
+from api.schemas import CustomerOut, CustomerPatch, CustomerPage
 from shop.repo.base import Repository
 from shop.repo.factory import get_repo
 from shop.services import order_business
@@ -11,15 +11,21 @@ from shop.services import order_business
 router = APIRouter(dependencies=[Depends(require_staff)])
 
 
-@router.get("", response_model=list[CustomerOut])
+@router.get("", response_model=list[CustomerOut] | CustomerPage)
 async def list_customers(
     search: str | None = None,
     blocked: bool | None = None,
-    limit: int = Query(100, le=500),
-    offset: int = 0,
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    paginated: bool = False,
     repo: Repository = Depends(get_repo),
 ):
-    return await repo.list_users(search=search, blocked=blocked, limit=limit, offset=offset)
+    items = await repo.list_users(search=search, blocked=blocked, limit=limit, offset=offset)
+    if not paginated:
+        return items
+    total = await repo.count_filtered_users(search=search, blocked=blocked)
+    return dict(items=items, total=total, limit=limit, offset=offset,
+                has_more=offset + len(items) < total)
 
 
 @router.patch("/{customer_id}", response_model=CustomerOut)
@@ -71,9 +77,11 @@ async def customer_wishlists(
 
 
 @router.get("/{customer_id}/orders")
-async def customer_orders(customer_id: int, repo: Repository = Depends(get_repo)):
-    orders = await repo.list_orders(user_id=customer_id, limit=200)
-    return [
+async def customer_orders(customer_id: int, limit: int = Query(200, ge=1, le=500),
+                          offset: int = Query(0, ge=0), paginated: bool = False,
+                          repo: Repository = Depends(get_repo)):
+    orders = await repo.list_orders(user_id=customer_id, limit=limit, offset=offset)
+    items = [
         {
             "id": o.id, "status": o.status.value, "total": o.total,
             "crm_id": o.crm_id, "crm_status_id": o.crm_status_id,
@@ -85,3 +93,9 @@ async def customer_orders(customer_id: int, repo: Repository = Depends(get_repo)
         }
         for o in orders
     ]
+
+    if not paginated:
+        return items
+    total = await repo.count_filtered_orders(user_id=customer_id)
+    return dict(items=items, total=total, limit=limit, offset=offset,
+                has_more=offset + len(items) < total)

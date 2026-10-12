@@ -1,3 +1,4 @@
+import { pageFixture } from './paged-fixture.mjs'
 import { chromium } from 'playwright'
 import { readFileSync, mkdirSync } from 'node:fs'
 const fixture = JSON.parse(readFileSync(process.env.ANALYTICS_FIXTURE || new URL('./analytics-fixture.json', import.meta.url), 'utf8'))
@@ -21,7 +22,7 @@ try {
     } else if(path.includes('notifications')) data={items:[],unread:0}
     else if(path.includes('badges')) data={orders_new:0,support_unread:0}
     else if(path.includes('statuses')) data={statuses:[]}
-    await route.fulfill({json:data})
+    await route.fulfill({json:pageFixture(route, data)})
   })
   await page.goto('http://127.0.0.1:5173/?month=2024-02&compare=month&compare_month=2024-01')
   await page.getByText('CAC · усі канали',{exact:true}).waitFor()

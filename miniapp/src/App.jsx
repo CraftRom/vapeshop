@@ -1,3 +1,4 @@
+import { useResource, ResourceStatus } from './useResource'
 import { money } from './money'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
@@ -20,15 +21,48 @@ import {
 
 export default function App() {
   const [config, setConfig] = useState(null)
-  const [cart, setCart] = useState(null)
-  const [profile, setProfile] = useState(null)
+  const cartResource = useResource(api.cart)
+  const profileResource = useResource(api.profile)
+  const savedResource = useResource(api.wishlists.list)
+  const activeResource = useResource(api.activeOrders)
+  const historyDepth = useRef(20)
+  const historyBusy = useRef(false)
+  const fetchHistory = useCallback(async () => {
+    // Reconcile the entire visible prefix so new orders cannot shift offsets
+    // and silently drop/duplicate a previously opened historical page.
+    const items = new Map()
+    let total = 0
+    for (let offset = 0; offset < historyDepth.current; offset += 20) {
+      const result = await api.orders({ paginated: true, limit: 20, offset })
+      for (const order of result.items) items.set(order.id, order)
+      total = result.total
+      if (!result.has_more) break
+    }
+    return { items: [...items.values()], total, has_more: items.size < total }
+  }, [])
+  const historyResource = useResource(fetchHistory)
+  const { data: cart, setData: setCart } = cartResource
+  const { data: profile, setData: setProfile } = profileResource
+  const { data: wishlists, setData: setWishlists } = savedResource
+  const orders = historyResource.data?.items ?? null
+  const activeOrders = activeResource.data
+  const readCart = cartResource.read
+  const readProfile = profileResource.read
+  const readSaved = savedResource.read
+  const readHistory = historyResource.read
+  const readActive = activeResource.read
+  const loadMoreOrders = async () => {
+    if (historyBusy.current) return
+    historyBusy.current = true
+    historyDepth.current += 20
+    try { await readHistory() } finally { historyBusy.current = false }
+  }
   const [tab, setTab] = useState('catalog')
   const [searchRequest, setSearchRequest] = useState(0)
   const [catalogState, setCatalogState] = useState({})
   const [recentProducts, setRecentProducts] = useState([])
   const navigationRequest = useRef(0)
   const [checkingOut, setCheckingOut] = useState(false)
-  const [orders, setOrders] = useState([])
   // Відкрите замовлення в чаті. Кнопка з бота веде сюди напряму.
   const [chatOrder, setChatOrder] = useState(null)
   const [openProduct, setOpenProduct] = useState(null)
@@ -51,7 +85,6 @@ export default function App() {
     if (section === 'search') setSearchRequest((value) => value + 1)
     window.scrollTo({ top: 0, behavior: 'instant' })
   }
-  const [wishlists, setWishlists] = useState([])
   // Товар, для якого відкрито вибір списку
   const [saving, setSaving] = useState(null)
   // Відкритий список бажаного. Тримаємо номер, а не сам об'єкт: після
@@ -75,6 +108,7 @@ export default function App() {
   // «Оформити» має дочекатися саме його, а не побачити порожній pendingRef
   // і відкрити checkout зі старим серверним кошиком.
   const flushInFlight = useRef(Promise.resolve())
+  const cartMutating = useRef(0)
 
   useEffect(() => {
     ready()
@@ -98,7 +132,9 @@ export default function App() {
       setConfig(null)
       setCart(null)
       setProfile(null)
-      setOrders([])
+      setWishlists(null)
+      historyResource.setData(null)
+      activeResource.setData(null)
       setChatOrder(null)
       setFatal(message)
     }
@@ -177,31 +213,13 @@ export default function App() {
   }, [])
   useEffect(() => { void load() }, [load])
 
-  const refresh = useCallback(async () => {
-    const [c, p, o, w] = await Promise.all([
-      api.cart(), api.profile(), api.orders().catch(() => []),
-      // Списки бажаного вантажились лише у відповідь на зміну — тобто
-      // ніколи при відкритті застосунку. Через це «Збережене» в профілі
-      // виглядало порожнім, поки список не створили й не видалили, а
-      // вибір списку при «Відкласти» не мав що показати.
-      //
-      // Той самий пропуск давав 409 у журналі: назву «Список N» підбирали
-      // за порожнім переліком, і вона щоразу збігалася з наявною.
-      api.wishlists.list().catch(() => []),
-    ])
-    setCart(c)
-    setProfile(p)
-    setOrders(o)
-    setWishlists(w || [])
-  }, [])
+  const refresh = useCallback(() => Promise.all([
+    readCart(), readProfile(), readHistory(), readSaved(), readActive(),
+  ]), [readCart, readProfile, readHistory, readSaved, readActive])
 
   useEffect(() => {
-    // Коментар тут раніше обіцяв, що кошик і профіль приносить bootstrap.
-    // Насправді load() ходить у /config, а bootstrap не викликається
-    // взагалі — усе довантажує саме refresh(). Тому умова проста: щойно
-    // вік підтверджено, а даних ще немає, читаємо їх.
-    if (config?.age_confirmed && !cart) refresh().catch(() => {})
-  }, [config?.age_confirmed, cart, refresh])
+    if (config?.age_confirmed) void refresh()
+  }, [config?.age_confirmed, refresh])
 
   // Тихий read-side refresh вітрини. Чат має свій швидший delta-poll,
   // а тут синхронізуємо статуси замовлень, профіль і кошик між вкладками/
@@ -230,20 +248,11 @@ export default function App() {
       backgroundSyncRef.current = true
       cycle += 1
       try {
-        const jobs = [api.orders(), api.profile()]
-        // Кошик не перечитуємо поверх ще не відправлених optimistic +/- .
-        const canRefreshCart = Object.keys(pendingRef.current || {}).length === 0
-        if (canRefreshCart && cycle % 2 === 0) jobs.push(api.cart())
-        else jobs.push(Promise.resolve(null))
-        if (cycle % 4 === 0) jobs.push(api.config())
-        else jobs.push(Promise.resolve(null))
-
-        const [ordersResult, profileResult, cartResult, configResult] = await Promise.allSettled(jobs)
-        if (stopped) return
-        if (ordersResult.status === 'fulfilled') setOrders(ordersResult.value || [])
-        if (profileResult.status === 'fulfilled') setProfile(profileResult.value)
-        if (cartResult.status === 'fulfilled' && cartResult.value) setCart(cartResult.value)
-        if (configResult.status === 'fulfilled' && configResult.value) setConfig(configResult.value)
+        const jobs = [readHistory(), readActive(), readProfile(), readSaved()]
+        const canRefreshCart = cartMutating.current === 0 && Object.keys(pendingRef.current || {}).length === 0
+        if (canRefreshCart && cycle % 2 === 0) jobs.push(readCart())
+        if (cycle % 4 === 0) jobs.push(api.config().then((value) => { if (!stopped) setConfig(value) }))
+        await Promise.allSettled(jobs)
       } finally {
         backgroundSyncRef.current = false
         schedule()
@@ -283,10 +292,7 @@ export default function App() {
       if (stopped || liveRefreshRef.current || document.hidden || navigator.onLine === false) return
       liveRefreshRef.current = true
       try {
-        const [ordersResult, profileResult] = await Promise.allSettled([api.orders(), api.profile()])
-        if (stopped) return
-        if (ordersResult.status === 'fulfilled') setOrders(ordersResult.value || [])
-        if (profileResult.status === 'fulfilled') setProfile(profileResult.value)
+        await Promise.all([readHistory(), readActive(), readProfile()])
       } finally {
         liveRefreshRef.current = false
       }
@@ -357,9 +363,9 @@ export default function App() {
   // the old badge until the user navigated back.
   useEffect(() => {
     if (!chatOrder) return
-    const fresh = orders.find((order) => order.id === chatOrder.id)
+    const fresh = [...(activeOrders || []), ...(orders || [])].find((order) => order.id === chatOrder.id)
     if (fresh && fresh !== chatOrder) setChatOrder(fresh)
-  }, [orders, chatOrder?.id])
+  }, [orders, activeOrders, chatOrder?.id])
 
   // Кнопка «Відкрити чат» у боті веде одразу на потрібну розмову.
   //
@@ -370,15 +376,15 @@ export default function App() {
   // доводилось закривати цілком.
   const deepLinkUsed = useRef(false)
   useEffect(() => {
-    if (deepLinkUsed.current || orders.length === 0) return
+    if (deepLinkUsed.current) return
     const target = startTarget()
     if (!target) return
-    const found = orders.find((o) => o.id === target.orderId)
+    const found = [...(activeOrders || []), ...(orders || [])].find((o) => o.id === target.orderId)
     if (!found) return
     deepLinkUsed.current = true
     setTab('chat')
     setChatOrder(found)
-  }, [orders])
+  }, [orders, activeOrders])
 
   // Системна кнопка «назад» веде з оформлення до кошика, а не закриває вікно
   useEffect(() => {
@@ -407,6 +413,7 @@ export default function App() {
     // в журналі дванадцять разів поспіль.
     if (updated?.id) {
       setWishlists((prev) => {
+        prev = prev || []
         const known = prev.some((w) => w.id === updated.id)
         return known
           ? prev.map((w) => (w.id === updated.id ? updated : w))
@@ -415,8 +422,8 @@ export default function App() {
       return
     }
     // Видалення й інші зміни складу — перечитуємо повністю
-    api.wishlists.list().then(setWishlists).catch(() => {})
-  }, [])
+    void readSaved()
+  }, [readSaved, setWishlists])
 
   /** Відправляє накопичені зміни кошика одним запитом на товар.
    *
@@ -428,11 +435,13 @@ export default function App() {
    */
   const flushCart = useCallback(async () => {
     const run = async () => {
+      cartResource.invalidate()
       const batch = pendingRef.current
       pendingRef.current = {}
       const ids = Object.keys(batch)
       if (!ids.length) return cart
 
+      cartMutating.current += 1
       try {
         let next = null
         for (const id of ids) {
@@ -453,6 +462,7 @@ export default function App() {
           return null
         }
       } finally {
+        cartMutating.current -= 1
         setPendingQty((prev) => {
           const rest = { ...prev }
           for (const id of ids) delete rest[id]
@@ -479,7 +489,11 @@ export default function App() {
         clearTimeout(flushTimer.current)
         pendingRef.current = {}
         setPendingQty({})
-        const clearRun = flushInFlight.current.catch(() => null).then(() => api.clearCart())
+        cartResource.invalidate()
+        const clearRun = flushInFlight.current.catch(() => null).then(async () => {
+          cartMutating.current += 1
+          try { return await api.clearCart() } finally { cartMutating.current -= 1 }
+        })
         flushInFlight.current = clearRun
         try {
           setCart(await clearRun)
@@ -641,8 +655,9 @@ initData: ${getInitData() ? `${getInitData().length} символів` : 'пор
         />
         {saving && (
           <SavePicker
+            resource={savedResource}
             product={saving}
-            wishlists={wishlists}
+            wishlists={wishlists || []}
             onClose={() => setSaving(null)}
             onChanged={onWishlistChanged}
           />
@@ -719,7 +734,7 @@ initData: ${getInitData() ? `${getInitData().length} символів` : 'пор
           cart={shownCart}
           onCartChange={changeCart}
           onOpenProduct={showProduct}
-          wishlists={wishlists}
+          wishlists={wishlists || []}
           onSave={setSaving}
         />
       )}
@@ -728,23 +743,31 @@ initData: ${getInitData() ? `${getInitData().length} символів` : 'пор
           мають навіть на пів секунди. Додати новий товар звідси не можна,
           тож миттєвий відгук лічильника тут і не потрібен. */}
       {tab === 'cart' && (
-        <Cart config={config} cart={cart} onCartChange={changeCart} />
+        <>
+          <ResourceStatus resource={cartResource} label="Кошик" />
+          {cart && <Cart config={config} cart={cart} onCartChange={changeCart} />}
+        </>
       )}
       {tab === 'chat' && (
         chatOrder
           ? <ChatRoom config={config} order={chatOrder} onBack={() => setChatOrder(null)} />
-          : <ChatList config={config} orders={orders} onOpen={setChatOrder} />
+          : <><ResourceStatus resource={activeResource} label="Активні замовлення" />
+              {activeOrders && <ChatList config={config} orders={activeOrders} onOpen={setChatOrder} />}</>
       )}
       {tab === 'profile' && (
         <>
-          <Profile config={config} profile={profile} orders={orders} onOrdersChange={setOrders} />
+          <ResourceStatus resource={profileResource} label="Профіль" />
+          <Profile config={config} profile={profile} profileFailed={Boolean(profileResource.error)}
+            orders={orders} ordersState={historyResource} onOrdersChange={() => refresh()}
+            onLoadMore={loadMoreOrders} />
+          <ResourceStatus resource={savedResource} label="Збережені списки" />
           {/* Збережене живе в профілі, а не окремою вкладкою: у навігації
               лишаються тільки ті розділи, куди заходять під час покупки */}
-          <Wishlists
-            wishlists={wishlists}
+          {wishlists && <Wishlists
+            wishlists={wishlists || []}
             onChanged={onWishlistChanged}
             onOpenList={(list) => setOpenListId(list.id)}
-          />
+          />}
         </>
       )}
 
@@ -765,8 +788,9 @@ initData: ${getInitData() ? `${getInitData().length} символів` : 'пор
           відбувалося, а вікно вискакувало аж коли вона відкривала товар. */}
       {saving && (
         <SavePicker
+          resource={savedResource}
           product={saving}
-          wishlists={wishlists}
+          wishlists={wishlists || []}
           onClose={() => setSaving(null)}
           onChanged={onWishlistChanged}
         />
@@ -799,7 +823,7 @@ initData: ${getInitData() ? `${getInitData().length} символів` : 'пор
             clearTimeout(flushTimer.current)
             await flushCart()
             // Ліміт бонусів міг змінитися, поки набирали кошик
-            api.profile().then(setProfile).catch(() => {})
+            void readProfile()
             setCheckingOut(true)
           }}
         >
