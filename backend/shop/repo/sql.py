@@ -2693,6 +2693,36 @@ class SqlRepository(Repository):
         )
         await self._commit()
 
+    async def save_order_receipt(self, order_id, user_id, attachment, *, tg_message_id, author, text):
+        from shop.services.chat_access import can_chat
+        row = await self.s.scalar(
+            select(m.Order).where(m.Order.id == order_id, m.Order.user_id == user_id).with_for_update()
+        )
+        if not row or row.payment_method != "card" or row.total <= 0 or not can_chat(row):
+            return None
+        if not attachment or attachment.get("file_kind") not in {"photo", "document"}:
+            return None
+        # FSM isolation serializes this client's updates; the row lock also
+        # prevents concurrent receipt writes in separate PostgreSQL sessions.
+        existing = await self.s.scalar(select(m.OrderMessage).where(
+            m.OrderMessage.order_id == order_id, m.OrderMessage.direction == "in",
+            m.OrderMessage.tg_message_id == tg_message_id,
+        ))
+        if existing:
+            return _order_message(existing)
+        row.receipt_file_id = attachment["file_id"]
+        message = m.OrderMessage(order_id=order_id, user_id=user_id, direction="in",
+                                 author=author, text=text, tg_message_id=tg_message_id,
+                                 is_read=False, **attachment)
+        self.s.add(message)
+        try:
+            await self.s.commit()
+            await self.s.refresh(message)
+        except Exception:
+            await self.s.rollback()
+            raise
+        return _order_message(message)
+
     async def add_order_message(self, data: dict) -> OrderMessage:
         row = m.OrderMessage(**data)
         self.s.add(row)

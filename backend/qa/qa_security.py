@@ -1,8 +1,9 @@
 """SECURITY: доступ, ін'єкції, токени, витік секретів."""
+from qa_paths import qa_db_path, qa_db_url
 import logging
 import sys, json, base64, time; sys.path.insert(0,"/tmp")
 from qa_common import boot, init_data, Report, TOKEN
-app, Session, fake = boot("/tmp/qa_sec.db")
+app, Session, fake = boot(qa_db_path('qa_sec.db'))
 from fastapi.testclient import TestClient
 import jwt as pyjwt
 c = TestClient(app, client=("127.0.0.1", 50000)); r = Report("SECURITY")

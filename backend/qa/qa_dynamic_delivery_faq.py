@@ -82,6 +82,13 @@ legacy = faq.render(rule("delivery"), LegacyShop())
 check("курʼєр" not in legacy.lower(),
       "для старих налаштувань дефолт fail-closed", legacy)
 
+class EdgeShop(BaseShop):
+    currency = "<&>"
+    delivery_days = "<термін &>"
+edge = faq.render(rule("delivery"), EdgeShop())
+check("&lt;термін &amp;&gt;" in edge, "строки доставки екрануються як текст")
+check("&lt;&amp;&gt;" in edge, "валюта екранується як текст")
+
 print(f"\nDYNAMIC DELIVERY FAQ: {checks - len(fails)}/{checks}")
 if fails:
     print(f"ПРОВАЛЕНО: {len(fails)}")

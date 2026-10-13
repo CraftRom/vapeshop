@@ -1,9 +1,10 @@
 """E2E: шлях реального покупця й менеджера від початку до кінця."""
+from qa_paths import qa_db_path, qa_db_url
 import base64
 import sys; sys.path.insert(0,"/tmp")
 from decimal import Decimal
 from qa_common import boot, init_data, Report
-app, Session, fake = boot("/tmp/qa_e2e.db")
+app, Session, fake = boot(qa_db_path('qa_e2e.db'))
 from fastapi.testclient import TestClient
 c = TestClient(app); r = Report("E2E")
 

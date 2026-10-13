@@ -8,6 +8,7 @@
 береться зі схеми, а не переписується руками. Нове поле потрапляє під
 перевірку саме, без правки цього файлу.
 """
+from qa_paths import qa_db_path, qa_db_url
 import asyncio
 import dataclasses
 import os
@@ -18,7 +19,7 @@ sys.path.insert(0, "/tmp")
 os.environ.update(BOT_TOKEN="777001:T", JWT_SECRET="t" * 32,
                   DASHBOARD_LOGIN="root", DASHBOARD_PASSWORD="Pa$$w0rd123",
                   ELFAR_DATA_ROOT=tempfile.mkdtemp(prefix="qa_settings_"),
-                  DATABASE_URL="sqlite+aiosqlite:////tmp/qa_settings.db")
+                  DATABASE_URL=qa_db_url('qa_settings.db'))
 
 from qa_common import Report, seed_operators                              # noqa: E402
 

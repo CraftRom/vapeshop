@@ -9,6 +9,7 @@
 в панелі виглядала як миттєва дія, а насправді призначала відключення на
 вечір. Найгірше тут не сама затримка, а те, що про неї ніхто не знав.
 """
+from qa_paths import qa_db_path, qa_db_url
 import asyncio
 import os
 import sys
@@ -19,7 +20,7 @@ os.environ.update(BOT_TOKEN="777001:T", JWT_SECRET="t" * 32,
                   DASHBOARD_LOGIN="root", DASHBOARD_PASSWORD="Pa$$w0rd123",
                   WEBHOOK_SECRET="s3cr3t-hook-value",
                   ELFAR_DATA_ROOT=tempfile.mkdtemp(prefix="qa_revoke_"),
-                  DATABASE_URL="sqlite+aiosqlite:////tmp/qa_revoke.db")
+                  DATABASE_URL=qa_db_url('qa_revoke.db'))
 
 from qa_common import Report                              # noqa: E402
 

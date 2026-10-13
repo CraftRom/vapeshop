@@ -1,7 +1,8 @@
 """NEGATIVE: навмисно неправильні дані."""
+from qa_paths import qa_db_path, qa_db_url
 import sys; sys.path.insert(0,"/tmp")
 from qa_common import boot, init_data, Report
-app, Session, fake = boot("/tmp/qa_neg.db")
+app, Session, fake = boot(qa_db_path('qa_neg.db'))
 from fastapi.testclient import TestClient
 c = TestClient(app); r = Report("NEGATIVE")
 A = {"Authorization": "Bearer " + c.post("/api/auth/login", json={"login":"admin","password":"secret"}).json()["access_token"]}

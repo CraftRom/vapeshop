@@ -1,10 +1,11 @@
 """FAQ у потоці бота: не заважає менеджеру, не мовчить новачкам."""
+from qa_paths import qa_db_path, qa_db_url
 import asyncio, os
 from decimal import Decimal
 os.environ.update(BOT_TOKEN="1:t", JWT_SECRET="t"*32, ADMIN_CHAT_ID="-100111",
                   BOT_USERNAME="elfar1_bot", MINIAPP_SHORT_NAME="elfar",
                   PUBLIC_URL="https://www.elfar.pp.ua",
-                  DATABASE_URL="sqlite+aiosqlite:////tmp/qa_faqflow.db")
+                  DATABASE_URL=qa_db_url('qa_faqflow.db'))
 from types import SimpleNamespace
 from shop.entities import Order, OrderLine
 from bot.handlers import chat as handler
@@ -82,7 +83,7 @@ async def main():
     from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
     from shop.models import Base
     from shop.repo.sql import SqlRepository
-    e=create_async_engine("sqlite+aiosqlite:////tmp/qa_faqflow.db")
+    e=create_async_engine(qa_db_url('qa_faqflow.db'))
     async with e.begin() as c: await c.run_sync(Base.metadata.create_all)
     async with async_sessionmaker(e,expire_on_commit=False)() as s:
         await run(SqlRepository(s),"SQL")

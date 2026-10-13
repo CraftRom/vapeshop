@@ -1,7 +1,8 @@
 """SMOKE: чи система взагалі жива."""
+from qa_paths import qa_db_path, qa_db_url
 import sys; sys.path.insert(0,"/tmp")
 from qa_common import boot, init_data, Report
-app, Session, fake = boot("/tmp/qa_smoke.db")
+app, Session, fake = boot(qa_db_path('qa_smoke.db'))
 from fastapi.testclient import TestClient
 c = TestClient(app)
 r = Report("SMOKE")

@@ -1,11 +1,12 @@
 """ПУБЛІЧНІ ЧАТИ: що бот каже в групі, а що лишає приватним."""
+from qa_paths import qa_db_path, qa_db_url
 import os
 import sys
 
 sys.path.insert(0, "/tmp")
 os.environ.update(BOT_TOKEN="777001:T", JWT_SECRET="t" * 32,
                   BOT_USERNAME="elfar1_bot",
-                  DATABASE_URL="sqlite+aiosqlite:////tmp/qa_public.db")
+                  DATABASE_URL=qa_db_url('qa_public.db'))
 
 from qa_common import Report                      # noqa: E402
 

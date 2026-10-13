@@ -16,6 +16,8 @@
 """
 from __future__ import annotations
 
+from html import escape
+
 import re
 import unicodedata
 from dataclasses import dataclass
@@ -1085,10 +1087,10 @@ def render(rule: Rule, shop=None, public: bool = False) -> str:
         age=getattr(shop, "min_age", 18),
         bonus_max=_num(getattr(shop, "bonus_max_percent", Decimal(30))),
         referral=_num(getattr(shop, "referral_percent", Decimal(5))),
-        currency=getattr(shop, "currency", "грн"),
+        currency=escape(str(getattr(shop, "currency", "грн"))),
         # Умови перевізника. Дефолти повторюють чинні тарифи, щоб текст
         # лишався правдивим навіть коли налаштування ще не читались.
-        delivery_days=getattr(shop, "delivery_days", "1–3 дні"),
+        delivery_days=escape(str(getattr(shop, "delivery_days", "1–3 дні"))),
         delivery_cost_from=getattr(shop, "delivery_cost_from", 80),
         delivery_methods=_delivery_methods(shop),
         delivery_methods_inline=_delivery_methods_inline(shop),

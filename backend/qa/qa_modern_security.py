@@ -1,4 +1,5 @@
 """Adversarial HTTP tests of cookie sessions, CSRF, uploads and Telegram."""
+from qa_paths import qa_db_path, qa_db_url
 import asyncio, hashlib, hmac, io, json, time, tempfile, zipfile, struct, zlib
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -6,7 +7,7 @@ from urllib.parse import urlencode
 from PIL import Image
 from fastapi.testclient import TestClient
 from qa_common import boot, Report, TOKEN
-app, Session, fake = boot('/tmp/qa_modern_sec.db')
+app, Session, fake = boot(qa_db_path('qa_modern_sec.db'))
 from shop.config import settings
 from shop.repo.sql import SqlRepository
 from api.browser_sessions import cookie_name, digest_cookie

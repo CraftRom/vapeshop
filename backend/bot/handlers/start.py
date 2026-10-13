@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from html import escape
+
 from aiogram import F, Router
 from aiogram.filters import Command, CommandObject, CommandStart
 from aiogram.fsm.context import FSMContext
@@ -53,7 +55,7 @@ async def cmd_start(
 
     shop = await get_shop_settings(repo)
     await message.answer(
-        texts.WELCOME.format(shop=shop.shop_name), reply_markup=kb.main_menu()
+        texts.WELCOME.format(shop=escape(shop.shop_name)), reply_markup=kb.main_menu()
     )
     await _offer_shop(message)
 
@@ -67,7 +69,7 @@ async def age_yes(callback: CallbackQuery, repo: Repository, user: User) -> None
         f"Продаж — від {shop.min_age} років."
     )
     await callback.message.answer(
-        texts.WELCOME.format(shop=shop.shop_name), reply_markup=kb.main_menu()
+        texts.WELCOME.format(shop=escape(shop.shop_name)), reply_markup=kb.main_menu()
     )
     await _offer_shop(callback.message)
     await callback.answer()
@@ -94,7 +96,7 @@ async def cmd_shop(message: Message, repo: Repository, user: User) -> None:
         await message.answer(texts.age_gate(shop.min_age), reply_markup=kb.age_gate())
         return
     await message.answer(
-        texts.WELCOME.format(shop=shop.shop_name), reply_markup=kb.main_menu()
+        texts.WELCOME.format(shop=escape(shop.shop_name)), reply_markup=kb.main_menu()
     )
     await _offer_shop(message)
 

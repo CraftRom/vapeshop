@@ -2,6 +2,7 @@
 All Telegram delivery is intercepted; no CRM or carrier calls are made.
 """
 from __future__ import annotations
+from qa_paths import qa_db_path, qa_db_url
 
 import asyncio
 from dataclasses import replace
@@ -10,7 +11,7 @@ from decimal import Decimal
 
 from qa_common import Report, boot, init_data
 
-app, Session, fake = boot('/tmp/checkout_precision_stage1.db')
+app, Session, fake = boot(qa_db_path('checkout_precision_stage1.db'))
 from httpx import ASGITransport, AsyncClient
 from aiogram import Bot
 from aiogram.client.session.base import BaseSession

@@ -7,6 +7,9 @@ from aiogram import F, Router
 from aiogram.types import CallbackQuery, Message
 
 from bot import keyboards as kb
+from shop.telegram_text import split_html, units, answer_html, CAPTION_LIMIT
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.exceptions import TelegramBadRequest
 from shop.entities import User
 from shop.repo.base import Repository
 
@@ -66,8 +69,14 @@ async def _render_products(callback, repo, cat_id=None, page=0, scope=None):
     items=await repo.list_products(only_active=True, limit=PAGE_SIZE, offset=page*PAGE_SIZE, **filters)
     if not items: header += "\n\nТоварів поки немає."
     markup=kb.products(items, cat_id, page, pages, scope=scope, children=children)
-    try: await callback.message.edit_text(header, reply_markup=markup)
-    except Exception: await callback.message.answer(header, reply_markup=markup)
+    chunks = split_html(header)
+    if len(chunks) == 1:
+        try: await callback.message.edit_text(header, reply_markup=markup)
+        except TelegramBadRequest as exc:
+            if "message is not modified" not in str(exc).lower():
+                await callback.message.answer(header, reply_markup=markup)
+    else:
+        await answer_html(callback.message, header, reply_markup=markup)
     await callback.answer()
 
 
@@ -95,30 +104,74 @@ async def open_product(callback: CallbackQuery, repo: Repository, user: User) ->
         (line.qty for line in await repo.get_cart(user.id) if line.product_id == product_id), 0
     )
 
-    lines = [f"<b>{escape(product.name)}</b>", f"Артикул: <code>{escape(product.sku)}</code>"]
+    header, text = product_text(product)
+    chunks = split_html(text)
+    photo = product.photo_file_id or product.photo_url
+    details = len(chunks) > 1 or bool(photo and units(text) > CAPTION_LIMIT)
+    markup = kb.product_card(product, in_cart, details=details)
+    if photo:
+        # Keep the old card until the replacement was delivered successfully.
+        caption = header if details else text
+        await callback.message.answer_photo(
+            photo, caption=caption if units(caption) <= CAPTION_LIMIT else None,
+            reply_markup=markup if units(caption) <= CAPTION_LIMIT else None,
+        )
+        if units(caption) > CAPTION_LIMIT:
+            await answer_html(callback.message, header, reply_markup=markup)
+    else:
+        preview = header if details else text
+        try:
+            await callback.message.edit_text(preview, reply_markup=markup)
+        except TelegramBadRequest as exc:
+            if "message is not modified" not in str(exc).lower():
+                await answer_html(callback.message, preview, reply_markup=markup)
+    await callback.answer()
+
+
+def product_text(product):
+    lines = [f"<b>{escape(product.name)}</b>", f"Артикул: <code>{escape(product.sku or '')}</code>"]
     if product.is_new: lines.append("Новинка")
     if product.is_sale: lines.append("Акція")
-    if product.description:
-        lines.append(escape(product.description[:2400]))
     if product.is_sale and product.old_price and product.old_price > product.price:
-        lines.append(f"\n<s>{product.old_price:.2f}</s> <b>{product.price:.2f} грн</b>")
+        lines.append(f"<s>{product.old_price:.2f}</s> <b>{product.price:.2f} грн</b>")
     else:
-        lines.append(f"\n<b>{product.price:.2f} грн</b>")
+        lines.append(f"<b>{product.price:.2f} грн</b>")
     lines.append("В наявності" if product.stock > 0 else "Немає в наявності")
+    header = "\n".join(lines)
+    text = header + ("\n\n" + escape(product.description) if product.description else "")
+    return header, text
 
-    text = "\n".join(lines)
-    markup = kb.product_card(product, in_cart)
-    photo = product.photo_file_id or product.photo_url
 
-    if photo:
-        try:
-            await callback.message.delete()
-        except Exception:
-            pass
-        await callback.message.answer_photo(photo, caption=text if len(text) <= 1000 else "\n".join(lines[:2] + lines[-2:]), reply_markup=markup)
+@router.callback_query(F.data.startswith("prodinfo:"))
+async def product_details(callback: CallbackQuery, repo: Repository):
+    try:
+        _, raw_id, raw_page = callback.data.split(":")
+        product_id, page = int(raw_id), max(0, int(raw_page))
+    except (ValueError, IndexError):
+        await callback.answer("Кнопка застаріла", show_alert=True)
+        return
+    product = await repo.get_product(product_id)
+    if not product or not product.is_active:
+        await callback.answer("Товар більше недоступний", show_alert=True)
+        return
+    _, text = product_text(product)
+    chunks = split_html(text)
+    page = min(page, len(chunks) - 1)
+    nav = []
+    if page:
+        nav.append(InlineKeyboardButton(text="←", callback_data=f"prodinfo:{product_id}:{page - 1}"))
+    if page + 1 < len(chunks):
+        nav.append(InlineKeyboardButton(text="→", callback_data=f"prodinfo:{product_id}:{page + 1}"))
+    rows = [nav] if nav else []
+    rows.append([InlineKeyboardButton(text="⬅️ До товару", callback_data=f"prod:{product_id}")])
+    markup = InlineKeyboardMarkup(inline_keyboard=rows)
+    # Details may originate from a photo card, which cannot be edit_text'ed.
+    if getattr(callback.message, "photo", None):
+        await callback.message.answer(chunks[page], reply_markup=markup)
     else:
         try:
-            await callback.message.edit_text(text, reply_markup=markup)
-        except Exception:
-            await callback.message.answer(text, reply_markup=markup)
+            await callback.message.edit_text(chunks[page], reply_markup=markup)
+        except TelegramBadRequest as exc:
+            if "message is not modified" not in str(exc).lower():
+                await callback.message.answer(chunks[page], reply_markup=markup)
     await callback.answer()

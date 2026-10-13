@@ -10,6 +10,7 @@
 
 HTTP-виклики SalesDrive і Нової пошти підмінено: набір не ходить у мережу.
 """
+from qa_paths import qa_db_path, qa_db_url
 import asyncio
 import json
 import os
@@ -20,7 +21,7 @@ from decimal import Decimal
 sys.path.insert(0, "/tmp")
 from cryptography.fernet import Fernet  # noqa: E402
 
-DB = "/tmp/qa_salesdrive.db"
+DB = qa_db_path('qa_salesdrive.db')
 for suffix in ("", "-wal", "-shm"):
     try:
         os.unlink(DB + suffix)

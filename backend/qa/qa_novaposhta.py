@@ -10,6 +10,7 @@
 назви полів у відповіді. Це підтверджується лише справжнім ключем, і
 саме тому перше після розгортання — знайти в панелі своє місто.
 """
+from qa_paths import qa_db_path, qa_db_url
 import asyncio
 import os
 import pathlib
@@ -20,7 +21,7 @@ sys.path.insert(0, "/tmp")
 os.environ.update(BOT_TOKEN="777001:TESTTOKEN", JWT_SECRET="t" * 32,
                   DASHBOARD_LOGIN="root", DASHBOARD_PASSWORD="Pa$$w0rd123",
                   ELFAR_DATA_ROOT=tempfile.mkdtemp(prefix="qa_np_"),
-                  DATABASE_URL="sqlite+aiosqlite:////tmp/qa_np.db")
+                  DATABASE_URL=qa_db_url('qa_np.db'))
 
 from qa_common import Report, boot, init_data                    # noqa: E402
 
@@ -29,7 +30,7 @@ r = Report("НОВА ПОШТА")
 import httpx                                                     # noqa: E402
 from shop.services import novaposhta as np                       # noqa: E402
 
-app, Session, fake = boot("/tmp/qa_np.db")
+app, Session, fake = boot(qa_db_path('qa_np.db'))
 
 KEY = "0123456789abcdef0123456789abcdef"
 

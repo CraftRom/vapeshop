@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from shop.formatting import money as format_money
+from shop.telegram_text import answer_html
 
 import re
 import secrets
@@ -8,6 +9,7 @@ import logging
 from html import escape
 
 from aiogram import F, Router
+from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message, ReplyKeyboardRemove, InlineKeyboardButton, InlineKeyboardMarkup
 from bot import keyboards as kb
@@ -142,7 +144,7 @@ async def step_promo(message: Message, state: FSMContext, repo: Repository, user
     subtotal = await svc.cart_subtotal(repo, user.id)
     result = await svc.check_promo(repo, message.text, user.id, subtotal)
     if not result.ok:
-        await message.answer(f"{result.error}. Спробуйте інший код або пропустіть крок.", reply_markup=kb.SKIP)
+        await message.answer(f"{escape(result.error)}. Спробуйте інший код або пропустіть крок.", reply_markup=kb.SKIP)
         return
     await state.update_data(promo=result.promo.code, discount=str(result.discount))
     await message.answer(f"Промокод застосовано: −{format_money(result.discount)} грн")
@@ -247,16 +249,7 @@ async def _show_summary(message: Message, state: FSMContext, repo: Repository, u
         lines.append(f"Коментар: {escape(str(data['comment']))}")
 
     await state.set_state(Checkout.confirm)
-    chunks, chunk = [], ""
-    for line in lines:
-        if chunk and len(chunk) + len(line) + 1 > 3500:
-            chunks.append(chunk)
-            chunk = ""
-        chunk += ("\n" if chunk else "") + line
-    if chunk:
-        chunks.append(chunk)
-    for index, text in enumerate(chunks):
-        await message.answer(text, reply_markup=kb.confirm_order(confirmation_id) if index == len(chunks) - 1 else None)
+    await answer_html(message, "\n".join(lines), reply_markup=kb.confirm_order(confirmation_id))
 
 
 async def _quote_error(message, state, data, error, kind="cart"):
@@ -366,13 +359,13 @@ async def confirm_order(
             "Замовлення №%s створено, але менеджер не отримав сповіщення", order.id
         )
     try:
-        confirmation = texts.ORDER_DONE.format(id=order.id, total=format_money(order.total), currency=shop.currency)
+        confirmation = texts.ORDER_DONE.format(id=order.id, total=format_money(order.total), currency=escape(shop.currency))
         try:
             await callback.message.edit_text(confirmation)
         except Exception:
             await callback.message.answer(confirmation)
         if order.payment_method == "card" and order.total > 0:
-            await callback.message.answer(texts.PAYMENT_INFO.format(total=format_money(order.total), currency=shop.currency))
+            await callback.message.answer(texts.PAYMENT_INFO.format(total=format_money(order.total), currency=escape(shop.currency)))
         else:
             await callback.message.answer(texts.MENU_HINT, reply_markup=kb.main_menu())
     except Exception:
@@ -390,21 +383,49 @@ async def completed_confirmation(callback: CallbackQuery, state: FSMContext) -> 
         await callback.answer("Ця кнопка застаріла. Відкрийте останній підсумок", show_alert=True)
 
 
-@router.message(Checkout.receipt, F.photo)
-async def receive_receipt(message: Message, state: FSMContext, repo: Repository) -> None:
-    data = await state.get_data()
-    order = await repo.get_order(data.get("order_id"))
-    if order:
-        await repo.update_order(order.id, {"receipt_file_id": message.photo[-1].file_id})
-        if current().admin_chat_id:
-            from shop.services.notifications import topic_kwargs
+@router.message(Checkout.receipt, F.photo | F.document)
+async def receive_receipt(message: Message, state: FSMContext, repo: Repository, user: User) -> None:
+    from shop.services import order_chat
+    from shop.services.panel_notifications import safe_publish
+    from shop.services.notifications import notify_receipt
 
-            await message.bot.send_photo(
-                current().admin_chat_id,
-                message.photo[-1].file_id,
-                caption=f"Квитанція до замовлення №{order.id}",
-                reply_markup=kb.admin_order(order.id, order.payment_method, order.status),
-                **topic_kwargs(current().admin_topic_id),
-            )
+    data = await state.get_data()
+    attachment = order_chat.describe_attachment(message)
+    try:
+        saved = await repo.save_order_receipt(
+            data.get("order_id"), user.id, attachment,
+            tg_message_id=message.message_id,
+            author=user.first_name or user.username or f"id{user.tg_id}",
+            text="Квитанція" + (": " + message.caption if message.caption else ""),
+        )
+    except Exception:
+        log.exception("Не вдалося зберегти квитанцію до замовлення №%s", data.get("order_id"))
+        await message.answer("Не вдалося зберегти квитанцію. Надішліть файл ще раз — замовлення збережене.")
+        return
+    if saved is None:
+        await message.answer("Не вдалося прив’язати квитанцію: замовлення недоступне для оплати. Для допомоги — /ask.")
+        return
+    # The file and visible chat entry committed together before any external I/O.
     await state.clear()
-    await message.answer("Квитанцію отримано. Менеджер перевірить оплату.", reply_markup=kb.main_menu())
+    await safe_publish(repo, "order.message", f"Квитанція до замовлення №{data['order_id']}",
+                       saved.text, href=f"/orders/{data['order_id']}",
+                       entity_id=data['order_id'], actor=saved.author)
+    try:
+        order = await repo.get_order(data['order_id'])
+        await notify_receipt(message.bot, repo, order, attachment)
+    except Exception:
+        log.exception("Квитанція №%s збережена, але Telegram-сповіщення не доставлено", data['order_id'])
+    await message.answer("Квитанцію збережено в замовленні. Менеджер перевірить оплату.", reply_markup=kb.main_menu())
+
+
+@router.message(Checkout.receipt, Command("ask"))
+@router.message(Checkout.receipt, F.text == "🆘 Підтримка")
+async def receipt_support(message: Message, state: FSMContext, repo: Repository, user: User):
+    from bot.handlers.chat import start_support
+    await state.clear()
+    await start_support(message, repo, user)
+
+
+@router.message(Checkout.receipt, ~F.text.startswith("/"), ~F.text.in_({"👤 Профіль", "🆘 Підтримка", "✅ Завершити звернення"}))
+async def receipt_hint(message: Message):
+    await message.answer("Надішліть квитанцію як фото або документ, наприклад PDF. Для допомоги — /ask.")

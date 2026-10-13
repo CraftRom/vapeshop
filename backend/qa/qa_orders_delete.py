@@ -1,4 +1,5 @@
 """ВИДАЛЕННЯ ЗАМОВЛЕНЬ: лише системний адміністратор, лише свідомо."""
+from qa_paths import qa_db_path, qa_db_url
 import asyncio
 import os
 import sys
@@ -8,7 +9,7 @@ sys.path.insert(0, "/tmp")
 os.environ.update(BOT_TOKEN="777001:T", JWT_SECRET="t" * 32,
                   DASHBOARD_LOGIN="root", DASHBOARD_PASSWORD="Pa$$w0rd123",
                   ELFAR_DATA_ROOT=tempfile.mkdtemp(prefix="qa_ordel_"),
-                  DATABASE_URL="sqlite+aiosqlite:////tmp/qa_ordel.db")
+                  DATABASE_URL=qa_db_url('qa_ordel.db'))
 
 from qa_common import Report, seed_operators                              # noqa: E402
 

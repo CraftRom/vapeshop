@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 from shop.formatting import money as format_money
+from shop.telegram_text import send_html
 
 import logging
 from html import escape
@@ -110,8 +111,8 @@ async def notify_new_order(bot, repo: Repository, order: Order, user: User) -> b
     from bot import keyboards as kb
 
     try:
-        await bot.send_message(
-            shop.admin_chat_id,
+        await send_html(
+            bot, shop.admin_chat_id,
             await build_order_text(repo, order, user),
             reply_markup=kb.admin_order(order.id, order.payment_method, order.status),
             **topic_kwargs(shop.admin_topic_id),
@@ -150,3 +151,24 @@ async def notify_cancelled_by_client(bot, repo, order, user) -> None:
         )
     except Exception:
         log.info("Не вдалося сповістити команду про скасування", exc_info=True)
+
+
+async def notify_receipt(bot, repo, order, attachment) -> bool:
+    """Best-effort Telegram copy; the database/chat remains the primary record."""
+    if bot is None or order is None:
+        return False
+    shop = await get_shop_settings(repo)
+    if not shop.admin_chat_id:
+        return False
+    from bot import keyboards as kb
+    try:
+        send = bot.send_photo if attachment["file_kind"] == "photo" else bot.send_document
+        await send(shop.admin_chat_id, attachment["file_id"],
+                   caption=f"Квитанція до замовлення №{order.id}",
+                   reply_markup=kb.admin_order(order.id, order.payment_method, order.status),
+                   **topic_kwargs(shop.admin_topic_id))
+        return True
+    except Exception:
+        log.warning("Квитанція №%s збережена в панелі; Telegram-сповіщення не доставлено",
+                    order.id, exc_info=True)
+        return False

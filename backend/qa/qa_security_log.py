@@ -9,6 +9,7 @@
 Тому набір перевіряє не окремі шматки, а весь шлях: подія → файл →
 відбір за фільтром → підпис у панелі → сповіщення в канал.
 """
+from qa_paths import qa_db_path, qa_db_url
 import asyncio
 import json
 import logging
@@ -24,7 +25,7 @@ os.environ.update(BOT_TOKEN="777001:T", JWT_SECRET="t" * 32,
                   DASHBOARD_LOGIN="root", DASHBOARD_PASSWORD="Pa$$w0rd123",
                   WEBHOOK_SECRET="hook-secret-value",
                   ELFAR_DATA_ROOT=LOG_DIR, LOG_JSON="1",
-                  DATABASE_URL="sqlite+aiosqlite:////tmp/qa_seclog.db")
+                  DATABASE_URL=qa_db_url('qa_seclog.db'))
 
 from qa_common import Report, seed_operators                # noqa: E402
 

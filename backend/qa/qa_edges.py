@@ -5,6 +5,7 @@
 коли два покупці беруть останній товар одночасно. Саме тоді ціна помилки
 найвища — це реальні гроші й реальний товар.
 """
+from qa_paths import qa_db_path, qa_db_url
 import asyncio
 import os
 import sys
@@ -14,12 +15,12 @@ from decimal import Decimal
 sys.path.insert(0, "/tmp")
 os.environ.update(BOT_TOKEN="777001:T", JWT_SECRET="t" * 32,
                   ELFAR_DATA_ROOT=tempfile.mkdtemp(prefix="qa_edge_"),
-                  DATABASE_URL="sqlite+aiosqlite:////tmp/qa_edges.db")
+                  DATABASE_URL=qa_db_url('qa_edges.db'))
 
 import pathlib  # noqa: E402
 
 for suffix in ("", "-wal", "-shm"):
-    pathlib.Path(f"/tmp/qa_edges.db{suffix}").unlink(missing_ok=True)
+    pathlib.Path(f"{qa_db_path('qa_edges.db')}{suffix}").unlink(missing_ok=True)
 
 from qa_common import Report                              # noqa: E402
 

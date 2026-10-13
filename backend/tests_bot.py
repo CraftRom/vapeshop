@@ -10,6 +10,7 @@
 Запуск:  python tests_bot.py
 """
 from __future__ import annotations
+from qa_paths import qa_db_path, qa_db_url
 
 import asyncio
 import os
@@ -21,7 +22,7 @@ os.environ.update({
     "BOT_TOKEN": "123456:TEST",
     "BOT_USERNAME": "test_shop_bot",
     "JWT_SECRET": "t" * 32,
-    "DATABASE_URL": "sqlite+aiosqlite:////tmp/bot_test.db",
+    "DATABASE_URL": qa_db_url('bot_test.db'),
     "ADMIN_IDS": "900001",
     "ADMIN_CHAT_ID": "-1009999",
     "CARD_NUMBER": "0000 1111 2222 3333",
@@ -191,8 +192,8 @@ async def run(backend: str) -> None:
 
     for name in [m for m in list(sys.modules) if m.startswith(("shop", "bot"))]:
         del sys.modules[name]
-    if os.path.exists("/tmp/bot_test.db"):
-        os.remove("/tmp/bot_test.db")
+    if os.path.exists(qa_db_path('bot_test.db')):
+        os.remove(qa_db_path('bot_test.db'))
 
     from bot.factory import build_dispatcher
     from shop.repo.factory import open_repo

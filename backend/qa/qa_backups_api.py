@@ -1,4 +1,5 @@
 """КОПІЇ: доступ, перелік, завантаження, запобіжники відновлення."""
+from qa_paths import qa_db_path, qa_db_url
 import asyncio
 import os
 import sys
@@ -11,7 +12,7 @@ BACKUP_DIR = str(Path(DATA_ROOT) / "backups")
 os.environ.update(BOT_TOKEN="777001:T", JWT_SECRET="t" * 32,
                   DASHBOARD_LOGIN="root", DASHBOARD_PASSWORD="Pa$$w0rd123",
                   ELFAR_DATA_ROOT=DATA_ROOT,
-                  DATABASE_URL="sqlite+aiosqlite:////tmp/qa_backups.db")
+                  DATABASE_URL=qa_db_url('qa_backups.db'))
 
 os.makedirs(BACKUP_DIR, exist_ok=True)
 
@@ -24,9 +25,8 @@ os.makedirs(BACKUP_DIR, exist_ok=True)
 # застосунок працював.
 import pathlib as _pathlib  # noqa: E402
 
-for _leftover in _pathlib.Path("/tmp").glob("qa_backups*"):
-    if _leftover.is_file():
-        _leftover.unlink(missing_ok=True)
+for suffix in ("", "-wal", "-shm"):
+    _pathlib.Path(qa_db_path("qa_backups.db") + suffix).unlink(missing_ok=True)
 
 from qa_common import Report, seed_operators                             # noqa: E402
 

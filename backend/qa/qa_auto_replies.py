@@ -1,10 +1,11 @@
 """Master switch: settings API, real private/support routing and public mentions."""
+from qa_paths import qa_db_path, qa_db_url
 import asyncio
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
 import httpx
 from qa_common import boot, Report, seed_operators
-app, Session, bot = boot('/tmp/qa_auto_replies.db')
+app, Session, bot = boot(qa_db_path('qa_auto_replies.db'))
 from api.auth import create_token
 from shop.entities import OperatorRole, Order, OrderLine
 from shop.repo.sql import SqlRepository

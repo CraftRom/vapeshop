@@ -4,6 +4,7 @@ Run with PYTHONPATH=.:qa python qa/qa_broadcast_recovery.py.
 Optional QA_BROADCAST_DATABASE_URL must point to a disposable *_broadcast_qa DB.
 No Telegram request escapes this suite.
 """
+from qa_paths import qa_db_path, qa_db_url
 import asyncio
 import os
 from pathlib import Path
@@ -11,11 +12,11 @@ import unittest
 from unittest.mock import AsyncMock, patch
 from datetime import datetime, timedelta, timezone
 
-DB = os.environ.get('QA_BROADCAST_DATABASE_URL', 'sqlite+aiosqlite:////tmp/qa_broadcast_recovery.db')
+DB = os.environ.get('QA_BROADCAST_DATABASE_URL', qa_db_url('qa_broadcast_recovery.db'))
 if not DB.startswith('sqlite') and not DB.rsplit('/', 1)[-1].endswith('_broadcast_qa'):
     raise RuntimeError('Only a disposable *_broadcast_qa database is allowed')
 if DB.startswith('sqlite'):
-    Path('/tmp/qa_broadcast_recovery.db').unlink(missing_ok=True)
+    Path(qa_db_path('qa_broadcast_recovery.db')).unlink(missing_ok=True)
 os.environ.setdefault('TRUSTED_HOSTS','testserver,localhost,127.0.0.1')
 os.environ.update(BOT_TOKEN='777001:TESTTOKEN', JWT_SECRET='t' * 32, DATABASE_URL=DB)
 
@@ -418,13 +419,13 @@ class MigrationTests(unittest.TestCase):
     def test_queue_upgrade_requires_backup_before_stopping_workers(self):
         import subprocess
         deploy = (Path(__file__).resolve().parents[2]/'deploy/deploy.sh').read_text()
-        segment = deploy[deploy.index('BROADCAST_QUEUE_UPGRADE="$'):deploy.index('"${COMPOSE[@]}" run --rm migrate')]
+        segment = deploy[deploy.index('BROADCAST_QUEUE_UPGRADE="$'):deploy.index('if ! "${COMPOSE[@]}" run --rm migrate')]
         fake = 'fake_compose(){ if [[ "$*" == *broadcast_upgrade* ]]; then echo 1; else echo "CALL $*" >&2; fi; }\nCOMPOSE=(fake_compose)\n'
         failed = subprocess.run(['bash','-c',fake+'BACKUP_CREATED=0\n'+segment],capture_output=True,text=True)
         self.assertEqual(failed.returncode,1)
         self.assertNotIn('CALL stop',failed.stderr)
         ready = subprocess.run(['bash','-c',fake+'BACKUP_CREATED=1\n'+segment],capture_output=True,text=True)
-        self.assertEqual(ready.returncode,0)
+        self.assertEqual(ready.returncode,0,ready.stderr)
         self.assertIn('CALL stop api scheduler',ready.stderr)
 
     def test_postgres_migration_sql_and_single_alembic_head(self):

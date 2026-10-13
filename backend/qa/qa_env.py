@@ -1,8 +1,9 @@
 """Змінні оточення: що де задається і хто має пріоритет."""
+from qa_paths import qa_db_path, qa_db_url
 import sys; sys.path.insert(0,"/tmp")
 from dataclasses import fields as dfields
 from qa_common import boot, init_data, Report
-app, Session, fake = boot("/tmp/qa_env.db")
+app, Session, fake = boot(qa_db_path('qa_env.db'))
 from fastapi.testclient import TestClient
 c = TestClient(app); r = Report("ENV")
 

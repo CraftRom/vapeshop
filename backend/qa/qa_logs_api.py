@@ -1,4 +1,5 @@
 """ЖУРНАЛ У ПАНЕЛІ: доступ, фільтри, захист від обходу шляху."""
+from qa_paths import qa_db_path, qa_db_url
 import asyncio
 import json
 import os
@@ -12,7 +13,7 @@ LOG_DIR = str(Path(DATA_ROOT) / "logs")
 os.environ.update(BOT_TOKEN="777001:T", JWT_SECRET="t" * 32,
                   DASHBOARD_LOGIN="root", DASHBOARD_PASSWORD="Pa$$w0rd123",
                   ELFAR_DATA_ROOT=DATA_ROOT,
-                  DATABASE_URL="sqlite+aiosqlite:////tmp/qa_logsapi.db")
+                  DATABASE_URL=qa_db_url('qa_logsapi.db'))
 
 os.makedirs(LOG_DIR, exist_ok=True)
 

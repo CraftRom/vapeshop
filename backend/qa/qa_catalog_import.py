@@ -1,4 +1,5 @@
 """Import round trip, external articles and photo parity with neutral goods."""
+from qa_paths import qa_db_path, qa_db_url
 from io import BytesIO
 from decimal import Decimal
 from types import SimpleNamespace
@@ -7,7 +8,7 @@ import asyncio
 from openpyxl import Workbook
 from fastapi.testclient import TestClient
 from qa_common import boot,init_data,Report
-app,Session,_=boot('/tmp/catalog_import_validation.db'); c=TestClient(app); r=Report('CATALOG IMPORT')
+app,Session,_=boot(qa_db_path('catalog_import_validation.db')); c=TestClient(app); r=Report('CATALOG IMPORT')
 A={'Authorization':'Bearer '+c.post('/api/auth/login',json={'login':'admin','password':'secret'}).json()['access_token']}
 H=init_data(12342); c.get('/api/shop/config',headers=H); c.post('/api/shop/age-confirm',headers=H)
 def req(method,path,data=None):

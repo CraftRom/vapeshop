@@ -1,4 +1,5 @@
 """ЖУРНАЛ: структура записів, файли, відсутність секретів."""
+from qa_paths import qa_db_path, qa_db_url
 import json
 import logging
 import os
@@ -11,7 +12,7 @@ DATA_ROOT = tempfile.mkdtemp(prefix="qa_data_")
 LOG_DIR = str(Path(DATA_ROOT) / "logs")
 os.environ.update(BOT_TOKEN="777001:T", JWT_SECRET="t" * 32,
                   ELFAR_DATA_ROOT=DATA_ROOT, LOG_JSON="1",
-                  DATABASE_URL="sqlite+aiosqlite:////tmp/qa_log.db")
+                  DATABASE_URL=qa_db_url('qa_log.db'))
 
 os.makedirs(LOG_DIR, exist_ok=True)
 

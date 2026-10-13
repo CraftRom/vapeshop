@@ -42,7 +42,9 @@ try {
           if (body.product_id === 1) cartQty = Math.max(0, Math.min(2, cartQty + body.delta))
         }
         data = cart()
-      } else if ((path.endsWith('/orders') || path.endsWith('/orders/active'))) data = [{ id: 1, status: 'new', total: '320', items: [{ name: 'Тканинна сумка', qty: 1, price: '320' }], created_at: '2026-10-08T12:00:00Z' }]
+      } else if ((path.endsWith('/orders') || path.endsWith('/orders/active') || path.endsWith('/orders/chattable'))) data = [{ id: 1, status: 'new', can_chat: true, chat_until: null, total: '320', items: [{ name: 'Тканинна сумка', qty: 1, price: '320' }], created_at: '2026-10-08T12:00:00Z' }]
+      else if (path.endsWith('/chat/access')) data = { can_chat: true, chat_until: null, completed_at: null }
+      else if (path.endsWith('/chat/read')) data = { marked: 1 }
       else if (path.endsWith('/chat')) {
         data = route.request().method() === 'POST' ? { id: 2, text: route.request().postDataJSON().text, direction: 'in', created_at: '2026-10-08T12:00:00Z' } : [{ id: 1, text: 'Вітаємо', direction: 'out', created_at: '2026-10-08T12:00:00Z' }]
       } else if (path.endsWith('/profile')) data = { first_name: 'Покупець', bonus_balance: '0', orders_count: 0 }

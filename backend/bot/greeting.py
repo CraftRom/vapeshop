@@ -7,6 +7,8 @@
 """
 from __future__ import annotations
 
+from html import escape
+
 import logging
 
 from bot import keyboards as kb
@@ -84,7 +86,7 @@ async def send_greeting(target) -> None:
         log.warning("BOT_USERNAME не заданий — кнопку переходу побудувати нічим")
         return
     try:
-        await target.answer(texts.GROUP_GREETING.format(shop=await shop_name()), reply_markup=markup)
+        await target.answer(texts.GROUP_GREETING.format(shop=escape(await shop_name())), reply_markup=markup)
     except Exception:
         # У каналі бот може не мати права писати, у групі — бути обмеженим.
         # Це очікувана ситуація, а не збій застосунку.

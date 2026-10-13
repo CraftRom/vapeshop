@@ -140,8 +140,10 @@ def products(items: list[Product], category_id, page: int, pages: int, scope=Non
     return kb.as_markup()
 
 
-def product_card(product: Product, in_cart: int = 0) -> InlineKeyboardMarkup:
+def product_card(product: Product, in_cart: int = 0, *, details: bool = False) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
+    if details:
+        kb.row(InlineKeyboardButton(text="📖 Детальніше", callback_data=f"prodinfo:{product.id}:0"))
     if product.stock > 0:
         if in_cart:
             kb.row(
@@ -158,16 +160,23 @@ def product_card(product: Product, in_cart: int = 0) -> InlineKeyboardMarkup:
 
 # ------------------------------------------------------------------------ кошик
 
-def cart(items: list[CartItem]) -> InlineKeyboardMarkup:
+def cart(items: list[CartItem], *, page: int = 0, pages: int = 1) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     for i in items:
-        kb.row(InlineKeyboardButton(text=f"{i.product.name}", callback_data="noop"))
+        kb.row(InlineKeyboardButton(text=i.product.name[:60], callback_data="noop"))
         kb.row(
-            InlineKeyboardButton(text="−", callback_data=f"cartqty:{i.product_id}:{i.qty - 1}"),
+            InlineKeyboardButton(text="−", callback_data=f"cartqty:{i.product_id}:{i.qty - 1}:{page}"),
             InlineKeyboardButton(text=f"{i.qty} шт", callback_data="noop"),
-            InlineKeyboardButton(text="+", callback_data=f"cartqty:{i.product_id}:{i.qty + 1}"),
-            InlineKeyboardButton(text="🗑", callback_data=f"cartqty:{i.product_id}:0"),
+            InlineKeyboardButton(text="+", callback_data=f"cartqty:{i.product_id}:{i.qty + 1}:{page}"),
+            InlineKeyboardButton(text="🗑", callback_data=f"cartqty:{i.product_id}:0:{page}"),
         )
+    nav = []
+    if page > 0:
+        nav.append(InlineKeyboardButton(text="←", callback_data=f"cartpage:{page - 1}"))
+    if page + 1 < pages:
+        nav.append(InlineKeyboardButton(text="→", callback_data=f"cartpage:{page + 1}"))
+    if nav:
+        kb.row(*nav)
     kb.row(InlineKeyboardButton(text="✅ Оформити замовлення", callback_data="checkout"))
     kb.row(
         InlineKeyboardButton(text="🛍 Каталог", callback_data="catalog"),

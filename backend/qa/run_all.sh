@@ -19,12 +19,20 @@ if ! $PY -c "import aiosqlite" 2>/dev/null; then
   exit 2
 fi
 fail=0
-QA_LOG_DIR="${QA_LOG_DIR:-/tmp/elfar-qa-logs}"
+# One private directory per run; never delete another process's SQLite files.
+QA_RUN_DIR=$(mktemp -d "${TMPDIR:-/tmp}/elfar-qa-run.XXXXXX")
+export QA_DATA_DIR="$QA_RUN_DIR/db"
+mkdir -p "$QA_DATA_DIR"
+# Never inherit live credentials or service URLs from a VPS shell/.env.
+export DATABASE_URL="sqlite+aiosqlite:///$QA_DATA_DIR/default.db"
+export BOT_TOKEN="777001:TESTTOKEN" JWT_SECRET="$(printf 't%.0s' {1..32})"
+export REDIS_URL="" SALESDRIVE_API_KEY="" NOVAPOSHTA_API_KEY=""
+trap 'rm -rf -- "$QA_DATA_DIR"' EXIT
+QA_LOG_DIR="${QA_LOG_DIR:-$QA_RUN_DIR/logs}"
 mkdir -p "$QA_LOG_DIR"
 
 run() {
   printf '  %-13s ' "$1"
-  rm -f /tmp/qa_*.db 2>/dev/null
   out=$(timeout "${QA_TIMEOUT_SECONDS:-60}" $PY "$2" 2>&1)
   code=$?
   echo "$out" > "$QA_LOG_DIR/$1.log"
@@ -41,6 +49,7 @@ run() {
   fi
 }
 
+echo "QA logs: $QA_LOG_DIR"
 echo "Комплектність"
 printf '  %-13s ' "wiring"
 if out=$($PY qa/audit_wiring.py 2>&1) && ! echo "$out" | grep -q "✗"; then
@@ -59,7 +68,8 @@ fi
 run_node() {
   printf '  %-13s ' "$1"
   if ! command -v node >/dev/null 2>&1; then
-    echo "пропущено — немає node"
+    echo "ПРОВАЛ — немає node"
+    fail=1
     return
   fi
   # Код виходу враховується разом із позначками. Раніше дивились лише на
@@ -131,6 +141,8 @@ echo "Контракти й дані"
 run domains qa/qa_domain_compatibility.py
 
 run bot-inputs qa/qa_bot_inputs.py
+run bot-text-receipts qa/qa_bot_text_receipts.py
+run qa-isolation qa/qa_isolation.py
 run checkout-integrity qa/qa_checkout_integrity.py
 run working-data qa/qa_working_data.py
 run after-sales-chat qa/qa_after_sales_chat.py

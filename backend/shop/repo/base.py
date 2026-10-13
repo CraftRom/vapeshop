@@ -482,6 +482,12 @@ class Repository(ABC):
         """Яке замовлення клієнт зараз обговорює в боті."""
 
     @abstractmethod
+    async def save_order_receipt(self, order_id: int, user_id: int, attachment: dict,
+                                 *, tg_message_id: int, author: str, text: str) -> OrderMessage | None:
+        """Atomically persist the receipt and an incoming attachment in its order chat."""
+        ...
+
+    @abstractmethod
     async def add_order_message(self, data: dict) -> OrderMessage: ...
 
     @abstractmethod

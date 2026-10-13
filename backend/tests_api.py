@@ -6,6 +6,7 @@ CRUD каталогу, повний цикл замовлення, сегмен�
 Запуск:  python tests_api.py
 """
 from __future__ import annotations
+from qa_paths import qa_db_path, qa_db_url
 
 import asyncio
 import os
@@ -41,9 +42,9 @@ def run_suite(backend: str) -> None:
     for name in [m for m in list(sys.modules) if m.startswith(("shop", "api", "bot"))]:
         del sys.modules[name]
 
-    os.environ["DATABASE_URL"] = "sqlite+aiosqlite:////tmp/api_test.db"
-    if os.path.exists("/tmp/api_test.db"):
-        os.remove("/tmp/api_test.db")
+    os.environ["DATABASE_URL"] = qa_db_url('api_test.db')
+    if os.path.exists(qa_db_path('api_test.db')):
+        os.remove(qa_db_path('api_test.db'))
 
     from api.main import app
 

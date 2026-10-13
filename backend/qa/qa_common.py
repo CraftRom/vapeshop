@@ -1,9 +1,11 @@
 """Спільний стенд для всіх наборів тестування."""
 import asyncio, hashlib, hmac, json, os, time
 from urllib.parse import urlencode
+from qa_paths import qa_db_path
 TOKEN = "777001:TESTTOKEN"
 
 def boot(db_path):
+    db_path = qa_db_path(__import__("pathlib").Path(db_path).name)
     # Прибираємо базу від попереднього запуску.
     #
     # Набір, який проходить лише на чистій базі, гірший за відсутній: він

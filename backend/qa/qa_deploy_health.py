@@ -1,4 +1,5 @@
 """Run the real phased deploy with a simulated Docker daemon and Host-aware probes."""
+from qa_paths import qa_db_path, qa_db_url
 import json
 import os
 from pathlib import Path
@@ -96,7 +97,7 @@ class DeployHealth(unittest.TestCase):
         os.environ['TRUSTED_HOSTS']=''
         from qa_common import boot
         from fastapi.testclient import TestClient
-        app,_,_=boot('/tmp/qa_deploy_health.db')
+        app,_,_=boot(qa_db_path('qa_deploy_health.db'))
         client=TestClient(app)
         self.assertEqual(client.get('/api/health',headers={'Host':'api:8000'}).status_code,400)
         self.assertEqual(client.get('/api/health',headers={'Host':'127.0.0.1'}).status_code,200)

@@ -13,6 +13,7 @@
 кожен. Не список, виписаний руками, — саме той, що зареєстрований у
 FastAPI: новий маршрут потрапляє під перевірку сам, без нагадувань.
 """
+from qa_paths import qa_db_path, qa_db_url
 import os
 import re
 import sys
@@ -23,7 +24,7 @@ sys.path.insert(0, "/tmp")
 os.environ.update(BOT_TOKEN="777001:T", JWT_SECRET="t" * 32,
                   DASHBOARD_LOGIN="root", DASHBOARD_PASSWORD="Pa$$w0rd123",
                   ELFAR_DATA_ROOT=tempfile.mkdtemp(prefix="qa_recon_"),
-                  DATABASE_URL="sqlite+aiosqlite:////tmp/qa_recon.db")
+                  DATABASE_URL=qa_db_url('qa_recon.db'))
 
 from qa_common import Report                              # noqa: E402
 

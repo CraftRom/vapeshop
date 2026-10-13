@@ -1,4 +1,5 @@
 """F08/F09: complete pages, filter counts, ownership and store calendar days."""
+from qa_paths import qa_db_path, qa_db_url
 import asyncio
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
@@ -6,7 +7,7 @@ from zoneinfo import ZoneInfo
 from httpx import ASGITransport, AsyncClient
 from qa_common import Report, boot, init_data
 
-app, Session, fake = boot('/tmp/shop_stage2_working_data_test.db')
+app, Session, fake = boot(qa_db_path('shop_stage2_working_data_test.db'))
 from api.auth import create_token
 from shop.entities import OperatorRole, OrderStatus
 from shop import models as m

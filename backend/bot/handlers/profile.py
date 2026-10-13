@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from shop.formatting import money as format_money
+from html import escape
+from shop.telegram_text import answer_html
 
 from aiogram import F, Router
 from aiogram.types import CallbackQuery, Message
@@ -32,16 +34,16 @@ async def profile(message: Message, repo: Repository, user: User) -> None:
     parts = [
         "<b>Ваш профіль</b>\n",
         f"Замовлень: {fresh.orders_count}",
-        f"Витрачено: {format_money(fresh.total_spent)} {shop.currency}",
+        f"Витрачено: {format_money(fresh.total_spent)} {escape(shop.currency)}",
     ]
     if shop.bonus_enabled:
         parts.append(
-            f"Бонусний рахунок: <b>{format_money(fresh.bonus_balance)} {shop.currency}</b>"
+            f"Бонусний рахунок: <b>{format_money(fresh.bonus_balance)} {escape(shop.currency)}</b>"
         )
     if shop.volume_discount_enabled and shop.volume_discount_min > 0:
         parts.append(
             f"\nЗнижка {format_money(shop.volume_discount_percent)}% на замовлення "
-            f"від {format_money(shop.volume_discount_min)} {shop.currency}"
+            f"від {format_money(shop.volume_discount_min)} {escape(shop.currency)}"
         )
     if shop.referral_enabled:
         parts += [
@@ -49,7 +51,7 @@ async def profile(message: Message, repo: Repository, user: User) -> None:
             f"Запрошено друзів: {fresh.referrals_count}",
             f"Ви отримуєте {format_money(shop.referral_percent)}% бонусами від кожного "
             f"виконаного замовлення запрошеного друга.",
-            f"\nВаше посилання:\n<code>{link}</code>",
+            f"\nВаше посилання:\n<code>{escape(link)}</code>",
         ]
 
     await message.answer(
@@ -68,11 +70,11 @@ async def my_orders(callback: CallbackQuery, repo: Repository, user: User) -> No
     shop = await get_shop_settings(repo)
     lines = ["<b>Останні замовлення</b>\n"]
     for order in orders:
-        items = ", ".join(f"{ln.name} ×{ln.qty}" for ln in order.items)
+        items = ", ".join(f"{escape(ln.name)} ×{ln.qty}" for ln in order.items)
         lines.append(
-            f"<b>№{order.id}</b> — {order_business.display_status_label(order)}\n"
-            f"{order.created_at:%d.%m.%Y} · {format_money(order.total)} {shop.currency}\n"
+            f"<b>№{order.id}</b> — {escape(order_business.display_status_label(order))}\n"
+            f"{order.created_at:%d.%m.%Y} · {format_money(order.total)} {escape(shop.currency)}\n"
             f"<i>{items}</i>\n"
         )
-    await callback.message.answer("\n".join(lines))
+    await answer_html(callback.message, "\n".join(lines))
     await callback.answer()

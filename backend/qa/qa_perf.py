@@ -1,7 +1,8 @@
 """PERFORMANCE: час відповіді під навантаженням."""
+from qa_paths import qa_db_path, qa_db_url
 import sys, time, statistics; sys.path.insert(0,"/tmp")
 from qa_common import boot, init_data, Report
-app, Session, fake = boot("/tmp/qa_perf.db")
+app, Session, fake = boot(qa_db_path('qa_perf.db'))
 from fastapi.testclient import TestClient
 c = TestClient(app); r = Report("PERFORMANCE")
 

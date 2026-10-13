@@ -1,4 +1,5 @@
 """Exercise the real deployment entry point and image/startup guards in isolation."""
+from qa_paths import qa_db_path, qa_db_url
 import asyncio
 import os
 from pathlib import Path
@@ -92,7 +93,7 @@ class DeploySecurity(unittest.TestCase):
     def test_valid_image_preflight_needs_no_running_database(self):
         from cryptography.fernet import Fernet
         env = {**os.environ, **VALID, "DATA_ENCRYPTION_KEY": Fernet.generate_key().decode(),
-               "DATABASE_URL": "sqlite+aiosqlite:////tmp/not-opened-preflight.db", "CORS_ORIGINS": "https://shop.example.com",
+               "DATABASE_URL": qa_db_url('not-opened-preflight.db'), "CORS_ORIGINS": "https://shop.example.com",
                "TRUSTED_HOSTS": "shop.example.com,localhost,127.0.0.1", "PYTHONPATH": str(ROOT / "backend")}
         result = subprocess.run([sys.executable, "-m", "shop.preflight"], cwd=tempfile.gettempdir(), env=env, text=True, capture_output=True, timeout=20)
         self.assertEqual(result.returncode, 0, result.stderr)

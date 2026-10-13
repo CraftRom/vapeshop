@@ -187,7 +187,7 @@ async def _deliver(
     )
     await repo.set_chat_order(user.id, order.id)
 
-    who = f" ({order.operator_name})" if order.operator_name else ""
+    who = f" ({chat.esc(order.operator_name)})" if order.operator_name else ""
     return f"Передали менеджеру{who} щодо замовлення №{order.id}. Відповідь надійде сюди."
 
 

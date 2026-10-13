@@ -1,4 +1,5 @@
 """ПЛАНУВАЛЬНИК: відкладені розсилки, тихі години, бекапи, ретенція."""
+from qa_paths import qa_db_path, qa_db_url
 import asyncio
 import os
 import sys
@@ -7,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 sys.path.insert(0, "/tmp")
 os.environ.update(BOT_TOKEN="777001:T", JWT_SECRET="t" * 32,
                   ELFAR_DATA_ROOT="/tmp/qa_sched_data",
-                  DATABASE_URL="sqlite+aiosqlite:////tmp/qa_sched.db")
+                  DATABASE_URL=qa_db_url('qa_sched.db'))
 
 from qa_common import Report                         # noqa: E402
 

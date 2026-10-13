@@ -5,6 +5,7 @@
 прибрав. Кожен крок — через HTTP із справжнім initData, бо саме на стиках
 (автостворення першого списку, збіг назв, чужі списки) і виникали помилки.
 """
+from qa_paths import qa_db_path, qa_db_url
 import asyncio
 import hashlib
 import hmac
@@ -20,14 +21,14 @@ sys.path.insert(0, "/tmp")
 BOT_TOKEN = "777001:TESTTOKEN"
 os.environ.update(BOT_TOKEN=BOT_TOKEN, JWT_SECRET="t" * 32,
                   ELFAR_DATA_ROOT=tempfile.mkdtemp(prefix="qa_wl_"),
-                  DATABASE_URL="sqlite+aiosqlite:////tmp/qa_wishlists.db")
+                  DATABASE_URL=qa_db_url('qa_wishlists.db'))
 
 # Прибираємо базу від попереднього запуску. Набір, який проходить лише на
 # чистій базі, гірший за відсутній: він падає через власні залишки, і час
 # іде на з'ясування, що зламався тест, а не застосунок.
 import pathlib  # noqa: E402
 
-pathlib.Path("/tmp/qa_wishlists.db").unlink(missing_ok=True)
+pathlib.Path(qa_db_path('qa_wishlists.db')).unlink(missing_ok=True)
 
 from qa_common import Report                              # noqa: E402
 

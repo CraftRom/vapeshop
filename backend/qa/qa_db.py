@@ -1,9 +1,10 @@
 """DATABASE: обмеження, транзакції, міграції, одночасність."""
+from qa_paths import qa_db_path, qa_db_url
 import asyncio, os, sys, subprocess
 sys.path.insert(0,"/tmp")
 from decimal import Decimal
 os.environ.update(BOT_TOKEN="777001:T", JWT_SECRET="t"*32,
-                  DATABASE_URL="sqlite+aiosqlite:////tmp/qa_db.db")
+                  DATABASE_URL=qa_db_url('qa_db.db'))
 
 # Прибираємо базу від попереднього запуску.
 #
@@ -13,9 +14,8 @@ os.environ.update(BOT_TOKEN="777001:T", JWT_SECRET="t"*32,
 # застосунок працював.
 import pathlib as _pathlib  # noqa: E402
 
-for _leftover in _pathlib.Path("/tmp").glob("qa_db*"):
-    if _leftover.is_file():
-        _leftover.unlink(missing_ok=True)
+for suffix in ("", "-wal", "-shm"):
+    _pathlib.Path(qa_db_path("qa_db.db") + suffix).unlink(missing_ok=True)
 
 from qa_common import Report
 r = Report("DATABASE")
@@ -36,8 +36,8 @@ r.check(len(revisions) >= 5, f'міграцій у графі: {len(revisions)}'
 
 print("\n--- upgrade/downgrade на чистій базі ---")
 env = dict(os.environ, PYTHONPATH=os.getcwd(),
-           DATABASE_URL="sqlite+aiosqlite:////tmp/qa_mig.db")
-if os.path.exists("/tmp/qa_mig.db"): os.remove("/tmp/qa_mig.db")
+           DATABASE_URL=qa_db_url('qa_mig.db'))
+if os.path.exists(qa_db_path('qa_mig.db')): os.remove(qa_db_path('qa_mig.db'))
 up = subprocess.run([sys.executable,"-m","alembic","upgrade","head"], capture_output=True, text=True, env=env)
 r.check(up.returncode == 0, "міграції накочуються", (up.stderr or "")[-200:])
 down = subprocess.run([sys.executable,"-m","alembic","downgrade","base"], capture_output=True, text=True, env=env)
@@ -51,7 +51,7 @@ async def main():
     from shop.entities import Order, OrderLine
     from shop.services import shop_service as svc
 
-    e = create_async_engine("sqlite+aiosqlite:////tmp/qa_db.db")
+    e = create_async_engine(qa_db_url('qa_db.db'))
     async with e.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     Session = async_sessionmaker(e, expire_on_commit=False)

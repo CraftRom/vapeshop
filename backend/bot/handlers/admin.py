@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from shop.formatting import money as format_money
+from html import escape
 
 from aiogram import F, Router
 from aiogram.filters import BaseFilter, Command
@@ -45,8 +46,8 @@ async def stats(message: Message, repo: Repository) -> None:
         f"<b>Коротка статистика</b>\n\n"
         f"Клієнтів: {summary.customers_total}\n"
         f"Нових замовлень: {summary.orders_new}\n"
-        f"Оборот продажів: {format_money(summary.sales_total)} {shop.currency}\n"
-        f"Отримано: {format_money(summary.revenue_total)} {shop.currency}\n"
+        f"Оборот продажів: {format_money(summary.sales_total)} {escape(shop.currency)}\n"
+        f"Отримано: {format_money(summary.revenue_total)} {escape(shop.currency)}\n"
         f"Товарів із залишком &lt; 5: {summary.low_stock}\n\n"
         f"Повна аналітика — у дашборді."
     )

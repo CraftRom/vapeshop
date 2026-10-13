@@ -3,7 +3,7 @@
 Перевіряє реальні React-застосунки з тестовими відповідями API та тестовим Telegram SDK. Не потребує доступу до робочих облікових записів.
 
 1. У `dashboard` та `miniapp` встановіть залежності: `npm ci`.
-2. У цьому каталозі виконайте `npm install`, `npx playwright install chromium`, `npm test`.
+2. У цьому каталозі виконайте `npm ci`, `npx playwright install chromium`, `npm test`.
 
 Скрипт сам запускає та зупиняє панель на порту 5173 і вітрину на порту 5174. Перед запуском ці порти мають бути вільні. Для сценарію оновленого каталогу окремо: `npm run test:catalog`.
 
@@ -22,3 +22,26 @@
 - `npm audit --json` у `dashboard`/`miniapp`; `pip-audit -r backend/requirements-lock.txt` для зафіксованих Python-залежностей.
 - `PYTHONPATH=backend:backend/qa python3 backend/qa/qa_deploy_security.py`: перевірка пароля до Docker/БД та фактичного середовища backend; Docker підмінений, production-сервіси не використовуються.
 - `PYTHONPATH=backend:backend/qa python3 backend/qa/qa_deploy_health.py`: усі фази deploy.sh із підміненим Docker, доступність Nginx/API та відкат при справжній відмові маршруту.
+
+
+## F16: відтворюваний повний прогін
+
+Із кореня: `python3 -m venv backend/.qa-venv`, потім
+`backend/.qa-venv/bin/pip install -r backend/requirements-lock.txt -r backend/requirements-qa.txt`.
+Запуск Python + Node: `PY="$PWD/backend/.qa-venv/bin/python" bash backend/qa/run_all.sh`.
+Кожен прогін створює власний каталог SQLite, який видаляється після завершення.
+Шлях журналів друкується на початку. Окремі Python-набори також самі отримують
+тимчасову базу; production `DATABASE_URL` не використовується стандартними сценаріями.
+Тест розсилок з явним `QA_BROADCAST_DATABASE_URL` лишається винятком: це тільки
+спеціально надана одноразова БД з наявним запобіжником назви.
+
+`qa/qa_bot_text_receipts.py`: справжній dispatcher + транспорт без мережі,
+120 позицій кошика, крайові HTML-назви й emoji, довгі описи, квитанції,
+втрата Telegram та rollback БД. `qa/qa_isolation.py`: два одночасні процеси,
+чужий файл-сентинел і очищення лише власних баз.
+
+У `browser-ui.mjs` уже застосований перемикач `Наявність товарів` з `aria-pressed`
+з етапу 2; решта F16 — повний прогін і включення всіх нових регресій у CI.
+`.github/workflows/qa.yml` запускає стандартну матрицю, обидві production-збірки
+та весь браузерний прогін. API/Telegram браузерних сценаріїв підмінені тестовими
+відповідями; це перевірка React-інтерфейсу, а не production/VPS.
