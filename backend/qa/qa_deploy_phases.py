@@ -17,4 +17,6 @@ assert "up -d --remove-orphans" not in s, "global up/remove-orphans must not ret
 assert "up -d --no-deps --force-recreate nginx" in s, "nginx must be recreated after api"
 assert "Promo Controller health" in s
 assert "rollback_core_runtime" in s
+assert s.index('qa_migration_enum_backfill.py') < s.index('stop api scheduler'), "enum-migration SQL test must run before workers stop"
+assert 'if ! "${COMPOSE[@]}" run --rm migrate; then' in s, "failed migration must show recovery guidance"
 print("deploy phased regression: PASS")

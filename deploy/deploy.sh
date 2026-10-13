@@ -127,6 +127,9 @@ echo "==> Збірка образів (поточні сервіси ще пра
 # Smoke нового backend image ДО міграцій і ДО заміни контейнерів.
 echo "==> Перевірка нового backend image"
 "${COMPOSE[@]}" run --rm --no-deps -T api python -m shop.preflight
+# Регресія PostgreSQL ENUM/VARCHAR має падати ДО зупинки старих API і worker.
+echo "==> Перевірка SQL міграції завершених замовлень"
+"${COMPOSE[@]}" run --rm --no-deps -T api python qa/qa_migration_enum_backfill.py
 
 CATALOG_BREAKING_UPGRADE=0
 BROADCAST_QUEUE_UPGRADE=0
@@ -198,7 +201,13 @@ if [[ "$BROADCAST_QUEUE_UPGRADE" == 1 ]]; then
     echo "==> Перехід черги розсилок: зупиняємо старі API і scheduler до міграції"
     "${COMPOSE[@]}" stop api scheduler
 fi
-"${COMPOSE[@]}" run --rm migrate
+if ! "${COMPOSE[@]}" run --rm migrate; then
+    echo "ПОМИЛКА: міграції БД не завершено — API / dashboard / promo НЕ оновлюємо." >&2
+    echo "Не запускайте старі розсильники вручну: попередня міграція черги могла вже зафіксуватись у PostgreSQL." >&2
+    echo "Виправте код міграції та повторіть bash deploy/deploy.sh; до цього перевірте ревізію БД." >&2
+    "${COMPOSE[@]}" run --rm --no-deps -T api alembic current >&2 || true
+    exit 1
+fi
 
 echo "==> ФАЗА 3/6: API"
 # API запускаємо окремо. Якщо він не піднявся — деплой ЗУПИНЯЄТЬСЯ ДО nginx/promo.

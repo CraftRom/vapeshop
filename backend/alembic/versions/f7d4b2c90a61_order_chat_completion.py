@@ -16,7 +16,14 @@ def upgrade():
     orders = sa.table('orders', sa.column('status'), sa.column('business_state'),
                       sa.column('business_state_at'), sa.column('updated_at'),
                       sa.column('created_at'), sa.column('completed_at'))
-    op.execute(orders.update().where(sa.or_(orders.c.status.in_(['DONE', 'CANCELLED']),
+    # orders.status is PostgreSQL's native `orderstatus` ENUM, not VARCHAR.
+    # Alembic's lightweight sa.table() declares columns as NullType unless a
+    # type is specified; `status.in_(...)` therefore binds VARCHAR parameters.
+    # PostgreSQL rejects `orderstatus = character varying` (asyncpg).
+    # Cast the *column* to VARCHAR for this one-off historical backfill.  It
+    # also works with SQLite and does not change the column or stored statuses.
+    status_text = sa.cast(orders.c.status, sa.String())
+    op.execute(orders.update().where(sa.or_(status_text.in_(['DONE', 'CANCELLED']),
                     orders.c.business_state.in_(['sale', 'refusal']))).values(
         completed_at=sa.case((orders.c.business_state.in_(['sale', 'refusal']),
                  sa.func.coalesce(orders.c.business_state_at, orders.c.updated_at, orders.c.created_at)),

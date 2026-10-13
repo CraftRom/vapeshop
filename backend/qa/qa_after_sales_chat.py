@@ -232,6 +232,9 @@ class MigrationTests(unittest.TestCase):
   out=StringIO()
   with Operations.context(MigrationContext.configure(dialect_name='postgresql',opts={'as_sql':True,'output_buffer':out})):self.load_revision().upgrade()
   self.assertIn('TIMESTAMP WITH TIME ZONE',out.getvalue());self.assertIn('UPDATE orders',out.getvalue())
+  # A bare orders.status IN (...) fails in real PostgreSQL: native orderstatus
+  # ENUM cannot be compared with asyncpg VARCHAR bind parameters.
+  self.assertIn('CAST(orders.status AS VARCHAR)',out.getvalue())
   backend=Path(__file__).resolve().parents[1]
   cfg=Config(str(backend/'alembic.ini'));cfg.set_main_option('script_location',str(backend/'alembic'))
   self.assertEqual(ScriptDirectory.from_config(cfg).get_heads(),['f7d4b2c90a61'])
