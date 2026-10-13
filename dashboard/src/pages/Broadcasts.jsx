@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import ImageField from '../components/ImageField'
 
 import { api } from '../api'
@@ -216,12 +216,68 @@ function BroadcastForm({ segments, onClose, onSaved }) {
   )
 }
 
+const DELIVERY_LABELS = {
+  sending: 'Очікує результату', sent: 'Доставлено', failed: 'Не доставлено',
+  retry: 'Очікує повтору', unknown: 'Результат невідомий',
+}
+
+function DeliveryJournal({ broadcast, onClose }) {
+  const [after, setAfter] = useState(0)
+  const [refresh, setRefresh] = useState(0)
+  const [data, setData] = useState(null)
+  const contentRef = useRef(null)
+  const [error, setError] = useState('')
+  useEffect(() => {
+    let active = true
+    setData(null)
+    setError('')
+    api.broadcasts.deliveries(broadcast.id, after).then((result) => {
+      if (active) setData(result)
+    }).catch((err) => { if (active) setError(err.message) })
+    return () => { active = false }
+  }, [broadcast.id, after, refresh])
+  useEffect(() => {
+    // Page changes can remove/disable the focused control. Keep keyboard focus
+    // inside the dialog so Escape and its focus trap remain available.
+    if (data || error) contentRef.current?.closest('[role="dialog"]')?.focus({ preventScroll: true })
+  }, [data, error])
+  return (
+    <Modal title={`Журнал: ${broadcast.title}`} onClose={onClose} footer={<>
+      <button className="btn ghost small" onClick={() => setRefresh((n) => n + 1)}>Оновити</button>
+      <button className="btn ghost small" disabled={after === 0} onClick={() => setAfter(0)}>На початок</button>
+      <button className="btn small" disabled={data?.next_cursor == null} onClick={() => setAfter(data.next_cursor)}>Далі</button>
+    </>}>
+      <p ref={contentRef} className="muted">Невідомий результат означає, що доставку неможливо підтвердити. Такі повідомлення автоматично не повторюються, щоб уникнути дублювання.</p>
+      <ErrorBar error={error} />
+      {!data && !error ? <Loading /> : data && (
+        <div className="table-wrap" style={{ maxHeight: 'min(45dvh, 400px)', overflow: 'auto' }}>
+          <table>
+            <thead><tr><th>Клієнт</th><th>Результат</th><th>Спроб</th><th>Оновлено</th></tr></thead>
+            <tbody>{data.items.map((item) => (
+              <tr key={item.user_id}>
+                <td>#{item.user_id}</td>
+                <td><span>{DELIVERY_LABELS[item.status] || item.status}</span>
+                  {item.error && <div className="faint">{item.error}</div>}
+                  {item.next_attempt_at && <div className="faint">Повтор: {dateTime(item.next_attempt_at)}</div>}
+                </td>
+                <td>{item.attempts}</td><td>{dateTime(item.updated_at)}</td>
+              </tr>
+            ))}</tbody>
+          </table>
+          {!data.items.length && <p className="muted">Записів доставок ще немає.</p>}
+        </div>
+      )}
+    </Modal>
+  )
+}
+
 export default function Broadcasts() {
   const notify = useToast()
   const [items, setItems] = useState(null)
   const [segments, setSegments] = useState([])
   const [error, setError] = useState('')
   const [creating, setCreating] = useState(false)
+  const [journal, setJournal] = useState(null)
 
   const load = useCallback(async () => {
     setError('')
@@ -252,7 +308,8 @@ export default function Broadcasts() {
   }
 
   const send = async (broadcast) => {
-    if (!confirm(`Надіслати «${broadcast.title}»? Скасувати вже не вийде.`)) return
+    const action = broadcast.status === 'failed' ? 'Продовжити' : 'Надіслати'
+    if (!confirm(`${action} «${broadcast.title}»? Збережені результати не надсилатимуться повторно.`)) return
     try {
       await api.broadcasts.send(broadcast.id)
       notify('Розсилка стартувала')
@@ -330,9 +387,19 @@ export default function Broadcasts() {
                         {b.failed_count > 0 && (
                           <span className="faint"> · {b.failed_count} не дійшло</span>
                         )}
+                        {b.unknown_count > 0 && <div className="faint">{b.unknown_count} невідомих результатів</div>}
                       </td>
                       <td>
-                        <span className={`chip ${chip.cls}`}>{chip.label}</span>
+                        <span className={`chip ${chip.cls}`}>{b.status === 'sent' ? 'Завершено' : chip.label}</span>
+                        {b.status === 'sending' && (
+                          <div className="faint">
+                            {b.lease_until && new Date(b.lease_until) > new Date()
+                              ? (b.heartbeat_at ? 'Виконується / очікує повтору' : 'Очікує запуску')
+                              : 'Очікує автоматичного відновлення'}
+                          </div>
+                        )}
+                        {b.heartbeat_at && <div className="faint">Активність: {dateTime(b.heartbeat_at)}</div>}
+                        {b.last_error && <div className="faint">Остання помилка: {b.last_error}</div>}
                         {b.status === 'scheduled' && b.scheduled_at && (
                           <div className="faint">{dateTime(b.scheduled_at)}</div>
                         )}
@@ -340,9 +407,10 @@ export default function Broadcasts() {
                       <td className="faint">{dateTime(b.created_at)}</td>
                       <td>
                         <div className="row">
-                          {(b.status === 'draft' || b.status === 'scheduled') && (
+                          <button className="btn ghost small" onClick={() => setJournal(b)}>Журнал</button>
+                          {(b.status === 'draft' || b.status === 'scheduled' || b.status === 'failed') && (
                             <button className="btn small" onClick={() => send(b)}>
-                              Надіслати зараз
+                              {b.status === 'failed' ? 'Продовжити' : 'Надіслати зараз'}
                             </button>
                           )}
                           {b.status === 'scheduled' && (
@@ -364,6 +432,7 @@ export default function Broadcasts() {
         </div>
       )}
 
+      {journal && <DeliveryJournal broadcast={journal} onClose={() => setJournal(null)} />}
       {creating && (
         <BroadcastForm
           segments={segments}

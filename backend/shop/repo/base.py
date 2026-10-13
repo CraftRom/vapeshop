@@ -347,6 +347,27 @@ class Repository(ABC):
     # ------------------------------------------------------- broadcasts
 
     @abstractmethod
+    async def transition_broadcast(self, broadcast_id, statuses, data) -> bool: ...
+
+    @abstractmethod
+    async def claim_broadcast(self, broadcast_id, owner, lease_seconds=120) -> Broadcast | None: ...
+
+    @abstractmethod
+    async def heartbeat_broadcast(self, broadcast_id, owner, lease_seconds=120) -> bool: ...
+
+    @abstractmethod
+    async def begin_broadcast_delivery(self, broadcast_id, owner, user_id, tg_id) -> dict: ...
+
+    @abstractmethod
+    async def finish_broadcast_delivery(self, broadcast_id, owner, user_id, status, error=None, next_attempt_at=None) -> bool: ...
+
+    @abstractmethod
+    async def release_broadcast(self, broadcast_id, owner, *, cursor_id=None, finished=False, error=None, next_attempt_at=None) -> bool: ...
+
+    @abstractmethod
+    async def list_broadcast_deliveries(self, broadcast_id, after=0, limit=100) -> dict: ...
+
+    @abstractmethod
     async def list_broadcasts(self) -> list[Broadcast]: ...
 
     @abstractmethod

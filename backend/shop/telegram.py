@@ -143,3 +143,54 @@ async def send_broadcast_message(
 
     payload["text"] = text
     return await _call("sendMessage", payload)
+
+
+@dataclass(frozen=True)
+class BroadcastDeliveryResult:
+    status: str  # sent / failed / retry / unknown
+    error: str | None = None
+    retry_after: float = 1.0
+
+
+async def send_broadcast_once(tg_id: int, text: str, photo_url: str | None = None,
+                              button_text: str | None = None,
+                              button_url: str | None = None) -> BroadcastDeliveryResult:
+    """One durable queue attempt; never repeat an ambiguous network outcome.
+
+    The legacy _call retries timeouts. Broadcasts use a separate one-shot path
+    so the recipient journal, rather than an invisible HTTP loop, owns retries.
+    """
+    payload: dict = {"chat_id": tg_id, "parse_mode": "HTML"}
+    if button_text and button_url:
+        payload["reply_markup"] = {"inline_keyboard": [[{
+            "text": button_text, "url": canonical_button_url(button_url)}]]}
+    method = "sendPhoto" if photo_url else "sendMessage"
+    payload.update({"photo": photo_url, "caption": text} if photo_url else {"text": text})
+    try:
+        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+            response = await client.post(f"{BASE}/{method}", json=payload)
+        try:
+            data = response.json()
+        except ValueError:
+            return BroadcastDeliveryResult("unknown", "Telegram повернув нечитабельну відповідь")
+        if not isinstance(data, dict):
+            return BroadcastDeliveryResult("unknown", "Некоректна відповідь Telegram")
+        if data.get("ok"):
+            return BroadcastDeliveryResult("sent")
+        error = str(data.get("description") or f"HTTP {response.status_code}")[:500]
+        code = data.get("error_code") or response.status_code
+        if code == 429:
+            try:
+                delay = max(1.0, float((data.get("parameters") or {}).get("retry_after") or 1))
+            except (TypeError, ValueError):
+                delay = 1.0
+            return BroadcastDeliveryResult("retry", error, delay)
+        if isinstance(code, int) and 400 <= code < 500:
+            return BroadcastDeliveryResult("failed", error)
+        # A gateway/server failure may occur after Telegram accepts the request.
+        return BroadcastDeliveryResult("unknown", error)
+    except (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout):
+        return BroadcastDeliveryResult("retry", "З'єднання з Telegram не встановлено", 5.0)
+    except httpx.HTTPError:
+        # Avoid leaking token-bearing request URLs into persisted error text.
+        return BroadcastDeliveryResult("unknown", "Відповідь Telegram втрачено; доставку не підтверджено")

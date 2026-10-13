@@ -130,9 +130,8 @@ async def main() -> None:
     stopping = asyncio.Event()
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGTERM, signal.SIGINT):
-        # Без цього docker compose down чекав би десять секунд і вбивав
-        # процес посеред розсилки. Курсор би вцілів, але половина порції
-        # поїхала б повторно при наступному запуску.
+        # Graceful stop completes the bounded chunk. A forced kill leaves
+        # durable attempts for conservative recovery after lease expiry.
         with contextlib.suppress(NotImplementedError):
             loop.add_signal_handler(sig, stopping.set)
 

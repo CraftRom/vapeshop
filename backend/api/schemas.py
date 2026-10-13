@@ -515,6 +515,10 @@ class BroadcastOut(ORMModel):
     sent_count: int = 0
     failed_count: int = 0
     cursor_id: int = 0
+    unknown_count: int = 0
+    heartbeat_at: datetime | None = None
+    lease_until: datetime | None = None
+    last_error: str | None = None
     scheduled_at: datetime | None = None
     created_at: datetime | None = None
     finished_at: datetime | None = None

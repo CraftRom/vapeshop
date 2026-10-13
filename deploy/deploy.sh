@@ -129,10 +129,11 @@ echo "==> Перевірка нового backend image"
 "${COMPOSE[@]}" run --rm --no-deps -T api python -m shop.preflight
 
 CATALOG_BREAKING_UPGRADE=0
+BROADCAST_QUEUE_UPGRADE=0
 
 rollback_core_runtime() {
-    if [[ "$CATALOG_BREAKING_UPGRADE" == 1 ]]; then
-        echo "Каталог уже перейшов на нову схему. Повернення старих образів потребує відновлення резервної копії БД; автоматичний runtime rollback пропущено." >&2
+    if [[ "$CATALOG_BREAKING_UPGRADE" == 1 || "$BROADCAST_QUEUE_UPGRADE" == 1 ]]; then
+        echo "Каталог або черга розсилок уже перейшли на нову схему. Повернення старих образів потребує відновлення резервної копії БД; автоматичний runtime rollback пропущено." >&2
         return
     fi
     echo "==> Основний реліз не пройшов health gate. Rollback CORE runtime..." >&2
@@ -186,6 +187,16 @@ if [[ "$CATALOG_BREAKING_UPGRADE" == 1 ]]; then
     fi
     echo "==> Перехід каталогу: зупиняємо старі API, бот і scheduler до міграції"
     "${COMPOSE[@]}" stop api bot scheduler
+fi
+# Old broadcast workers do not use leases: never overlap them with the new queue.
+BROADCAST_QUEUE_UPGRADE="$("${COMPOSE[@]}" run --rm --no-deps -T api python -m shop.broadcast_upgrade)"
+if [[ "$BROADCAST_QUEUE_UPGRADE" == 1 ]]; then
+    if [[ "$BACKUP_CREATED" != 1 ]]; then
+        echo "Перехід черги розсилок зупинено: спочатку потрібен успішний бекап БД." >&2
+        exit 1
+    fi
+    echo "==> Перехід черги розсилок: зупиняємо старі API і scheduler до міграції"
+    "${COMPOSE[@]}" stop api scheduler
 fi
 "${COMPOSE[@]}" run --rm migrate
 

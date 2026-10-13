@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 
 from api.auth import require_staff
 from api.schemas import BroadcastIn, BroadcastOut, ScheduleIn, SegmentIn
@@ -88,10 +88,11 @@ async def schedule_broadcast(
     if moment < current_hour:
         raise HTTPException(422, "Час запуску вже минув")
 
-    await repo.update_broadcast(broadcast_id, {
-        "status": BroadcastStatus.SCHEDULED,
-        "scheduled_at": moment,
-    })
+    if not await repo.transition_broadcast(broadcast_id,
+            [BroadcastStatus.DRAFT, BroadcastStatus.SCHEDULED, BroadcastStatus.FAILED],
+            {"status": BroadcastStatus.SCHEDULED, "scheduled_at": moment,
+             "lease_owner": None, "lease_until": None}):
+        raise HTTPException(409, "Розсилка вже виконується або надіслана")
     return await repo.get_broadcast(broadcast_id)
 
 
@@ -104,10 +105,9 @@ async def unschedule_broadcast(broadcast_id: int, repo: Repository = Depends(get
     if broadcast.status != BroadcastStatus.SCHEDULED:
         raise HTTPException(409, "Ця розсилка не запланована")
 
-    await repo.update_broadcast(broadcast_id, {
-        "status": BroadcastStatus.DRAFT,
-        "scheduled_at": None,
-    })
+    if not await repo.transition_broadcast(broadcast_id, [BroadcastStatus.SCHEDULED],
+            {"status": BroadcastStatus.DRAFT, "scheduled_at": None}):
+        raise HTTPException(409, "Розсилка вже захоплена виконавцем")
     return await repo.get_broadcast(broadcast_id)
 
 
@@ -125,10 +125,13 @@ async def send_broadcast(
     if broadcast.status == BroadcastStatus.SENT:
         raise HTTPException(409, "Цю розсилку вже надіслано")
 
-    await repo.update_broadcast(broadcast_id, {
-        "status": BroadcastStatus.SENDING,
-        "sent_count": 0, "failed_count": 0, "cursor_id": 0,
-    })
+    if not await repo.transition_broadcast(broadcast_id,
+            [BroadcastStatus.DRAFT, BroadcastStatus.SCHEDULED, BroadcastStatus.FAILED],
+            {"status": BroadcastStatus.SENDING, "lease_owner": None,
+             "lease_until": None, "finished_at": None}):
+        raise HTTPException(409, "Розсилка вже виконується або надіслана")
+    # Counters/cursor/journal survive retries. API exit before background task
+    # starts is safe: scheduler also selects SENDING without an active lease.
 
     # Порції крутить фонове завдання самого API. Планувальник тут не
     # потрібен: це ручний запуск, адміністратор чекає результату зараз.
@@ -152,4 +155,14 @@ async def delete_broadcast(broadcast_id: int, repo: Repository = Depends(get_rep
         raise HTTPException(404, "Розсилку не знайдено")
     if broadcast.status == BroadcastStatus.SENDING:
         raise HTTPException(409, "Не можна видалити розсилку, яка виконується")
-    await repo.delete_broadcast(broadcast_id)
+    if not await repo.delete_broadcast(broadcast_id):
+        raise HTTPException(409, "Розсилка вже захоплена виконавцем")
+
+
+@router.get("/{broadcast_id}/deliveries")
+async def broadcast_deliveries(broadcast_id: int, after: int = Query(0, ge=0),
+                              limit: int = Query(100, ge=1, le=200),
+                              repo: Repository = Depends(get_repo)):
+    if not await repo.get_broadcast(broadcast_id):
+        raise HTTPException(404, "Розсилку не знайдено")
+    return await repo.list_broadcast_deliveries(broadcast_id, after, limit)

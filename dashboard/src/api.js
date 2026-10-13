@@ -516,6 +516,7 @@ export const api = {
 
   broadcasts: {
     list: () => request('/broadcasts'),
+    deliveries: (id, after = 0) => request(`/broadcasts/${id}/deliveries?after=${after}&limit=50`),
     segments: () => request('/broadcasts/segments'),
     preview: (segment) => request('/broadcasts/preview', { method: 'POST', body: segment }),
     create: (data) => request('/broadcasts', { method: 'POST', body: data }),

@@ -33,46 +33,23 @@ async def run_due_broadcasts() -> int:
     є те значення, яке чинне на момент відправки.
     """
     now = datetime.now(timezone.utc)
-
     async with open_repo() as repo:
         shop = await get_shop_settings(repo)
-        due = await repo.due_broadcasts(now)
-
-        if not due:
-            return 0
-
         if shop.in_quiet_hours(now):
-            wake = shop.next_active_moment(now)
-            log.info(
-                "Тихі години: %s розсилок чекають до %s",
-                len(due), wake.strftime("%H:%M %d.%m"),
-            )
             return 0
-
-        started = []
-        for item in due:
-            # Статус переводимо одразу й окремим записом: якщо процес упаде
-            # між цим і початком відправки, розсилка не піде вдруге з нуля.
-            await repo.update_broadcast(item.id, {
-                "status": BroadcastStatus.SENDING,
-                "sent_count": 0, "failed_count": 0, "cursor_id": 0,
-            })
-            started.append(item.id)
-
-    for broadcast_id in started:
-        log.info("Запускаю заплановану розсилку %s", broadcast_id)
+        due = await repo.due_broadcasts(now)
+    started = 0
+    # One bounded chunk per candidate per tick, so CRM/backup tasks still run.
+    # Selection grants no ownership: send_chunk performs an atomic lease claim.
+    for item in due:
         try:
-            await broadcast_service.run_to_completion(
-                broadcast_id, chunk=settings.broadcast_chunk
-            )
-        except Exception:
-            # Одна розсилка не має валити планувальник: решта черги
-            # має відпрацювати, а причину видно в логах.
-            log.exception("Розсилка %s впала", broadcast_id)
             async with open_repo() as repo:
-                await repo.update_broadcast(broadcast_id, {"status": BroadcastStatus.FAILED})
-
-    return len(started)
+                count, finished = await broadcast_service.send_chunk(
+                    repo, item, min(max(1, settings.broadcast_chunk), 30))
+            started += int(count > 0 or finished)
+        except Exception:
+            log.exception("Розсилка %s чекає наступного recovery-тіку", item.id)
+    return started
 
 
 # ---------------------------------------------------------------- бекапи

@@ -362,6 +362,8 @@ def _broadcast(row) -> Broadcast | None:
         segment=row.segment or {}, status=BroadcastStatus(row.status.value),
         sent_count=row.sent_count, failed_count=row.failed_count,
         cursor_id=row.cursor_id, scheduled_at=row.scheduled_at,
+        unknown_count=row.unknown_count, lease_owner=row.lease_owner,
+        lease_until=row.lease_until, heartbeat_at=row.heartbeat_at, last_error=row.last_error,
         created_at=row.created_at, finished_at=row.finished_at,
     )
 
@@ -1619,7 +1621,7 @@ class SqlRepository(Repository):
         )]
 
     async def get_broadcast(self, broadcast_id) -> Broadcast | None:
-        return _broadcast(await self.s.get(m.Broadcast, broadcast_id))
+        return _broadcast(await self.s.get(m.Broadcast, broadcast_id, populate_existing=True))
 
     async def create_broadcast(self, data: dict) -> Broadcast:
         row = m.Broadcast(**data)
@@ -1636,6 +1638,130 @@ class SqlRepository(Repository):
             setattr(row, key, value)
         await self.s.commit()
         return _broadcast(row)
+
+    async def transition_broadcast(self, broadcast_id, statuses, data) -> bool:
+        result = await self.s.execute(update(m.Broadcast).where(
+            m.Broadcast.id == broadcast_id, m.Broadcast.status.in_(statuses)
+        ).values(**data).execution_options(synchronize_session=False))
+        await self.s.commit()
+        return result.rowcount == 1
+
+    async def claim_broadcast(self, broadcast_id, owner, lease_seconds=120) -> Broadcast | None:
+        now = datetime.now(timezone.utc)
+        result = await self.s.execute(update(m.Broadcast).where(
+            m.Broadcast.id == broadcast_id,
+            or_(m.Broadcast.status == BroadcastStatus.SENDING,
+                and_(m.Broadcast.status == BroadcastStatus.SCHEDULED,
+                     m.Broadcast.scheduled_at <= now)),
+            or_(m.Broadcast.lease_until.is_(None), m.Broadcast.lease_until <= now),
+        ).values(status=BroadcastStatus.SENDING, lease_owner=owner,
+                 lease_until=now + timedelta(seconds=lease_seconds), heartbeat_at=now)
+          .execution_options(synchronize_session=False))
+        if result.rowcount != 1:
+            await self.s.rollback()
+            return None
+        # A previous process may have sent these. Never retry an ambiguous attempt.
+        recovered = await self.s.execute(update(m.BroadcastDelivery).where(
+            m.BroadcastDelivery.broadcast_id == broadcast_id,
+            m.BroadcastDelivery.status == "sending",
+        ).values(status="unknown", error="Виконавець зупинився до збереження результату",
+                 updated_at=now).execution_options(synchronize_session=False))
+        if recovered.rowcount:
+            await self.s.execute(update(m.Broadcast).where(m.Broadcast.id == broadcast_id)
+                .values(unknown_count=m.Broadcast.unknown_count + recovered.rowcount)
+                .execution_options(synchronize_session=False))
+        await self.s.commit()
+        return await self.get_broadcast(broadcast_id)
+
+    async def _broadcast_guard(self, broadcast_id, owner, **values) -> bool:
+        # Conditional UPDATE also locks the parent row until journal/counter commit.
+        now = datetime.now(timezone.utc)
+        result = await self.s.execute(update(m.Broadcast).where(
+            m.Broadcast.id == broadcast_id, m.Broadcast.status == BroadcastStatus.SENDING,
+            m.Broadcast.lease_owner == owner, m.Broadcast.lease_until > now,
+        ).values(**(values or {"heartbeat_at": now}))
+          .execution_options(synchronize_session=False))
+        if result.rowcount != 1:
+            await self.s.rollback()
+            return False
+        return True
+
+    async def heartbeat_broadcast(self, broadcast_id, owner, lease_seconds=120) -> bool:
+        now = datetime.now(timezone.utc)
+        ok = await self._broadcast_guard(broadcast_id, owner, heartbeat_at=now,
+                                        lease_until=now + timedelta(seconds=lease_seconds))
+        if ok:
+            await self.s.commit()
+        return ok
+
+    async def begin_broadcast_delivery(self, broadcast_id, owner, user_id, tg_id) -> dict:
+        if not await self._broadcast_guard(broadcast_id, owner):
+            return {"action": "lost"}
+        row = await self.s.get(m.BroadcastDelivery, (broadcast_id, user_id), populate_existing=True)
+        now = datetime.now(timezone.utc)
+        if row and row.status in ("sent", "failed", "unknown"):
+            await self.s.commit()
+            return {"action": "skip"}
+        if row and row.next_attempt_at:
+            due = row.next_attempt_at.replace(tzinfo=timezone.utc) if row.next_attempt_at.tzinfo is None else row.next_attempt_at
+            if due > now:
+                await self.s.commit()
+                return {"action": "wait", "next_attempt_at": due}
+        if row is None:
+            row = m.BroadcastDelivery(broadcast_id=broadcast_id, user_id=user_id,
+                                      tg_id=tg_id, attempts=0)
+            self.s.add(row)
+        row.status = "sending"
+        row.attempts += 1
+        row.next_attempt_at = None
+        row.updated_at = now
+        await self.s.commit()  # MUST precede network I/O
+        return {"action": "send", "attempts": row.attempts}
+
+    async def finish_broadcast_delivery(self, broadcast_id, owner, user_id, status, error=None, next_attempt_at=None) -> bool:
+        if status not in ("sent", "failed", "unknown", "retry"):
+            raise ValueError("invalid delivery result")
+        if not await self._broadcast_guard(broadcast_id, owner):
+            return False
+        row = await self.s.get(m.BroadcastDelivery, (broadcast_id, user_id), populate_existing=True)
+        if row is None or row.status != "sending":
+            await self.s.rollback()
+            return False
+        row.status, row.error = status, error
+        row.next_attempt_at = next_attempt_at
+        row.updated_at = datetime.now(timezone.utc)
+        values = {"last_error": error} if error else {}
+        count = {"sent": "sent_count", "failed": "failed_count", "unknown": "unknown_count"}.get(status)
+        if count:
+            values[count] = getattr(m.Broadcast, count) + 1
+        if values:
+            await self.s.execute(update(m.Broadcast).where(m.Broadcast.id == broadcast_id)
+                .values(**values).execution_options(synchronize_session=False))
+        await self.s.commit()
+        return True
+
+    async def release_broadcast(self, broadcast_id, owner, *, cursor_id=None, finished=False, error=None, next_attempt_at=None) -> bool:
+        values = {"lease_owner": None, "lease_until": next_attempt_at}
+        if cursor_id is not None:
+            values["cursor_id"] = cursor_id
+        if finished:
+            values.update(status=BroadcastStatus.SENT, finished_at=datetime.now(timezone.utc))
+        if error:
+            values["last_error"] = error
+        ok = await self._broadcast_guard(broadcast_id, owner, **values)
+        if ok:
+            await self.s.commit()
+        return ok
+
+    async def list_broadcast_deliveries(self, broadcast_id, after=0, limit=100) -> dict:
+        rows = list(await self.s.scalars(select(m.BroadcastDelivery).where(
+            m.BroadcastDelivery.broadcast_id == broadcast_id, m.BroadcastDelivery.user_id > after
+        ).order_by(m.BroadcastDelivery.user_id).limit(limit + 1)))
+        return {"items": [{"user_id": r.user_id, "tg_id": r.tg_id, "status": r.status,
+                           "attempts": r.attempts, "error": r.error,
+                           "next_attempt_at": r.next_attempt_at, "updated_at": r.updated_at}
+                          for r in rows[:limit]],
+                "next_cursor": rows[limit - 1].user_id if len(rows) > limit else None}
 
     async def delete_order(self, order_id) -> bool:
         # Позиції й повідомлення прибираємо явно, а не покладаємось на
@@ -1693,35 +1819,28 @@ class SqlRepository(Repository):
         return int(count)
 
     async def delete_broadcast(self, broadcast_id) -> bool:
-        row = await self.s.get(m.Broadcast, broadcast_id)
-        if not row:
+        # Lock and re-check atomically against concurrent send/scheduler claims.
+        result = await self.s.execute(update(m.Broadcast).where(
+            m.Broadcast.id == broadcast_id, m.Broadcast.status != BroadcastStatus.SENDING
+        ).values(last_error=m.Broadcast.last_error).execution_options(synchronize_session=False))
+        if result.rowcount != 1:
+            await self.s.rollback()
             return False
-        await self.s.delete(row)
+        await self.s.execute(delete(m.BroadcastDelivery).where(m.BroadcastDelivery.broadcast_id == broadcast_id))
+        await self.s.execute(delete(m.Broadcast).where(m.Broadcast.id == broadcast_id))
         await self.s.commit()
         return True
 
     async def next_pending_broadcast(self) -> Broadcast | None:
-        return _broadcast(await self.s.scalar(
-            select(m.Broadcast).where(m.Broadcast.status == BroadcastStatus.SENDING)
-            .order_by(m.Broadcast.created_at).limit(1)
-        ))
+        due = await self.due_broadcasts(datetime.now(timezone.utc))
+        return next((b for b in due if b.status == BroadcastStatus.SENDING), None)
 
     async def due_broadcasts(self, now: datetime) -> list[Broadcast]:
-        """Заплановані розсилки, чий час уже настав.
-
-        Беремо всі дозрілі, а не одну: якщо планувальник стояв (рестарт
-        сервера, збій), пропущені розсилки мають піти після відновлення,
-        а не загубитися до наступного збігу хвилини.
-        """
-        rows = await self.s.scalars(
-            select(m.Broadcast)
-            .where(
-                m.Broadcast.status == BroadcastStatus.SCHEDULED,
-                m.Broadcast.scheduled_at.is_not(None),
-                m.Broadcast.scheduled_at <= now,
-            )
-            .order_by(m.Broadcast.scheduled_at)
-        )
+        rows = await self.s.scalars(select(m.Broadcast).where(
+            or_(and_(m.Broadcast.status == BroadcastStatus.SCHEDULED, m.Broadcast.scheduled_at <= now),
+                and_(m.Broadcast.status == BroadcastStatus.SENDING,
+                     or_(m.Broadcast.lease_until.is_(None), m.Broadcast.lease_until <= now)))
+        ).order_by(m.Broadcast.created_at).limit(100))
         return [_broadcast(row) for row in rows]
 
     # --------------------------------------------------------- segments

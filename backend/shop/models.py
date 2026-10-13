@@ -325,7 +325,8 @@ class BonusTx(Base):
 
 class Broadcast(Base):
     __tablename__ = "broadcasts"
-    __table_args__ = (Index("ix_broadcasts_due", "status", "scheduled_at"),)
+    __table_args__ = (Index("ix_broadcasts_due", "status", "scheduled_at"),
+                      Index("ix_broadcasts_recovery", "status", "lease_until"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     title: Mapped[str] = mapped_column(String(255))
@@ -343,9 +344,27 @@ class Broadcast(Base):
     # Індекс саме по (status, scheduled_at): планувальник щогодини питає
     # «що вже дозріло», і без індексу це був би повний скан таблиці розсилок
     # на кожен тік.
+    unknown_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    lease_owner: Mapped[str | None] = mapped_column(String(64))
+    lease_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_error: Mapped[str | None] = mapped_column(Text)
     scheduled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class BroadcastDelivery(Base):
+    """Durable attempt/result; user ID is retained even if the customer is deleted."""
+    __tablename__ = "broadcast_deliveries"
+    broadcast_id: Mapped[int] = mapped_column(ForeignKey("broadcasts.id", ondelete="CASCADE"), primary_key=True)
+    user_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    tg_id: Mapped[int] = mapped_column(BigInteger)
+    status: Mapped[str] = mapped_column(String(16))
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    error: Mapped[str | None] = mapped_column(Text)
+    next_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
 class Setting(Base):
