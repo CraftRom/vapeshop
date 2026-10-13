@@ -215,3 +215,6 @@
 }
 
 @media (max-width: 599px) { .taxonomy-scroll-buttons { display: none; } .catalog-reset { width: 100%; } }
+
+.storefront .chat-screen { height: calc(100dvh - 80px - var(--store-nav-height) - var(--safe-bottom)); min-height: 240px; }
+.storefront .chat-screen .chat-compose { bottom: auto; }

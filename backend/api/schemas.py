@@ -188,6 +188,9 @@ class OrderOut(ORMModel):
     crm_fetched_at: datetime | None = None
     business_state: str = "pending"
     business_state_at: datetime | None = None
+    completed_at: datetime | None = None
+    can_chat: bool = False
+    chat_until: datetime | None = None
     operator_id: int | None = None
     operator_name: str = ""
     created_at: datetime | None = None
@@ -284,6 +287,17 @@ class SalesDriveOrderPatch(BaseModel):
         if not supplied:
             raise ValueError("Не передано жодного поля для SalesDrive")
         return self
+
+
+class MessageReadIn(BaseModel):
+    message_ids: list[int] = Field(default_factory=list, max_length=500)
+
+    @field_validator("message_ids")
+    @classmethod
+    def positive_ids(cls, value):
+        if any(x <= 0 for x in value):
+            raise ValueError("Message IDs must be positive")
+        return list(dict.fromkeys(value))
 
 
 class OrderMessageIn(BaseModel):

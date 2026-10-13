@@ -15,7 +15,7 @@ const STATUS = {
   cancelled: 'Скасовано',
 }
 
-export function Profile({ config, profile, profileFailed, orders, ordersState, onOrdersChange, onLoadMore }) {
+export function Profile({ config, profile, profileFailed, orders, ordersState, onOrdersChange, onLoadMore, onOpenChat }) {
   const [copied, setCopied] = useState(false)
   // Номер замовлення, яке саме скасовується. Не булеве значення: із
   // кількома замовленнями на екрані треба знати, на якій саме кнопці
@@ -204,6 +204,9 @@ export function Profile({ config, profile, profileFailed, orders, ordersState, o
                 </li>
               ))}
             </ul>
+            <button className="secondary" onClick={() => onOpenChat(o)}>
+              {o.can_chat ? 'Чат з менеджером' : 'Історія чату'}
+            </button>
             {/* Кнопку показуємо лише там, де скасування ще можливе, і
                 вирішує це сервер. Дві копії правила розійшлися б при
                 першій зміні маршруту статусів. */}

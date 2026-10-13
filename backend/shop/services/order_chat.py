@@ -12,6 +12,7 @@ from shop.formatting import money as format_money
 
 import logging
 from datetime import datetime, timedelta
+from shop.services.chat_access import OPEN_STATUSES, CLOSED_GRACE_DAYS, can_chat, is_closed
 from html import escape
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
@@ -23,17 +24,6 @@ from shop.services.status_messages import is_permanent_delivery_error
 
 log = logging.getLogger(__name__)
 
-# Статуси, за яких листування триває без обмежень.
-OPEN_STATUSES = (
-    OrderStatus.NEW, OrderStatus.CONFIRMED, OrderStatus.ACCEPTED,
-    OrderStatus.PAID, OrderStatus.SHIPPED,
-)
-
-# Скільки днів після закриття замовлення розмова ще доступна.
-# Без цього клієнт, який щойно отримав посилку і хоче щось уточнити,
-# упирався б у «немає активних замовлень» — саме тоді, коли питання
-# найімовірніші: недостача, брак, повернення.
-CLOSED_GRACE_DAYS = 7
 
 
 async def _remember_delivery(repo: Repository, user, delivered: bool, error=None) -> None:
@@ -227,13 +217,7 @@ async def send_tracking(bot, repo: Repository, order: Order, tracking: str) -> b
 
 
 def is_chattable(order: Order) -> bool:
-    """Чи можна ще писати щодо цього замовлення."""
-    if order.status in OPEN_STATUSES:
-        return True
-    if not order.created_at:
-        return False
-    closed_for = datetime.now(order.created_at.tzinfo) - order.created_at
-    return closed_for <= timedelta(days=CLOSED_GRACE_DAYS)
+    return can_chat(order)
 
 
 async def send_tracking_update(bot, repo: Repository, order: Order, tracking: str) -> bool:
@@ -287,7 +271,7 @@ async def open_orders_for(repo: Repository, user_id: int) -> list[Order]:
 
     Використовується для показу списку й вибору кнопкою.
     """
-    orders = await repo.list_orders(user_id=user_id, limit=20)
+    orders = await repo.list_orders(user_id=user_id, limit=None)
     return [o for o in orders if is_chattable(o)]
 
 
@@ -298,8 +282,8 @@ async def active_orders_for(repo: Repository, user_id: int) -> list[Order]:
     робило б вибір неоднозначним, і клієнта питали б кнопками навіть тоді,
     коли активне замовлення в нього одне.
     """
-    orders = await repo.list_orders(user_id=user_id, limit=20)
-    return [o for o in orders if o.status in OPEN_STATUSES]
+    orders = await repo.list_orders(user_id=user_id, limit=None)
+    return [o for o in orders if not is_closed(o)]
 
 
 async def route_incoming(repo: Repository, user, message) -> int | None:
@@ -312,7 +296,12 @@ async def route_incoming(repo: Repository, user, message) -> int | None:
     if reply_to is not None:
         order_id = await repo.find_order_by_tg_message(reply_to.message_id, user.id)
         if order_id:
-            return order_id
+            order = await repo.get_order(order_id)
+            if order and order.user_id == user.id and is_chattable(order):
+                return order_id
+            # An explicit reply to a closed order must not be reassigned to
+            # another currently active order.
+            return None
 
     # Замовлення, яке клієнт обрав кнопкою. Зберігається в базі, тож
     # переживає холодний старт функції — на відміну від стану FSM.
@@ -328,16 +317,21 @@ async def route_incoming(repo: Repository, user, message) -> int | None:
     return None
 
 
-def pick_order_keyboard(orders: list[Order]) -> InlineKeyboardMarkup:
-    """Кнопки вибору замовлення, коли їх кілька."""
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(
-            text=f"№{o.id} · {format_money(o.total)} · {o.created_at:%d.%m}" if o.created_at
-                 else f"№{o.id} · {format_money(o.total)}",
-            callback_data=f"chat:{o.id}",
-        )]
-        for o in orders[:8]
-    ])
+def pick_order_keyboard(orders: list[Order], offset: int = 0) -> InlineKeyboardMarkup:
+    """Bounded pages keep every eligible chat reachable in Telegram."""
+    offset = max(0, min(int(offset), max(0, (len(orders) - 1) // 8 * 8)))
+    rows = [[InlineKeyboardButton(
+        text=f"№{o.id} · {format_money(o.total)} · {o.created_at:%d.%m}" if o.created_at else f"№{o.id} · {format_money(o.total)}",
+        callback_data=f"chat:{o.id}",
+    )] for o in orders[offset:offset + 8]]
+    navigation = []
+    if offset:
+        navigation.append(InlineKeyboardButton(text="← Попередні", callback_data=f"chatpage:{max(0, offset - 8)}"))
+    if offset + 8 < len(orders):
+        navigation.append(InlineKeyboardButton(text="Наступні →", callback_data=f"chatpage:{offset + 8}"))
+    if navigation:
+        rows.append(navigation)
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def contact_options_keyboard(
@@ -357,6 +351,8 @@ def contact_options_keyboard(
             url=app_link(f"chat_{order.id}"),
         )])
 
+    if len(orders) > 8:
+        rows.append([InlineKeyboardButton(text="💬 Усі доступні чати", url=app_link("chats"))])
     if include_support:
         rows.append([InlineKeyboardButton(
             text="🆘 Загальне питання / техпідтримка",

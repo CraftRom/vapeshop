@@ -495,10 +495,12 @@ class Repository(ABC):
         """Замовлення, до якого належить повідомлення бота. Для розбору відповідей."""
 
     @abstractmethod
-    async def mark_messages_read(self, order_id: int) -> int:
-        """Позначає вхідні прочитаними. Повертає, скільки було непрочитаних."""
+    async def mark_messages_read(self, order_id: int, message_ids: list[int] | None = None) -> int:
+        """Позначає тільки передані ID вхідних повідомлень. Порожній список — no-op."""
 
-    @abstractmethod
+    async def mark_client_read(self, order_id: int, message_ids: list[int]) -> int:
+        raise NotImplementedError
+
     @abstractmethod
     async def archive_cold_messages(self, older_than_days: int = 180, batch: int = 50) -> dict:
         """Стискає давно закриті чати у cold-tier без втрати історії."""

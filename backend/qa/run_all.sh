@@ -133,6 +133,7 @@ run domains qa/qa_domain_compatibility.py
 run bot-inputs qa/qa_bot_inputs.py
 run checkout-integrity qa/qa_checkout_integrity.py
 run working-data qa/qa_working_data.py
+run after-sales-chat qa/qa_after_sales_chat.py
 run checkout-precision qa/qa_checkout_precision.py
 run tg-contact qa/qa_telegram_contact_bridge.py
 run cart-lock qa/qa_postgres_cart_lock.py

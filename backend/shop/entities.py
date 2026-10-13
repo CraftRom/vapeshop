@@ -201,12 +201,24 @@ class Order:
     business_state_at: datetime | None = None
     operator_id: int | None = None
     operator_name: str = ""
+    completed_at: datetime | None = None
     referral_paid: bool = False
     created_at: datetime | None = None
     items: list[OrderLine] = field(default_factory=list)
     user: User | None = None
     # Готовий рядок для пошуку менеджером (ім'я + телефон, нижній регістр)
     search_key: str = ""
+
+
+    @property
+    def can_chat(self):
+        from shop.services.chat_access import can_chat
+        return can_chat(self)
+
+    @property
+    def chat_until(self):
+        from shop.services.chat_access import chat_until
+        return chat_until(self)
 
 
 @dataclass

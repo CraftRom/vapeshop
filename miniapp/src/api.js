@@ -267,6 +267,7 @@ export const api = {
   contactPhone: () => request(`/contact-phone?_=${Date.now()}`),
   orders: (params) => request('/orders' + (params ? '?' + new URLSearchParams(params) : '')),
   activeOrders: () => request('/orders/active'),
+  chattableOrders: () => request('/orders/chattable'),
   visit: (data) => request('/analytics/visit', { method: 'POST', body: data }),
   checkoutQuote: (data) => request('/checkout/quote', { method: 'POST', body: data }),
   checkout: (data) => request('/checkout', { method: 'POST', body: data }),
@@ -418,6 +419,8 @@ export const api = {
   },
 
   chat: {
+    access: (orderId) => request(`/orders/${orderId}/chat/access`),
+    read: (orderId, messageIds) => request(`/orders/${orderId}/chat/read`, { method: 'POST', body: { message_ids: messageIds } }),
     list: (orderId, afterId = null) => request(`/orders/${orderId}/chat${afterId != null ? `?after_id=${encodeURIComponent(afterId)}` : ''}`),
     older: (orderId, beforeId, limit = 100) => request(
       `/orders/${orderId}/chat?before_id=${encodeURIComponent(beforeId)}&limit=${encodeURIComponent(limit)}`

@@ -24,7 +24,7 @@ export default function App() {
   const cartResource = useResource(api.cart)
   const profileResource = useResource(api.profile)
   const savedResource = useResource(api.wishlists.list)
-  const activeResource = useResource(api.activeOrders)
+  const activeResource = useResource(api.chattableOrders)
   const historyDepth = useRef(20)
   const historyBusy = useRef(false)
   const fetchHistory = useCallback(async () => {
@@ -379,6 +379,11 @@ export default function App() {
     if (deepLinkUsed.current) return
     const target = startTarget()
     if (!target) return
+    if (target.orderId === null) {
+      deepLinkUsed.current = true
+      setTab('chat')
+      return
+    }
     const found = [...(activeOrders || []), ...(orders || [])].find((o) => o.id === target.orderId)
     if (!found) return
     deepLinkUsed.current = true
@@ -750,15 +755,15 @@ initData: ${getInitData() ? `${getInitData().length} символів` : 'пор
       )}
       {tab === 'chat' && (
         chatOrder
-          ? <ChatRoom config={config} order={chatOrder} onBack={() => setChatOrder(null)} />
-          : <><ResourceStatus resource={activeResource} label="Активні замовлення" />
+          ? <ChatRoom key={chatOrder.id} config={config} order={chatOrder} onBack={() => setChatOrder(null)} />
+          : <><ResourceStatus resource={activeResource} label="Доступні чати" />
               {activeOrders && <ChatList config={config} orders={activeOrders} onOpen={setChatOrder} />}</>
       )}
       {tab === 'profile' && (
         <>
           <ResourceStatus resource={profileResource} label="Профіль" />
           <Profile config={config} profile={profile} profileFailed={Boolean(profileResource.error)}
-            orders={orders} ordersState={historyResource} onOrdersChange={() => refresh()}
+            orders={orders} ordersState={historyResource} onOpenChat={(order) => { setChatOrder(order); setTab('chat') }} onOrdersChange={() => refresh()}
             onLoadMore={loadMoreOrders} />
           <ResourceStatus resource={savedResource} label="Збережені списки" />
           {/* Збережене живе в профілі, а не окремою вкладкою: у навігації

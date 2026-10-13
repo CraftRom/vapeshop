@@ -173,7 +173,7 @@ function TrackingModal({ initial, onCancel, onConfirm }) {
   )
 }
 
-function Chat({ orderId, messages, newMessageIds, onSent, onLoadOlder, hasOlder, loadingOlder }) {
+function Chat({ orderId, canChat, chatUntil, messages, newMessageIds, onSent, onLoadOlder, hasOlder, loadingOlder }) {
   const notify = useToast()
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
@@ -204,7 +204,7 @@ function Chat({ orderId, messages, newMessageIds, onSent, onLoadOlder, hasOlder,
 
   const send = async () => {
     const body = text.trim()
-    if (!body || sendingRef.current) return
+    if (!body || sendingRef.current || canChat === false) return
     sendingRef.current = true
     setBusy(true)
     try {
@@ -300,8 +300,8 @@ function Chat({ orderId, messages, newMessageIds, onSent, onLoadOlder, hasOlder,
                       чи він читає й не відповідає, чи просто не відкривав
                       застосунок, і чи варто дзвонити. */}
                   {m.direction === 'out' && (
-                    <div className={`receipt ${m.delivered === false ? 'failed' : (m.is_read ? 'seen' : '')}`}>
-                      {m.delivered === false ? 'Не доставлено' : (m.is_read ? '✓✓ Прочитано' : '✓ Надіслано')}
+                    <div className={`receipt ${m.is_read ? 'seen' : (m.delivered === false ? 'failed' : '')}`}>
+                      {m.is_read ? '✓✓ Прочитано' : (m.delivered === false ? 'Не доставлено' : '✓ Надіслано')}
                     </div>
                   )}
                 </div>
@@ -311,8 +311,11 @@ function Chat({ orderId, messages, newMessageIds, onSent, onLoadOlder, hasOlder,
         )}
       </div>
 
+      {canChat === false && <p className="error-bar">Чат замовлення закрито. Історія збережена; подальші звернення — через загальну підтримку.</p>}
+      {canChat !== false && chatUntil && <p className="faint">Чат доступний до {timestamp(chatUntil)}</p>}
       <textarea
         className="input"
+        disabled={canChat === false}
         rows={3}
         value={text}
         onChange={(e) => setText(e.target.value)}
@@ -320,7 +323,7 @@ function Chat({ orderId, messages, newMessageIds, onSent, onLoadOlder, hasOlder,
         placeholder="Повідомлення клієнту. Enter — надіслати, Shift+Enter — новий рядок"
       />
       <div className="row" style={{ justifyContent: 'flex-end', marginTop: 10 }}>
-        <button className="btn" onClick={send} disabled={busy || !text.trim()}>
+        <button className="btn" onClick={send} disabled={busy || !text.trim() || canChat === false}>
           {busy ? 'Надсилаємо…' : 'Надіслати'}
         </button>
       </div>
@@ -1172,11 +1175,11 @@ export default function OrderPage() {
           return next
         })
       }
-      if (unseen.length > 0) {
+      if (unseen.length > 0 && !document.hidden) {
         // Спершу зберегли список непрочитаних для UX, тільки потім гасимо
         // глобальний лічильник. Відповідь цього запиту навмисно не кладе́мо
         // у state, щоб мітки не мигнули й не зникли.
-        api.orders.markMessagesRead(id).catch(() => {})
+        api.orders.markMessagesRead(id, unseen).catch(() => {})
       }
     } catch (err) {
       setError(err.message)
@@ -1308,6 +1311,7 @@ export default function OrderPage() {
         const next = mergeMessages(older, current)
         messagesRef.current = next
         setMessages(next)
+        if (!document.hidden) await api.orders.markMessagesRead(id, older.filter(m => m.direction === 'in' && !m.is_read).map(m => m.id))
       }
     } catch (err) {
       notify(err.message, 'bad')
@@ -1358,7 +1362,7 @@ export default function OrderPage() {
         unseen.forEach((messageId) => nextIds.add(messageId))
         return nextIds
       })
-      api.orders.markMessagesRead(id).catch(() => {})
+      api.orders.markMessagesRead(id, unseen).catch(() => {})
     }
   }, [id])
   useVisiblePolling(pollMessages, 5000)
@@ -1726,6 +1730,8 @@ export default function OrderPage() {
 
           <Chat
             orderId={id}
+            canChat={order.can_chat}
+            chatUntil={order.chat_until}
             messages={messages}
             newMessageIds={newMessageIds}
             onSent={appendSentMessage}

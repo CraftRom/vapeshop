@@ -1,4 +1,5 @@
 from __future__ import annotations
+from api.schemas import MessageReadIn
 
 import logging
 from urllib.parse import quote
@@ -395,15 +396,14 @@ async def order_messages(
         raise HTTPException(404, "Замовлення не знайдено")
     if after_id is not None and before_id is not None:
         raise HTTPException(422, "after_id і before_id не можна використовувати одночасно")
+    messages = await repo.list_order_messages(order_id, limit=limit, after_id=after_id, before_id=before_id)
     if mark_read:
-        await repo.mark_messages_read(order_id)
-    return await repo.list_order_messages(
-        order_id, limit=limit, after_id=after_id, before_id=before_id,
-    )
+        await repo.mark_messages_read(order_id, [m.id for m in messages])
+    return messages
 
 
 @router.post("/{order_id}/messages/read")
-async def mark_order_messages_read(order_id: int, repo: Repository = Depends(get_repo)):
+async def mark_order_messages_read(order_id: int, data: MessageReadIn | None = None, repo: Repository = Depends(get_repo)):
     """Позначити вхідні повідомлення замовлення прочитаними без повторної
     передачі всієї історії чату.
 
@@ -413,7 +413,7 @@ async def mark_order_messages_read(order_id: int, repo: Repository = Depends(get
     """
     if not await repo.get_order(order_id):
         raise HTTPException(404, "Замовлення не знайдено")
-    marked = await repo.mark_messages_read(order_id)
+    marked = await repo.mark_messages_read(order_id, data.message_ids if data else [])
     return {"marked": marked}
 
 
@@ -433,6 +433,9 @@ async def send_message(
     if not order:
         raise HTTPException(404, "Замовлення не знайдено")
 
+    from shop.services.order_chat import is_chattable
+    if not is_chattable(order):
+        raise HTTPException(409, "Чат замовлення закрито. Використайте загальну підтримку.")
     author = who.name or who.login
 
     # Перше повідомлення закріплює замовлення за менеджером. Раніше це
@@ -477,7 +480,7 @@ async def order_file(order_id: int, message_id: int, repo: Repository = Depends(
     Так уникаємо і сховища, і того, щоб токен бота світився у браузері —
     посилання на Telegram містить його у відкритому вигляді.
     """
-    messages = await repo.list_order_messages(order_id)
+    messages = await repo.list_order_messages(order_id, before_id=message_id + 1, limit=1)
     target = next((m for m in messages if m.id == message_id), None)
     if not target:
         raise HTTPException(404, "Вкладення не знайдено")

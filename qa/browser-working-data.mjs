@@ -4,7 +4,7 @@ const browser = await chromium.launch({ headless: true, executablePath: process.
 let count = 0
 const check = (ok,label) => { assert.ok(ok,label); count++; console.log(`PASS ${label}`) }
 const pause = (ms) => new Promise(resolve => setTimeout(resolve,ms))
-const order = (id,name='Тест',status='done') => ({ id, status, total:'10',subtotal:'10',items:[],contact_name:name,contact_phone:'1',created_at:'2026-10-12T12:00:00Z',can_cancel:false })
+const order = (id,name='Тест',status='done') => ({ id, status, total:'10',subtotal:'10',items:[],contact_name:name,contact_phone:'1',created_at:'2026-10-12T12:00:00Z',can_cancel:false,can_chat:true,chat_until:null })
 const customer = (id,name='Тест') => ({id,tg_id:id,first_name:name,created_at:'2026-10-12T12:00:00Z',orders_count:0,bonus_balance:0,total_spent:0})
 const envelope = (items,total,params) => ({items,total,limit:Number(params.get('limit')||20),offset:Number(params.get('offset')||0),has_more:Number(params.get('offset')||0)+items.length<total})
 async function staff(path) {
@@ -58,7 +58,7 @@ async function store(width=390, initial={}) {
   }else if(p.endsWith('/profile')){
    if(state.failProfile){await route.fulfill({status:503,json:{detail:'Профіль недоступний'}});return}
    data={first_name:'Дмитро',orders_count:45,total_spent:450,bonus_balance:7}
-  }else if(p.endsWith('/orders/active')){
+  }else if(p.endsWith('/orders/chattable')){
    if(state.failActive){await route.fulfill({status:503,json:{detail:'Активні замовлення недоступні'}});return}
    data=[order(1,'Давнє активне','accepted')]
   }
@@ -172,9 +172,9 @@ try {
   await page.getByRole('button',{name:'Повторити: Збережені списки'}).click()
   await page.locator('.stat').getByText('45',{exact:true}).waitFor()
   await page.getByRole('button',{name:'Чат',exact:true}).click()
-  await page.getByRole('button',{name:'Повторити: Активні замовлення'}).waitFor()
+  await page.getByRole('button',{name:'Повторити: Доступні чати'}).waitFor()
   check(await page.getByText('Активних замовлень зараз немає',{exact:true}).count()===0,'failed active orders are not presented as empty chats')
-  state.failActive=false;await page.getByRole('button',{name:'Повторити: Активні замовлення'}).click()
+  state.failActive=false;await page.getByRole('button',{name:'Повторити: Доступні чати'}).click()
   await page.getByRole('button',{name:/№1/}).waitFor()
   check(true,'active orders retry independent of history')
   check(!errors.length,'initial failed resources recover without runtime errors')

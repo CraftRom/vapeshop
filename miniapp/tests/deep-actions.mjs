@@ -53,7 +53,7 @@ check(checkout.includes('api.checkoutQuote(') && checkout.includes('quote_token:
 check(api.includes("const maxAttempts = method === 'GET' ? GET_RETRIES + 1 : 1"), 'POST checkout не ретраїться автоматично')
 
 console.log('\n--- чат і toggle-дії ---')
-check(chat.includes('const sendingRef = useRef(false)') && chat.includes('if (!body || sendingRef.current) return'), 'повідомлення чату не дублюється подвійним click/Enter')
+check(chat.includes('const sendingRef = useRef(false)') && chat.includes('if (!body || sendingRef.current'), 'повідомлення чату не дублюється подвійним click/Enter')
 check(chat.includes('const uploadingRef = useRef(false)'), 'подвійне завантаження вкладення заблоковане')
 check(chat.includes('mergeMessages(current, incoming)'), 'poll чату не стирає щойно надіслане повідомлення')
 check(wish.includes('const actionRef = useRef(false)') && wish.includes('if (actionRef.current) return'), 'toggle списку бажаного захищений від подвійного натискання')

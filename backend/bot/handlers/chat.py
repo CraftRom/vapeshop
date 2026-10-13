@@ -139,19 +139,38 @@ async def switch_order(message: Message, repo: Repository, user: User) -> None:
     """Список активних замовлень із вибором того, про яке говоримо."""
     open_orders = await chat.open_orders_for(repo, user.id)
     if not open_orders:
-        await message.answer("Активних замовлень немає. Оформіть нове в магазині.")
+        await message.answer("Немає замовлень із доступним чатом. Для загальної підтримки — /ask.")
         return
 
-    lines = ["<b>Ваші активні замовлення</b>\n"]
-    for o in open_orders:
-        mark = " ← обрано" if o.id == user.chat_order_id else ""
-        operator = f" · {o.operator_name}" if o.operator_name else ""
-        lines.append(
-            f"№{o.id} — {format_money(o.total)} · {order_business.display_status_label(o)}{operator}{mark}"
-        )
-    lines.append("\nОберіть, про яке замовлення писати:")
+    text, keyboard = _order_page(open_orders, user)
+    await message.answer(text, reply_markup=keyboard)
 
-    await message.answer("\n".join(lines), reply_markup=chat.pick_order_keyboard(open_orders))
+
+def _order_page(orders, user, offset=0):
+    offset = max(0, min(int(offset), max(0, (len(orders) - 1) // 8 * 8)))
+    lines = ["<b>Замовлення з доступним чатом</b>\n"]
+    for o in orders[offset:offset + 8]:
+        mark = " ← обрано" if o.id == user.chat_order_id else ""
+        operator = f" · {chat.esc(o.operator_name)}" if o.operator_name else ""
+        lines.append(f"№{o.id} — {format_money(o.total)} · {chat.esc(order_business.display_status_label(o))}{operator}{mark}")
+    lines.append(f"\nПоказано {offset + 1}–{min(offset + 8, len(orders))} із {len(orders)}. Оберіть замовлення:")
+    return "\n".join(lines), chat.pick_order_keyboard(orders, offset)
+
+
+@router.callback_query(F.data.startswith("chatpage:"))
+async def order_page(callback: CallbackQuery, repo: Repository, user: User) -> None:
+    try:
+        offset = max(0, int(callback.data.split(":")[1]))
+    except (ValueError, IndexError):
+        await callback.answer("Кнопка застаріла", show_alert=True)
+        return
+    available = await chat.open_orders_for(repo, user.id)
+    if not available:
+        await callback.answer("Немає доступних чатів. Для підтримки — /ask.", show_alert=True)
+        return
+    text, keyboard = _order_page(available, user, offset)
+    await callback.message.edit_text(text, reply_markup=keyboard)
+    await callback.answer()
 
 
 async def _deliver(
@@ -160,6 +179,8 @@ async def _deliver(
     order = await repo.get_order(order_id)
     if not order or order.user_id != user.id:
         return "Це замовлення не знайдено."
+    if not chat.is_chattable(order):
+        return "Чат замовлення закрито. Для загальної підтримки введіть /ask."
     await chat.save_incoming(
         repo, order, user, text, bot=bot, attachment=attachment,
         tg_message_id=tg_message_id,
@@ -457,6 +478,10 @@ async def pick_order(callback: CallbackQuery, repo: Repository, user: User) -> N
     order = await repo.get_order(order_id)
     if not order or order.user_id != user.id:
         await callback.answer("Замовлення не знайдено", show_alert=True)
+        return
+
+    if not chat.is_chattable(order):
+        await callback.answer("Чат замовлення закрито. Для підтримки — /ask.", show_alert=True)
         return
 
     # Явний перехід у чат замовлення завершує загальний режим /ask.

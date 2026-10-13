@@ -1,5 +1,5 @@
 import { money } from '../money'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 
 import { api } from '../api'
 import { Field } from '../fields'
@@ -15,7 +15,7 @@ const STATUS = {
   cancelled: 'Скасовано',
 }
 
-const OPEN = ['new', 'confirmed', 'accepted', 'paid', 'shipped']
+const PAGE_SIZE = 200
 
 function mergeMessages(current, incoming) {
   const map = new Map()
@@ -33,13 +33,13 @@ function clock(value) {
 
 /** Список замовлень, у межах яких можна писати менеджеру. */
 export function ChatList({ config, orders, onOpen }) {
-  const open = (orders || []).filter((o) => OPEN.includes(o.status))
+  const open = (orders || []).filter((o) => o.can_chat === true)
 
   if (open.length === 0) {
     return (
       <div className="empty">
-        <h2>Активних замовлень зараз немає</h2>
-        <p>Щойно оформите замовлення, тут з’явиться окрема розмова з менеджером.</p>
+        <h2>Доступних чатів зараз немає</h2>
+        <p>Чат доступний під час виконання та ще 7 днів після завершення замовлення. Для інших питань зверніться до загальної підтримки.</p>
       </div>
     )
   }
@@ -63,7 +63,7 @@ export function ChatList({ config, orders, onOpen }) {
             <span className={`status-pill status-${o.status}`}>
               {o.status_label || STATUS[o.status] || o.status}
             </span>
-            <span className="hint num">{clock(o.created_at)}</span>
+            <span className="hint num">{o.chat_until ? `Чат до ${clock(o.chat_until)}` : clock(o.created_at)}</span>
           </div>
         </button>
       ))}
@@ -122,57 +122,147 @@ export function ChatRoom({ config, order, onBack }) {
   const [busy, setBusy] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [sendError, setSendError] = useState('')
-  // Відкрите на весь екран фото. Окремим станом, а не станом картинки:
-  // з нього треба виходити системною кнопкою «назад», і знати про це
-  // має екран, а не вкладення.
   const [viewing, setViewing] = useState(null)
   const [error, setError] = useState('')
+  const [hasOlder, setHasOlder] = useState(false)
+  const [loadingOlder, setLoadingOlder] = useState(false)
+  const [olderError, setOlderError] = useState('')
+  const [access, setAccess] = useState(order)
+  const logRef = useRef(null)
   const bottom = useRef(null)
   const sendingRef = useRef(false)
   const uploadingRef = useRef(false)
   const lastMessageIdRef = useRef(0)
   const pollInFlightRef = useRef(false)
+  const olderInFlightRef = useRef(false)
   const pollCyclesRef = useRef(0)
   const roomIdRef = useRef(order.id)
+  const aliveRef = useRef(true)
+  const anchorRef = useRef(null)
+  const stickBottomRef = useRef(true)
+  const acknowledgedRef = useRef(new Set())
+  const ackInFlightRef = useRef(false)
 
-  const load = useCallback(
-    async (silent = false, full = false) => {
-      if (pollInFlightRef.current) return
-      pollInFlightRef.current = true
-      try {
-        const requestedOrderId = order.id
-        // Зазвичай забираємо лише нові повідомлення. Раз на шість циклів
-        // робимо повний reconcile: це лікує рідкісний пропуск після reconnect
-        // і не ганяє всю історію кожні 5 секунд.
-        const afterId = full ? null : lastMessageIdRef.current
-        const incoming = await api.chat.list(requestedOrderId, afterId || null)
-        if (roomIdRef.current !== requestedOrderId) return
-        if (incoming?.length) {
-          lastMessageIdRef.current = Math.max(
-            lastMessageIdRef.current,
-            ...incoming.map((item) => Number(item.id) || 0),
-          )
-        }
-        setMessages((current) => (
-          current === null || full ? mergeMessages(current || [], incoming) : mergeMessages(current, incoming)
-        ))
-        setError('')
-      } catch (err) {
-        if (!silent) setError(err.message)
-      } finally {
-        pollInFlightRef.current = false
+  const rememberScroll = () => {
+    const el = logRef.current
+    if (!el) return
+    const edge = el.getBoundingClientRect().top
+    const first = [...el.querySelectorAll('[data-message-id]')].find(node => node.getBoundingClientRect().bottom > edge)
+    anchorRef.current = first ? { id: first.dataset.messageId, offset: first.getBoundingClientRect().top - edge } : null
+  }
+
+  const load = useCallback(async (silent = false, initial = false) => {
+    if (pollInFlightRef.current) return
+    pollInFlightRef.current = true
+    try {
+      const requestedOrderId = order.id
+      // Delta pages advance in ascending ID order, including >200 new replies.
+      // Never jump to the last page during reconnect: that would create holes.
+      const incoming = await api.chat.list(requestedOrderId, initial ? null : lastMessageIdRef.current || null)
+      if (!aliveRef.current || roomIdRef.current !== requestedOrderId) return
+      if (initial) setHasOlder(incoming.length >= PAGE_SIZE)
+      if (incoming.length) {
+        lastMessageIdRef.current = Math.max(lastMessageIdRef.current, ...incoming.map(m => Number(m.id)))
+        if (!stickBottomRef.current) rememberScroll()
       }
-    },
-    [order.id],
-  )
+      setMessages(current => mergeMessages(current || [], incoming))
+      setError('')
+      try {
+        const policy = await api.chat.access(requestedOrderId)
+        if (aliveRef.current && roomIdRef.current === requestedOrderId) setAccess(policy)
+      } catch { /* Send endpoint still enforces the current server policy. */ }
+    } catch (err) {
+      if (aliveRef.current && !silent) setError(err.message)
+    } finally {
+      pollInFlightRef.current = false
+    }
+  }, [order.id])
 
   useEffect(() => {
+    aliveRef.current = true
     roomIdRef.current = order.id
-    lastMessageIdRef.current = 0
-    pollCyclesRef.current = 0
-    setMessages(null)
     load(false, true)
+    return () => { aliveRef.current = false }
   }, [load])
+
+  useEffect(() => { setAccess(order) }, [order])
+
+  const loadOlder = async () => {
+    if (olderInFlightRef.current || !hasOlder || !messages?.length) return
+    olderInFlightRef.current = true
+    setLoadingOlder(true)
+    setOlderError('')
+    try {
+      const older = await api.chat.older(order.id, messages[0].id, PAGE_SIZE)
+      if (!aliveRef.current) return
+      rememberScroll()
+      stickBottomRef.current = false
+      setHasOlder(older.length >= PAGE_SIZE)
+      setMessages(current => mergeMessages(current, older))
+    } catch (err) {
+      if (aliveRef.current) setOlderError(err.message)
+    } finally {
+      olderInFlightRef.current = false
+      if (aliveRef.current) setLoadingOlder(false)
+    }
+  }
+
+  useLayoutEffect(() => {
+    const el = logRef.current
+    if (!el || messages === null) return
+    const anchor = anchorRef.current
+    if (anchor) {
+      const node = el.querySelector(`[data-message-id="${anchor.id}"]`)
+      if (node) el.scrollTop += node.getBoundingClientRect().top - el.getBoundingClientRect().top - anchor.offset
+      anchorRef.current = null
+    } else if (stickBottomRef.current) {
+      el.scrollTop = el.scrollHeight
+    }
+  }, [messages, hasOlder])
+
+  // ACK only bubbles that intersect the visible conversation. Hidden tabs,
+  // old pages and newly fetched offscreen replies cannot create read receipts.
+  useEffect(() => {
+    const el = logRef.current
+    if (!el || !messages || viewing) return undefined
+    let stopped = false
+    let retry = null
+    const ackVisible = async () => {
+      if (stopped || document.hidden || ackInFlightRef.current || navigator.onLine === false) return
+      const root = el.getBoundingClientRect()
+      const ids = [...el.querySelectorAll('[data-direction="out"]')].filter(node => {
+        const rect = node.getBoundingClientRect()
+        return rect.bottom > Math.max(root.top, 0) && rect.top < Math.min(root.bottom, window.innerHeight)
+      }).map(node => Number(node.dataset.messageId)).filter(id => !acknowledgedRef.current.has(id))
+      if (!ids.length) return
+      ackInFlightRef.current = true
+      try {
+        for (let i = 0; i < ids.length; i += 500) {
+          const batch = ids.slice(i, i + 500)
+          await api.chat.read(order.id, batch)
+          batch.forEach(id => acknowledgedRef.current.add(id))
+        }
+      } catch { /* Retry visible IDs; failure never marks them locally as read. */ }
+      finally {
+        ackInFlightRef.current = false
+        if (!stopped) retry = window.setTimeout(ackVisible, 5000)
+      }
+    }
+    const observer = new IntersectionObserver(ackVisible, { root: el })
+    el.querySelectorAll('[data-direction="out"]').forEach(node => observer.observe(node))
+    el.addEventListener('scroll', ackVisible)
+    document.addEventListener('visibilitychange', ackVisible)
+    window.addEventListener('online', ackVisible)
+    ackVisible()
+    return () => {
+      stopped = true
+      clearTimeout(retry)
+      observer.disconnect()
+      el.removeEventListener('scroll', ackVisible)
+      document.removeEventListener('visibilitychange', ackVisible)
+      window.removeEventListener('online', ackVisible)
+    }
+  }, [messages, order.id, viewing])
 
   // Тихе live-оновлення. Hidden/offline вкладка не робить запитів; після
   // повернення/відновлення мережі синхронізуємося одразу.
@@ -193,7 +283,7 @@ export function ChatRoom({ config, order, onBack }) {
     const poll = async () => {
       if (stopped || !visibleAndOnline()) return
       pollCyclesRef.current += 1
-      await load(true, pollCyclesRef.current % 6 === 0)
+      await load(true)
       schedule()
     }
     const wake = () => {
@@ -213,22 +303,20 @@ export function ChatRoom({ config, order, onBack }) {
     }
   }, [load])
 
-  useEffect(() => {
-    bottom.current?.scrollIntoView({ block: 'end' })
-  }, [messages])
-
   const attach = async (event) => {
     const file = event.target.files?.[0]
     // Скидаємо одразу: інакше повторний вибір того самого файлу не
     // викличе подію, і людині здасться, що кнопка зламалась.
     event.target.value = ''
-    if (!file || uploadingRef.current) return
+    if (!file || uploadingRef.current || !access.can_chat) return
 
     uploadingRef.current = true
     setUploading(true)
     setSendError('')
     try {
       const data = await api.chatPhoto(order.id, file)
+      if (!aliveRef.current) return
+      stickBottomRef.current = true
       setMessages((current) => mergeMessages(current, data.messages))
       notify('success')
     } catch (err) {
@@ -242,12 +330,14 @@ export function ChatRoom({ config, order, onBack }) {
 
   const send = async () => {
     const body = text.trim()
-    if (!body || sendingRef.current) return
+    if (!body || sendingRef.current || !access.can_chat) return
     sendingRef.current = true
     setBusy(true)
     setError('')
     try {
       const sent = await api.chat.send(order.id, body)
+      if (!aliveRef.current) return
+      stickBottomRef.current = true
       setMessages((prev) => mergeMessages(prev, [sent]))
       setText('')
       haptic('light')
@@ -276,9 +366,18 @@ export function ChatRoom({ config, order, onBack }) {
         <p>{order.status_label || STATUS[order.status] || order.status} · історія зберігається</p>
       </div>
 
-      {error && <div className="banner warn">{error}</div>}
+      {error && <div className="banner warn">{error} <button className="secondary" onClick={() => load(false, messages === null)}>Повторити</button></div>}
+      {access.can_chat && access.chat_until && <p className="hint chat-policy">Писати менеджеру можна до {clock(access.chat_until)}.</p>}
+      {!access.can_chat && <div className="banner warn">Чат замовлення закрито. Історія доступна; для допомоги зверніться до загальної підтримки через /ask у боті.</div>}
 
-      <div className="chat-log">
+      <div className="chat-log" ref={logRef} onScroll={() => {
+        const el = logRef.current
+        stickBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 60
+      }}>
+        {messages !== null && (hasOlder
+          ? <button className="secondary chat-history" onClick={loadOlder} disabled={loadingOlder}>{loadingOlder ? 'Завантажуємо…' : 'Раніші повідомлення'}</button>
+          : <p className="hint chat-history">Початок історії</p>)}
+        {olderError && <div className="banner warn">{olderError} <button className="secondary" onClick={loadOlder}>Повторити</button></div>}
         {messages === null ? (
           <div className="skeleton skeleton-line" />
         ) : messages.length === 0 ? (
@@ -287,7 +386,7 @@ export function ChatRoom({ config, order, onBack }) {
           </p>
         ) : (
           messages.map((m) => (
-            <div key={m.id} className={`bubble ${m.direction === 'in' ? 'mine' : ''}`}>
+            <div key={m.id} data-message-id={m.id} data-direction={m.direction} className={`bubble ${m.direction === 'in' ? 'mine' : ''}`}>
               <div className="bubble-head">
                 {m.direction === 'in' ? 'Ви' : m.author || 'Менеджер'} · {clock(m.created_at)}
               </div>
@@ -314,7 +413,7 @@ export function ChatRoom({ config, order, onBack }) {
             accept="image/*"
             hidden
             onChange={attach}
-            disabled={uploading}
+            disabled={uploading || !access.can_chat}
           />
         </label>
         {/* Той самий компонент, що й у формі замовлення. Тут його
@@ -322,6 +421,8 @@ export function ChatRoom({ config, order, onBack }) {
             не було видно жодної літери, поки не перейдеш кудись інде. */}
         <Field
           value={text}
+          disabled={!access.can_chat}
+          maxLength={2000}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && send()}
           placeholder="Повідомлення менеджеру"
@@ -335,7 +436,7 @@ export function ChatRoom({ config, order, onBack }) {
         <button
           className="send"
           onClick={send}
-          disabled={busy || !text.trim()}
+          disabled={busy || !text.trim() || !access.can_chat}
           aria-label="Надіслати"
         >
           {busy ? '·' : '↑'}

@@ -73,10 +73,11 @@ async def main():
     # Поведінка змінена свідомо: раніше бот у групі мовчав, поки його не
     # покличуть, і виглядав мертвим — людина питає «яка доставка», а він
     # знає відповідь і не каже. Тепер правило спрацьовує від питання.
-    for text, expect in [("як замовити?", True),
+    for index, (text, expect) in enumerate([("як замовити?", True),
                          ("яка доставка", True),
-                         ("привіт усім", False)]:
-        replies,_ = await send(text, chat_id=-100_900 - hash(text) % 1000)
+                         ("привіт усім", False)]):
+        # Dedicated deterministic chats cannot collide with earlier cooldowns.
+        replies,_ = await send(text, chat_id=-200_000 - index)
         check(bool(replies) == expect,
               f"«{text}» → {'відповідь' if expect else 'тиша'}", replies)
 

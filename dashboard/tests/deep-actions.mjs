@@ -29,7 +29,7 @@ walk('src')
 check(rawFetchOutside.length === 0, `сторінки не обходять transport напряму${rawFetchOutside.length ? `: ${rawFetchOutside.join(', ')}` : ''}`)
 
 console.log('\n--- менеджерські дії ---')
-check(order.includes('const sendingRef = useRef(false)') && order.includes('if (!body || sendingRef.current) return'), 'повідомлення замовлення захищене від double-send')
+check(order.includes('const sendingRef = useRef(false)') && order.includes('if (!body || sendingRef.current'), 'повідомлення замовлення захищене від double-send')
 check(support.includes('const actionRef = useRef(false)') && support.includes('actionRef.current = true'), 'підтримка серіалізує send/close/delete')
 const printBlock = order.slice(order.indexOf('const printLabel'), order.indexOf('const crm ='))
 check(printBlock.indexOf("window.open('', '_blank')") < printBlock.indexOf('await authorizedFetch'), 'вікно PDF створюється до await і не блокується popup blocker')

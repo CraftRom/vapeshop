@@ -275,7 +275,7 @@ export const api = {
           limit: limit || undefined,
         },
       }),
-    markMessagesRead: (id) => request(`/orders/${id}/messages/read`, { method: 'POST' }),
+    markMessagesRead: (id, messageIds) => request(`/orders/${id}/messages/read`, { method: 'POST', body: { message_ids: messageIds } }),
     sendMessage: (id, text) =>
       request(`/orders/${id}/messages`, { method: 'POST', body: { text } }),
     unread: () => request('/orders/unread/counts'),

@@ -229,6 +229,7 @@ export function startTarget() {
   if (fromQuery && /^\d+$/.test(fromQuery)) return { screen: 'chat', orderId: Number(fromQuery) }
 
   const param = webApp()?.initDataUnsafe?.start_param || ''
+  if (param === 'chats') return { screen: 'chat', orderId: null }
   const match = /^chat[-_](\d+)$/.exec(param)
   if (match) return { screen: 'chat', orderId: Number(match[1]) }
 

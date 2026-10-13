@@ -40,7 +40,7 @@ check(orders.includes('orders?.reduce((sum, order) => sum + Number(unread[order.
   'summary непрочитаних рахує тільки видимі після фільтрів замовлення')
 check(page.includes('api.orders.messages(id),') && page.includes("message.direction === 'in' && !message.is_read"),
   'картка спершу отримує непрочитані, не гасячи їх до побудови UI')
-check(page.includes('api.orders.markMessagesRead(id).catch(() => {})'),
+check(page.includes('api.orders.markMessagesRead(id, unseen).catch(() => {})'),
   'після фіксації маркерів серверний unread-лічильник гаситься окремим lightweight endpoint')
 check(page.includes('loadedOrderRef') && page.includes('setNewMessageIds((current) =>'),
   'повторний load у тій самій картці не стирає локальні маркери')

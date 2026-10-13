@@ -162,7 +162,8 @@ r.check(_mine and _mine[-1]["is_read"] is False,
         "щойно надіслане менеджером ще не прочитане",
         _mine[-1]["is_read"] if _mine else None)
 
-c.get(f"/api/shop/orders/{oid}/chat", headers=H)
+issued = c.get(f"/api/shop/orders/{oid}/chat", headers=H).json()
+c.post(f"/api/shop/orders/{oid}/chat/read", json={"message_ids": [m["id"] for m in issued]}, headers=H)
 _mine = [m for m in c.get(f"/api/orders/{oid}/messages", headers=A).json()
          if m["direction"] == "out"]
 r.check(all(m["is_read"] for m in _mine),

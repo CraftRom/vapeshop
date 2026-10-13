@@ -7,7 +7,8 @@
     "test:analytics": "QA_BROWSER_SUITE=analytics bash run-browser.sh",
     "test:catalog": "QA_BROWSER_SUITE=catalog bash run-browser.sh",
     "test:navigation": "QA_BROWSER_SUITE=navigation bash run-browser.sh",
-    "test:broadcasts": "QA_BROWSER_SUITE=broadcasts bash run-browser.sh"
+    "test:broadcasts": "QA_BROWSER_SUITE=broadcasts bash run-browser.sh",
+    "test:chat": "QA_BROWSER_SUITE=chat bash run-browser.sh"
   },
   "devDependencies": {
     "playwright": "1.62.1"

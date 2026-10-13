@@ -24,6 +24,7 @@ from shop.entities import (
 )
 from shop.repo.base import Repository
 from shop.services import order_business as business
+from shop.services.chat_access import aware, is_closed, record_completion
 
 ALPHABET = string.ascii_uppercase + string.digits
 # Local status описує workflow, а не факт продажу. Єдиним джерелом продажу
@@ -330,7 +331,7 @@ def _order(row, with_user: bool = False) -> Order | None:
         crm_snapshot=row.crm_snapshot, crm_fetched_at=row.crm_fetched_at,
         business_state=row.business_state or "pending", business_state_at=row.business_state_at,
         operator_id=row.operator_id, operator_name=row.operator_name or "",
-        referral_paid=row.referral_paid,
+        completed_at=aware(row.completed_at) if row.completed_at else None, referral_paid=row.referral_paid,
         created_at=row.created_at, search_key=row.search_key or "",
         items=[
             OrderLine(id=i.id, product_id=i.product_id, name=i.name,
@@ -559,7 +560,9 @@ class SqlRepository(Repository):
             if not row:
                 await self.s.rollback()
                 return None
+            was_closed = is_closed(row)
             await self._apply_business_state_row(row, state, moment)
+            record_completion(row, was_closed, moment)
             await self.s.commit()
             loaded = await self.s.scalar(
                 select(m.Order).where(m.Order.id == order_id)
@@ -1275,6 +1278,7 @@ class SqlRepository(Repository):
         if not row:
             return None
 
+        was_closed = is_closed(row)
         previous_crm_status_id = str(row.crm_status_id or "")
         requested_business_state = data.get("business_state") if "business_state" in data else None
         requested_business_at = data.get("business_state_at") if "business_state_at" in data else None
@@ -1295,6 +1299,7 @@ class SqlRepository(Repository):
             moment = requested_business_at or datetime.now(timezone.utc)
             await self._apply_business_state_row(row, next_state, moment)
 
+        record_completion(row, was_closed, requested_business_at)
         await self.s.commit()
         updated = _order(row, with_user=True)
         changed_fields = set(str(k) for k in data.keys())
@@ -1333,6 +1338,7 @@ class SqlRepository(Repository):
                 await self.s.rollback()
                 return fresh, current, False
 
+            was_closed = is_closed(row)
             previous_crm_status_id = str(row.crm_status_id or "")
             requested_business_state = patch.get("business_state") if "business_state" in patch else None
             requested_business_at = patch.get("business_state_at") if "business_state_at" in patch else None
@@ -1353,6 +1359,7 @@ class SqlRepository(Repository):
                     row, next_state, requested_business_at or datetime.now(timezone.utc)
                 )
 
+            record_completion(row, was_closed, requested_business_at)
             await self.s.commit()
             loaded = await self.s.scalar(
                 select(m.Order).where(m.Order.id == order_id)
@@ -1432,12 +1439,14 @@ class SqlRepository(Repository):
                     ))
                     user_row.bonus_balance = Decimal(str(user_row.bonus_balance or 0)) + bonus
 
+            was_closed = is_closed(row)
             row.status = m.OrderStatus.CANCELLED
             if not crm_linked:
                 row.business_state = "refusal"
                 row.business_state_at = datetime.now(timezone.utc)
             if mark_crm_pending and (row.crm_id or row.crm_state):
                 row.crm_state = "pending"
+            record_completion(row, was_closed)
             await self.s.commit()
             loaded = await self.s.scalar(
                 select(m.Order).where(m.Order.id == order_id)
@@ -2587,6 +2596,7 @@ class SqlRepository(Repository):
             .limit(cap)
         ))
         for order_id in order_ids:
+            await self.s.scalar(select(m.Order.id).where(m.Order.id == order_id).with_for_update())
             rows = list(await self.s.scalars(
                 select(m.OrderMessage)
                 .where(m.OrderMessage.order_id == order_id)
@@ -2752,38 +2762,35 @@ class SqlRepository(Repository):
         value = await self.s.scalar(archived.limit(1))
         return int(value) if value is not None else None
 
-    async def mark_messages_read(self, order_id) -> int:
-        result = await self.s.execute(
-            update(m.OrderMessage)
-            .where(
-                m.OrderMessage.order_id == order_id,
-                m.OrderMessage.direction == "in",
-                m.OrderMessage.is_read.is_(False),
-            )
-            .values(is_read=True)
-        )
+    async def _mark_order_message_ids_read(self, order_id, message_ids, direction):
+        ids = {int(x) for x in (message_ids or []) if int(x) > 0}
+        if not ids:
+            return 0
+        # Serialize with archival so the ACK cannot be lost at the hot/cold boundary.
+        await self.s.scalar(select(m.Order.id).where(m.Order.id == order_id).with_for_update())
+        result = await self.s.execute(update(m.OrderMessage).where(
+            m.OrderMessage.order_id == order_id, m.OrderMessage.id.in_(ids),
+            m.OrderMessage.direction == direction, m.OrderMessage.is_read.is_(False),
+        ).values(is_read=True))
+        changed = int(result.rowcount or 0)
+        archive = await self._message_archive("order", int(order_id))
+        items = _unpack_archive(archive)
+        cold_changed = 0
+        for item in items:
+            if int(item.get("id") or 0) in ids and item.get("direction") == direction and not item.get("is_read"):
+                item["is_read"] = True
+                cold_changed += 1
+        if cold_changed:
+            archive.payload = _pack_archive(items)
+            archive.raw_bytes = len(_archive_json(items))
         await self._commit()
-        return int(result.rowcount or 0)
+        return changed + cold_changed
 
-    async def mark_client_read(self, order_id) -> int:
-        """Клієнт відкрив стрічку — повідомлення менеджера прочитані.
+    async def mark_messages_read(self, order_id, message_ids=None) -> int:
+        return await self._mark_order_message_ids_read(order_id, message_ids, "in")
 
-        Дзеркальне до mark_messages_read, але в інший бік. Раніше
-        повідомлення менеджера зберігались одразу як прочитані, тож
-        «прочитано» не означало нічого: менеджер не міг відрізнити
-        мовчання від «не бачив».
-        """
-        result = await self.s.execute(
-            update(m.OrderMessage)
-            .where(
-                m.OrderMessage.order_id == order_id,
-                m.OrderMessage.direction == "out",
-                m.OrderMessage.is_read.is_(False),
-            )
-            .values(is_read=True)
-        )
-        await self._commit()
-        return int(result.rowcount or 0)
+    async def mark_client_read(self, order_id, message_ids=None) -> int:
+        return await self._mark_order_message_ids_read(order_id, message_ids, "out")
 
     async def forget_chat_files(self, older_than_days: int) -> int:
         """Забуває коди вкладень виконаних замовлень.

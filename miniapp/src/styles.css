@@ -2160,3 +2160,13 @@ input, textarea, select {
   .form-section-title .field-requirement{display:none}
 }
 .checkout-head{padding-bottom:var(--s2)}
+
+/* Conversation uses its own scroll viewport to preserve older-message anchors. */
+.chat-screen { height: calc(100dvh - 140px); min-height: 320px; overflow: hidden; }
+.chat-log { min-height: 0; overflow-anchor: none; scroll-behavior: auto; }
+.chat-history { flex: none; align-self: center; margin: 8px 0; }
+.chat-policy { margin: 0 var(--page-x) 8px; }
+.chat-log .bubble { flex: none; }
+
+.chat-screen .chat-compose { position: relative; bottom: auto; flex: none; }
+.chat-screen > .head, .chat-screen > .banner, .chat-screen > .chat-policy { flex: none; }

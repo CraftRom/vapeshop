@@ -34,6 +34,7 @@ from shop.services import wishlist as wl
 from shop.services.shop_settings import get_shop_settings
 from shop.config import settings
 from shop.formatting import money as format_money
+from api.schemas import MessageReadIn
 
 log = logging.getLogger(__name__)
 
@@ -780,12 +781,23 @@ async def order_chat_log(
     messages = await repo.list_order_messages(
         order_id, limit=limit, after_id=after_id, before_id=before_id,
     )
-    # Читаємо стрічку — отже, повідомлення менеджера побачені. Позначаємо
-    # після вибірки, щоб у цій же відповіді клієнт не побачив «прочитано»
-    # на тому, що йому щойно віддали: квитанція призначена менеджеру.
-    if messages:
-        await repo.mark_client_read(order_id)
     return messages
+
+
+@router.post("/orders/{order_id}/chat/read")
+async def order_chat_read(order_id: int, data: MessageReadIn,
+                          user: User = Depends(require_webapp_user), repo: Repository = Depends(get_repo)):
+    _require_age(user)
+    await _own_order(repo, user, order_id)
+    return {"marked": await repo.mark_client_read(order_id, data.message_ids)}
+
+
+@router.get("/orders/{order_id}/chat/access")
+async def order_chat_access(order_id: int, user: User = Depends(require_webapp_user),
+                            repo: Repository = Depends(get_repo)):
+    _require_age(user)
+    order = await _own_order(repo, user, order_id)
+    return {"can_chat": order.can_chat, "chat_until": order.chat_until, "completed_at": order.completed_at}
 
 
 # Скріншот квитанції — те, чого просить текст після оформлення.
@@ -829,7 +841,7 @@ async def order_chat_file(
     _require_age(user)
     await _own_order(repo, user, order_id)
 
-    messages = await repo.list_order_messages(order_id)
+    messages = await repo.list_order_messages(order_id, before_id=message_id + 1, limit=1)
     target = next((m for m in messages if m.id == message_id), None)
     if not target:
         raise HTTPException(404, "Вкладення не знайдено")
@@ -873,6 +885,8 @@ async def order_chat_photo(
     """Фото у стрічку замовлення: квитанція, фото товару, скарга."""
     _require_age(user)
     order = await _own_order(repo, user, order_id)
+    if not svc_chat.is_chattable(order):
+        raise HTTPException(409, "Чат замовлення закрито. Зверніться до загальної підтримки.")
 
     if file.content_type not in PHOTO_TYPES:
         raise HTTPException(422, "Підійде знімок екрана або фото: JPEG, PNG або WebP")
@@ -956,6 +970,8 @@ async def order_chat_send(
     """
     _require_age(user)
     order = await _own_order(repo, user, order_id)
+    if not svc_chat.is_chattable(order):
+        raise HTTPException(409, "Чат замовлення закрито. Зверніться до загальної підтримки.")
 
     text = data.text.strip()
     if not text:
@@ -975,10 +991,12 @@ async def order_chat_send(
     return messages[-1]
 
 
-async def _orders_payload(repo: Repository, user_id: int, limit=20, offset=0, active_only=False) -> list[dict]:
+async def _orders_payload(repo: Repository, user_id: int, limit=20, offset=0, active_only=False, chat_only=False) -> list[dict]:
     orders = await repo.list_orders(user_id=user_id, limit=limit, offset=offset, **({"active_only": True} if active_only else {}))
     result = []
     for o in orders:
+        if chat_only and not svc_chat.is_chattable(o):
+            continue
         crm_name = order_business.effective_crm_status_name(o)
         crm_authority = order_business.has_crm_authority(o)
         if crm_authority:
@@ -995,6 +1013,7 @@ async def _orders_payload(repo: Repository, user_id: int, limit=20, offset=0, ac
             "operator_name": o.operator_name,
             "tracking_number": o.tracking_number,
             "is_open": o.status in svc_chat.OPEN_STATUSES,
+            "completed_at": o.completed_at, "can_chat": o.can_chat, "chat_until": o.chat_until,
             # Правило скасування живе на сервері, а вітрина лише показує
             # кнопку. Дві копії умови розійшлись би при першій же зміні
             # маршруту статусів.
@@ -1015,6 +1034,12 @@ async def my_orders(
         return items
     total = await repo.count_filtered_orders(user_id=user.id)
     return dict(items=items, total=total, limit=limit, offset=offset, has_more=offset + len(items) < total)
+
+
+@router.get("/orders/chattable")
+async def chattable_orders(user: User = Depends(require_webapp_user), repo: Repository = Depends(get_repo)):
+    _require_age(user)
+    return await _orders_payload(repo, user.id, limit=None, chat_only=True)
 
 
 @router.get("/orders/active")
