@@ -13,6 +13,7 @@ import { ProductPage } from './screens/ProductPage'
 import { Legal, Footer } from './screens/Legal'
 import { SavePicker, WishlistPage, Wishlists, isSaved } from './screens/Wishlists'
 import { Profile } from './screens/Profile'
+import { OrderSuccess } from './screens/OrderSuccess'
 import { StoreNavigation } from './StoreNavigation'
 import {
   applyTheme, backButton, getInitData, hideMainButton, initDataSource, isTelegramContext,
@@ -21,6 +22,7 @@ import {
 
 export default function App() {
   const [config, setConfig] = useState(null)
+  const [completedOrder, setCompletedOrder] = useState(null)
   const cartResource = useResource(api.cart)
   const profileResource = useResource(api.profile)
   const savedResource = useResource(api.wishlists.list)
@@ -398,12 +400,13 @@ export default function App() {
     // закривав батьківський екран і кнопка «Назад» виглядала зламаною.
     if (legal) return backButton(() => setLegal(null))
     if (saving) return backButton(() => setSaving(null))
+    if (completedOrder) return backButton(() => { setCompletedOrder(null); setTab('profile') })
     if (checkingOut) return backButton(() => setCheckingOut(false))
     if (openProduct) return backButton(() => setOpenProduct(null))
     if (openListId) return backButton(() => setOpenListId(null))
     if (chatOrder && tab === 'chat') return backButton(() => setChatOrder(null))
     return backButton(null)
-  }, [checkingOut, chatOrder, openProduct, openListId, legal, saving, tab])
+  }, [checkingOut, chatOrder, openProduct, openListId, legal, saving, tab, completedOrder])
 
   useEffect(() => hideMainButton, [])
 
@@ -699,6 +702,19 @@ initData: ${getInitData() ? `${getInitData().length} символів` : 'пор
     )
   }
 
+  if (completedOrder) {
+    return <div className="app app-form">
+      <OrderSuccess order={completedOrder}
+        onCatalog={() => { setCompletedOrder(null); setTab('catalog') }}
+        onOrders={() => { setCompletedOrder(null); setTab('profile') }}
+        onChat={() => {
+          const order = { id: completedOrder.order_id, total: completedOrder.total, can_chat: true }
+          setCompletedOrder(null); setChatOrder(order); setTab('chat')
+        }} />
+      <Footer onLegal={() => setLegal(true)} />
+    </div>
+  }
+
   if (checkingOut) {
     return (
       <div className="app app-form">
@@ -707,7 +723,8 @@ initData: ${getInitData() ? `${getInitData().length} символів` : 'пор
           cart={cart}
           profile={profile}
           onLegal={(key) => setLegal(key)}
-          onDone={() => {
+          onDone={(order) => {
+            setCompletedOrder(order)
             setCheckingOut(false)
             refresh().catch(() => {})
           }}

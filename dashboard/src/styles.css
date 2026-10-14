@@ -5096,3 +5096,26 @@ button.support-stat:hover { border-color: rgba(139, 123, 240, 0.38); }
   .metric .value { overflow-wrap: anywhere; font-size: 26px; }
   .analytics-quality p { font-size: 13px; }
 }
+
+/* Stage 6 managed tables: columns and local scroll, with stable row identity. */
+.managed-table { min-width: 0; margin-top: 12px; }
+.managed-table-tools { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
+.managed-table-scroll { max-height: 430px; overflow: auto; overscroll-behavior: contain; }
+.managed-table table { border-collapse: separate; border-spacing: 0; }
+.managed-table th { position: sticky; top: 0; z-index: 2; background: var(--panel); }
+.managed-table th:first-child, .managed-table td:first-child { position: sticky; left: 0; background: var(--panel); }
+.managed-table th:first-child { z-index: 3; }
+.managed-table td:first-child { z-index: 1; }
+.managed-table [hidden] { display: none; }
+.table-column-options { display: grid; grid-template-columns: repeat(auto-fit,minmax(150px,1fr)); gap: 10px; }
+.table-column-options label { display: flex; align-items: center; gap: 8px; min-height: 44px; overflow-wrap: anywhere; }
+
+/* Hourly bars keep all 24 labels accessible even at 320 px. */
+.bars { overflow-x: auto; overflow-y: hidden; padding-bottom: 4px; }
+.bar-slot { min-width: 13px; }
+
+.order-maintenance { width: 100%; margin-top: 4px; }
+.order-maintenance summary, .orders-maintenance summary { cursor: pointer; color: var(--faint); padding: 10px 4px; min-height: 40px; }
+.order-maintenance-actions { display: flex; flex-wrap: wrap; gap: 8px; border-top: 1px solid var(--line); padding-top: 8px; }
+.orders-maintenance { padding-inline: 4px; }
+@media (max-width: 760px) { .order-maintenance-actions .btn { flex: 1; } }

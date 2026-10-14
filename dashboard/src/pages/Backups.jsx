@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { api } from '../api'
+import { Modal } from '../components/ui'
 
 function sizeLabel(bytes) {
   if (!bytes) return '0'
@@ -22,10 +23,13 @@ function when(value) {
  */
 function RestoreDialog({ item, onClose, onDone }) {
   const [typed, setTyped] = useState('')
+  const running = useRef(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
 
   const run = async () => {
+    if (running.current) return
+    running.current = true
     setBusy(true)
     setError('')
     try {
@@ -33,17 +37,14 @@ function RestoreDialog({ item, onClose, onDone }) {
       onDone(result)
     } catch (e) {
       setError(e.message)
+      running.current = false
       setBusy(false)
     }
   }
 
   return (
-    <div className="overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="modal" role="dialog" aria-modal="true">
-        <header>
-          <h2>Відновити базу</h2>
-          <button className="icon-btn" onClick={onClose}>×</button>
-        </header>
+    <Modal title="Відновити базу" onClose={() => { if (!running.current) onClose() }}>
+
 
         <p>
           Поточні дані буде замінено вмістом <b>{item.name}</b> від {when(item.createdAt)}.
@@ -65,7 +66,7 @@ function RestoreDialog({ item, onClose, onDone }) {
           />
         </label>
 
-        {error && <p className="error">{error}</p>}
+        {error && <p className="error" role="alert">{error}</p>}
 
         <footer>
           <button className="btn ghost" onClick={onClose} disabled={busy}>Скасувати</button>
@@ -77,8 +78,7 @@ function RestoreDialog({ item, onClose, onDone }) {
             {busy ? 'Відновлюю…' : 'Відновити'}
           </button>
         </footer>
-      </div>
-    </div>
+    </Modal>
   )
 }
 

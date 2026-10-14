@@ -39,7 +39,7 @@ import { clientLog } from '../logger'
 import { money } from '../money'
 import { Field } from '../fields'
 import {
-  alert, canRequestContact, close, confirm, haptic, notify, requestContact,
+  canRequestContact, confirm, haptic, notify, requestContact,
 } from '../telegram'
 
 export function Cart({ config, cart, onCartChange, onCheckout }) {
@@ -557,21 +557,9 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
       // Реквізити тут не показуємо: їх надсилає менеджер у чат під
       // конкретне замовлення. Номер картки, розісланий усім наперед,
       // застаріває швидше, ніж встигають правити налаштування.
-      const payment =
-        order.payment_method === 'card'
-          ? '\n\nМенеджер надішле реквізити для оплати вам у чат.'
-          : ''
-      // Замовлення вже створене — одразу виводимо checkout із pending-
-      // стану. Нативний showAlert у частині Telegram-клієнтів не викликає
-      // callback, і раніше через await кнопка назавжди лишалась
-      // «Оформлюємо…», хоча order уже був у БД.
       submittingRef.current = false
       setBusy(false)
-      onDone()
-      await alert(
-        `Замовлення №${order.order_id} прийнято.\nДо сплати ${money(order.total)} ${checkoutCurrency}.${payment}\n\nДеталі надійдуть у чат з ботом.`,
-      )
-      close()
+      onDone({ ...order, currency: checkoutCurrency })
     } catch (err) {
       if (completed) return
       submittingRef.current = false

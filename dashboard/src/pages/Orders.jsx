@@ -1,13 +1,14 @@
 import { usePagedResource } from '../components/usePagedResource'
 import { Pagination, PAGE_SIZE, pageNumber } from '../components/Pagination'
 import { memo, useCallback, useEffect, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 
 import { api, isSysadmin } from '../api'
 import { STATUS_LABELS, allowedFrom } from '../components/StatusRail'
 import { OrderStatusBadge, SalesDriveStatusSelect, isNewOrderStatus } from '../components/OrderStatus'
 import { Empty, ErrorBar, Field, Info, Loading, Modal, dateTime, money, useToast } from '../components/ui'
 import { useFilters } from '../components/useFilters'
+import { useListPosition } from '../components/useListPosition'
 import { useVisiblePolling } from '../components/useVisiblePolling'
 
 // Той самий перелік, що й на сторінці замовлення.
@@ -217,6 +218,7 @@ const OrderRow = memo(function OrderRow({
   onRemove,
   crmStatuses,
   onCrmStatusChange,
+  returnTo,
 }) {
   const itemsText = order.items.map((i) => `${i.name} ×${i.qty}`).join(', ')
   const itemQty = order.items.reduce((sum, item) => sum + Number(item.qty || 0), 0)
@@ -226,10 +228,10 @@ const OrderRow = memo(function OrderRow({
     <article className={`order-row ${order.crm_id ? 'status-crm' : `status-${order.status}`}${isNewOrder ? ' is-new-order' : ''}${unreadCount > 0 ? ' has-unread-messages' : ''}`}>
       <div className="order-primary">
         <div className="order-id-line">
-          <Link to={`/orders/${order.id}`} className="id-tag">#{order.id}</Link>
+          <Link to={`/orders/${order.id}`} state={{ ordersReturn: returnTo }} className="id-tag">#{order.id}</Link>
           {unreadCount > 0 && (
             <Link
-              to={`/orders/${order.id}#chat`}
+              to={`/orders/${order.id}#chat`} state={{ ordersReturn: returnTo }}
               className="order-unread"
               title={`Від клієнта ${unreadCount} ${unreadCount === 1 ? 'нове повідомлення' : 'нових повідомлення'}`}
               aria-label={`Відкрити ${unreadCount} непрочитаних повідомлень замовлення №${order.id}`}
@@ -283,12 +285,15 @@ const OrderRow = memo(function OrderRow({
           <div className="legacy-status-note">Історичне замовлення · статус ведеться локально і не синхронізується з CRM</div>
         )}
         <div className="orders-actions">
-          <Link className="btn small order-open" to={`/orders/${order.id}`}>
+          <Link className="btn small order-open" to={`/orders/${order.id}`} state={{ ordersReturn: returnTo }}>
             Відкрити
           </Link>
           <button className="btn ghost small" onClick={() => onQuickView(order)}>
             Швидкий перегляд
           </button>
+          {(canDelete || (!order.crm_id && allowedFrom(order.status, order.payment_method).includes('cancelled'))) && <details className="order-maintenance">
+            <summary>Інші дії</summary>
+            <div className="order-maintenance-actions">
           {!order.crm_id && allowedFrom(order.status, order.payment_method).includes('cancelled') && (
             <button
               className="btn ghost small order-cancel"
@@ -305,6 +310,8 @@ const OrderRow = memo(function OrderRow({
               Стерти
             </button>
           )}
+            </div>
+          </details>}
         </div>
       </div>
     </article>
@@ -313,6 +320,8 @@ const OrderRow = memo(function OrderRow({
 
 export default function Orders() {
   const navigate = useNavigate()
+  const location = useLocation()
+  const returnTo = location.pathname + location.search
   const notify = useToast()
   // Фільтри — в адресі сторінки. Менеджер відбирає замовлення, відкриває
   // одне, повертається — і відбір на місці. З useState він щоразу
@@ -343,6 +352,8 @@ export default function Orders() {
   }, [status, search, dateFrom, dateTo, page])
   const { data: orders, setData: setOrders, total, loading, error, load } = usePagedResource(
     JSON.stringify([status, search, dateFrom, dateTo, page]), fetchPage, search ? 350 : 0)
+
+  useListPosition(returnTo, orders !== null)
 
   const loadCrmStatuses = useCallback(async () => {
     try {
@@ -473,7 +484,7 @@ export default function Orders() {
       notify(`Замовлення №${order.id} стерто`)
       load()
     } catch (err) {
-      setError(err.message)
+      notify(err.message, 'bad')
     }
   }, [load, notify])
 
@@ -483,7 +494,7 @@ export default function Orders() {
     if (!window.confirm('Стерти ВСІ замовлення разом із підсумками клієнтів?')) return
     const typed = window.prompt('Це незворотно. Введіть DELETE ALL для підтвердження:')
     if (typed !== 'DELETE ALL') {
-      if (typed !== null) setError('Підтвердження не збіглося — нічого не стерто')
+      if (typed !== null) notify('Підтвердження не збіглося — нічого не стерто', 'bad')
       return
     }
     try {
@@ -491,7 +502,7 @@ export default function Orders() {
       notify(`Стерто замовлень: ${result.removed}`)
       load()
     } catch (err) {
-      setError(err.message)
+      notify(err.message, 'bad')
     }
   }
 
@@ -581,9 +592,9 @@ export default function Orders() {
           )}
           <button className="btn ghost small" onClick={() => { load(); loadCrmStatuses() }}>Оновити</button>
           {isSysadmin() && (
-            <button className="btn danger small" onClick={purgeAll}>
+            <details className="orders-maintenance"><summary>Обслуговування</summary><button className="btn danger small" onClick={purgeAll}>
               Стерти всі
-            </button>
+            </button></details>
           )}
         </div>
       </div>
@@ -663,6 +674,7 @@ export default function Orders() {
               <OrderRow
                 key={order.id}
                 order={order}
+                returnTo={returnTo}
                 unreadCount={Number(unread[order.id] || 0)}
                 canDelete={canDelete}
                 onQuickView={setSelected}

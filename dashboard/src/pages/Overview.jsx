@@ -3,6 +3,7 @@ import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } fro
 import { useSearchParams } from 'react-router-dom'
 import { api } from '../api'
 import { AnalyticsControls, MarketingMetrics, AnalyticsOrders, SpendEditor, dateInZone } from '../components/AnalyticsPanels'
+import { ManagedTable } from '../components/ManagedTable'
 import { STATUS_LABELS } from '../components/StatusRail'
 import { StatusBadge } from '../components/OrderStatus'
 import { ErrorBar, Loading, money } from '../components/ui'
@@ -42,7 +43,7 @@ function Bars({ title, hint, labels, values }) {
     <div className="card">
       <h2 style={{ marginTop: 0 }}>{title}</h2>
       {hint && <p className="faint" style={{ marginTop: 0 }}>{hint}</p>}
-      <div className="bars">
+      <div className="bars" tabIndex={0} role="group" aria-label={title}>
         {values.map((value, index) => (
           <div className="bar-slot" key={labels[index]}>
             <div className="bar-track">
@@ -316,7 +317,7 @@ export default function Overview() {
           </div>
 
           <details className="card analytics-details"><summary>Таблиця динаміки · {data.window.granularity === 'month' ? 'місяці' : 'дні'}</summary>
-            <div className="table-wrap"><table><thead><tr><th>Період</th><th className="num">Виручка</th><th className="num">Отримано</th><th className="num">Продажі</th><th className="num">Сер. чек</th><th className="num">Нові покупці</th><th className="num">Витрати</th><th className="num">CAC</th><th className="num">ROAS</th><th className="num">Візити</th><th className="num">Конверсія</th></tr></thead><tbody>{data.series.map((r) => <tr key={r.date}><td>{r.date}</td><td className="num">{money(r.sales)}</td><td className="num">{money(r.revenue)}</td><td className="num">{r.orders}</td><td className="num">{r.avg_check == null ? '—' : money(r.avg_check)}</td><td className="num">{r.new_customers}</td><td className="num">{money(r.spend)}</td><td className="num">{r.cac == null ? '—' : money(r.cac)}</td><td className="num">{r.roas == null ? '—' : `${r.roas}×`}</td><td className="num">{r.sessions}</td><td className="num">{r.conversion == null ? '—' : `${r.conversion}%`}</td></tr>)}</tbody></table></div>
+            <ManagedTable tableId="analytics-series" label="Динаміка"><table><thead><tr><th>Період</th><th className="num">Виручка</th><th className="num">Отримано</th><th className="num">Продажі</th><th className="num">Сер. чек</th><th className="num">Нові покупці</th><th className="num">Витрати</th><th className="num">CAC</th><th className="num">ROAS</th><th className="num">Візити</th><th className="num">Конверсія</th></tr></thead><tbody>{data.series.map((r) => <tr key={r.date}><td>{r.date}</td><td className="num">{money(r.sales)}</td><td className="num">{money(r.revenue)}</td><td className="num">{r.orders}</td><td className="num">{r.avg_check == null ? '—' : money(r.avg_check)}</td><td className="num">{r.new_customers}</td><td className="num">{money(r.spend)}</td><td className="num">{r.cac == null ? '—' : money(r.cac)}</td><td className="num">{r.roas == null ? '—' : `${r.roas}×`}</td><td className="num">{r.sessions}</td><td className="num">{r.conversion == null ? '—' : `${r.conversion}%`}</td></tr>)}</tbody></table></ManagedTable>
           </details>
           <AnalyticsOrders selection={selection} data={data} />
           <div className="grid k2">

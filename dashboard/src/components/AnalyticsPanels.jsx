@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { ManagedTable } from './ManagedTable'
 import { api, isAdmin } from '../api'
 import { ErrorBar, money } from './ui'
 
@@ -70,9 +71,9 @@ function exportAnalytics(data) {
 }
 
 function ChannelTable({ rows, campaigns = false }) {
-  return <div className="table-wrap"><table><thead><tr><th>Джерело</th>{campaigns && <th>Кампанія</th>}<th className="num">Продажі</th><th className="num">Виручка</th><th className="num">Рекламна виручка</th><th className="num">Сер. чек</th><th className="num">Нові покупці</th><th className="num">Витрати</th><th className="num">CAC</th><th className="num">ROAS</th><th className="num">Візити</th><th className="num">Конверсія</th></tr></thead>
+  return <ManagedTable tableId={campaigns ? "analytics-campaigns" : "analytics-channels"} label={campaigns ? "Кампанії" : "Джерела"}><table><thead><tr><th>Джерело</th>{campaigns && <th>Кампанія</th>}<th className="num">Продажі</th><th className="num">Виручка</th><th className="num">Рекламна виручка</th><th className="num">Сер. чек</th><th className="num">Нові покупці</th><th className="num">Витрати</th><th className="num">CAC</th><th className="num">ROAS</th><th className="num">Візити</th><th className="num">Конверсія</th></tr></thead>
     <tbody>{rows.map((r) => <tr key={`${r.source}:${r.campaign || ''}`}><td>{sourceLabel(r.source)}</td>{campaigns && <td>{r.campaign || 'Без мітки'}</td>}<td className="num">{r.orders}</td><td className="num">{money(r.sales)}</td><td className="num">{money(r.ad_sales)}</td><td className="num">{moneyOrEmpty(r.avg_check)}</td><td className="num">{r.new_customers}</td><td className="num">{money(r.spend)}</td><td className="num">{moneyOrEmpty(r.cac)}</td><td className="num">{r.roas == null ? '—' : `${num(r.roas)}×`}</td><td className="num">{r.sessions}</td><td className="num">{pct(r.conversion)}</td></tr>)}</tbody>
-  </table>{!rows.length && <p className="muted">За цей період даних немає.</p>}</div>
+  </table>{!rows.length && <p className="muted">За цей період даних немає.</p>}</ManagedTable>
 }
 
 export function MarketingMetrics({ data }) {

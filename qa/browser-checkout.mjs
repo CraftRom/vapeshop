@@ -14,7 +14,7 @@ async function setup(width = 390) {
   page.on('pageerror', (error) => errors.push(error.message))
   const state = { quoteFail: false, checkoutMode: 'success', checkoutCalls: [], quoteCalls: [], updated: false, committed: false, slowOld: false, delays: false, alert: '' }
   await page.addInitScript(() => {
-    window.Telegram = { WebApp: { initData: 'user=%7B%22id%22%3A123%7D&auth_date=1&hash=test', platform: 'tdesktop', initDataUnsafe: { user: { id: 123 } }, ready() {}, expand() {}, disableVerticalSwipes() {}, onEvent() {}, offEvent() {}, close() {}, showAlert(text, callback) { window.__checkoutAlert = text; callback?.() } } }
+    window.Telegram = { WebApp: { initData: 'user=%7B%22id%22%3A123%7D&auth_date=1&hash=test', platform: 'tdesktop', initDataUnsafe: { user: { id: 123 } }, ready() {}, expand() {}, disableVerticalSwipes() {}, onEvent() {}, offEvent() {}, close() { window.__checkoutClosed = true }, showAlert(text, callback) { window.__checkoutAlert = text; callback?.() } } }
   })
   await page.route('https://telegram.org/**', (route) => route.fulfill({ body: '' }))
   await page.route('**/api/**', async (route) => {
@@ -71,9 +71,18 @@ try {
     await page.getByRole('checkbox').uncheck()
     await page.locator('.summary .total').getByText('179,91 грн', { exact: true }).waitFor()
     await page.getByRole('button', { name: 'Підтвердити замовлення', exact: true }).dblclick()
-    await page.waitForFunction(() => window.__checkoutAlert?.includes('179,91'))
+    await page.locator('.order-success').getByText('179,91 грн', { exact: true }).waitFor()
     check(state.checkoutCalls.length === 1 && state.checkoutCalls[0].quote_token === tokens[0], `${width}px double click надсилає один POST з показаним підсумком`)
-    check((await page.evaluate(() => window.__checkoutAlert)).includes('179,91 грн'), `${width}px успіх з точною сумою`)
+    check((await page.locator('.order-success').innerText()).includes('179,91 грн'), `${width}px успіх з точною сумою`)
+    check(await page.getByRole('heading', { name: 'Замовлення №42 прийнято', exact: true }).isVisible(), `${width}px результат має номер замовлення`)
+    check(await page.getByRole('button', { name: 'Чат замовлення', exact: true }).isVisible(), `${width}px доступний перехід до чату`)
+    await page.screenshot({ path: (process.env.QA_OUTPUT_DIR || 'qa/output') + `/success-stage6-${width}.png` })
+    await page.waitForTimeout(500)
+    check(!await page.evaluate(() => window.__checkoutClosed) && await page.locator('.order-success').isVisible(), `${width}px застосунок не закриває результат автоматично`)
+    check(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `${width}px результат не виходить за межі екрана`)
+    await page.getByRole('button', { name: 'Продовжити покупки', exact: true }).click()
+    await page.locator('.store-card').first().waitFor()
+    check(state.checkoutCalls.length === 1, `${width}px вихід з результату не повторює checkout`)
     check(!errors.length, `${width}px без помилок React`)
     await context.close()
   }
@@ -115,7 +124,7 @@ try {
     check(state.checkoutCalls.length === 1, '409 оновлює суму без автоматичної покупки')
     check(await page.locator('#surname').inputValue() === 'Тест', 'зміна підсумку зберігає контактні поля')
     await page.getByRole('button', { name: 'Підтвердити замовлення', exact: true }).click()
-    await page.waitForFunction(() => window.__checkoutAlert?.includes('188,91'))
+    await page.locator('.order-success').getByText('188,91 грн', { exact: true }).waitFor()
     check(state.checkoutCalls[1].quote_token === tokens[1] && state.checkoutCalls[0].checkout_key === state.checkoutCalls[1].checkout_key, 'повторне підтвердження використовує новий підсумок і той самий ключ')
     await context.close()
   }
@@ -129,7 +138,7 @@ try {
     await page.locator('#surname').fill('')
     check(await page.getByRole('button', { name: 'Перевірити замовлення', exact: true }).isEnabled(), 'після втрати відповіді повтор доступний навіть із порожнім серверним кошиком')
     await page.getByRole('button', { name: 'Перевірити замовлення', exact: true }).click()
-    await page.waitForFunction(() => window.__checkoutAlert?.includes('179,91'))
+    await page.locator('.order-success').getByText('179,91 грн', { exact: true }).waitFor()
     check(JSON.stringify(state.checkoutCalls[0]) === JSON.stringify(state.checkoutCalls[1]), 'невідомий результат перевіряється повтором незмінного payload і ключа')
     await context.close()
   }

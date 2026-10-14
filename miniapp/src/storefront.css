@@ -218,3 +218,31 @@
 
 .storefront .chat-screen { height: calc(100dvh - 80px - var(--store-nav-height) - var(--safe-bottom)); min-height: 240px; }
 .storefront .chat-screen .chat-compose { bottom: auto; }
+
+/* Stage 6: compact controls preserve the existing palette and touch targets. */
+@media (max-width: 599px) {
+  .catalog-taxonomy { margin-bottom: 6px; }
+  .taxonomy-heading { padding-bottom: 2px; }
+  .category-tile { min-height: 66px; flex-basis: 146px; padding: 8px 10px; grid-template-columns: 22px minmax(0,1fr); grid-template-rows: auto auto; gap: 3px 7px; }
+  .category-tile-symbol { width: 22px; height: 24px; }
+  .category-tile-symbol .store-icon { width: 20px; height: 20px; }
+  .category-tile-detail { font-size: 10px; gap: 4px; flex-wrap: nowrap; }
+  .category-tile-detail .taxonomy-count { min-width: 18px; padding-inline: 4px; }
+  .store-catalog-tools { padding: 10px; gap: 8px; margin-block: 8px; }
+  .catalog-availability { flex: 1 1 190px; min-width: 0; }
+  .catalog-sorting { flex: 1 1 110px; min-width: 0; }
+  .availability-options button:first-child { flex: 0 0 44px; }
+  .catalog-tool-label { margin-bottom: 4px; }
+  .catalog-reset { width: auto; margin-left: auto; }
+  .catalog-results-heading { margin-block: 10px; }
+}
+.order-success { padding: 28px var(--page-x); max-width: 620px; margin: auto; }
+.order-success h1 { overflow-wrap: anywhere; }
+.order-success-mark { color: var(--accent); background: var(--accent-soft); border-radius: 50%; display: grid; place-items: center; width: 64px; height: 64px; }
+.order-success-mark .store-icon { width: 32px; height: 32px; }
+.order-success-details { border: 1px solid var(--line-strong); background: var(--card); border-radius: var(--radius); padding: 16px; }
+.order-success-details div { display: flex; flex-wrap: wrap; gap: 8px 16px; justify-content: space-between; margin-block: 8px; }
+.order-success-details dt { color: var(--tg-hint); }
+.order-success-details dd { margin: 0; font-weight: 650; overflow-wrap: anywhere; }
+.order-success-actions { display: grid; gap: 10px; }
+.order-success-actions button { min-height: 48px; }

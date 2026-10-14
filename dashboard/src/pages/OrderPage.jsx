@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 
 import { api, authorizedFetch } from '../api'
 import { ErrorBar, Field, Info, Loading, Modal, money, useToast } from '../components/ui'
@@ -1106,6 +1106,8 @@ function CrmSnapshotPanel({ order, crmStatuses, refreshing, onRefresh, onUpdate 
 export default function OrderPage() {
   const { id } = useParams()
   const navigate = useNavigate()
+  const location = useLocation()
+  const listReturn = /^\/orders(?:\?|$)/.test(location.state?.ordersReturn || '') ? location.state.ordersReturn : '/orders'
   const [params, setParams] = useSearchParams()
   const notify = useToast()
 
@@ -1456,7 +1458,7 @@ export default function OrderPage() {
     <>
       <div className="page-head">
         <div>
-          <button className="btn ghost small" onClick={() => navigate('/orders')}>
+          <button className="btn ghost small" onClick={() => navigate(listReturn)}>
             ← До списку
           </button>
           <h1 style={{ marginTop: 8 }}>Замовлення №{order.id}</h1>

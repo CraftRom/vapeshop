@@ -40,11 +40,9 @@ check(checkout.includes("contact_phone: f.contact_phone || normalizePhone(profil
       'раніше підтверджений номер автоматично підставляється у checkout')
 
 console.log('\n--- успішний checkout не зависає на «Оформлюємо…» ---')
-const success = checkout.slice(checkout.indexOf("const payment ="), checkout.indexOf('} catch (err)', checkout.indexOf("const payment =")))
-const doneAt = success.indexOf('onDone()')
-const alertAt = success.indexOf('await alert(')
-check(doneAt >= 0 && alertAt >= 0 && doneAt < alertAt,
-      'checkout закриває pending-екран до нативного showAlert')
+const success = checkout.slice(checkout.indexOf('const order = await api.checkout(payload)'), checkout.indexOf('} catch (err)', checkout.indexOf('const order = await api.checkout(payload)')))
+check(success.includes('onDone({ ...order, currency: checkoutCurrency })') && !success.includes('await alert(') && !success.includes('close()'),
+      'checkout відкриває постійний результат без очікування нативного діалогу')
 check(success.includes('submittingRef.current = false') && success.includes('setBusy(false)'),
       'busy/ref guard скидаються одразу після створення замовлення')
 const alertBlock = telegram.slice(telegram.indexOf('export function alert(message)'), telegram.length)

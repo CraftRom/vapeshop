@@ -5,14 +5,14 @@ import { mountDialog } from '../dialog'
 import { backButton } from '../telegram'
 
 function GroupCount({ group }) {
-  return Number.isFinite(group.products_count) ? <span className="taxonomy-count" aria-label={`Кількість товарів: ${group.products_count}`}>{group.products_count}</span> : null
+  return Number.isFinite(group.products_count) ? <span className="taxonomy-count" title="Усього активних товарів у розділі, до пошуку та фільтра наявності" aria-label={`Усього товарів у розділі: ${group.products_count}`}>{group.products_count}</span> : null
 }
 
 function CategoryTile({ name, selected, onClick, group, detail, icon = 'box' }) {
   return <button className="category-tile" aria-label={name} aria-pressed={selected} onClick={onClick}>
     <span className="category-tile-symbol"><StoreIcon name={icon} /></span>
     <span className="category-tile-name">{name}</span>
-    <span className="category-tile-detail">{group && <GroupCount group={group} />}{detail}</span>
+    <span className="category-tile-detail">{group && <GroupCount group={group} />}{group?.products_count === 0 ? 'Незабаром' : detail}</span>
     {selected && <span className="category-tile-check"><StoreIcon name="check" /></span>}
   </button>
 }
