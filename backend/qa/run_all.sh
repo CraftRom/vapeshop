@@ -140,6 +140,7 @@ echo
 echo "Контракти й дані"
 run domains qa/qa_domain_compatibility.py
 
+run bot-lifecycle qa/qa_bot_lifecycle.py
 run bot-inputs qa/qa_bot_inputs.py
 run bot-text-receipts qa/qa_bot_text_receipts.py
 run qa-isolation qa/qa_isolation.py
