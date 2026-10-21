@@ -9,7 +9,7 @@ import logging
 from html import escape
 
 from aiogram import F, Router
-from aiogram.filters import Command
+from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message, ReplyKeyboardRemove, InlineKeyboardButton, InlineKeyboardMarkup
 from bot import keyboards as kb
@@ -76,149 +76,227 @@ async def start_checkout(
     # callback-и від швидкого подвійного натискання «Підтвердити», обидва
     # потраплять у той самий idempotent checkout замість двох замовлень.
     await state.update_data(checkout_key=f"bot_{user.id}_{secrets.token_urlsafe(16)}")
-    await state.set_state(Checkout.name)
-    await callback.message.answer(texts.CHECKOUT_NAME, reply_markup=ReplyKeyboardRemove())
+    await _show_step(callback.message, state, repo, user, "name")
     await callback.answer()
 
 
-@router.message(Checkout.name, F.text)
-async def step_name(message: Message, state: FSMContext) -> None:
+# Every prompt has its own token. Re-entering the same field invalidates all
+# earlier buttons, including those from another checkout in this chat.
+FIELDS = ("name", "phone", "city", "address", "promo", "bonus", "payment", "comment")
+STALE = "Ця кнопка застаріла. Використайте останнє повідомлення оформлення"
+
+
+def _value(data, field):
+    value = data.get("use_bonus" if field == "bonus" else field)
+    if field == "bonus":
+        return "використовувати" if value else "не використовувати"
+    if field == "payment":
+        return "переказ на картку" if value == "card" else "накладений платіж"
+    return str(value or "не вказано")
+
+
+async def _show_step(message, state, repo, user, field):
+    data = await state.get_data()
+    if field == "bonus":
+        try:
+            quote = await svc.checkout_quote(repo, user, promo_code=data.get("promo"))
+        except svc.CheckoutQuoteError as exc:
+            await _quote_error(message, state, data, str(exc), kind=exc.kind)
+            return
+        if quote.bonus_available <= 0:
+            await state.update_data(use_bonus=False)
+            if data.get("editing"):
+                await message.answer("Для цього замовлення немає доступних бонусів.")
+                await _show_summary(message, state, repo, user)
+            else:
+                await _show_step(message, state, repo, user, "payment")
+            return
+        text = (f"На це замовлення можна списати до {format_money(quote.bonus_available)} {escape(quote.currency)}.\n"
+                "Ліміт уже враховує знижку.")
+        choices = [("Списати бонуси", "bonusyes"), ("Не використовувати", "bonusno")]
+    elif field == "payment":
+        text = "Оберіть спосіб оплати:"
+        choices = [("💳 Переказ на картку", "paycard"), ("📦 Накладений платіж", "paycod")]
+    else:
+        text = getattr(texts, "CHECKOUT_" + field.upper())
+        choices = []
+        if field == "promo":
+            choices.append(("Прибрати промокод" if data.get("promo") else "Пропустити", "skip"))
+        elif field == "comment":
+            choices.append(("Без коментаря", "skip"))
+    key = "use_bonus" if field == "bonus" else field
+    if key in data:
+        text += "\n\nЗараз: <b>" + escape(_value(data, field)) + "</b>"
+        choices.append(("Залишити як є", "keep"))
+    token = secrets.token_hex(8)
+    await state.update_data(step_id=token, step_field=field, confirmation_id=None, quote_token=None)
+    await state.set_state(getattr(Checkout, field))
+    rows = [[InlineKeyboardButton(text=label, callback_data=f"checkout:{action}:{token}")] for label, action in choices]
+    if field != "name" or data.get("editing"):
+        rows.append([InlineKeyboardButton(text="⬅️ До підсумку" if data.get("editing") else "⬅️ Назад", callback_data=f"checkout:back:{token}")])
+    rows.append([InlineKeyboardButton(text="❌ Скасувати оформлення", callback_data=f"checkout:cancel:{token}")])
+    if field == "phone":
+        await message.answer(text, reply_markup=kb.PHONE_REQUEST)
+        await message.answer("Керування оформленням:", reply_markup=InlineKeyboardMarkup(inline_keyboard=rows))
+    else:
+        # Remove a lingering contact keyboard when leaving the phone step.
+        if field in ("name", "city") or data.get("step_field") == "phone":
+            await message.answer("Продовжуємо оформлення.", reply_markup=ReplyKeyboardRemove())
+        await message.answer(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=rows))
+
+
+async def _advance(message, state, repo, user, field):
+    data = await state.get_data()
+    if data.get("editing") or field == "comment":
+        await _show_summary(message, state, repo, user)
+    else:
+        await _show_step(message, state, repo, user, FIELDS[FIELDS.index(field) + 1])
+
+
+@router.message(StateFilter(*(getattr(Checkout, f) for f in FIELDS), Checkout.confirm), Command("cancel"))
+async def cancel_checkout_command(message: Message, state: FSMContext):
+    await state.clear()
+    await message.answer("Оформлення скасовано. Кошик залишився без змін.", reply_markup=kb.main_menu())
+
+
+@router.callback_query(F.data.startswith("checkout:"))
+async def checkout_navigation(callback: CallbackQuery, state: FSMContext, repo: Repository, user: User):
+    data = await state.get_data()
+    parts = callback.data.split(":")
+    field = data.get("step_field")
+    if (len(parts) != 3 or not data.get("step_id") or parts[2] != data["step_id"]
+            or field not in FIELDS or await state.get_state() != getattr(Checkout, field).state):
+        await callback.answer(STALE, show_alert=True)
+        return
+    action = parts[1]
+    if action == "cancel":
+        await state.clear()
+        await callback.message.answer("Оформлення скасовано. Кошик залишився без змін.", reply_markup=kb.main_menu())
+    elif action == "back":
+        if data.get("editing"):
+            await _show_summary(callback.message, state, repo, user)
+        elif field != "name":
+            previous = FIELDS[FIELDS.index(field) - 1]
+            # The bonus step may have been skipped because its limit is zero.
+            if field == "payment":
+                try:
+                    quote = await svc.checkout_quote(repo, user, promo_code=data.get("promo"))
+                except svc.CheckoutQuoteError as exc:
+                    await _quote_error(callback.message, state, data, str(exc), kind=exc.kind)
+                    await callback.answer()
+                    return
+                if quote.bonus_available <= 0:
+                    previous = "promo"
+            await _show_step(callback.message, state, repo, user, previous)
+    elif action == "keep" and ("use_bonus" if field == "bonus" else field) in data:
+        # Promo validity and bonus limits are checked afresh on the next quote.
+        await _advance(callback.message, state, repo, user, field)
+    elif action == "skip" and field in ("promo", "comment"):
+        await state.update_data(**({"promo": None, "discount": "0"} if field == "promo" else {"comment": None}))
+        await _advance(callback.message, state, repo, user, field)
+    elif action in ("bonusyes", "bonusno") and field == "bonus":
+        await state.update_data(use_bonus=action == "bonusyes")
+        await _advance(callback.message, state, repo, user, field)
+    elif action in ("paycard", "paycod") and field == "payment":
+        await state.update_data(payment="card" if action == "paycard" else "cod")
+        await _advance(callback.message, state, repo, user, field)
+    else:
+        await callback.answer(STALE, show_alert=True)
+        return
+    await callback.answer()
+
+
+@router.message(Checkout.name, F.text, ~F.text.startswith("/"))
+async def step_name(message: Message, state: FSMContext, repo: Repository = None, user: User = None) -> None:
     name = message.text.strip()
     if not 3 <= len(name) <= 128:
         await message.answer("Введіть ім'я та прізвище повністю: від 3 до 128 символів.")
         return
     await state.update_data(name=name)
-    await state.set_state(Checkout.phone)
-    await message.answer(texts.CHECKOUT_PHONE, reply_markup=kb.PHONE_REQUEST)
+    await _advance(message, state, repo, user, "name")
 
 
 @router.message(Checkout.phone, F.contact)
-async def step_phone_contact(message: Message, state: FSMContext) -> None:
-    phone = normalize_phone(message.contact.phone_number)
-    if not phone:
-        await message.answer(
-            "Не вдалося розпізнати український номер. Введіть його текстом, наприклад 0671234567.",
-            reply_markup=ReplyKeyboardRemove(),
-        )
-        return
-    await state.update_data(phone=phone)
-    await state.set_state(Checkout.city)
-    await message.answer(texts.CHECKOUT_CITY, reply_markup=ReplyKeyboardRemove())
+async def step_phone_contact(message: Message, state: FSMContext, repo: Repository, user: User) -> None:
+    await _save_phone(message, state, repo, user, message.contact.phone_number)
 
 
-@router.message(Checkout.phone, F.text)
-async def step_phone_text(message: Message, state: FSMContext) -> None:
-    phone = normalize_phone(message.text)
+@router.message(Checkout.phone, F.text, ~F.text.startswith("/"))
+async def step_phone_text(message: Message, state: FSMContext, repo: Repository, user: User) -> None:
+    await _save_phone(message, state, repo, user, message.text)
+
+
+async def _save_phone(message, state, repo, user, raw):
+    phone = normalize_phone(raw)
     if not phone:
         await message.answer("Схоже, номер неповний. Приклад: 0671234567")
         return
     await state.update_data(phone=phone)
-    await state.set_state(Checkout.city)
-    await message.answer(texts.CHECKOUT_CITY, reply_markup=ReplyKeyboardRemove())
+    await message.answer("Номер збережено.", reply_markup=ReplyKeyboardRemove())
+    await _advance(message, state, repo, user, "phone")
 
 
-@router.message(Checkout.city, F.text)
-async def step_city(message: Message, state: FSMContext) -> None:
+@router.message(Checkout.city, F.text, ~F.text.startswith("/"))
+async def step_city(message: Message, state: FSMContext, repo: Repository = None, user: User = None) -> None:
     city = message.text.strip()
     if not 1 <= len(city) <= 128:
         await message.answer("Вкажіть місто: від 1 до 128 символів.")
         return
     await state.update_data(city=city)
-    await state.set_state(Checkout.address)
-    await message.answer(texts.CHECKOUT_ADDRESS)
+    await _advance(message, state, repo, user, "city")
 
 
-@router.message(Checkout.address, F.text)
-async def step_address(message: Message, state: FSMContext) -> None:
+@router.message(Checkout.address, F.text, ~F.text.startswith("/"))
+async def step_address(message: Message, state: FSMContext, repo: Repository = None, user: User = None) -> None:
     address = message.text.strip()
     if not 1 <= len(address) <= 255:
         await message.answer("Вкажіть відділення або адресу: від 1 до 255 символів.")
         return
     await state.update_data(address=address)
-    await state.set_state(Checkout.promo)
-    await message.answer(texts.CHECKOUT_PROMO, reply_markup=kb.SKIP)
+    await _advance(message, state, repo, user, "address")
 
 
-@router.message(Checkout.promo, F.text)
+@router.message(Checkout.promo, F.text, ~F.text.startswith("/"))
 async def step_promo(message: Message, state: FSMContext, repo: Repository, user: User) -> None:
     subtotal = await svc.cart_subtotal(repo, user.id)
     result = await svc.check_promo(repo, message.text, user.id, subtotal)
     if not result.ok:
-        await message.answer(f"{escape(result.error)}. Спробуйте інший код або пропустіть крок.", reply_markup=kb.SKIP)
+        await message.answer(f"{escape(result.error)}. Спробуйте інший код або скористайтеся кнопкою пропуску в останньому повідомленні.")
         return
     await state.update_data(promo=result.promo.code, discount=str(result.discount))
     await message.answer(f"Промокод застосовано: −{format_money(result.discount)} грн")
-    await _ask_bonus(message, state, repo, user)
+    await _advance(message, state, repo, user, "promo")
 
 
-@router.callback_query(Checkout.promo, F.data == "skip")
-async def skip_promo(callback: CallbackQuery, state: FSMContext, repo: Repository, user: User) -> None:
-    await callback.message.edit_reply_markup(reply_markup=None)
-    await state.update_data(promo=None, discount="0")
-    await _ask_bonus(callback.message, state, repo, user)
-    await callback.answer()
-
-
-async def _ask_bonus(message: Message, state: FSMContext, repo: Repository, user: User) -> None:
-    data = await state.get_data()
-    try:
-        quote = await svc.checkout_quote(repo, user, promo_code=data.get("promo"))
-    except svc.CheckoutQuoteError as exc:
-        await _quote_error(message, state, data, str(exc), kind=exc.kind)
-        return
-    available = quote.bonus_available
-
-    if available <= 0:
-        await state.set_state(Checkout.payment)
-        await message.answer("Оберіть спосіб оплати:", reply_markup=kb.payment_methods())
-        return
-
-    await state.set_state(Checkout.bonus)
-    await message.answer(
-        f"На це замовлення можна списати до {format_money(available)} {escape(quote.currency)}.\n"
-        "Ліміт уже враховує знижку.",
-        reply_markup=kb.bonus_prompt(available),
-    )
-
-
-@router.callback_query(Checkout.bonus, F.data.startswith("bonus:"))
-async def step_bonus(callback: CallbackQuery, state: FSMContext) -> None:
-    await state.update_data(use_bonus=callback.data.endswith("yes"))
-    await state.set_state(Checkout.payment)
-    await callback.message.edit_text("Оберіть спосіб оплати:", reply_markup=kb.payment_methods())
-    await callback.answer()
-
-
-@router.callback_query(Checkout.payment, F.data.startswith("pay:"))
-async def step_payment(callback: CallbackQuery, state: FSMContext) -> None:
-    payment = callback.data.split(":", 1)[1]
-    if payment not in ("card", "cod"):
-        await callback.answer("Оберіть доступний спосіб оплати", show_alert=True)
-        return
-    await state.update_data(payment=payment)
-    await state.set_state(Checkout.comment)
-    await callback.message.edit_text(texts.CHECKOUT_COMMENT, reply_markup=kb.SKIP)
-    await callback.answer()
-
-
-@router.message(Checkout.comment, F.text)
+@router.message(Checkout.comment, F.text, ~F.text.startswith("/"))
 async def step_comment(message: Message, state: FSMContext, repo: Repository, user: User) -> None:
     if len(message.text.strip()) > 500:
         await message.answer("Скоротіть коментар до 500 символів.")
         return
-    await state.update_data(comment=message.text.strip())
-    await _show_summary(message, state, repo, user)
+    await state.update_data(comment=message.text.strip() or None)
+    await _advance(message, state, repo, user, "comment")
 
 
-@router.callback_query(Checkout.comment, F.data == "skip")
-async def skip_comment(callback: CallbackQuery, state: FSMContext, repo: Repository, user: User) -> None:
-    await callback.message.edit_reply_markup(reply_markup=None)
-    await _show_summary(callback.message, state, repo, user)
-    await callback.answer()
+# Pre-upgrade inline prompts have no token. Refresh the current prompt rather
+# than interpreting an old unscoped skip/pay/bonus button in a new checkout.
+@router.callback_query(F.data == "skip")
+@router.callback_query(F.data.startswith("pay:"))
+@router.callback_query(F.data.startswith("bonus:"))
+async def legacy_step(callback: CallbackQuery, state: FSMContext, repo: Repository, user: User):
+    data = await state.get_data()
+    active = await state.get_state()
+    field = next((f for f in FIELDS if active == getattr(Checkout, f).state), None)
+    if field and not data.get("step_id"):
+        await _show_step(callback.message, state, repo, user, field)
+        await callback.answer("Кнопки оновлено. Продовжіть у новому повідомленні")
+    else:
+        await callback.answer(STALE, show_alert=True)
 
 
 async def _show_summary(message: Message, state: FSMContext, repo: Repository, user: User) -> None:
     data = await state.get_data()
+    if data.get("step_field") == "phone":
+        await message.answer("Перевіряємо замовлення.", reply_markup=ReplyKeyboardRemove())
     try:
         quote = await svc.checkout_quote(repo, user, promo_code=data.get("promo"),
                                          use_bonus=bool(data.get("use_bonus")))
@@ -229,7 +307,8 @@ async def _show_summary(message: Message, state: FSMContext, repo: Repository, u
     subtotal, discount, bonus, total = quote.subtotal, quote.discount, quote.bonus_used, quote.total
     currency = escape(quote.currency)
     confirmation_id = secrets.token_hex(8)
-    await state.update_data(quote_token=quote.token, confirmation_id=confirmation_id)
+    await state.update_data(quote_token=quote.token, confirmation_id=confirmation_id,
+                            step_id=None, step_field=None, editing=False)
 
     lines = ["<b>Перевірте замовлення</b>\n"]
     for line in items:
@@ -253,11 +332,11 @@ async def _show_summary(message: Message, state: FSMContext, repo: Repository, u
 
 
 async def _quote_error(message, state, data, error, kind="cart"):
-    await state.update_data(quote_token=None, confirmation_id=None)
+    await state.update_data(quote_token=None, confirmation_id=None, step_id=None)
     if kind == "promo":
-        await state.set_state(Checkout.promo)
-        await message.answer(escape(error) + ". Введіть інший промокод або пропустіть крок.",
-                             reply_markup=kb.SKIP)
+        # Re-enter a tokenized prompt; all other checkout data stays intact.
+        await message.answer(escape(error) + ". Введіть інший промокод або пропустіть крок.")
+        await _show_step(message, state, None, None, "promo")
     else:
         await state.set_state(Checkout.confirm)
         confirmation_id = secrets.token_hex(8)
@@ -275,10 +354,28 @@ def _current_confirmation(callback, data):
     return bool(data.get("confirmation_id") and suffix == data["confirmation_id"])
 
 
+@router.callback_query(Checkout.confirm, F.data.startswith("order:edit:"))
+async def edit_order(callback: CallbackQuery, state: FSMContext, repo: Repository, user: User):
+    data = await state.get_data()
+    if not _current_confirmation(callback, data):
+        await callback.answer(STALE, show_alert=True)
+        return
+    parts = callback.data.split(":")
+    field = parts[2] if len(parts) == 4 else None
+    if field not in FIELDS:
+        await callback.answer(STALE, show_alert=True)
+        return
+    await state.update_data(editing=True)
+    await _show_step(callback.message, state, repo, user, field)
+    await callback.answer()
+
+
 @router.callback_query(Checkout.confirm, F.data.startswith("order:refresh:"))
 async def refresh_summary(callback: CallbackQuery, state: FSMContext, repo: Repository, user: User):
-    if _current_confirmation(callback, await state.get_data()):
-        await _show_summary(callback.message, state, repo, user)
+    if not _current_confirmation(callback, await state.get_data()):
+        await callback.answer(STALE, show_alert=True)
+        return
+    await _show_summary(callback.message, state, repo, user)
     await callback.answer()
 
 
@@ -381,6 +478,13 @@ async def completed_confirmation(callback: CallbackQuery, state: FSMContext) -> 
         await callback.answer(f"Замовлення №{data['order_id']} вже оформлено")
     else:
         await callback.answer("Ця кнопка застаріла. Відкрийте останній підсумок", show_alert=True)
+
+
+@router.callback_query(F.data.startswith("order:edit:"))
+@router.callback_query(F.data.startswith("order:cancel"))
+@router.callback_query(F.data.startswith("order:refresh:"))
+async def stale_summary_action(callback: CallbackQuery):
+    await callback.answer(STALE, show_alert=True)
 
 
 @router.message(Checkout.receipt, F.photo | F.document)

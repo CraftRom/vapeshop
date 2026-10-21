@@ -32,10 +32,10 @@ async def main():
     context=State(Checkout.comment.state);message=Message('x'*501)
     await checkout.step_comment(message,context,None,None)
     r.check(context.state==Checkout.comment.state and 'comment' not in context.data,'oversized comment rejected before summary')
-    context=State(Checkout.payment.state);answers=[]
+    context=State(Checkout.payment.state, {'step_id':'qa','step_field':'payment'});answers=[]
     async def answer(*args,**kw): answers.append(args)
-    callback=SimpleNamespace(data='pay:unknown',answer=answer)
-    await checkout.step_payment(callback,context)
+    callback=SimpleNamespace(data='checkout:payunknown:qa',answer=answer)
+    await checkout.checkout_navigation(callback,context,None,None)
     r.check(context.state==Checkout.payment.state and 'payment' not in context.data and bool(answers),'unknown payment does not advance checkout')
     prime_cache(replace(ShopSettings.from_env(), bonus_enabled=False, volume_discount_enabled=False))
     class Repo:

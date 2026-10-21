@@ -11,7 +11,7 @@ from api.auth import authenticate, create_token, Principal, require_sysadmin, re
 from api.routers import (
     backups as backups_router, broadcasts, catalog, customers,
     logs as logs_router, media as media_router,
-    integrations, orders, promos, support, notifications, realtime,
+    integrations, orders, promos, support, shop_support, notifications, realtime,
     settings as settings_router, operators, shop as shop_router, stats, telegram, landing_pages,
 )
 from api.schemas import LoginIn, TokenOut
@@ -100,7 +100,7 @@ app = FastAPI(
     title=f"{settings.shop_name} — Dashboard API",
     # Версія API піднімається разом зі змінами read/write контракту.
     # 1.10: актуальна нормалізація доставки SalesDrive order/list.
-    version="1.22.0",
+    version="1.26.0",
     lifespan=lifespan,
     docs_url="/docs" if _docs_on else None,
     redoc_url=None,
@@ -307,6 +307,7 @@ app.include_router(settings_router.router, prefix="/api/settings", tags=["settin
 app.include_router(integrations.router, prefix="/api/integrations", tags=["integrations"])
 # Вітрина Mini App — окрема автентифікація (Telegram initData), не JWT панелі
 app.include_router(shop_router.router, prefix="/api/shop", tags=["shop"])
+app.include_router(shop_support.router, prefix="/api/shop/support", tags=["shop-support"])
 app.include_router(telegram.router, prefix="/api", tags=["telegram"])
 
 

@@ -1,5 +1,6 @@
 import { useResource, ResourceStatus } from './useResource'
 import { money } from './money'
+import { hasCartProblems } from './cartAvailability'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { api, AUTH_FAILURE_EVENT, consumeOrderEvents } from './api'
@@ -9,6 +10,7 @@ import { horizontalWheel, trackViewport } from './scroll'
 import { AgeGate, Catalog } from './screens/Catalog'
 import { Cart, Checkout } from './screens/Checkout'
 import { ChatList, ChatRoom } from './screens/Chat'
+import { SupportCenter } from './screens/Support'
 import { ProductPage } from './screens/ProductPage'
 import { Legal, Footer } from './screens/Legal'
 import { SavePicker, WishlistPage, Wishlists, isSaved } from './screens/Wishlists'
@@ -67,6 +69,9 @@ export default function App() {
   const [checkingOut, setCheckingOut] = useState(false)
   // Відкрите замовлення в чаті. Кнопка з бота веде сюди напряму.
   const [chatOrder, setChatOrder] = useState(null)
+  const [supportOpen,setSupportOpen]=useState(false)
+  const supportRooms=useRef(new Map())
+  const supportBack=useRef(null)
   const [openProduct, setOpenProduct] = useState(null)
   const showProduct = useCallback((product) => {
     setOpenProduct(product)
@@ -74,6 +79,10 @@ export default function App() {
     window.scrollTo({ top: 0, behavior: 'instant' })
   }, [])
   const navigate = async (section) => {
+    if (checkoutPreparingRef.current) {
+      checkoutPreparationVersion.current += 1
+      checkoutPreparingRef.current = false;setCheckoutPreparing(false)
+    }
     trackVisit(api)
     const request = ++navigationRequest.current
     if (section === 'cart') {
@@ -102,6 +111,10 @@ export default function App() {
   // одразу, а не через півсекунди.
   const [pendingQty, setPendingQty] = useState({})
   const [cartError, setCartError] = useState('')
+  const [quantityErrors,setQuantityErrors] = useState({})
+  const [quantityInFlight,setQuantityInFlight] = useState(new Set())
+  const pendingTotalRef = useRef({})
+  const pendingEpochRef = useRef({})
   // Накопичені дельти й таймер відправки. У ref, а не в стані: їх читає
   // таймер, і перемальовування тут ні до чого.
   const pendingRef = useRef({})
@@ -111,6 +124,11 @@ export default function App() {
   // і відкрити checkout зі старим серверним кошиком.
   const flushInFlight = useRef(Promise.resolve())
   const cartMutating = useRef(0)
+  const cartWriteVersion = useRef(0)
+  const cartReviewRequired = useRef(false)
+  const checkoutPreparingRef = useRef(false)
+  const checkoutPreparationVersion = useRef(0)
+  const [checkoutPreparing,setCheckoutPreparing] = useState(false)
 
   useEffect(() => {
     ready()
@@ -131,7 +149,13 @@ export default function App() {
   useEffect(() => {
     const onAuthFailure = (event) => {
       const message = event?.detail?.message || 'Сесію завершено. Закрийте магазин і відкрийте його знову в Telegram.'
+      checkoutPreparationVersion.current += 1
+      checkoutPreparingRef.current = false;setCheckoutPreparing(false)
       setConfig(null)
+      pendingRef.current = {};pendingTotalRef.current = {};pendingEpochRef.current = {}
+      setPendingQty({});setQuantityErrors({});setQuantityInFlight(new Set())
+      supportRooms.current.clear()
+      setSupportOpen(false)
       setCart(null)
       setProfile(null)
       setWishlists(null)
@@ -404,9 +428,10 @@ export default function App() {
     if (checkingOut) return backButton(() => setCheckingOut(false))
     if (openProduct) return backButton(() => setOpenProduct(null))
     if (openListId) return backButton(() => setOpenListId(null))
+    if (supportOpen && tab === 'chat') return backButton(() => supportBack.current?.())
     if (chatOrder && tab === 'chat') return backButton(() => setChatOrder(null))
     return backButton(null)
-  }, [checkingOut, chatOrder, openProduct, openListId, legal, saving, tab, completedOrder])
+  }, [checkingOut, chatOrder, openProduct, openListId, legal, saving, tab, completedOrder, supportOpen])
 
   useEffect(() => hideMainButton, [])
 
@@ -447,35 +472,54 @@ export default function App() {
       const batch = pendingRef.current
       pendingRef.current = {}
       const ids = Object.keys(batch)
+      const epochs = Object.fromEntries(ids.map(id=>[id,pendingEpochRef.current[id] || 0]))
+      const completed = new Set()
       if (!ids.length) return cart
+      setQuantityInFlight(new Set(ids.filter(id=>batch[id]).map(Number)))
 
       cartMutating.current += 1
+      const version = ++cartWriteVersion.current
       try {
         let next = null
         for (const id of ids) {
           if (!batch[id]) continue
-          next = await api.changeCart(Number(id), batch[id])
+          let remaining = batch[id]
+          // The API accepts -99..99. A fast series must not become a 422.
+          while (remaining) {
+            const chunk = Math.max(-99,Math.min(99,remaining))
+            next = await api.changeCart(Number(id),chunk)
+            remaining -= chunk
+          }
+          completed.add(id)
         }
-        if (next) setCart(next)
-        setCartError('')
+        if (next && version === cartWriteVersion.current) {setCart(next);if (!next.lines?.length) cartReviewRequired.current = false}
+        if (version === cartWriteVersion.current) setCartError('')
+        setQuantityErrors(prev=>{const rest={...prev};ids.forEach(id=>{if(epochs[id]===(pendingEpochRef.current[id]||0))delete rest[id]});return rest})
         return next
       } catch (err) {
-        setCartError(err.message || 'Не вдалося змінити кошик')
+        cartReviewRequired.current = true
+        setQuantityErrors(prev=>{const rest={...prev};ids.forEach(id=>{if(batch[id] && !completed.has(id) && epochs[id]===(pendingEpochRef.current[id]||0))rest[id]=err.message || 'Не вдалося зберегти кількість'});return rest})
+        if (version === cartWriteVersion.current) setCartError(err.message || 'Не вдалося змінити кошик')
         notify('error')
         try {
           const fresh = await api.cart()
-          setCart(fresh)
+          if (version === cartWriteVersion.current) setCart(fresh)
           return fresh
         } catch {
           return null
         }
       } finally {
         cartMutating.current -= 1
-        setPendingQty((prev) => {
-          const rest = { ...prev }
-          for (const id of ids) delete rest[id]
-          return rest
-        })
+        // Acknowledge only this batch. Later taps belong to the next batch;
+        // explicit remove/clear starts a new epoch and cancels old intentions.
+        for (const id of ids) {
+          if (epochs[id] !== (pendingEpochRef.current[id] || 0)) continue
+          const rest = (pendingTotalRef.current[id] || 0) - batch[id]
+          if (rest) pendingTotalRef.current[id] = rest
+          else delete pendingTotalRef.current[id]
+        }
+        setPendingQty({...pendingTotalRef.current})
+        setQuantityInFlight(new Set())
       }
     }
 
@@ -489,30 +533,55 @@ export default function App() {
 
   const changeCart = useCallback(
     async (productId, delta, opts = {}) => {
-      if (opts.clear) {
+      if (checkoutPreparingRef.current) return
+      if (opts.clear || opts.remove) {
         // Очищення теж стає в ту саму чергу, що й +/- . Інакше сценарій
         // «натиснув + і відразу очистити» запускав POST /cart та DELETE
         // паралельно: повільний POST міг завершитись останнім і повернути
         // вже очищений товар назад у кошик.
         clearTimeout(flushTimer.current)
-        pendingRef.current = {}
-        setPendingQty({})
+        if (opts.clear) {
+          for (const id of Object.keys(pendingTotalRef.current)) pendingEpochRef.current[id]=(pendingEpochRef.current[id]||0)+1
+          pendingRef.current = {};pendingTotalRef.current = {}
+          setPendingQty({});setQuantityErrors({})
+        } else {
+          pendingEpochRef.current[productId]=(pendingEpochRef.current[productId]||0)+1
+          delete pendingRef.current[productId];delete pendingTotalRef.current[productId]
+          setQuantityErrors(prev=>{const next={...prev};delete next[productId];return next})
+          setPendingQty(prev => {const next={...prev};delete next[productId];return next})
+        }
         cartResource.invalidate()
-        const clearRun = flushInFlight.current.catch(() => null).then(async () => {
+        const previous = opts.remove ? flushCart() : flushInFlight.current
+        let version = 0
+        const clearRun = previous.catch(() => null).then(async () => {
           cartMutating.current += 1
-          try { return await api.clearCart() } finally { cartMutating.current -= 1 }
+          version = ++cartWriteVersion.current
+          try { return await (opts.remove ? api.removeCartLine(productId) : api.clearCart()) } finally { cartMutating.current -= 1 }
         })
         flushInFlight.current = clearRun
         try {
-          setCart(await clearRun)
-          setCartError('')
+          const next = await clearRun
+          if (version === cartWriteVersion.current) {setCart(next);setCartError('');if (!next.lines?.length) cartReviewRequired.current = false}
+          return true
         } catch (err) {
-          setCartError(err.message || 'Не вдалося очистити кошик')
-          try { setCart(await api.cart()) } catch { /* наступна дія перечитає */ }
+          cartReviewRequired.current = true
+          if (!opts.remove && version === cartWriteVersion.current) setCartError(err.message || 'Не вдалося змінити кошик')
+          try { const fresh = await api.cart();if (version === cartWriteVersion.current) setCart(fresh) } catch { /* наступна дія перечитає */ }
+          throw err
         }
-        return
       }
 
+      const line = cart?.lines?.find(item=>item.product_id===productId)
+      if (line) {
+        const requested = Math.max(0,line.qty+(pendingTotalRef.current[productId]||0))
+        if (delta > 0) {
+          if (line.is_available === false || Number(line.stock) <= requested) return
+          if (Number.isFinite(Number(line.stock))) delta = Math.min(delta,Math.max(0,Number(line.stock)-requested))
+        } else delta = Math.max(delta,-requested)
+      }
+      if (!delta) return
+      pendingTotalRef.current[productId]=(pendingTotalRef.current[productId]||0)+delta
+      setQuantityErrors(prev=>{const next={...prev};delete next[productId];return next})
       setPendingQty((prev) => ({
         ...prev,
         [productId]: (prev[productId] || 0) + delta,
@@ -553,6 +622,59 @@ export default function App() {
     // і вигадувати їх тут означало б показати число, яке потім зміниться.
     return { ...cart, lines: lines.filter((l) => l.qty > 0) }
   }, [cart, pendingQty])
+
+  const refreshQuantity = async (productId) => {
+    const version = cartWriteVersion.current
+    const preparation = checkoutPreparationVersion.current
+    const fresh = await api.cart()
+    if (version !== cartWriteVersion.current || preparation !== checkoutPreparationVersion.current || pendingTotalRef.current[productId]) return
+    setCart(fresh);setCartError('')
+    setQuantityErrors(prev=>{const next={...prev};delete next[productId];return next})
+  }
+
+  const prepareCheckout = async () => {
+    if (checkoutPreparingRef.current) return
+    const version = ++checkoutPreparationVersion.current
+    checkoutPreparingRef.current = true
+    setCheckoutPreparing(true)
+    const showCart = () => {
+      setOpenProduct(null);setOpenListId(null);setTab('cart')
+      window.scrollTo({top:0,behavior:'instant'})
+    }
+    try {
+      clearTimeout(flushTimer.current)
+      await flushCart()
+      if (version !== checkoutPreparationVersion.current) return
+      // Empty/no-op batches can hold an old render's cart. Re-read the
+      // canonical snapshot before opening the form, including after delete.
+      const fresh = await api.cart()
+      if (version !== checkoutPreparationVersion.current) return
+      setCart(fresh)
+      if (!fresh.lines?.length) {
+        cartReviewRequired.current = false
+        setCartError('Кошик уже порожній. Додайте товари з каталогу.');showCart();return
+      }
+      if (cartReviewRequired.current) {
+        cartReviewRequired.current = false
+        setCartError('Не всі зміни кошика вдалося зберегти. Перевірте кількість і суму, потім натисніть «Оформити» ще раз.')
+        showCart();return
+      }
+      if (hasCartProblems(fresh)) {
+        setCartError('Змінилася наявність. Перевірте позначені товари перед оформленням.');showCart();return
+      }
+      setCartError('')
+      void readProfile()
+      setCheckingOut(true)
+    } catch (err) {
+      if (version !== checkoutPreparationVersion.current) return
+      setCartError(err.message || 'Не вдалося перевірити кошик. Спробуйте ще раз.')
+      showCart()
+    } finally {
+      if (version === checkoutPreparationVersion.current) {
+        checkoutPreparingRef.current = false;setCheckoutPreparing(false)
+      }
+    }
+  }
 
   if (fatal) {
     return (
@@ -746,6 +868,10 @@ initData: ${getInitData() ? `${getInitData().length} символів` : 'пор
         </span>
       </header>
 
+      {cartError && (
+        <div className="banner warn" role="alert">{cartError}</div>
+      )}
+
       {(tab === 'catalog' || tab === 'search') && (
         <Catalog
           searchRequest={searchRequest}
@@ -760,20 +886,18 @@ initData: ${getInitData() ? `${getInitData().length} символів` : 'пор
           onSave={setSaving}
         />
       )}
-      {/* Кошик і оформлення читають серверний стан, а не очікуваний:
-          саме тут показані суми, знижки й бонуси, і розійтися вони не
-          мають навіть на пів секунди. Додати новий товар звідси не можна,
-          тож миттєвий відгук лічильника тут і не потрібен. */}
+      {/* Money stays canonical. Cart shows pending quantity separately,
+          with an explicit saving state until the server confirms totals. */}
       {tab === 'cart' && (
         <>
           <ResourceStatus resource={cartResource} label="Кошик" />
-          {cart && <Cart config={config} cart={cart} onCartChange={changeCart} />}
+          {cart && <Cart config={config} cart={cart} onCartChange={changeCart} quantityPending={pendingQty} quantityInFlight={quantityInFlight} quantityErrors={quantityErrors} onQuantityRefresh={refreshQuantity} checkoutPending={checkoutPreparing} onBrowse={()=>navigate('catalog')} />}
         </>
       )}
       {tab === 'chat' && (
-        chatOrder
-          ? <ChatRoom key={chatOrder.id} config={config} order={chatOrder} onBack={() => setChatOrder(null)} />
-          : <><ResourceStatus resource={activeResource} label="Доступні чати" />
+        supportOpen ? <SupportCenter backRef={supportBack} rooms={supportRooms.current} onBack={()=>setSupportOpen(false)} /> : chatOrder
+          ? <ChatRoom key={chatOrder.id} config={config} order={chatOrder} onBack={() => setChatOrder(null)} onSupport={()=>setSupportOpen(true)} />
+          : <><button className="secondary support-entry" onClick={()=>setSupportOpen(true)}>Загальна підтримка</button><ResourceStatus resource={activeResource} label="Доступні чати" />
               {activeOrders && <ChatList config={config} orders={activeOrders} onOpen={setChatOrder} />}</>
       )}
       {tab === 'profile' && (
@@ -797,11 +921,6 @@ initData: ${getInitData() ? `${getInitData().length} символів` : 'пор
           можна і в каталозі, і на сторінці товару, і в списку бажаного,
           а мовчазна відмова тут найгірша — людина побачить порожній
           кошик аж на оформленні. */}
-      {cartError && (
-        <div className="banner warn">
-          {cartError}
-        </div>
-      )}
 
       {/* Вибір списку — тут, а не всередині однієї вкладки. «Відкласти»
           натискають і в каталозі, і в «Збереженому», а вікно раніше
@@ -836,20 +955,8 @@ initData: ${getInitData() ? `${getInitData().length} символів` : 'пор
             {count} {count === 1 ? 'товар' : count < 5 ? 'товари' : 'товарів'} у кошику
           </span>
         </div>
-        <button
-          onClick={async () => {
-            // Спершу дописуємо кошик. Натиснути «+» і одразу «Оформити»
-            // цілком реально, а екран оформлення читає серверний стан —
-            // без цього останнє натискання просто не потрапило б до
-            // замовлення.
-            clearTimeout(flushTimer.current)
-            await flushCart()
-            // Ліміт бонусів міг змінитися, поки набирали кошик
-            void readProfile()
-            setCheckingOut(true)
-          }}
-        >
-          Оформити
+        <button onClick={prepareCheckout} disabled={checkoutPreparing} aria-busy={checkoutPreparing}>
+          {checkoutPreparing ? 'Перевіряємо…' : 'Оформити'}
         </button>
       </div>
 

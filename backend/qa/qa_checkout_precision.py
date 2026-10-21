@@ -172,6 +172,9 @@ async def run():
     bot = Bot(token='777001:TESTTOKEN', session=recorder)
     dp = build_dispatcher()
     async def feed(value, callback=False):
+        if callback:
+            from tests_bot import checkout_button
+            value = checkout_button(recorder, value)
         await dp.feed_update(bot, update(bot, value, callback))
     await feed('checkout', True)
     await feed('Тест Покупець')

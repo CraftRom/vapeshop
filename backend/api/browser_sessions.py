@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import secrets
+import json
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlsplit
 from fastapi import HTTPException, Request, Response
@@ -45,7 +46,13 @@ def aware(value):
 
 
 def profile(principal: Principal, csrf: str) -> dict:
-    return {"role": principal.role.value, "name": principal.name or principal.login, "csrf_token": csrf}
+    material = json.dumps(["dashboard-chat-drafts-v1", principal.operator_id,
+                           principal.login, principal.role.value, principal.auth_version,
+                           password_fingerprint() if principal.operator_id == 0 else ""],
+                          ensure_ascii=False, separators=(",", ":")).encode()
+    scope = hmac.new(settings.jwt_secret.encode(), material, hashlib.sha256).hexdigest()
+    return {"role": principal.role.value, "name": principal.name or principal.login,
+            "csrf_token": csrf, "draft_scope": scope}
 
 
 async def open_session(request: Request, response: Response, repo, principal: Principal) -> dict:

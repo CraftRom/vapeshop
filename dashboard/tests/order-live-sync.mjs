@@ -1,19 +1,21 @@
 import fs from 'node:fs'
 
 const page = fs.readFileSync('src/pages/OrderPage.jsx', 'utf8')
+const chat = fs.readFileSync('src/components/useChatMessages.js', 'utf8')
+const viewport = fs.readFileSync('src/components/useChatViewport.js', 'utf8')
 const status = fs.readFileSync('src/components/OrderStatus.jsx', 'utf8')
 const css = fs.readFileSync('src/styles.css', 'utf8')
 
 const checks = [
-  ['message send appends locally', page.includes('onSent={appendSentMessage}')],
+  ['message send appends locally', page.includes('appendSentMessage: onSent') && page.includes('onSent(result.message)')],
   ['legacy broad onSent load removed', !page.includes('onSent={load}')],
-  ['message polling is isolated', page.includes('useVisiblePolling(pollMessages, 5000)')],
-  ['message polling uses delta after_id instead of full history every cycle', page.includes('api.orders.messages(id, false, reconcile ? null : lastId)')],
-  ['message receipts are periodically reconciled', page.includes('messagePollTickRef.current % 6 === 0')],
+  ['message polling is isolated', chat.includes('useVisiblePolling(refresh, 5000)')],
+  ['message polling uses delta after_id instead of full history every cycle', chat.includes('api.orders.messages(id, false, after, null, 200)')],
+  ['message receipts are periodically reconciled', chat.includes('tick.current % 6 === 0')],
   ['order polling is fallback-only behind realtime', page.includes('useVisiblePolling(refreshLocalOrder, 15000)') && page.includes("elfar:orders:changed")],
   ['background order refresh protects TTN draft', page.includes('trackingDirtyRef.current')],
   ['background order refresh protects manager note', page.includes('noteDirtyRef.current')],
-  ['chat only follows bottom when manager is already there', page.includes('stickToBottomRef.current')],
+  ['chat only follows bottom when manager is already there', viewport.includes('if (layout.current.bottom) node.scrollTop = node.scrollHeight')],
   ['CRM dictionary is not falsified into transition history', !status.includes('const passed = index < currentIndex') && status.includes('не означає, що заявка його проходила')],
   ['CRM status list has current and negative outcome states', css.includes('.crm-status-step.current') && css.includes('.crm-status-step.current.negative')],
   ['CRM stages adapt without horizontal scrolling', css.includes('grid-template-columns: repeat(auto-fit, minmax(118px, 1fr))') && !/\.crm-status-progress\s*\{[^}]*overflow-x:\s*auto/s.test(css)],

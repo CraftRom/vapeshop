@@ -271,6 +271,35 @@ async def status_breakdown_for_window(repo, args):
     return rows
 
 
+class ClosePeriodIn(BaseModel):
+    model_config = {"extra": "forbid"}
+    month: str = Field(..., pattern=r"^\d{4}-\d{2}$")
+
+
+@router.get("/closed-periods")
+async def closed_periods(repo: Repository = Depends(get_repo)):
+    from shop.services.financial_periods import list_months
+    return {"items": await list_months(repo.s)}
+
+
+@router.get("/closed-periods/{month}")
+async def closed_period(month: str, repo: Repository = Depends(get_repo)):
+    from shop.services.financial_periods import saved_report
+    from zoneinfo import ZoneInfo
+    analytics_service.month_start(month, ZoneInfo('UTC'))
+    row = await repo.s.get(m.FinancialPeriod, month)
+    if row is None:
+        raise HTTPException(404, "Збережений звіт за цей місяць відсутній")
+    return saved_report(row)
+
+
+@router.post("/closed-periods")
+async def close_period(data: ClosePeriodIn, repo: Repository = Depends(get_repo),
+                       who: Principal = Depends(require_admin)):
+    from shop.services.financial_periods import close_month
+    return await close_month(repo.s.bind, data.month, who.login, report)
+
+
 @router.get("/order-sources")
 async def order_sources(w: dict = Depends(report_window),
                         source: str | None = Query(None, max_length=80),

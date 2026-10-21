@@ -1,7 +1,8 @@
 import { money } from '../money'
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
 import { api } from '../api'
+import { supportRequest, confirmSupportRequest } from '../supportRequests'
 import { Field } from '../fields'
 import { haptic, notify } from '../telegram'
 
@@ -80,7 +81,7 @@ export function ChatList({ config, orders, onOpen }) {
  * Тягнемо двійкові дані, а не ставимо посилання в src: до запиту треба
  * додати підпис Telegram, а тег <img> заголовків не надсилає.
  */
-function Attachment({ order, message, onOpen }) {
+function Attachment({ order, message, onOpen, support = false }) {
   const [src, setSrc] = useState(null)
   const [failed, setFailed] = useState('')
 
@@ -88,7 +89,7 @@ function Attachment({ order, message, onOpen }) {
     if (message.file_kind !== 'photo') return undefined
     let alive = true
     let created = null
-    api.chatFile(order, message.id)
+    api.chatFile(order, message.id, support)
       .then((url) => {
         created = url
         if (alive) setSrc(url)
@@ -101,7 +102,7 @@ function Attachment({ order, message, onOpen }) {
       // звільнити. У довгій стрічці це десятки мегабайт.
       if (created) URL.revokeObjectURL(created)
     }
-  }, [order, message.id, message.file_kind])
+  }, [order, message.id, message.file_kind, support])
 
   if (failed) return <div className="bubble-head">{failed}</div>
   if (message.file_kind !== 'photo') {
@@ -116,9 +117,26 @@ function Attachment({ order, message, onOpen }) {
   )
 }
 
-export function ChatRoom({ config, order, onBack }) {
+export function ChatRoom({ config, order, onBack, support = false, draft = null, onSupport }) {
+  const transport = useMemo(() => support ? {
+    list: async(id, after) => (await api.support.messages(id, after == null ? {} : {after_id:after})).items,
+    older: async(id, before, limit) => (await api.support.messages(id,{before_id:before,limit})).items,
+    access: async id => { const thread=await api.support.get(id);return {...thread,can_chat:thread.status==='open'} },
+    send: api.support.send,
+  } : api.chat, [support])
   const [messages, setMessages] = useState(null)
-  const [text, setText] = useState('')
+  const [text, setText] = useState(draft?.text || '')
+  const textRef = useRef(draft?.text || '')
+  const changeText = value => {
+    textRef.current=value;setText(value)
+    if(draft){draft.text=value;draft.revision++;draft.listeners.forEach(sync=>sync())}
+  }
+  useEffect(()=>{
+    if(!draft)return undefined
+    const sync=()=>{textRef.current=draft.text;setText(draft.text)}
+    draft.listeners.add(sync);sync()
+    return()=>draft.listeners.delete(sync)
+  },[draft])
   const [busy, setBusy] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [sendError, setSendError] = useState('')
@@ -158,7 +176,7 @@ export function ChatRoom({ config, order, onBack }) {
       const requestedOrderId = order.id
       // Delta pages advance in ascending ID order, including >200 new replies.
       // Never jump to the last page during reconnect: that would create holes.
-      const incoming = await api.chat.list(requestedOrderId, initial ? null : lastMessageIdRef.current || null)
+      const incoming = await transport.list(requestedOrderId, initial ? null : lastMessageIdRef.current)
       if (!aliveRef.current || roomIdRef.current !== requestedOrderId) return
       if (initial) setHasOlder(incoming.length >= PAGE_SIZE)
       if (incoming.length) {
@@ -168,15 +186,15 @@ export function ChatRoom({ config, order, onBack }) {
       setMessages(current => mergeMessages(current || [], incoming))
       setError('')
       try {
-        const policy = await api.chat.access(requestedOrderId)
+        const policy = await transport.access(requestedOrderId)
         if (aliveRef.current && roomIdRef.current === requestedOrderId) setAccess(policy)
       } catch { /* Send endpoint still enforces the current server policy. */ }
     } catch (err) {
-      if (aliveRef.current && !silent) setError(err.message)
+      if (aliveRef.current && (support || !silent)) setError(err.message)
     } finally {
       pollInFlightRef.current = false
     }
-  }, [order.id])
+  }, [order.id, transport, support])
 
   useEffect(() => {
     aliveRef.current = true
@@ -185,7 +203,7 @@ export function ChatRoom({ config, order, onBack }) {
     return () => { aliveRef.current = false }
   }, [load])
 
-  useEffect(() => { setAccess(order) }, [order])
+  useEffect(() => { if(!support)setAccess(order) }, [order,support])
 
   const loadOlder = async () => {
     if (olderInFlightRef.current || !hasOlder || !messages?.length) return
@@ -193,7 +211,7 @@ export function ChatRoom({ config, order, onBack }) {
     setLoadingOlder(true)
     setOlderError('')
     try {
-      const older = await api.chat.older(order.id, messages[0].id, PAGE_SIZE)
+      const older = await transport.older(order.id, messages[0].id, PAGE_SIZE)
       if (!aliveRef.current) return
       rememberScroll()
       stickBottomRef.current = false
@@ -224,7 +242,7 @@ export function ChatRoom({ config, order, onBack }) {
   // old pages and newly fetched offscreen replies cannot create read receipts.
   useEffect(() => {
     const el = logRef.current
-    if (!el || !messages || viewing) return undefined
+    if (support || !el || !messages || viewing) return undefined
     let stopped = false
     let retry = null
     const ackVisible = async () => {
@@ -262,7 +280,7 @@ export function ChatRoom({ config, order, onBack }) {
       document.removeEventListener('visibilitychange', ackVisible)
       window.removeEventListener('online', ackVisible)
     }
-  }, [messages, order.id, viewing])
+  }, [messages, order.id, viewing, support])
 
   // Тихе live-оновлення. Hidden/offline вкладка не робить запитів; після
   // повернення/відновлення мережі синхронізуємося одразу.
@@ -329,23 +347,28 @@ export function ChatRoom({ config, order, onBack }) {
   }
 
   const send = async () => {
-    const body = text.trim()
+    const submitted = textRef.current
+    const submittedRevision = draft?.revision
+    const body = submitted.trim()
     if (!body || sendingRef.current || !access.can_chat) return
     sendingRef.current = true
     setBusy(true)
     setError('')
     try {
-      const sent = await api.chat.send(order.id, body)
+      const attempt = support ? supportRequest(order.id,body) : null
+      const sent = await transport.send(order.id, body, attempt?.request_id)
+      if (attempt) confirmSupportRequest(order.id,attempt.request_id)
+      if(draft && draft.revision===submittedRevision){draft.text='';draft.revision++;draft.listeners.forEach(sync=>sync())}
       if (!aliveRef.current) return
       stickBottomRef.current = true
       setMessages((prev) => mergeMessages(prev, [sent]))
-      setText('')
+      if(textRef.current===submitted)changeText('')
       haptic('light')
     } catch (err) {
-      setError(err.message)
+      if(aliveRef.current){setError(err.message);if(support && err.status===409)load(true)}
     } finally {
       sendingRef.current = false
-      setBusy(false)
+      if(aliveRef.current)setBusy(false)
     }
   }
 
@@ -360,17 +383,24 @@ export function ChatRoom({ config, order, onBack }) {
       )}
       <div className="head chat-head">
         <button className="back" onClick={onBack}>
-          Замовлення
+          {support?'Звернення':'Замовлення'}
         </button>
-        <h1>Замовлення №{order.id}</h1>
-        <p>{order.status_label || STATUS[order.status] || order.status} · історія зберігається</p>
+        <h1>{support?'Звернення':'Замовлення'} №{order.id}</h1>
+        <p>{support?(access.status==='closed'?'Завершене звернення':'Розмова з підтримкою'):(order.status_label || STATUS[order.status] || order.status)} · історія зберігається</p>
+        {support && access.can_chat && <button className="secondary" disabled={busy} onClick={async()=>{
+          if(sendingRef.current || !window.confirm('Завершити це звернення? Історія залишиться доступною.'))return
+          sendingRef.current=true;setBusy(true)
+          try{const thread=await api.support.close(order.id);if(aliveRef.current)setAccess({...thread,can_chat:false})}
+          catch(err){if(aliveRef.current)setError(err.message)}
+          finally{sendingRef.current=false;if(aliveRef.current)setBusy(false)}
+        }}>Завершити звернення</button>}
       </div>
 
       {error && <div className="banner warn">{error} <button className="secondary" onClick={() => load(false, messages === null)}>Повторити</button></div>}
       {access.can_chat && access.chat_until && <p className="hint chat-policy">Писати менеджеру можна до {clock(access.chat_until)}.</p>}
-      {!access.can_chat && <div className="banner warn">Чат замовлення закрито. Історія доступна; для допомоги зверніться до загальної підтримки через /ask у боті.</div>}
+      {!access.can_chat && <div className="banner warn">{support?'Звернення завершено. Історія доступна; для нового питання поверніться до списку й створіть нове звернення.':'Чат замовлення закрито. Історія доступна; для допомоги зверніться до загальної підтримки.'}{!support && onSupport && <button className="secondary" onClick={onSupport}>Загальна підтримка</button>}</div>}
 
-      <div className="chat-log" ref={logRef} onScroll={() => {
+      <div className="chat-log" role="region" aria-label={support?"Переписка підтримки":"Переписка замовлення"} ref={logRef} onScroll={() => {
         const el = logRef.current
         stickBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 60
       }}>
@@ -388,11 +418,11 @@ export function ChatRoom({ config, order, onBack }) {
           messages.map((m) => (
             <div key={m.id} data-message-id={m.id} data-direction={m.direction} className={`bubble ${m.direction === 'in' ? 'mine' : ''}`}>
               <div className="bubble-head">
-                {m.direction === 'in' ? 'Ви' : m.author || 'Менеджер'} · {clock(m.created_at)}
+                {m.direction === 'in' ? 'Ви' : (support?'Підтримка':m.author || 'Менеджер')} · {clock(m.created_at)}
               </div>
               {m.text && <div className="bubble-text">{m.text}</div>}
               {m.file_kind && (
-                <Attachment order={order.id} message={m} onOpen={setViewing} />
+                <Attachment order={order.id} message={m} onOpen={setViewing} support={support} />
               )}
             </div>
           ))
@@ -406,7 +436,7 @@ export function ChatRoom({ config, order, onBack }) {
         {/* Скріншот квитанції — рівно те, чого просить текст після
             оформлення. Досі вітрина це обіцяла, а надіслати не давала:
             вкладення приймала тільки розмова з ботом. */}
-        <label className="attach" aria-label="Додати фото">
+        {!support && <label className="attach" aria-label="Додати фото">
           {uploading ? '…' : '📎'}
           <input
             type="file"
@@ -415,7 +445,7 @@ export function ChatRoom({ config, order, onBack }) {
             onChange={attach}
             disabled={uploading || !access.can_chat}
           />
-        </label>
+        </label>}
         {/* Той самий компонент, що й у формі замовлення. Тут його
             бракувало найбільше: людина писала менеджеру наосліп — у полі
             не було видно жодної літери, поки не перейдеш кудись інде. */}
@@ -423,8 +453,8 @@ export function ChatRoom({ config, order, onBack }) {
           value={text}
           disabled={!access.can_chat}
           maxLength={2000}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && send()}
+          onChange={(e) => changeText(e.target.value)}
+          onKeyDown={(e) => {if(e.key==='Enter' && !e.shiftKey && !e.nativeEvent.isComposing){e.preventDefault();send()}}}
           placeholder="Повідомлення менеджеру"
         />
         {/* Кругла кнопка зі стрілкою замість підпису «Надіслати».

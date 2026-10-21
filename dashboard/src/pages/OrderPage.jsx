@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 
 import { api, authorizedFetch } from '../api'
@@ -9,6 +9,10 @@ import {
   isNegativeCrmOutcome, isNewOrderStatus, isShippedOrLaterCrmStatus,
 } from '../components/OrderStatus'
 import { useVisiblePolling } from '../components/useVisiblePolling'
+import { useChatMessages } from '../components/useChatMessages'
+import { useChatViewport } from '../components/useChatViewport'
+import { useChatDraft } from '../components/useChatDraft'
+import { ChatDraftStatus, ChatLatest, ChatStatus } from '../components/ChatStatus'
 
 // Спосіб доставки, обраний покупцем. Порожнє значення — замовлення з
 // часів, коли вибору не було: тоді все писалося одним рядком адреси.
@@ -29,33 +33,6 @@ const FILE_LABEL = {
   photo: 'Фото', document: 'Документ', video: 'Відео', voice: 'Голосове',
 }
 
-
-function mergeMessages(...groups) {
-  const byId = new Map()
-  for (const group of groups) {
-    for (const message of group || []) byId.set(message.id, message)
-  }
-  return [...byId.values()].sort((a, b) => Number(a.id) - Number(b.id))
-}
-
-function sameMessages(left, right) {
-  if (left === right) return true
-  if (!Array.isArray(left) || !Array.isArray(right) || left.length !== right.length) return false
-  return left.every((message, index) => {
-    const other = right[index]
-    return other
-      && message.id === other.id
-      && message.is_read === other.is_read
-      && message.direction === other.direction
-      && message.author === other.author
-      && message.text === other.text
-      && message.file_kind === other.file_kind
-      && message.file_name === other.file_name
-      && message.delivered === other.delivered
-      && message.delivery_error === other.delivery_error
-      && message.created_at === other.created_at
-  })
-}
 
 /** Вкладення з Telegram.
  *
@@ -173,62 +150,47 @@ function TrackingModal({ initial, onCancel, onConfirm }) {
   )
 }
 
-function Chat({ orderId, canChat, chatUntil, messages, newMessageIds, onSent, onLoadOlder, hasOlder, loadingOlder }) {
+const Chat = memo(function Chat({ orderId, canChat, chatUntil }) {
   const notify = useToast()
-  const [text, setText] = useState('')
+  const [text, setText, draft] = useChatDraft('order', orderId)
   const [busy, setBusy] = useState(false)
   const sendingRef = useRef(false)
-  const logRef = useRef(null)
-  const stickToBottomRef = useRef(true)
-  const initializedRef = useRef(false)
-  const newIds = newMessageIds || new Set()
+  const alive = useRef(true)
+  useEffect(() => { alive.current = true; return () => { alive.current = false } }, [])
+  const { messages, newMessageIds, loading, error, refresh,
+    appendSentMessage: onSent, loadOlderMessages: onLoadOlder,
+    hasOlder, loadingOlder } = useChatMessages('order', orderId)
+  const viewport = useChatViewport(messages, !loading)
+  const newIds = newMessageIds
   const firstNewIndex = messages.findIndex((message) => newIds.has(message.id))
   const newCount = messages.reduce((count, message) => (
     count + (message.direction === 'in' && newIds.has(message.id) ? 1 : 0)
   ), 0)
-  const lastMessageId = messages.length ? messages[messages.length - 1].id : 0
-
-  useEffect(() => {
-    const node = logRef.current
-    if (!node) return
-    if (!initializedRef.current) {
-      initializedRef.current = true
-      node.scrollTop = node.scrollHeight
-      stickToBottomRef.current = true
-      return
-    }
-    // Фонове оновлення не повинно виривати менеджера з місця, де він
-    // читає стару переписку. Автоскрол — лише якщо він уже був унизу.
-    if (stickToBottomRef.current) node.scrollTop = node.scrollHeight
-  }, [lastMessageId])
 
   const send = async () => {
-    const body = text.trim()
+    const submitted = draft.snapshot()
+    const body = submitted.text.trim()
     if (!body || sendingRef.current || canChat === false) return
     sendingRef.current = true
     setBusy(true)
     try {
       const result = await api.orders.sendMessage(orderId, body)
-      setText('')
-      // Клієнт міг заблокувати бота — повідомлення збережеться, але не дійде
+      draft.confirmSent(submitted)
+      if (!alive.current) return
       if (!result.delivered) notify(result.warning || 'Не доставлено клієнту', 'bad')
-      stickToBottomRef.current = true
+      viewport.jumpToLatest()
       onSent(result.message)
-      requestAnimationFrame(() => {
-        const node = logRef.current
-        if (node) node.scrollTop = node.scrollHeight
-      })
     } catch (err) {
-      notify(err.message, 'bad')
+      if (alive.current) notify(err.message, 'bad')
     } finally {
       sendingRef.current = false
-      setBusy(false)
+      if (alive.current) setBusy(false)
     }
   }
 
   const onKeyDown = (e) => {
     // Enter надсилає, Shift+Enter — новий рядок
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault()
       send()
     }
@@ -249,14 +211,10 @@ function Chat({ orderId, canChat, chatUntil, messages, newMessageIds, onSent, on
         )}
       </div>
 
-      <div
-        className="chat-log"
-        ref={logRef}
-        onScroll={(event) => {
-          const node = event.currentTarget
-          stickToBottomRef.current = node.scrollHeight - node.scrollTop - node.clientHeight < 80
-        }}
-      >
+      <ChatStatus loading={loading} error={error} onRetry={refresh} />
+      <div className="chat-log" ref={viewport.logRef} onScroll={viewport.onScroll}
+        role="region" aria-label="Переписка замовлення" tabIndex={0}>
+        <div className="chat-log-content">
         {hasOlder && messages.length > 0 && (
           <div className="chat-history-more">
             <button className="btn ghost compact" onClick={onLoadOlder} disabled={loadingOlder}>
@@ -264,7 +222,7 @@ function Chat({ orderId, canChat, chatUntil, messages, newMessageIds, onSent, on
             </button>
           </div>
         )}
-        {messages.length === 0 ? (
+        {!loading && messages.length === 0 ? (
           <p className="faint" style={{ margin: 0 }}>
             Повідомлень ще немає. Клієнт отримає ваше в чаті з ботом і зможе
             відповісти прямо звідти.
@@ -273,7 +231,7 @@ function Chat({ orderId, canChat, chatUntil, messages, newMessageIds, onSent, on
           messages.map((m, index) => {
             const isNewMessage = m.direction === 'in' && newIds.has(m.id)
             return (
-              <div key={m.id} className="chat-message-group">
+              <div key={m.id} data-message-id={m.id} className="chat-message-group">
                 {index === firstNewIndex && (
                   <div className="new-messages-divider" role="separator" aria-label="Нові повідомлення">
                     <span>Нові повідомлення</span>
@@ -309,8 +267,10 @@ function Chat({ orderId, canChat, chatUntil, messages, newMessageIds, onSent, on
             )
           })
         )}
+        </div>
       </div>
 
+      <ChatLatest viewport={viewport} />
       {canChat === false && <p className="error-bar">Чат замовлення закрито. Історія збережена; подальші звернення — через загальну підтримку.</p>}
       {canChat !== false && chatUntil && <p className="faint">Чат доступний до {timestamp(chatUntil)}</p>}
       <textarea
@@ -322,14 +282,15 @@ function Chat({ orderId, canChat, chatUntil, messages, newMessageIds, onSent, on
         onKeyDown={onKeyDown}
         placeholder="Повідомлення клієнту. Enter — надіслати, Shift+Enter — новий рядок"
       />
-      <div className="row" style={{ justifyContent: 'flex-end', marginTop: 10 }}>
+      <div className="row" style={{ justifyContent: 'space-between', marginTop: 10 }}>
+        <ChatDraftStatus text={text} status={draft.status} />
         <button className="btn" onClick={send} disabled={busy || !text.trim() || canChat === false}>
           {busy ? 'Надсилаємо…' : 'Надіслати'}
         </button>
       </div>
     </div>
   )
-}
+})
 
 const WAYBILL_SOURCE = {
   novaposhta: 'створена з панелі',
@@ -1111,15 +1072,9 @@ export default function OrderPage() {
   const [params, setParams] = useSearchParams()
   const notify = useToast()
 
+  const activeOrderId = useRef(id)
+  activeOrderId.current = id
   const [order, setOrder] = useState(null)
-  const [messages, setMessages] = useState([])
-  const [hasOlderMessages, setHasOlderMessages] = useState(false)
-  const [loadingOlderMessages, setLoadingOlderMessages] = useState(false)
-  // Повідомлення, які були непрочитаними в момент, коли менеджер побачив
-  // цю картку. На сервері вони одразу стають прочитаними, але локальна
-  // мітка живе до виходу зі сторінки — інакше «Нове» зникало б ще до того,
-  // як око встигне знайти репліку в довгій історії.
-  const [newMessageIds, setNewMessageIds] = useState(() => new Set())
   const [error, setError] = useState('')
   const [tracking, setTracking] = useState('')
   const [note, setNote] = useState('')
@@ -1127,20 +1082,13 @@ export default function OrderPage() {
   const [askTracking, setAskTracking] = useState(false)
   const [crmStatuses, setCrmStatuses] = useState([])
   const [crmRefreshing, setCrmRefreshing] = useState(false)
-  const loadedOrderRef = useRef(null)
-  const messagesRef = useRef([])
-  const messagePollTickRef = useRef(0)
   const trackingDirtyRef = useRef(false)
   const noteDirtyRef = useRef(false)
   const crmRefreshInFlightRef = useRef(false)
   const mutationInFlightRef = useRef(false)
 
-  useEffect(() => {
-    messagesRef.current = messages
-  }, [messages])
-
   const applyFreshOrder = useCallback((fresh) => {
-    if (!fresh) return
+    if (!fresh || String(fresh.id) !== String(activeOrderId.current)) return
     setOrder(fresh)
     // Фоновий refresh не має перезаписати текст, який менеджер саме зараз
     // редагує у полі ТТН або нотатки. Серверне значення підтягуємо лише
@@ -1151,57 +1099,22 @@ export default function OrderPage() {
 
   const loadInitial = useCallback(async () => {
     try {
-      const [fresh, log] = await Promise.all([
-        api.orders.get(id),
-        api.orders.messages(id),
-      ])
+      const fresh = await api.orders.get(id)
+      if (String(id) !== String(activeOrderId.current)) return
       applyFreshOrder(fresh)
-      messagesRef.current = log
-      setMessages(log)
-      setHasOlderMessages(log.length >= 200)
       setError('')
-      const unseen = log
-        .filter((message) => message.direction === 'in' && !message.is_read)
-        .map((message) => message.id)
-      // Перший вхід у конкретне замовлення задає стартову межу «нових».
-      // Подальші load() після зміни статусу/нотатки не повинні її стирати:
-      // сервер уже позначив репліки прочитаними, але менеджеру все ще треба
-      // бачити, що саме було новим у цій сесії перегляду.
-      if (loadedOrderRef.current !== String(id)) {
-        loadedOrderRef.current = String(id)
-        setNewMessageIds(new Set(unseen))
-      } else if (unseen.length > 0) {
-        setNewMessageIds((current) => {
-          const next = new Set(current)
-          unseen.forEach((messageId) => next.add(messageId))
-          return next
-        })
-      }
-      if (unseen.length > 0 && !document.hidden) {
-        // Спершу зберегли список непрочитаних для UX, тільки потім гасимо
-        // глобальний лічильник. Відповідь цього запиту навмисно не кладе́мо
-        // у state, щоб мітки не мигнули й не зникли.
-        api.orders.markMessagesRead(id, unseen).catch(() => {})
-      }
     } catch (err) {
-      setError(err.message)
+      if (String(id) === String(activeOrderId.current)) setError(err.message)
     }
   }, [id, applyFreshOrder])
 
   useEffect(() => {
     // React Router може перевикористати той самий компонент для іншого id.
     // Скидаємо тільки session-state картки, а не всю сторінку браузера.
-    loadedOrderRef.current = null
     trackingDirtyRef.current = false
     noteDirtyRef.current = false
     crmRefreshInFlightRef.current = false
     setOrder(null)
-    messagesRef.current = []
-    messagePollTickRef.current = 0
-    setMessages([])
-    setHasOlderMessages(false)
-    setLoadingOlderMessages(false)
-    setNewMessageIds(new Set())
     setTracking('')
     setNote('')
     setError('')
@@ -1299,85 +1212,6 @@ export default function OrderPage() {
       setParams({}, { replace: true })
     }
   }, [order, params, setParams])
-
-  const loadOlderMessages = useCallback(async () => {
-    if (loadingOlderMessages || !hasOlderMessages) return
-    const current = messagesRef.current
-    const firstId = current.length ? current[0]?.id : null
-    if (!firstId) return
-    setLoadingOlderMessages(true)
-    try {
-      const older = await api.orders.messages(id, false, null, firstId, 200)
-      setHasOlderMessages(older.length >= 200)
-      if (older.length > 0) {
-        const next = mergeMessages(older, current)
-        messagesRef.current = next
-        setMessages(next)
-        if (!document.hidden) await api.orders.markMessagesRead(id, older.filter(m => m.direction === 'in' && !m.is_read).map(m => m.id))
-      }
-    } catch (err) {
-      notify(err.message, 'bad')
-    } finally {
-      setLoadingOlderMessages(false)
-    }
-  }, [id, hasOlderMessages, loadingOlderMessages, notify])
-
-  // Відповідь клієнта приходить у бот, а не в панель. Оновлюємо тільки
-  // стрічку повідомлень; решта картки не переходить у loading і не скаче.
-  // Якщо історія не змінилась, навіть React-state лишається тим самим.
-  const pollMessages = useCallback(async () => {
-    messagePollTickRef.current += 1
-    // Нові повідомлення треба бачити швидко, але немає сенсу кожні 5 с
-    // передавати назад усі 200 реплік. П'ять циклів читаємо лише delta,
-    // шостий робимо компактну повну звірку: так оновлюються й ✓✓ read
-    // receipts для вже надісланих менеджером повідомлень.
-    const reconcile = messagePollTickRef.current % 6 === 0
-    const current = messagesRef.current
-    const lastId = current.length ? current[current.length - 1]?.id : null
-    const fresh = await api.orders.messages(id, false, reconcile ? null : lastId)
-
-    let next = current
-    if (reconcile || lastId === null) {
-      // Full reconcile повертає останній серверний batch. Якщо менеджер вже
-      // довантажив старішу історію, не відкидаємо її на черговому poll.
-      const merged = mergeMessages(current, fresh)
-      next = sameMessages(current, merged) ? current : merged
-    } else if (fresh.length > 0) {
-      const byId = new Map(current.map((message) => [message.id, message]))
-      fresh.forEach((message) => byId.set(message.id, message))
-      next = [...byId.values()].sort((a, b) => Number(a.id) - Number(b.id))
-    }
-
-    if (next !== current) {
-      messagesRef.current = next
-      setMessages(next)
-    }
-
-    // Для нових маркерів цікавить лише відповідь поточного запиту: при
-    // reconcile старі вже прочитані сервером і не створять дубль.
-    const unseen = fresh
-      .filter((message) => message.direction === 'in' && !message.is_read)
-      .map((message) => message.id)
-    if (unseen.length > 0) {
-      setNewMessageIds((known) => {
-        const nextIds = new Set(known)
-        unseen.forEach((messageId) => nextIds.add(messageId))
-        return nextIds
-      })
-      api.orders.markMessagesRead(id, unseen).catch(() => {})
-    }
-  }, [id])
-  useVisiblePolling(pollMessages, 5000)
-
-  const appendSentMessage = useCallback((message) => {
-    if (!message) return
-    setMessages((current) => {
-      const index = current.findIndex((item) => item.id === message.id)
-      const next = index < 0 ? [...current, message] : current.map((item) => item.id === message.id ? message : item)
-      messagesRef.current = next
-      return next
-    })
-  }, [])
 
   const patch = async (payload, okText) => {
     if (mutationInFlightRef.current) return false
@@ -1730,17 +1564,7 @@ export default function OrderPage() {
             )}
           </div>
 
-          <Chat
-            orderId={id}
-            canChat={order.can_chat}
-            chatUntil={order.chat_until}
-            messages={messages}
-            newMessageIds={newMessageIds}
-            onSent={appendSentMessage}
-            onLoadOlder={loadOlderMessages}
-            hasOlder={hasOlderMessages}
-            loadingOlder={loadingOlderMessages}
-          />
+          <Chat key={id} orderId={id} canChat={order.can_chat} chatUntil={order.chat_until} />
         </div>
       </div>
 

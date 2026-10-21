@@ -186,9 +186,11 @@ function Shell({ children }) {
       timer = setTimeout(() => pollBadges().catch(() => {}), 120)
     }
     window.addEventListener('elfar:orders:changed', onOrderChanged)
+    window.addEventListener('elfar:support:read', onOrderChanged)
     return () => {
       if (timer) clearTimeout(timer)
       window.removeEventListener('elfar:orders:changed', onOrderChanged)
+      window.removeEventListener('elfar:support:read', onOrderChanged)
     }
   }, [pollBadges])
 

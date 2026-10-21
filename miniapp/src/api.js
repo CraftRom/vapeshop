@@ -1,5 +1,6 @@
 import { getInitData } from './telegram'
 import { clientLog } from './logger'
+import { clearSupportRequests } from './supportRequests'
 
 const BASE = '/api/shop'
 const REQUEST_TIMEOUT_MS = 12000
@@ -22,6 +23,7 @@ function signalAuthFailure(message = 'Сесію завершено') {
   const normalized = String(message || 'Сесію завершено')
   if (authFailure) return
   authFailure = normalized
+  clearSupportRequests()
   clientLog('storefront.auth.invalidated', {
     level: isExpiredAuthMessage(normalized) ? 'info' : 'warning',
     message: normalized,
@@ -261,6 +263,7 @@ export const api = {
   changeCart: (productId, delta) =>
     request('/cart', { method: 'POST', body: { product_id: productId, delta } }),
   clearCart: () => request('/cart', { method: 'DELETE' }),
+  removeCartLine: productId => request(`/cart/${productId}`, {method:'DELETE'}),
 
   checkPromo: (code) => request('/promo/check', { method: 'POST', body: { code } }),
   profile: () => request('/profile'),
@@ -279,9 +282,9 @@ export const api = {
   // request() з його заголовками тут не підходить.
   // Вкладення тягнемо як двійкові дані, а не посилання в src: до запиту
   // треба додати підпис Telegram, а тег <img> заголовків не надсилає.
-  chatFile: async (orderId, messageId) => {
+  chatFile: async (orderId, messageId, support = false) => {
     const started = performance.now()
-    const endpoint = `/orders/${orderId}/chat/${messageId}/file`
+    const endpoint = support ? `/support/threads/${orderId}/files/${messageId}` : `/orders/${orderId}/chat/${messageId}/file`
 
     for (let attempt = 1; attempt <= GET_RETRIES + 1; attempt += 1) {
       let res
@@ -416,6 +419,15 @@ export const api = {
     // Один ендпоінт і додає, і прибирає — стан кнопки завжди відповідає серверу
     toggle: (id, productId) =>
       request(`/wishlists/${id}/items`, { method: 'POST', body: { product_id: productId } }),
+  },
+
+  support: {
+    list: before => request('/support/threads' + (before ? `?before_id=${before}` : '')),
+    start: () => request('/support/threads', {method:'POST'}),
+    get: id => request(`/support/threads/${id}`),
+    messages: (id, params={}) => request(`/support/threads/${id}/messages?${new URLSearchParams(params)}`),
+    send: (id, text, request_id) => request(`/support/threads/${id}/messages`, {method:'POST',body:{text,request_id}}),
+    close: id => request(`/support/threads/${id}/close`, {method:'POST'}),
   },
 
   chat: {

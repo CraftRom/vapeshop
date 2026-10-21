@@ -120,6 +120,23 @@ class RecordingSession(BaseSession):
         self.calls.clear()
 
 
+def checkout_button(session, action):
+    """Resolve a scenario's action to the actual tokenized button Telegram saw."""
+    actions = {"skip": "skip", "pay:card": "paycard", "pay:cod": "paycod",
+               "bonus:yes": "bonusyes", "bonus:no": "bonusno"}
+    buttons = getattr(session, "_checkout_buttons", {})
+    for _, payload in session.calls:
+        for row in payload.get("reply_markup", {}).get("inline_keyboard", []):
+            for button in row:
+                data = button.get("callback_data", "")
+                if data.startswith("checkout:"):
+                    buttons[data.rsplit(":", 1)[0] + ":"] = data
+    session._checkout_buttons = buttons
+    if action not in actions:
+        return action
+    return buttons[f"checkout:{actions[action]}:"]
+
+
 # ----------------------------------------------------------- побудова апдейтів
 
 UPDATE_ID = [0]
@@ -221,6 +238,10 @@ async def run(backend: str) -> None:
     dp = build_dispatcher()
 
     async def feed(update):
+        checkout_button(session, "")
+        if update.callback_query:
+            update = update.model_copy(update={"callback_query": update.callback_query.model_copy(
+                update={"data": checkout_button(session, update.callback_query.data)})})
         session.clear()
         await dp.feed_update(bot, update)
 

@@ -95,6 +95,7 @@ run_node cart-response tests/cart-response.mjs
 run_node catalog-order tests/catalog-order.mjs
 run_node wishlist-state tests/wishlist-state.mjs
 run_node wishlist-wiring tests/wishlist-wiring.mjs
+run_node support-requests tests/support-requests.mjs
 run_node checkout tests/checkout-validation.mjs
 run_node money tests/money.mjs
 run_node tg-contact tests/checkout-telegram-contact.mjs
@@ -119,6 +120,8 @@ run_node crm-order-update tests/crm-order-update.mjs dashboard
 run_node crm-card-payment-rule tests/crm-card-payment-rule.mjs dashboard
 run_node order-live-sync tests/order-live-sync.mjs dashboard
 run_node order-chat-history tests/order-chat-history.mjs dashboard
+run_node chat-drafts tests/chat-drafts.mjs dashboard
+run_node chat-drafts-persist tests/chat-drafts-persistence.mjs dashboard
 run_node filters tests/filters.mjs dashboard
 run_node new-markers tests/new-order-message-markers.mjs dashboard
 run_node catalog-ux tests/catalog-ux.mjs dashboard
@@ -140,10 +143,14 @@ echo
 echo "Контракти й дані"
 run domains qa/qa_domain_compatibility.py
 
+run miniapp-support qa/qa_miniapp_support.py
+run support-migration qa/qa_support_request_migration.py
 run bot-lifecycle qa/qa_bot_lifecycle.py
 run bot-inputs qa/qa_bot_inputs.py
+run bot-checkout-nav qa/qa_bot_checkout_navigation.py
 run bot-text-receipts qa/qa_bot_text_receipts.py
 run qa-isolation qa/qa_isolation.py
+run cart-unstick qa/qa_cart_unstick.py
 run checkout-integrity qa/qa_checkout_integrity.py
 run working-data qa/qa_working_data.py
 run after-sales-chat qa/qa_after_sales_chat.py
@@ -170,6 +177,7 @@ run smoke qa/qa_smoke.py
 run negative qa/qa_negative.py
 run security qa/qa_security.py
 run modern-security qa/qa_modern_security.py
+run chat-draft-scope qa/qa_chat_draft_scope.py
 run session-expiry qa/qa_session_expiry_1519.py
 run revoke qa/qa_revoke.py
 run headers qa/qa_headers.py
@@ -204,6 +212,8 @@ run backups-api qa/qa_backups_api.py
 run status-flow qa/qa_status_flow.py
 run stats-business qa/qa_stats_business.py
 run acquisition qa/qa_acquisition_analytics.py
+run financial-periods qa/qa_financial_periods.py
+run support-history qa/qa_support_history.py
 run crm-terminal qa/qa_crm_terminal_outcomes.py
 run background-crm-identity qa/qa_background_crm_and_identity.py
 run salesdrive-background-batch qa/qa_salesdrive_background_batch.py

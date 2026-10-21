@@ -14,7 +14,7 @@ import logging
 import time
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, Response, Request, Query, Header
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, Response, Request, Query, Header, Path
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -177,6 +177,7 @@ class ShopConfigOut(BaseModel):
 
 
 class CartLineOut(BaseModel):
+    is_available: bool = True
     product_id: int
     name: str
     price: Decimal
@@ -517,6 +518,7 @@ async def _cart_payload(repo: Repository, user_id: int) -> CartOut:
                 qty=l.qty,
                 line_total=l.line_total,
                 stock=l.product.stock if l.product else 0,
+                is_available=bool(l.product and l.product.is_active and l.product.stock > 0),
             )
             for l in lines
         ],
@@ -563,6 +565,17 @@ async def clear_cart(
 ):
     _require_age(user)
     await repo.clear_cart(user.id)
+    return await _cart_payload(repo, user.id)
+
+
+@router.delete("/cart/{product_id}", response_model=CartOut)
+async def remove_cart_line(
+    product_id: int = Path(..., gt=0, le=9223372036854775807),
+    user: User = Depends(require_webapp_user), repo: Repository = Depends(get_repo),
+):
+    """Delete this customer's whole line, including unavailable products."""
+    _require_age(user)
+    await repo.set_cart_qty(user.id, product_id, 0)
     return await _cart_payload(repo, user.id)
 
 

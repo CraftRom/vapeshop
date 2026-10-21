@@ -37,115 +37,155 @@ import { api } from '../api'
 import { acquisition, trackVisit } from '../attribution'
 import { clientLog } from '../logger'
 import { money } from '../money'
+import { cartLineProblem } from '../cartAvailability'
 import { Field } from '../fields'
 import {
-  canRequestContact, confirm, haptic, notify, requestContact,
+  canRequestContact, haptic, notify, requestContact,
 } from '../telegram'
 
-export function Cart({ config, cart, onCartChange, onCheckout }) {
+export function Cart({ config, cart, onCartChange, quantityPending = {}, quantityInFlight = new Set(), quantityErrors = {}, onQuantityRefresh, checkoutPending = false, onBrowse }) {
   const [error, setError] = useState('')
+  const [rowErrors, setRowErrors] = useState({})
+  const [confirmClear, setConfirmClear] = useState(false)
+  const [pending, setPending] = useState(new Set())
+  const [notice, setNotice] = useState('')
+  const [refreshingQty,setRefreshingQty] = useState(new Set())
+  const refreshingRef = useRef(new Set())
+  const actions = useRef(new Set())
+  const listRef = useRef(null), clearRef = useRef(null), emptyRef = useRef(null)
+  const restoreFocus = useRef(false)
   const lines = cart?.lines || []
   const totalQty = lines.reduce((sum, line) => sum + line.qty, 0)
+  const busy = pending.size > 0
+  const clearing = pending.has('all')
+  const outsideErrors = Object.entries(rowErrors).filter(([id]) => !lines.some(line => String(line.product_id) === id))
+
+  useEffect(() => {
+    if (!restoreFocus.current) return
+    restoreFocus.current = false
+    if (document.activeElement !== document.body) return
+    const target = listRef.current?.querySelector('[data-cart-remove]:not(:disabled)') || clearRef.current || emptyRef.current
+    target?.focus({preventScroll:true})
+  }, [cart, pending])
 
   const change = async (productId, delta) => {
+    if (checkoutPending || actions.current.has(productId) || actions.current.has('all')) return
     haptic('light')
+    setNotice('');setError('')
+    try { await onCartChange(productId, delta) }
+    catch (err) { setError(err.message) }
+  }
+
+  const remove = async (productId = null, name = '') => {
+    const key = productId ?? 'all'
+    if (checkoutPending || actions.current.has(key) || actions.current.has('all') || (productId == null && actions.current.size)) return
+    actions.current.add(key);setPending(new Set(actions.current))
+    setNotice('')
+    if (productId == null) setError('')
+    else setRowErrors(prev => {const next={...prev};delete next[productId];return next})
+    const origin = document.activeElement
     try {
-      await onCartChange(productId, delta)
+      const ok = await onCartChange(productId, 0, productId == null ? {clear:true} : {remove:true})
+      if (ok === false) throw new Error('Не вдалося змінити кошик. Перевірте з’єднання та повторіть.')
+      setConfirmClear(false)
+      setNotice(productId == null ? 'Кошик очищено.' : `«${name || 'Товар'}» видалено з кошика.`)
+      restoreFocus.current = document.activeElement === origin || document.activeElement === document.body
+      haptic('light')
     } catch (err) {
-      setError(err.message)
+      const message = err.message || 'Не вдалося видалити товар. Спробуйте ще раз.'
+      if (productId == null) setError(message)
+      else setRowErrors(prev => ({...prev,[productId]:message}))
+    } finally {
+      actions.current.delete(key);setPending(new Set(actions.current))
     }
   }
 
-  const clear = async () => {
-    if (!(await confirm('Прибрати всі товари з кошика?'))) return
-    try {
-      await onCartChange(null, 0, { clear: true })
-    } catch (err) {
-      setError(err.message)
-    }
+  const recheckQuantity = async id => {
+    if (refreshingRef.current.has(id)) return
+    refreshingRef.current.add(id);setRefreshingQty(new Set(refreshingRef.current))
+    try { await onQuantityRefresh?.(id);setError('') }
+    catch(err){setError(err.message || 'Не вдалося оновити кошик')}
+    finally{refreshingRef.current.delete(id);setRefreshingQty(new Set(refreshingRef.current))}
   }
 
-  if (lines.length === 0) {
-    return (
-      <div className="empty">
-        <h2>Кошик поки порожній</h2>
-        <p>Додайте товари з каталогу — тут одразу з’являться позиції, сума й кнопка оформлення.</p>
-      </div>
-    )
-  }
+  const feedback = <>
+    <div className="cart-feedback" role="status" aria-live="polite" aria-atomic="true">{notice || (busy ? (clearing ? 'Очищаємо кошик…' : 'Видаляємо вибрані позиції…') : '')}</div>
+    {error && <div className="banner warn" role="alert">{error}</div>}
+    {outsideErrors.map(([id,message]) => <div key={id} className="banner warn" role="alert">{message} Перевірте поточний вміст кошика.</div>)}
+  </>
 
-  return (
-    <>
-      <div className="head">
-        <h1>Кошик</h1>
-        <p className="num">
-          {totalQty} {totalQty % 10 === 1 && totalQty % 100 !== 11 ? 'товар'
-            : [2, 3, 4].includes(totalQty % 10) && ![12, 13, 14].includes(totalQty % 100)
-              ? 'товари' : 'товарів'}
-        </p>
-      </div>
+  if (lines.length === 0) return <>
+    {feedback}
+    <div className="empty">
+      <h2 ref={emptyRef} tabIndex={-1}>Кошик поки порожній</h2>
+      <p>Додайте товари з каталогу — тут одразу з’являться позиції, сума й кнопка оформлення.</p>
+      {onBrowse && <button className="secondary" onClick={onBrowse}>До каталогу</button>}
+    </div>
+  </>
 
-      {error && <div className="banner warn">{error}</div>}
-      {cart.problems?.length > 0 && (
-        <div className="banner warn">
-          Змінилася наявність:
-          {cart.problems.map((p) => (
-            <div key={p}>• {p}</div>
-          ))}
-        </div>
-      )}
-
-      <div className="list cart-list">
-        {lines.map((l) => (
-          <div className="card" key={l.product_id}>
-            <div className="card-body">
-              <p className="card-title">{l.name}</p>
-              <p className="card-note num">
-                {money(l.price)} {config.currency} × {l.qty}
-              </p>
-              <div className="price num">
-                {money(l.line_total)} <small>{config.currency}</small>
-              </div>
-            </div>
-            <div className="stepper cart-stepper">
-              <button onClick={() => change(l.product_id, -1)} aria-label="Прибрати одну">
-                −
-              </button>
-              <span className="qty num">{l.qty}</span>
-              <button
-                onClick={() => change(l.product_id, 1)}
-                disabled={l.qty >= l.stock}
-                aria-label="Додати одну"
-              >
-                +
-              </button>
-            </div>
+  return <>
+    <div className="head">
+      <h1>Кошик</h1>
+      <p className="num">{totalQty} {totalQty % 10 === 1 && totalQty % 100 !== 11 ? 'товар'
+        : [2,3,4].includes(totalQty % 10) && ![12,13,14].includes(totalQty % 100) ? 'товари' : 'товарів'}</p>
+    </div>
+    {feedback}
+    {cart.problems?.length > 0 && <div className="banner warn">Змінилася наявність:
+      {cart.problems.map(p => <div key={p}>• {p}</div>)}
+    </div>}
+    <div className="list cart-list" ref={listRef}>
+      {lines.map(l => {
+        const removing = pending.has(l.product_id)
+        const locked = removing || clearing || checkoutPending
+        const displayQty = Math.max(0,l.qty+Number(quantityPending[l.product_id]||0))
+        const savingQty = Boolean(quantityPending[l.product_id] || quantityInFlight.has(l.product_id))
+        const availability = cartLineProblem({...l,qty:displayQty})
+        return <div className="card cart-card" key={l.product_id} aria-busy={removing}>
+          <div className="card-body">
+            <p className="card-title">{l.name}</p>
+            {availability && <p className="cart-availability" id={`cart-availability-${l.product_id}`}>{availability}</p>}
+            <p className="card-note num">{money(l.price)} {config.currency} × {l.qty}</p>
+            <div className="price num">{money(l.line_total)} <small>{config.currency}</small></div>
           </div>
-        ))}
-      </div>
-
-      <div className="summary summary-premium">
-        <div className="row-between total num">
-          <span>Разом</span>
-          <span>
-            {money(cart.subtotal)} {config.currency}
-          </span>
+          <div className="stepper cart-stepper" role="group" aria-label={`Кількість: ${l.name}`} aria-describedby={availability ? `cart-availability-${l.product_id}` : undefined}>
+            <button onClick={()=>change(l.product_id,-1)} disabled={locked || displayQty <= 0} aria-label="Прибрати одну">−</button>
+            <span className="qty num" data-cart-quantity={l.product_id}>{displayQty}</span>
+            <button onClick={()=>change(l.product_id,1)} disabled={locked || displayQty >= l.stock || l.is_available === false} aria-label="Додати одну">+</button>
+          </div>
+          {savingQty && <p className="cart-quantity-state" role="status">Зберігаємо кількість… Сума оновиться після збереження.</p>}
+          {quantityErrors[l.product_id] && <div className="cart-row-error" role="alert">
+            <span>{quantityErrors[l.product_id]} Перевірте фактичну кількість.</span>
+            {onQuantityRefresh && <button className="secondary" disabled={locked || savingQty || refreshingQty.has(l.product_id)} onClick={()=>recheckQuantity(l.product_id)}>{refreshingQty.has(l.product_id) ? 'Оновлюємо…' : 'Оновити кількість'}</button>}
+          </div>}
+          <div className="cart-row-actions">
+            <button className="cart-remove" data-cart-remove={l.product_id} disabled={locked}
+              onClick={()=>remove(l.product_id,l.name)} aria-label={`Видалити ${l.name} з кошика`}
+              aria-describedby={rowErrors[l.product_id] ? `cart-error-${l.product_id}` : undefined}>
+              <svg aria-hidden="true" focusable="false" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M3 6h18M9 6V4h6v2M5 6l1 14h12l1-14M10 10v6M14 10v6"/>
+              </svg>
+              {removing ? 'Видаляємо…' : 'Видалити'}
+            </button>
+          </div>
+          {rowErrors[l.product_id] && <div className="cart-row-error" id={`cart-error-${l.product_id}`} role="alert">
+            <span>{rowErrors[l.product_id]}</span>
+            <button className="secondary" disabled={locked} onClick={()=>remove(l.product_id,l.name)}>Повторити видалення</button>
+          </div>}
         </div>
-        {/* Знижки, промокод і бонуси рахуються на оформленні — тут лише
-            сума товарів, і це треба сказати, щоб число не здавалось
-            остаточним. */}
-        <p className="summary-note">
-          Знижки, промокод і бонуси врахуємо на наступному кроці. Доставка оплачується окремо.
-        </p>
-      </div>
-
-      <div className="cart-tools">
-        <button className="ghost-btn" onClick={clear}>
-          Очистити кошик
-        </button>
-      </div>
-    </>
-  )
+      })}
+    </div>
+    <div className="summary summary-premium">
+      <div className="row-between total num"><span>Разом</span><span>{money(cart.subtotal)} {config.currency}</span></div>
+      <p className="summary-note">Знижки, промокод і бонуси врахуємо на наступному кроці. Доставка оплачується окремо.</p>
+    </div>
+    <div className="cart-tools">
+      {confirmClear ? <div className="cart-clear-confirm" role="group" aria-label="Підтвердження очищення кошика">
+        <p>Прибрати всі товари з кошика?</p>
+        <button className="secondary" disabled={busy || checkoutPending} onClick={()=>remove()}>Так, очистити</button>
+        <button className="ghost-btn" disabled={busy || checkoutPending} onClick={()=>setConfirmClear(false)}>Залишити товари</button>
+      </div> : <button ref={clearRef} className="ghost-btn" disabled={busy || checkoutPending} onClick={()=>setConfirmClear(true)}>Очистити кошик</button>}
+    </div>
+  </>
 }
 
 const EMPTY_FORM = {

@@ -2170,3 +2170,33 @@ input, textarea, select {
 
 .chat-screen .chat-compose { position: relative; bottom: auto; flex: none; }
 .chat-screen > .head, .chat-screen > .banner, .chat-screen > .chat-policy { flex: none; }
+
+/* General support shares bounded chat log and the existing mobile composer. */
+.support-entry { margin-bottom: 16px; width: 100%; }
+.support-center > .primary { margin-bottom: 16px; }
+.support-center .chat-pick { width: 100%; }
+
+.cart-list .cart-card{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:start;gap:12px}
+.cart-row-actions{grid-column:1/-1;display:flex;justify-content:flex-end;border-top:1px solid var(--line);padding-top:8px}
+.cart-remove{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-width:124px;min-height:44px;padding:10px 14px;border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--fill);color:var(--tg-text);font-size:14px;font-weight:600;cursor:pointer;touch-action:manipulation;white-space:normal;overflow-wrap:anywhere}
+.cart-remove:hover:not(:disabled){background:var(--fill-strong)}
+.cart-remove:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.cart-remove:disabled{opacity:.65;cursor:wait}
+.cart-remove svg{flex-shrink:0}
+.cart-row-error{grid-column:1/-1;display:grid;gap:8px;padding:10px;border-radius:var(--radius-sm);background:var(--fill);overflow-wrap:anywhere;font-size:14px}
+.cart-row-error .secondary{min-height:44px;width:auto;justify-self:start;font-size:14px}
+.cart-feedback{padding:0 var(--page-x);margin-bottom:12px;font-size:14px;line-height:1.4;overflow-wrap:anywhere}
+.cart-feedback:empty{display:none}
+.cart-clear-confirm{width:100%;display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.cart-clear-confirm p{flex-basis:100%;margin:0 0 4px}
+@media(max-width:480px){
+  .cart-list .cart-card{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+  .cart-card .card-body{grid-column:1/-1}
+  .cart-card .cart-stepper{grid-column:1;grid-row:2;align-self:center;max-width:100%}
+  .cart-card .cart-row-actions{grid-column:2;grid-row:2;border-top:0;padding-top:0}
+  .cart-card .cart-remove{width:100%;min-width:0}
+}
+
+.cart-availability{margin:6px 0 4px;padding:6px 8px;border-left:3px solid var(--accent);border-radius:4px;background:var(--accent-soft);font-size:13px;line-height:1.4;overflow-wrap:anywhere}
+
+.cart-quantity-state{grid-column:1/-1;margin:0;color:var(--tg-hint);font-size:13px;line-height:1.4;overflow-wrap:anywhere}

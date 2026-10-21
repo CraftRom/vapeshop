@@ -237,6 +237,6 @@ class MigrationTests(unittest.TestCase):
   self.assertIn('CAST(orders.status AS VARCHAR)',out.getvalue())
   backend=Path(__file__).resolve().parents[1]
   cfg=Config(str(backend/'alembic.ini'));cfg.set_main_option('script_location',str(backend/'alembic'))
-  self.assertEqual(ScriptDirectory.from_config(cfg).get_heads(),['f7d4b2c90a61'])
+  self.assertEqual(ScriptDirectory.from_config(cfg).get_heads(),['f9b6d4e20c83'])
 
 if __name__=='__main__':unittest.main(verbosity=2)

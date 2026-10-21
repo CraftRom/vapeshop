@@ -865,7 +865,7 @@ class SqlRepository(Repository):
             product = await self.s.scalar(
                 select(m.Product).where(m.Product.id == product_id).with_for_update()
             )
-            if not product or not product.is_active:
+            if delta >= 0 and (not product or not product.is_active):
                 await self.s.rollback()
                 return None
             row = await self.s.scalar(
@@ -879,7 +879,11 @@ class SqlRepository(Repository):
                 .with_for_update(of=m.CartItem)
             )
             current = int(row.qty) if row else 0
-            new_qty = min(max(current + int(delta), 0), int(product.stock or 0))
+            # Removing an existing line must not depend on catalog activity.
+            # Missing/inactive products still have a customer-owned cart row.
+            new_qty = max(current + int(delta), 0)
+            if product and product.is_active:
+                new_qty = min(new_qty, max(int(product.stock or 0), 0))
             if new_qty <= 0:
                 if row:
                     await self.s.delete(row)
@@ -3142,12 +3146,12 @@ class SqlRepository(Repository):
         rows = list(await self.s.scalars(
             select(m.SupportMessage)
             .where(m.SupportMessage.thread_id == thread_id)
-            .order_by(m.SupportMessage.created_at, m.SupportMessage.id)
+            .order_by(m.SupportMessage.id.desc())
             .limit(cap)
         ))
         live = [_support_message(row) for row in rows]
         merged = {x.id: x for x in [*archived, *live]}
-        return [merged[k] for k in sorted(merged)[:cap]]
+        return [merged[k] for k in sorted(merged)[-cap:]]
 
     async def recent_support_messages(self, thread_id: int, limit: int = 24) -> list[SupportMessage]:
         """Останні hot-повідомлення без читання всього архіву.
@@ -3164,6 +3168,109 @@ class SqlRepository(Repository):
         ))
         rows.reverse()
         return [_support_message(row) for row in rows]
+
+    async def get_support_message(self, thread_id, message_id):
+        row = await self.s.scalar(select(m.SupportMessage).where(
+            m.SupportMessage.thread_id == thread_id, m.SupportMessage.id == message_id))
+        if row is not None:
+            return _support_message(row)
+        archive = await self._message_archive("support", int(thread_id))
+        item = next((x for x in _unpack_archive(archive) if x.get("id") == message_id), None)
+        return _archived_support_message(item) if item else None
+
+    async def list_user_support_threads(self, user_id, before_id=None, limit=20):
+        stmt = select(m.SupportThread).where(m.SupportThread.user_id == user_id)
+        if before_id is not None:
+            stmt = stmt.where(m.SupportThread.id < before_id)
+        rows = await self.s.scalars(stmt.order_by(m.SupportThread.id.desc()).limit(limit))
+        return [_support_thread(row) for row in rows]
+
+    async def page_support_messages(self, thread_id, before_id=None, after_id=None, limit=200):
+        cap = max(1, min(int(limit), 200))
+        archive = await self._message_archive("support", int(thread_id))
+        archived = [_archived_support_message(x) for x in _unpack_archive(archive)]
+        stmt = select(m.SupportMessage).where(m.SupportMessage.thread_id == thread_id)
+        if before_id is not None:
+            stmt = stmt.where(m.SupportMessage.id < before_id)
+            archived = [x for x in archived if x.id < before_id]
+        if after_id is not None:
+            stmt = stmt.where(m.SupportMessage.id > after_id)
+            archived = [x for x in archived if x.id > after_id]
+        stmt = stmt.order_by(m.SupportMessage.id.asc() if after_id is not None else m.SupportMessage.id.desc()).limit(cap)
+        live = [_support_message(row) for row in await self.s.scalars(stmt)]
+        merged = {x.id: x for x in [*archived, *live] if x.id > 0}
+        ids = sorted(merged)
+        ids = ids[:cap] if after_id is not None else ids[-cap:]
+        return [merged[key] for key in ids]
+
+    async def add_support_client_message(self, thread_id, user, text, request_id):
+        # Both ownership and open-state are checked while holding the same row
+        # lock used by staff/client close. A replay never reopens a closed chat.
+        thread = await self.s.scalar(select(m.SupportThread).where(
+            m.SupportThread.id == thread_id, m.SupportThread.user_id == user.id).with_for_update())
+        if thread is None:
+            return None
+        async def replay():
+            row = await self.s.scalar(select(m.SupportMessage).where(
+                m.SupportMessage.thread_id == thread_id, m.SupportMessage.client_request_id == request_id))
+            if row is None:
+                return None
+            if row.text != text or row.user_id != user.id:
+                raise ValueError("Ключ повідомлення вже використано для іншого тексту")
+            result = _support_message(row)
+            result.client_replayed = True
+            return result
+        existing = await replay()
+        if existing is not None:
+            await self.s.commit()
+            return existing
+        if thread.status != "open":
+            await self.s.commit()
+            return None
+        row = m.SupportMessage(thread_id=thread_id, user_id=user.id, direction="in",
+            author=user.first_name or user.username or f"id{user.tg_id}", text=text,
+            is_read=False, client_request_id=request_id)
+        self.s.add(row)
+        try:
+            await self.s.flush()
+            thread.last_message_at = row.created_at or datetime.now(timezone.utc)
+            thread.updated_at = thread.last_message_at
+            await self.s.commit()
+        except IntegrityError:
+            await self.s.rollback()
+            existing = await replay()
+            if existing is None:
+                raise
+            return existing
+        await self.s.refresh(row)
+        return _support_message(row)
+
+    async def mark_support_message_ids_read(self, thread_id, message_ids):
+        ids = {int(x) for x in (message_ids or []) if 0 < int(x) <= 2147483647}
+        if not ids:
+            return 0
+        result = await self.s.execute(update(m.SupportMessage).where(
+            m.SupportMessage.thread_id == thread_id, m.SupportMessage.id.in_(ids),
+            m.SupportMessage.direction == "in", m.SupportMessage.is_read.is_(False),
+        ).values(is_read=True))
+        # Cold archives normally contain only read messages. Keep ACK correct
+        # for older imported archives too, without affecting other sessions.
+        archive = await self.s.scalar(select(m.MessageArchive).where(
+            m.MessageArchive.kind == 'support', m.MessageArchive.entity_id == int(thread_id),
+        ).with_for_update())
+        items = _unpack_archive(archive)
+        changed = int(result.rowcount or 0)
+        cold_changed = 0
+        for item in items:
+            if int(item.get("id") or 0) in ids and item.get("direction") == "in" and not item.get("is_read"):
+                item["is_read"] = True
+                changed += 1
+                cold_changed += 1
+        if cold_changed and archive:
+            archive.payload = _pack_archive(items)
+            archive.raw_bytes = len(_archive_json(items))
+        await self._commit()
+        return changed
 
     async def mark_support_read(self, thread_id: int) -> int:
         result = await self.s.execute(

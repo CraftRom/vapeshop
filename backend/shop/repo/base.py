@@ -583,6 +583,21 @@ class Repository(ABC):
         items = await self.list_support_messages(thread_id, limit=max(cap, 300))
         return list(items[-cap:])
 
+    async def get_support_message(self, thread_id, message_id):
+        raise NotImplementedError
+
+    async def list_user_support_threads(self, user_id, before_id=None, limit=20):
+        raise NotImplementedError
+
+    async def page_support_messages(self, thread_id, before_id=None, after_id=None, limit=200):
+        raise NotImplementedError
+
+    async def mark_support_message_ids_read(self, thread_id, message_ids):
+        raise NotImplementedError
+
+    async def add_support_client_message(self, thread_id, user, text, request_id):
+        raise NotImplementedError
+
     @abstractmethod
     async def mark_support_read(self, thread_id: int) -> int: ...
 

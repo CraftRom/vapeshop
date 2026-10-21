@@ -1,3 +1,5 @@
+import { clearChatDrafts, suspendChatDrafts, activateChatDrafts } from './components/chatDrafts'
+
 const BASE = import.meta.env.VITE_API_URL || '/api'
 
 export const apiBase = BASE
@@ -9,7 +11,7 @@ const SESSION_KEY = 'shop_dashboard_session'
 let authenticated = false
 let csrfToken = ''
 export const getToken = () => authenticated
-export const clearToken = () => {
+const resetSession = () => {
   authenticated = false
   csrfToken = ''
   for (const storage of [sessionStorage, localStorage]) {
@@ -17,7 +19,9 @@ export const clearToken = () => {
     storage.removeItem(SESSION_KEY)
   }
 }
+export const clearToken = () => { clearChatDrafts(); resetSession() }
 export const setSession = (data) => {
+  activateChatDrafts(data.draft_scope)
   authenticated = true
   csrfToken = data.csrf_token || ''
   sessionStorage.setItem(SESSION_KEY, JSON.stringify({ role: data.role, name: data.name }))
@@ -30,9 +34,10 @@ export const getSession = () => {
   catch { return { role: 'operator', name: '' } }
 }
 export async function restoreSession() {
-  clearToken()
+  suspendChatDrafts()
+  resetSession()
   const response = await fetch(`${BASE}/auth/session`, { credentials: 'include', cache: 'no-store', signal: AbortSignal.timeout(20000), headers: { 'X-Dashboard-Request': '1' } })
-  if (response.status === 401) return false
+  if (response.status === 401) { clearToken(); return false }
   if (!response.ok) throw new Error('Не вдалося перевірити сесію. Спробуйте ще раз.')
   setSession(await response.json())
   return true
@@ -210,6 +215,9 @@ export const api = {
   logout: () => request('/auth/logout', { method: 'POST' }),
 
   stats: {
+    closedPeriods: () => request('/stats/closed-periods'),
+    closedPeriod: (month) => request(`/stats/closed-periods/${encodeURIComponent(month)}`),
+    closePeriod: (month) => request('/stats/closed-periods', { method: 'POST', body: { month } }),
     report: (params) => request('/stats/report', { params }),
     months: () => request('/stats/months'),
     orderSources: (params) => request('/stats/order-sources', { params }),
@@ -310,8 +318,9 @@ export const api = {
     list: (status = 'open') => request('/support', { params: { status } }),
     stats: () => request('/support/stats'),
     get: (id) => request(`/support/${id}`),
-    messages: (id, markRead = false) =>
-      request(`/support/${id}/messages`, { params: { mark_read: markRead || undefined } }),
+    messages: (id, markRead = false, afterId = null, beforeId = null, limit = 200) =>
+      request(`/support/${id}/messages`, { params: { mark_read: markRead || undefined, after_id: afterId, before_id: beforeId, limit } }),
+    markMessagesRead: (id, messageIds) => request(`/support/${id}/messages/read`, { method: 'POST', body: { message_ids: messageIds } }),
     send: (id, text) =>
       request(`/support/${id}/messages`, { method: 'POST', body: { text } }),
     setStatus: (id, status) =>

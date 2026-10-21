@@ -92,6 +92,9 @@ try {
   await page.evaluate(()=>window.dispatchEvent(new CustomEvent('elfar:orders:changed')))
   await pause(180)
   await input.fill('NEW')
+  // fill() changes the native input before React Router commits the query.
+  // Wait for React's controlled value attribute, then inspect the same UI state.
+  await page.waitForFunction(() => document.querySelector('input[value="NEW"]'))
   await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
   check(!(await list.textContent().catch(()=>''))?.includes('OLD'),path+': старі дані сховані під новим фільтром')
   await list.getByText('NEW',{exact:false}).waitFor()

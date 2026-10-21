@@ -23,9 +23,11 @@ try {
     const label = `${variant.width}px ${variant.scheme}`
     const context = await browser.newContext({ viewport: { width: variant.width, height: 760 } })
     const p = await context.newPage()
+    p.setDefaultTimeout(15000)
     const errors = []
     p.on('pageerror', error => { errors.push(error.message); console.log(`RUNTIME ERROR ${label}: ${error.message}`) })
     let cartQty = 0, failProducts = false, failCart = false
+    const productQueries = []
     const cart = () => ({ lines: cartQty ? [{ product_id: 1, name: goods[0].name, qty: cartQty, stock: 2, price: '320', line_total: String(cartQty * 320) }] : [], subtotal: String(cartQty * 320) })
     await p.addInitScript(scheme => {
       window.Telegram = { WebApp: { initData: 'user=%7B%22id%22%3A123%7D&auth_date=1&hash=test', platform: 'tdesktop', colorScheme: scheme, initDataUnsafe: { user: { id: 123 } }, ready() {}, expand() {}, disableVerticalSwipes() {}, onEvent() {}, offEvent() {}, BackButton: { show() { window.__qaBackShown = true }, hide() { window.__qaBackShown = false }, onClick(callback) { window.__qaBack = callback }, offClick() {} } } }
@@ -53,6 +55,7 @@ try {
       else if (path.endsWith('/products')) {
         if (failProducts) { await route.fulfill({ status: 503, json: { detail: 'Каталог тимчасово недоступний' } }); return }
         const q = (url.searchParams.get('q') || url.searchParams.get('search') || '').toLowerCase()
+        productQueries.push(q)
         data = goods.filter(item => item.name.toLowerCase().includes(q))
       } else if (path.endsWith('/wishlists')) data = Array.from({ length: 25 }, (_, i) => ({ id: i + 1, name: `Список ${i + 1}`, product_ids: [], size: 0 }))
       await route.fulfill({ json: pageFixture(route, data) })
@@ -109,13 +112,19 @@ try {
     await p.getByRole('navigation', { name: 'Розділи магазину' }).getByRole('button', { name: 'Пошук', exact: true }).click()
     check(await p.getByRole('textbox', { name: 'Пошук товарів' }).evaluate(e => e === document.activeElement), `${label}: search navigation focuses input`)
     await p.getByRole('textbox', { name: 'Пошук товарів' }).fill('навушники')
-    await p.waitForFunction(() => document.querySelectorAll('.store-card').length === 2)
+    await p.waitForFunction(() => document.querySelectorAll('.store-card').length === 2).catch(async error => {
+      console.log('SEARCH DIAGNOSTICS', label, JSON.stringify({value:await p.getByRole('textbox',{name:'Пошук товарів'}).inputValue(),queries:productQueries,cards:await p.locator('.store-card-title').allTextContents(),visibility:await p.evaluate(()=>document.visibilityState)}))
+      throw error
+    })
     check(await p.locator('.store-card').count() === 2, `${label}: search results`)
     await p.getByRole('button', { name: 'Очистити', exact: true }).click()
     await p.locator('.store-card').nth(11).waitFor()
     await sort.click(); await p.getByRole('button', { name: 'Спочатку новинки', exact: true }).click()
     await p.getByRole('textbox', { name: 'Пошук товарів' }).fill('навушники')
-    await p.waitForFunction(() => document.querySelectorAll('.store-card').length === 2)
+    await p.waitForFunction(() => document.querySelectorAll('.store-card').length === 2).catch(async error => {
+      console.log('SEARCH DIAGNOSTICS', label, JSON.stringify({value:await p.getByRole('textbox',{name:'Пошук товарів'}).inputValue(),queries:productQueries,cards:await p.locator('.store-card-title').allTextContents(),visibility:await p.evaluate(()=>document.visibilityState)}))
+      throw error
+    })
     await sort.click()
     check(await p.getByRole('button', { name: 'Спочатку новинки', exact: true }).getAttribute('aria-pressed') === 'true', `${label}: novelty order remains selected while regular search matches remain visible`)
     await p.getByRole('button', { name: 'За порядком', exact: true }).click()

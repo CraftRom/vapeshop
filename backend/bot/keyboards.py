@@ -215,6 +215,11 @@ def confirm_order(confirmation_id: str | None = None) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="✅ Підтвердити", callback_data=f"order:confirm{suffix}")],
+            *([[InlineKeyboardButton(text="✏️ " + label, callback_data=f"order:edit:{field}{suffix}")]
+               for field, label in (("name", "Отримувач"), ("phone", "Телефон"),
+                                    ("city", "Місто"), ("address", "Адреса / відділення"),
+                                    ("promo", "Промокод"), ("bonus", "Бонуси"),
+                                    ("payment", "Оплата"), ("comment", "Коментар"))] if confirmation_id else []),
             [InlineKeyboardButton(text="❌ Скасувати", callback_data=f"order:cancel{suffix}")],
         ]
     )

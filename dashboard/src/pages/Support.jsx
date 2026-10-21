@@ -1,8 +1,13 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { api, authorizedFetch } from '../api'
 import { Empty, ErrorBar, Loading, dateTime, useToast } from '../components/ui'
 import { useVisiblePolling } from '../components/useVisiblePolling'
+import { useChatMessages } from '../components/useChatMessages'
+import { useChatViewport } from '../components/useChatViewport'
+import { useChatDraft } from '../components/useChatDraft'
+import { useSupportRead } from '../components/useSupportRead'
+import { ChatDraftStatus, ChatLatest, ChatStatus } from '../components/ChatStatus'
 
 const FILE_LABEL = {
   photo: 'Фото', document: 'Документ', video: 'Відео', voice: 'Голосове',
@@ -138,32 +143,66 @@ function ClientGroup({ group, selectedId, onSelect }) {
   )
 }
 
-function Conversation({ thread, messages, onBack, onRefresh, onStatus, onDelete }) {
+const Conversation = memo(function Conversation({ threadId, onBack, onStatus, onDelete }) {
   const notify = useToast()
-  const [text, setText] = useState('')
+  useEffect(() => {
+    document.body.classList.add('dashboard-chat-open')
+    return () => document.body.classList.remove('dashboard-chat-open')
+  }, [])
+  const [thread, setThread] = useState(null)
+  const [threadError, setThreadError] = useState('')
+  const [text, setText, draft] = useChatDraft('support', threadId)
   const [busy, setBusy] = useState(false)
   const actionRef = useRef(false)
-  const bottom = useRef(null)
+  const lifecycle = useRef(0)
+  const metadataRequest = useRef(null)
+  const { messages, loading, error, refresh, appendSentMessage, hasOlder, loadingOlder, olderError, loadOlderMessages } = useChatMessages('support', threadId)
+  const viewport = useChatViewport(messages, !loading && Boolean(thread))
+  const read = useSupportRead(threadId, messages, viewport, !loading && Boolean(thread))
 
+  const refreshThread = useCallback(async () => {
+    const owner = lifecycle.current
+    if (metadataRequest.current === owner) return
+    metadataRequest.current = owner
+    try {
+      const fresh = await api.support.get(threadId)
+      if (owner !== lifecycle.current) return
+      setThread(current => JSON.stringify(current) === JSON.stringify(fresh) ? current : fresh)
+      setThreadError('')
+    } catch (err) {
+      if (owner === lifecycle.current) setThreadError(err.message)
+    } finally {
+      if (metadataRequest.current === owner) metadataRequest.current = null
+    }
+  }, [threadId])
   useEffect(() => {
-    bottom.current?.scrollIntoView({ block: 'end' })
-  }, [messages, thread?.id])
+    lifecycle.current += 1
+    refreshThread()
+    return () => { lifecycle.current += 1 }
+  }, [refreshThread])
+  useVisiblePolling(refreshThread, 5000)
+  const retry = () => { refresh(); refreshThread() }
 
   const send = async () => {
-    const body = text.trim()
-    if (!body || !thread || actionRef.current) return
+    const submitted = draft.snapshot()
+    const body = submitted.text.trim()
+    if (!body || !thread || thread.status !== 'open' || actionRef.current) return
+    const owner = lifecycle.current
     actionRef.current = true
     setBusy(true)
     try {
       const result = await api.support.send(thread.id, body)
-      setText('')
+      draft.confirmSent(submitted)
+      if (owner !== lifecycle.current) return
       if (!result.delivered) notify(result.warning || 'Telegram не підтвердив доставку', 'bad')
-      await onRefresh(true)
+      viewport.jumpToLatest()
+      appendSentMessage(result.message)
+      refresh()
     } catch (err) {
-      notify(err.message, 'bad')
+      if (owner === lifecycle.current) notify(err.message, 'bad')
     } finally {
       actionRef.current = false
-      setBusy(false)
+      if (owner === lifecycle.current) setBusy(false)
     }
   }
 
@@ -173,21 +212,24 @@ function Conversation({ thread, messages, onBack, onRefresh, onStatus, onDelete 
       `Закрити звернення #${thread.id}?\n\nСесію буде завершено для клієнта й менеджера. Історія залишиться незмінною. Для наступного питання клієнт створить нове звернення через /ask.`
     )
     if (!yes) return
+    const owner = lifecycle.current
     actionRef.current = true
     setBusy(true)
     try {
       const updated = await api.support.setStatus(thread.id, 'closed')
+      if (owner !== lifecycle.current) return
       if (updated?.closed_by === 'staff') {
         notify('Звернення закрито; історія збережена.')
       } else {
         notify(`Звернення вже було закрито. ${closeDescription(updated) || ''}`.trim())
       }
-      await onStatus('closed')
+      setThread(updated)
+      await onStatus(thread.id, 'closed')
     } catch (err) {
-      notify(err.message, 'bad')
+      if (owner === lifecycle.current) notify(err.message, 'bad')
     } finally {
       actionRef.current = false
-      setBusy(false)
+      if (owner === lifecycle.current) setBusy(false)
     }
   }
 
@@ -197,28 +239,27 @@ function Conversation({ thread, messages, onBack, onRefresh, onStatus, onDelete 
       `Видалити звернення #${thread.id} назавжди?\n\nБуде стерто всю історію цього конкретного чату. Інші звернення клієнта залишаться.`
     )
     if (!yes) return
+    const owner = lifecycle.current
     actionRef.current = true
     setBusy(true)
     try {
       await api.support.remove(thread.id)
+      if (owner !== lifecycle.current) return
       notify(`Звернення #${thread.id} видалено`)
       await onDelete(thread.id)
     } catch (err) {
-      notify(err.message, 'bad')
+      if (owner === lifecycle.current) notify(err.message, 'bad')
     } finally {
       actionRef.current = false
-      setBusy(false)
+      if (owner === lifecycle.current) setBusy(false)
     }
   }
 
   if (!thread) {
-    return (
-      <div className="support-conversation-empty">
-        <Empty title="Оберіть звернення">
-          Клієнти згруповані зліва. Відкрийте потрібний чат, щоб побачити його окрему історію.
-        </Empty>
-      </div>
-    )
+    return <section className="support-conversation support-conversation-empty">
+      <button className="btn ghost small support-mobile-back" onClick={onBack}>← Назад</button>
+      <ChatStatus loading={!threadError} error={threadError} onRetry={retry} />
+    </section>
   }
 
   const user = thread.user || {}
@@ -254,14 +295,34 @@ function Conversation({ thread, messages, onBack, onRefresh, onStatus, onDelete 
         </div>
       </header>
 
-      <div className="support-chat-log">
-        {messages.length === 0 ? (
+      <div className="support-sync-state">
+      <ChatStatus loading={loading} error={error || threadError} onRetry={retry} />
+      {read.error && <div className="chat-sync-status" role="status">
+        <span>Не вдалося позначити видимі повідомлення прочитаними.</span>
+        <button className="btn ghost small" onClick={read.retry}>Повторити позначення</button>
+      </div>}
+      </div>
+      <div className="support-chat-log" ref={viewport.logRef} onScroll={viewport.onScroll}
+        role="region" aria-label="Переписка підтримки" tabIndex={0}>
+        <div className="chat-log-content">
+        {olderError && <div className="chat-history-more" role="alert">
+          <span>Попередні повідомлення не завантажилися.</span>
+          <button className="btn ghost compact" onClick={loadOlderMessages} disabled={loadingOlder}>Повторити історію</button>
+        </div>}
+        {hasOlder && messages.length > 0 && <div className="chat-history-more">
+          <button className="btn ghost compact" disabled={loadingOlder} onClick={loadOlderMessages}>
+            {loadingOlder ? 'Завантажуємо…' : 'Показати попередні повідомлення'}
+          </button>
+        </div>}
+        {!loading && messages.length === 0 ? (
           <div className="support-no-messages faint">Повідомлень ще немає.</div>
         ) : messages.map((message) => {
           const automatic = message.direction === 'out' && message.is_automatic
           return (
             <div
               key={message.id}
+              data-message-id={message.id}
+              data-direction={message.direction}
               className={`support-bubble ${message.direction === 'out' ? 'mine' : ''} ${automatic ? 'automatic' : ''}`}
             >
               <div className="bubble-head faint support-message-head">
@@ -282,9 +343,10 @@ function Conversation({ thread, messages, onBack, onRefresh, onStatus, onDelete 
             </div>
           )
         })}
-        <div ref={bottom} />
+        </div>
       </div>
 
+      <ChatLatest viewport={viewport} />
       <div className="support-compose">
         {thread.status === 'closed' ? (
           <div className="support-compose-note support-compose-closed">
@@ -301,7 +363,7 @@ function Conversation({ thread, messages, onBack, onRefresh, onStatus, onDelete 
                 onChange={(e) => setText(e.target.value)}
                 placeholder="Напишіть відповідь клієнту…"
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
+                  if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
                     e.preventDefault()
                     send()
                   }
@@ -311,13 +373,14 @@ function Conversation({ thread, messages, onBack, onRefresh, onStatus, onDelete 
                 {busy ? 'Надсилаємо…' : 'Надіслати'}
               </button>
             </div>
+            <ChatDraftStatus text={text} status={draft.status} />
             <div className="faint support-compose-hint">Enter — надіслати · Shift+Enter — новий рядок</div>
           </>
         )}
       </div>
     </section>
   )
-}
+})
 
 export default function Support() {
   const initialThreadId = useMemo(() => {
@@ -332,69 +395,49 @@ export default function Support() {
   const [threads, setThreads] = useState([])
   const [stats, setStats] = useState(EMPTY_STATS)
   const [selectedId, setSelectedId] = useState(initialThreadId)
-  const [thread, setThread] = useState(null)
-  const [messages, setMessages] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const filterRef = useRef(status)
+  filterRef.current = status
+  const selectedRef = useRef(selectedId)
+  selectedRef.current = selectedId
+  const listSequence = useRef(0)
 
   const loadThreads = useCallback(async (quiet = false) => {
+    const sequence = ++listSequence.current
     if (!quiet) setLoading(true)
     try {
       const [data, nextStats] = await Promise.all([
         api.support.list(status),
         api.support.stats(),
       ])
-      setThreads(data)
-      setStats(nextStats || EMPTY_STATS)
+      if (sequence !== listSequence.current) return
+      setThreads(current => JSON.stringify(current) === JSON.stringify(data) ? current : data)
+      setStats(current => JSON.stringify(current) === JSON.stringify(nextStats || EMPTY_STATS) ? current : nextStats || EMPTY_STATS)
       setError('')
 
-      if (!selectedId && data.length && !window.matchMedia('(max-width: 760px)').matches) {
+      if (!selectedRef.current && data.length && !window.matchMedia('(max-width: 760px)').matches) {
         setSelectedId(data[0].id)
       }
     } catch (err) {
-      setError(err.message)
+      if (sequence === listSequence.current) setError(err.message)
     } finally {
-      if (!quiet) setLoading(false)
+      if (sequence === listSequence.current) setLoading(false)
     }
-  }, [status, selectedId])
-
-  const loadConversation = useCallback(async (markRead = false) => {
-    if (!selectedId) {
-      setThread(null)
-      setMessages([])
-      return
-    }
-    try {
-      const [freshThread, freshMessages] = await Promise.all([
-        api.support.get(selectedId),
-        api.support.messages(selectedId, markRead),
-      ])
-      setThread(freshThread)
-      setMessages(freshMessages)
-      if (markRead) {
-        setThreads((items) => items.map((item) => (
-          item.id === selectedId ? { ...item, unread_count: 0 } : item
-        )))
-      }
-    } catch (err) {
-      setError(err.message)
-    }
-  }, [selectedId])
+  }, [status])
 
   useEffect(() => {
     loadThreads()
-  }, [status]) // eslint-disable-line react-hooks/exhaustive-deps
-
+    return () => { listSequence.current += 1 }
+  }, [loadThreads])
+  const pollInbox = useCallback(() => loadThreads(true), [loadThreads])
+  useVisiblePolling(pollInbox, 15000)
   useEffect(() => {
-    if (!selectedId) return
-    loadConversation(true)
-  }, [selectedId, loadConversation])
-
-  const pollSupport = useCallback(async () => {
-    await loadThreads(true)
-    if (selectedId) await loadConversation(false)
-  }, [loadThreads, loadConversation, selectedId])
-  useVisiblePolling(pollSupport, 5000)
+    let timer = null
+    const onRead = () => { clearTimeout(timer);timer = setTimeout(pollInbox, 200) }
+    window.addEventListener('elfar:support:read', onRead)
+    return () => { clearTimeout(timer);window.removeEventListener('elfar:support:read', onRead) }
+  }, [pollInbox])
 
   const groups = useMemo(() => {
     const needle = query.trim().toLowerCase()
@@ -442,26 +485,15 @@ export default function Support() {
   const changeFilter = (next) => {
     setStatus(next)
     setSelectedId(null)
-    setThread(null)
-    setMessages([])
   }
 
-  const statusChanged = async (next) => {
-    setThread((current) => current ? { ...current, status: next } : current)
+  const statusChanged = async (id, next) => {
     await loadThreads(true)
-    if (status !== 'all' && next !== status) {
-      setSelectedId(null)
-      setThread(null)
-      setMessages([])
-    } else {
-      await loadConversation(false)
-    }
+    if (filterRef.current !== 'all' && next !== filterRef.current) setSelectedId(current => current === id ? null : current)
   }
 
-  const deleted = async () => {
-    setSelectedId(null)
-    setThread(null)
-    setMessages([])
+  const deleted = async (id) => {
+    setSelectedId(current => current === id ? null : current)
     await loadThreads(true)
   }
 
@@ -494,8 +526,6 @@ export default function Support() {
           <span>Непрочитані</span><strong>{stats.unread}</strong>
         </div>
       </div>
-
-      <ErrorBar error={error} />
 
       <div className={`support-layout ${selectedId ? 'has-selection' : ''}`}>
         <aside className="support-inbox card">
@@ -530,6 +560,7 @@ export default function Support() {
             </select>
           </div>
 
+          <ErrorBar error={error} />
           <div className="support-thread-list">
             {loading ? <Loading rows={5} /> : groups.length === 0 ? (
               <Empty title="Звернень немає">
@@ -546,18 +577,15 @@ export default function Support() {
           </div>
         </aside>
 
-        <Conversation
-          thread={thread}
-          messages={messages}
-          onBack={() => {
-            setSelectedId(null)
-            setThread(null)
-            setMessages([])
-          }}
-          onRefresh={loadConversation}
+        {selectedId ? <Conversation
+          key={selectedId}
+          threadId={selectedId}
+          onBack={() => setSelectedId(null)}
           onStatus={statusChanged}
           onDelete={deleted}
-        />
+        /> : <div className="support-conversation-empty"><Empty title="Оберіть звернення">
+          Відкрийте потрібний чат, щоб побачити його окрему історію.
+        </Empty></div>}
       </div>
     </>
   )

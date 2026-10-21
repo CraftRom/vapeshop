@@ -108,13 +108,15 @@ async def add_to_cart(repo: Repository, user_id: int, product_id: int, delta: in
 
     # Сумісний fallback для тестових/несQL repository.
     product = await repo.get_product(product_id)
-    if not product or not product.is_active:
+    if delta >= 0 and (not product or not product.is_active):
         return None
 
     current = next(
         (line.qty for line in await repo.get_cart(user_id) if line.product_id == product_id), 0
     )
-    new_qty = min(current + delta, product.stock)
+    new_qty = max(current + delta, 0)
+    if product and product.is_active:
+        new_qty = min(new_qty, max(product.stock, 0))
     if new_qty <= 0:
         await repo.set_cart_qty(user_id, product_id, 0)
         return None

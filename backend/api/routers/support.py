@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import logging
+from typing import Annotated
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, Path
 
 from api.auth import Principal, require_staff
 from api.schemas import (
+    MessageReadIn,
     SupportMessageIn, SupportMessageOut, SupportMessageResult,
     SupportStatsOut, SupportThreadOut, SupportThreadPatch,
 )
@@ -16,6 +18,7 @@ from shop.services import support_chat
 
 router = APIRouter(dependencies=[Depends(require_staff)])
 log = logging.getLogger(__name__)
+SupportID = Annotated[int, Path(gt=0, le=2147483647)]
 
 
 def _bot():
@@ -112,15 +115,37 @@ async def delete_thread(
 
 @router.get("/{thread_id}/messages", response_model=list[SupportMessageOut])
 async def messages(
-    thread_id: int,
+    thread_id: SupportID,
     mark_read: bool = False,
+    before_id: int | None = Query(None, gt=0, le=2147483647),
+    after_id: int | None = Query(None, ge=0, le=2147483647),
+    limit: int | None = Query(None, ge=1, le=200),
     repo: Repository = Depends(get_repo),
 ):
     if not await repo.get_support_thread(thread_id):
         raise HTTPException(404, "Звернення не знайдено")
+    if before_id is not None and after_id is not None:
+        raise HTTPException(422, "Оберіть один напрямок історії")
+    # Preserve the old 300-message response for clients without cursors/limit.
+    if before_id is None and after_id is None and limit is None:
+        items = await repo.list_support_messages(thread_id)
+    else:
+        items = await repo.page_support_messages(thread_id, before_id, after_id, limit or 200)
     if mark_read:
-        await repo.mark_support_read(thread_id)
-    return await repo.list_support_messages(thread_id)
+        await repo.mark_support_message_ids_read(thread_id, [item.id for item in items])
+        for item in items:
+            if item.direction == 'in':
+                item.is_read = True
+    return items
+
+
+@router.post("/{thread_id}/messages/read")
+async def read_messages(thread_id: SupportID, data: MessageReadIn, repo: Repository = Depends(get_repo)):
+    if not await repo.get_support_thread(thread_id):
+        raise HTTPException(404, "Звернення не знайдено")
+    if any(x > 2147483647 for x in data.message_ids):
+        raise HTTPException(422, "ID повідомлення поза допустимим діапазоном")
+    return {"marked": await repo.mark_support_message_ids_read(thread_id, data.message_ids)}
 
 
 @router.post("/{thread_id}/messages", response_model=SupportMessageResult, status_code=201)
@@ -168,7 +193,7 @@ async def send_message(
         message=saved,
         delivered=delivered,
         warning=None if delivered else (
-            "Повідомлення збережено, але Telegram не підтвердив доставку клієнту."
+            "Повідомлення доступне у Mini App, але Telegram не підтвердив доставку клієнту."
         ),
     )
 
@@ -181,8 +206,7 @@ async def support_file(
 ):
     if not await repo.get_support_thread(thread_id):
         raise HTTPException(404, "Звернення не знайдено")
-    messages = await repo.list_support_messages(thread_id)
-    target = next((m for m in messages if m.id == message_id), None)
+    target = await repo.get_support_message(thread_id, message_id)
     if not target:
         raise HTTPException(404, "Вкладення не знайдено")
     if not target.file_id:

@@ -12,6 +12,7 @@ from html import escape
 from aiogram.types import KeyboardButton, ReplyKeyboardMarkup
 
 from shop.repo.base import Repository
+from shop.telegram_text import send_html
 from shop.services.status_messages import is_permanent_delivery_error
 
 log = logging.getLogger(__name__)
@@ -187,8 +188,8 @@ async def _notify_staff(bot, repo: Repository, thread_id: int, user, text: str) 
 
     who = f"@{esc(user.username)}" if user.username else esc(user.first_name or "клієнт")
     try:
-        await bot.send_message(
-            shop.admin_chat_id,
+        await send_html(
+            bot, shop.admin_chat_id,
             "🆘 <b>Нове звернення в підтримку</b>\n"
             f"Від: {who}\n\n{esc(text)}\n\n"
             f"<i>Відповісти: панель → Підтримка → чат #{thread_id}</i>",
@@ -220,8 +221,8 @@ async def send_to_client(
         # в /ask. Це прибирає гонку: якщо менеджер закрив чат одночасно з
         # відповіддю, пізніше доставлена відповідь не поверне кнопку
         # «Завершити звернення» поверх уже відновленого головного меню.
-        sent = await bot.send_message(
-            user.tg_id,
+        sent = await send_html(
+            bot, user.tg_id,
             "💬 <b>Відповідь менеджера</b>\n\n"
             f"{esc(text)}{signature}",
         )

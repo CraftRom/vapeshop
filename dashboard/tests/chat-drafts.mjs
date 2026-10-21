@@ -1,0 +1,21 @@
+import assert from 'node:assert/strict'
+import { chatDraftEpoch, readChatDraft, writeChatDraft, clearChatDrafts } from '../src/components/chatDrafts.js'
+
+clearChatDrafts()
+writeChatDraft('order:1', 'Замовлення')
+writeChatDraft('support:1', 'Підтримка')
+assert.equal(readChatDraft('order:1'), 'Замовлення')
+assert.equal(readChatDraft('support:1'), 'Підтримка')
+assert.equal(readChatDraft('support:2'), '')
+writeChatDraft('order:1', '')
+assert.equal(readChatDraft('order:1'), '')
+const oldSession = chatDraftEpoch()
+clearChatDrafts()
+assert.equal(readChatDraft('support:1'), '')
+assert.equal(writeChatDraft('support:1', 'Late response after logout', oldSession), false)
+assert.equal(readChatDraft('support:1'), '')
+for (let i = 0; i < 51; i++) writeChatDraft(`order:${i}`, `Draft ${i}`)
+assert.equal(readChatDraft('order:0'), '')
+assert.equal(readChatDraft('order:50'), 'Draft 50')
+clearChatDrafts()
+console.log('CHAT DRAFTS: 9/9')

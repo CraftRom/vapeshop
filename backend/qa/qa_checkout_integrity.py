@@ -158,7 +158,7 @@ check("op.create_index(\"ux_orders_checkout_key\"" in migration, "є мігра�
 check("get_order_by_checkout_key" in router and "Ключ оформлення вже використано" in router, "API перевіряє повтор checkout до кошика")
 check("checkout_key=data.checkout_key" in router, "API передає ключ у бізнес-логіку")
 check("secrets.token_urlsafe" in bot and "checkout_key=data.get(\"checkout_key\")" in bot, "бот теж ідемпотентний при double-confirm")
-check("phone = normalize_phone(message.contact.phone_number)" in bot, "Telegram contact проходить ту саму нормалізацію телефону")
+check("await _save_phone(message, state, repo, user, message.contact.phone_number)" in bot and "phone = normalize_phone(raw)" in bot, "Telegram contact проходить ту саму нормалізацію телефону")
 check("@field_validator(\"contact_phone\")" in router and 'return "+380" + body' in router, "API нормалізує телефон незалежно від frontend")
 check("reserved:" in service and service.index("reserved:") < service.index("repo.create_order(draft, order_lines)"), "stock резервується до insert замовлення")
 check("async def create_checkout_order_atomic" in sql, "SQL має атомарний checkout path")

@@ -505,6 +505,9 @@ class SupportThread(Base):
 
 class SupportMessage(Base):
     __tablename__ = "support_messages"
+    __table_args__ = (Index("uq_support_messages_client_request", "thread_id", "client_request_id", unique=True),)
+
+    client_request_id: Mapped[str | None] = mapped_column(String(64))
 
     id: Mapped[int] = mapped_column(primary_key=True)
     thread_id: Mapped[int] = mapped_column(
@@ -701,3 +704,15 @@ class MarketingSpend(Base):
     amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
     updated_by: Mapped[str] = mapped_column(String(64), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class FinancialPeriod(Base):
+    """An immutable saved monthly report; operational orders remain editable."""
+    __tablename__ = "financial_periods"
+    month: Mapped[str] = mapped_column(String(7), primary_key=True)
+    timezone: Mapped[str] = mapped_column(String(64), nullable=False)
+    closed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    closed_by: Mapped[str] = mapped_column(String(64), nullable=False)
+    schema_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    checksum: Mapped[str] = mapped_column(String(64), nullable=False)
+    payload: Mapped[dict] = mapped_column(JsonType, nullable=False)

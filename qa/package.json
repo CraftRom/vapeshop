@@ -9,7 +9,15 @@
     "test:navigation": "QA_BROWSER_SUITE=navigation bash run-browser.sh",
     "test:broadcasts": "QA_BROWSER_SUITE=broadcasts bash run-browser.sh",
     "test:chat": "QA_BROWSER_SUITE=chat bash run-browser.sh",
-    "test:ux": "QA_BROWSER_SUITE=ux bash run-browser.sh"
+    "test:ux": "QA_BROWSER_SUITE=ux bash run-browser.sh",
+    "test:miniapp-support": "QA_BROWSER_SUITE=miniapp-support bash run-browser.sh",
+    "test:chat-drafts": "QA_BROWSER_SUITE=chat-drafts bash run-browser.sh",
+    "test:dashboard-chat": "QA_BROWSER_SUITE=dashboard-chat bash run-browser.sh",
+    "test:cart-recovery": "QA_BROWSER_SUITE=cart-recovery bash run-browser.sh",
+    "test:cart-guard": "QA_BROWSER_SUITE=cart-guard bash run-browser.sh",
+    "test:quantity-sync": "QA_BROWSER_SUITE=quantity-sync bash run-browser.sh",
+    "test:financial-periods": "QA_BROWSER_SUITE=financial-periods bash run-browser.sh",
+    "test:support-history": "QA_BROWSER_SUITE=support-history bash run-browser.sh"
   },
   "devDependencies": {
     "playwright": "1.62.1"

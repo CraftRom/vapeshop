@@ -5,6 +5,7 @@ const read = (path) => readFileSync(path, 'utf8')
 const status = read('src/components/OrderStatus.jsx')
 const orders = read('src/pages/Orders.jsx')
 const page = read('src/pages/OrderPage.jsx')
+const chat = read('src/components/useChatMessages.js')
 const css = read('src/styles.css')
 const version = read('src/version.js')
 
@@ -38,11 +39,11 @@ check(orders.includes('orders-attention-summary') && orders.includes('unreadTota
   'над списком є окремий summary нових замовлень і повідомлень')
 check(orders.includes('orders?.reduce((sum, order) => sum + Number(unread[order.id] || 0), 0)'),
   'summary непрочитаних рахує тільки видимі після фільтрів замовлення')
-check(page.includes('api.orders.messages(id),') && page.includes("message.direction === 'in' && !message.is_read"),
+check(chat.includes('api.orders.messages(id, false, after, null, 200)') && chat.includes("message.direction === 'in' && !message.is_read"),
   'картка спершу отримує непрочитані, не гасячи їх до побудови UI')
-check(page.includes('api.orders.markMessagesRead(id, unseen).catch(() => {})'),
+check(chat.includes('api.orders.markMessagesRead(id, unseen).catch(() => {})'),
   'після фіксації маркерів серверний unread-лічильник гаситься окремим lightweight endpoint')
-check(page.includes('loadedOrderRef') && page.includes('setNewMessageIds((current) =>'),
+check(chat.includes('setNewMessageIds((known) =>') && page.includes('<Chat key={id}'),
   'повторний load у тій самій картці не стирає локальні маркери')
 check(page.includes('new-messages-divider') && page.includes('bubble-new-badge') && page.includes('chat-new-counter'),
   'в чаті є межа нових реплік, бейдж на повідомленні та лічильник')

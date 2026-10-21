@@ -123,6 +123,7 @@ repo_source = Path("shop/repo/sql.py").read_text()
 orders_api = Path("api/routers/orders.py").read_text()
 page = Path("../dashboard/src/pages/OrderPage.jsx").read_text()
 styles = Path("../dashboard/src/styles.css").read_text()
+chat = Path("../dashboard/src/components/useChatMessages.js").read_text()
 
 checks = {
     "Nova Poshta TTN includes ENref and cost": (
@@ -150,9 +151,9 @@ checks = {
     "429 is not blindly retried": (
         "if response.status_code == 429:" in source and "Retry-After" in source
     ),
-    "order page sends messages without broad page reload": "onSent={appendSentMessage}" in page,
+    "order page sends messages without broad page reload": "appendSentMessage: onSent" in page and "onSent(result.message)" in page,
     "messages and order data poll independently": (
-        "useVisiblePolling(pollMessages, 5000)" in page
+        "useVisiblePolling(refresh, 5000)" in chat
         and "useVisiblePolling(refreshLocalOrder, 15000)" in page
     ),
     "message polling has an after_id delta API": (

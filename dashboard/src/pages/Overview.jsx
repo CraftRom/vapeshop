@@ -4,6 +4,7 @@ import { useSearchParams } from 'react-router-dom'
 import { api } from '../api'
 import { AnalyticsControls, MarketingMetrics, AnalyticsOrders, SpendEditor, dateInZone } from '../components/AnalyticsPanels'
 import { ManagedTable } from '../components/ManagedTable'
+import { ClosedPeriods } from '../components/ClosedPeriods'
 import { STATUS_LABELS } from '../components/StatusRail'
 import { StatusBadge } from '../components/OrderStatus'
 import { ErrorBar, Loading, money } from '../components/ui'
@@ -146,6 +147,13 @@ export default function Overview() {
     granularity: searchParams.get('granularity') || 'day',
   }), [searchParams, today])
   const period = selection.period
+  const snapshotMonth = searchParams.get('snapshot') || ''
+  const openSnapshot = (month) => {
+    const next = new URLSearchParams(searchParams)
+    if (month) next.set('snapshot', month)
+    else next.delete('snapshot')
+    setSearchParams(next, { replace: true })
+  }
   const setSelection = (value) => setSearchParams(Object.fromEntries(Object.entries(value).filter(([, v]) => v != null && v !== '')), { replace: true })
   const setPeriod = (value) => setSelection({ ...selection, period: value, month: undefined })
   const [data, setData] = useState(null)
@@ -161,21 +169,22 @@ export default function Overview() {
     if (skeleton) setData(null)
     setBusy(true); setError('')
     try {
-      const result = await api.stats.report(selection)
+      const result = snapshotMonth ? await api.stats.closedPeriod(snapshotMonth) : await api.stats.report(selection)
       if (seq === requestId.current) setData(result)
     } catch (err) {
       if (seq === requestId.current) setError(err.message)
     } finally {
       if (seq === requestId.current) setBusy(false)
     }
-  }, [selection])
+  }, [selection, snapshotMonth])
 
   useEffect(() => { load({ skeleton: true }) }, [load])
-  useVisiblePolling(load, 60000)
+  useVisiblePolling(load, 60000, { enabled: !snapshotMonth })
 
   useEffect(() => {
     let timer = null
     const onOrderChanged = () => {
+      if (snapshotMonth) return
       if (timer) clearTimeout(timer)
       timer = setTimeout(() => load(), 150)
     }
@@ -184,19 +193,19 @@ export default function Overview() {
       if (timer) clearTimeout(timer)
       window.removeEventListener('elfar:orders:changed', onOrderChanged)
     }
-  }, [load])
+  }, [load, snapshotMonth])
 
   const activity = data?.insights?.activity || {}
-  const caption = period === 'all' ? 'за весь час' : periodCaption(data?.insights)
+  const caption = snapshotMonth ? snapshotMonth : period === 'all' ? 'за весь час' : periodCaption(data?.insights)
 
   return (
     <>
       <div className="page-head">
         <div>
           <h1>Огляд</h1>
-          <p>{caption ? (period === 'all' ? 'Статистика за весь час' : `Статистика за ${caption}`) : 'Фінанси, замовлення й активність магазину'}</p>
+          <p>{snapshotMonth ? `Збережений звіт за ${snapshotMonth}` : caption ? (period === 'all' ? 'Статистика за весь час' : `Статистика за ${caption}`) : 'Фінанси, замовлення й активність магазину'}</p>
         </div>
-        <div className="row stats-periods">
+        {!snapshotMonth && <div className="row stats-periods">
           {PERIODS.map((p) => (
             <button
               key={p.key}
@@ -207,10 +216,11 @@ export default function Overview() {
               {p.label}
             </button>
           ))}
-        </div>
+        </div>}
       </div>
 
-      <AnalyticsControls selection={selection} setSelection={setSelection} months={months} timezone={timezone} busy={busy} refresh={() => load()} />
+      <ClosedPeriods timezone={timezone} selected={snapshotMonth} onOpen={openSnapshot} snapshot={data?.snapshot} />
+      {!snapshotMonth && <AnalyticsControls selection={selection} setSelection={setSelection} months={months} timezone={timezone} busy={busy} refresh={() => load()} />}
       <ErrorBar error={error} />
       {error && <button className="btn ghost" onClick={() => load()}>Повторити завантаження</button>}
 
@@ -275,7 +285,7 @@ export default function Overview() {
 
           <FinanceLegend summary={data.summary} />
           <MarketingMetrics data={data} />
-          <SpendEditor selection={selection} timezone={timezone} onSaved={() => load()} />
+          {!snapshotMonth && <SpendEditor selection={selection} timezone={timezone} onSaved={() => load()} />}
 
           <div className="grid k2">
             <Metric
@@ -319,7 +329,7 @@ export default function Overview() {
           <details className="card analytics-details"><summary>Таблиця динаміки · {data.window.granularity === 'month' ? 'місяці' : 'дні'}</summary>
             <ManagedTable tableId="analytics-series" label="Динаміка"><table><thead><tr><th>Період</th><th className="num">Виручка</th><th className="num">Отримано</th><th className="num">Продажі</th><th className="num">Сер. чек</th><th className="num">Нові покупці</th><th className="num">Витрати</th><th className="num">CAC</th><th className="num">ROAS</th><th className="num">Візити</th><th className="num">Конверсія</th></tr></thead><tbody>{data.series.map((r) => <tr key={r.date}><td>{r.date}</td><td className="num">{money(r.sales)}</td><td className="num">{money(r.revenue)}</td><td className="num">{r.orders}</td><td className="num">{r.avg_check == null ? '—' : money(r.avg_check)}</td><td className="num">{r.new_customers}</td><td className="num">{money(r.spend)}</td><td className="num">{r.cac == null ? '—' : money(r.cac)}</td><td className="num">{r.roas == null ? '—' : `${r.roas}×`}</td><td className="num">{r.sessions}</td><td className="num">{r.conversion == null ? '—' : `${r.conversion}%`}</td></tr>)}</tbody></table></ManagedTable>
           </details>
-          <AnalyticsOrders selection={selection} data={data} />
+          {!snapshotMonth && <AnalyticsOrders selection={selection} data={data} />}
           <div className="grid k2">
             <div className="card">
               <h2>Топ товарів</h2>

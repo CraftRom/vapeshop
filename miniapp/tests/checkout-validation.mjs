@@ -17,7 +17,7 @@ const check = (ok, label, detail = '') => {
 }
 
 console.log('\n--- помічаються всі порожні поля, не лише телефон ---')
-const submit = src.slice(src.indexOf('const submit ='), src.indexOf('setBusy(true)'))
+const submit = src.slice(src.indexOf('const submit ='), src.indexOf('setBusy(true)', src.indexOf('const submit =')))
 check(/REQUIRED\.map\(\[?\(?\[key\]\)? => \[key, true\]\)/.test(submit)
       || submit.includes('REQUIRED.map(([key]) => [key, true])'),
       'при відправці всі обовʼязкові поля стають поміченими')

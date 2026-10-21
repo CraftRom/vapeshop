@@ -63,11 +63,12 @@ function exportAnalytics(data) {
   const keys = ['sales', 'ad_sales', 'revenue', 'expected', 'orders', 'avg_check', 'new_customers', 'spend', 'cac', 'roas', 'sessions', 'converted_sessions', 'conversion']
   const names = ['Виручка продажів UAH', 'Рекламна виручка UAH', 'Отримано UAH', 'Очікуємо UAH', 'Продажі', 'Середній чек UAH', 'Нові покупці', 'Витрати UAH', 'CAC UAH', 'ROAS x', 'Відвідування', 'Конвертовані', 'Конверсія %']
   const rows = [['Період від', data.window.from, 'до (виключно)', data.window.to, 'Часова зона', data.window.timezone], ['Зріз', ...names], ['Разом', ...keys.map((k) => data.analytics.metrics[k])]]
+  if (data.snapshot) rows.unshift(['Зафіксований звіт', data.snapshot.month, 'Збережено', data.snapshot.closed_at, 'Автор', data.snapshot.closed_by, 'Контрольна сума', data.snapshot.checksum])
   if (data.previous) rows.push(['Порівняння', ...keys.map((k) => data.previous.metrics[k])])
   for (const row of data.series) rows.push([row.date, ...keys.map((k) => row[k])])
   for (const row of data.analytics.sources) rows.push([`Канал: ${row.source}`, ...keys.map((k) => row[k])])
   for (const row of data.analytics.campaigns) rows.push([`Кампанія: ${row.source} / ${row.campaign || 'без мітки'}`, ...keys.map((k) => row[k])])
-  downloadCsv(rows, 'elfar-analytics.csv')
+  downloadCsv(rows, data.snapshot ? `elfar-report-${data.snapshot.month}.csv` : 'elfar-analytics.csv')
 }
 
 function ChannelTable({ rows, campaigns = false }) {
@@ -90,7 +91,7 @@ export function MarketingMetrics({ data }) {
       <ChannelTable rows={data.analytics.sources} />
       <details className="analytics-details"><summary>Кампанії</summary><ChannelTable rows={data.analytics.campaigns} campaigns /></details>
     </div>
-    <div className="card analytics-quality"><h2>Якість даних і правила</h2><p>Відвідування збираються після цього оновлення тільки для авторизованої вітрини. Конверсія — оформлення, включно з пізніше скасованими замовленнями; покупка напряму в боті в її знаменник не входить. Дані до встановлення оновлення неповні.</p><p>Без витрат CAC і ROAS недоступні. Витрати за поточний день беруться повністю у внесеному обсязі. Джерело — останній непрямий вхід за 30 днів; рекламна виручка визначається за каналом або кампанією внесених витрат. Стан CRM, повернення та видалення можуть змінювати історичні підсумки.</p></div>
+    <div className="card analytics-quality"><h2>Якість даних і правила</h2><p>Відвідування збираються після цього оновлення тільки для авторизованої вітрини. Конверсія — оформлення, включно з пізніше скасованими замовленнями; покупка напряму в боті в її знаменник не входить. Дані до встановлення оновлення неповні.</p><p>Без витрат CAC і ROAS недоступні. Витрати за поточний день беруться повністю у внесеному обсязі. Джерело — останній непрямий вхід за 30 днів; рекламна виручка визначається за каналом або кампанією внесених витрат. {data.snapshot ? "Збережені підсумки відповідають моменту фіксації й не перераховуються після зміни джерел." : "Стан CRM, повернення та видалення можуть змінювати історичні підсумки."}</p></div>
   </>
 }
 
