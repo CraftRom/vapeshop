@@ -1,5 +1,28 @@
 # Браузерна перевірка інтерфейсу
 
+## SQL / URL / XSS — 02.11.2026
+
+`qa/run-security-browser.sh` перевіряє справжні React і API: скрипти у query,
+fragment і логіні; облікові дані лише в JSON; збережений HTML у профілі;
+дослівний Unicode-пароль зі спецсимволами; сесії, CSRF та відкликання cookie.
+Дані ізольовані, Telegram підмінений. Задайте `QA_PYTHON` із залежностями
+`backend/requirements-qa.txt` і за потреби `PLAYWRIGHT_EXECUTABLE_PATH`.
+
+`backend/qa/qa_injection_boundaries.py` входить у стандартний Python runner:
+реальні SQL-параметри, негативні URL/JSON, ролі, пароль і приховування секретів.
+
+## Зовнішні API — 02.11.2026
+
+`npm run test:external-api` перевіряє реальний генератор Google tag у Chromium:
+Consent Mode перед config, один завантажувач, збереження згоди, Ctrl-click,
+одноразовий перехід із callback і резервний перехід. Google-запити підмінені.
+Потрібні Python-залежності backend; `QA_PYTHON` задає Python з активованого
+середовища. Набір входить у загальний браузерний запуск.
+
+У `backend/qa/run_all.sh` також додано `qa_external_api_contracts.py`,
+`qa_external_origin.py` та `qa_external_google.py`: транспорт, ліміти, ключі,
+паралельні читання, діагностика та DNS/IP перевіряються без бойових записів.
+
 ## Етап 12 — повна історія підтримки
 
 `QA_BROWSER_SUITE=support-history bash qa/run-browser.sh` або

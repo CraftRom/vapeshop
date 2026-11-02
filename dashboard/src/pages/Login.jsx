@@ -12,6 +12,12 @@ export default function Login() {
   const [busy, setBusy] = useState(false)
   const [health, setHealth] = useState({ state: 'checking' })
 
+  useEffect(() => {
+    if (window.location.search || window.location.hash) {
+      navigate('/login', { replace: true })
+    }
+  }, [navigate])
+
   // Перевіряємо бекенд одразу: якщо він недоступний, це видно до спроби входу,
   // а не у вигляді незрозумілої помилки після натискання кнопки.
   useEffect(() => {

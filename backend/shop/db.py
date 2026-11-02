@@ -10,7 +10,7 @@ from shop.models import Base
 # Пул з'єднань там не переживає виклик і лише вичерпує ліміт конектів бази,
 # тому вимикаємо його і покладаємось на зовнішній пулер (Neon/Supabase pooler).
 _url = settings.db_url
-_engine_options: dict = {"echo": False}
+_engine_options: dict = {"echo": False, "hide_parameters": True}
 
 if settings.serverless:
     _engine_options["poolclass"] = NullPool

@@ -67,11 +67,12 @@ def _secret_values() -> list[str]:
     return [os.environ.get(name, "") for name in names if len(os.environ.get(name, "")) >= 6]
 
 def redact(value):
+    from shop.log_redaction import secret_field, redact_url_queries
     if isinstance(value, dict):
-        return {k: redact(v) for k, v in value.items()}
+        return {k: '[REDACTED]' if secret_field(k) else redact(v) for k, v in value.items()}
     if isinstance(value, (list, tuple)):
         return [redact(v) for v in value]
-    text = str(value)
+    text = redact_url_queries(str(value))
     for secret in _secret_values():
         text = text.replace(secret, "[REDACTED]")
     for pattern in _REDACT_PATTERNS:

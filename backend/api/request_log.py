@@ -39,15 +39,10 @@ current_request_id: ContextVar[str] = ContextVar("request_id", default="")
 # рівно тими записами, крізь які потім довелося б продиратись.
 QUIET_PATHS = ("/api/health", "/api/debug/", "/api/logs", "/api/shop/client-log")
 
-_SECRET_QUERY_NAMES = {"token", "secret", "password", "bot_token", "api_key", "init_data", "initdata", "key", "csrf_token", "sid", "access_token"}
-
 def safe_query(request: Request) -> str:
     """Query string без секретів; службові токени не повинні жити в логах."""
-    items = []
-    for key, value in request.query_params.multi_items():
-        items.append((key, "[REDACTED]" if key.lower() in _SECRET_QUERY_NAMES else value))
-    from urllib.parse import urlencode
-    return urlencode(items, doseq=True)
+    from shop.log_redaction import safe_query_pairs
+    return urlencode(safe_query_pairs(request.query_params.multi_items()), doseq=True)
 
 
 

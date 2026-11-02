@@ -417,7 +417,7 @@ export const api = {
     domainDisconnect: (id) => request(`/landing-pages/${id}/domain-disconnect`, { method: 'POST' }),
     generateSeo: (id, data) => request(`/landing-pages/${id}/seo-generate`, { method: 'POST', body: data }),
     cloudflareConfig: () => request('/landing-pages/cloudflare/config'),
-    cloudflareSave: (apiToken) => request('/landing-pages/cloudflare/config', { method: 'PUT', body: { api_token: apiToken } }),
+    cloudflareSave: (apiToken, accountId = '') => request('/landing-pages/cloudflare/config', { method: 'PUT', body: { api_token: apiToken, account_id: accountId } }),
     cloudflareRemove: () => request('/landing-pages/cloudflare/config', { method: 'DELETE' }),
     cloudflareDomain: (domain) => request('/landing-pages/cloudflare/domain', { params: { domain } }),
     cloudflareSync: (domain) => request('/landing-pages/cloudflare/domain/sync', { method: 'POST', params: { domain } }),

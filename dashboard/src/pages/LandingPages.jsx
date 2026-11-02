@@ -163,6 +163,8 @@ export default function LandingPages() {
   const [seoBusy, setSeoBusy] = useState(false)
   const [cfConfig, setCfConfig] = useState({ configured: false })
   const [cfToken, setCfToken] = useState('')
+  const [cfAccountId, setCfAccountId] = useState('')
+  useEffect(() => { setCfAccountId(cfConfig.accountId || '') }, [cfConfig.accountId])
   const [cfBusy, setCfBusy] = useState(false)
   const canConfigureCloudflare = isAdmin()
   const [domainRefreshing, setDomainRefreshing] = useState(false)
@@ -328,7 +330,7 @@ export default function LandingPages() {
     if (!cfToken.trim() || cfBusy) return
     setCfBusy(true); setError('')
     try {
-      const result = await api.landingPages.cloudflareSave(cfToken.trim())
+      const result = await api.landingPages.cloudflareSave(cfToken.trim(), cfAccountId.trim())
       setCfConfig(result); setCfToken('')
       notify('Cloudflare API підключено')
       await refreshDomain({ silent: true })
@@ -628,6 +630,7 @@ export default function LandingPages() {
 
             {canConfigureCloudflare && <div className="promo-cloudflare-connect">
               <input className="input" type="password" autoComplete="new-password" value={cfToken} onChange={(e) => setCfToken(e.target.value)} placeholder={cfConfig?.configured ? 'Введіть новий API Token, щоб замінити поточний' : 'Cloudflare API Token'} />
+              <input className="input" aria-label="Cloudflare Account ID" value={cfAccountId} onChange={(e) => setCfAccountId(e.target.value.trim())} maxLength={32} placeholder="Account ID — лише для токена акаунта" />
               <button className="btn ghost" onClick={saveCloudflare} disabled={cfBusy || !cfToken.trim()}>{cfBusy ? 'Перевіряємо…' : cfConfig?.configured ? 'Замінити токен' : 'Підключити Cloudflare'}</button>
               {cfConfig?.configured && <button className="btn danger" onClick={removeCloudflare} disabled={cfBusy}>Відключити API</button>}
             </div>}

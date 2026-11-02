@@ -93,6 +93,7 @@ async def fake_post(payload):
     return {"success": False, "errors": ["Невідомий метод"]}
 
 
+original_post = np._post
 np._post = fake_post
 
 
@@ -202,9 +203,18 @@ async def scenario():
     # Живий довідник на частину запитів відповідає «303 See Other» на ту
     # саму адресу. Без follow_redirects httpx вважає це помилкою, і
     # виглядало це так: міста знаходяться, а відділення — ні.
-    source = (pathlib.Path(np.__file__)).read_text()
-    r.check("follow_redirects=True" in source,
-            "клієнт іде за редиректом, а не вважає його поломкою")
+    from unittest.mock import patch
+    real_client = httpx.AsyncClient
+    redirect_calls = []
+    def redirect_response(request):
+        redirect_calls.append(request)
+        if len(redirect_calls) == 1:
+            return httpx.Response(303, headers={'Location': '/v2.0/json/redirect'})
+        return httpx.Response(200, json={'success': True, 'data': []})
+    with patch('shop.services.novaposhta.httpx.AsyncClient', side_effect=lambda **kw: real_client(transport=httpx.MockTransport(redirect_response), **kw)):
+        await original_post({'apiKey': KEY})
+    r.check(len(redirect_calls) == 2 and all(request.method == 'POST' for request in redirect_calls),
+            "клієнт обробляє редирект і зберігає метод POST")
 
     print("\n--- відмови перевізника ---")
     reset()

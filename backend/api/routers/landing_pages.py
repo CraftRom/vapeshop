@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import html
 import json
+import math
 import os
 import re
 import hashlib
@@ -59,6 +60,7 @@ async def _domain_status(domain: str) -> dict:
 
 
 CF_TOKEN_KEY = "promo_cloudflare_api_token"
+CF_ACCOUNT_KEY = 'promo_cloudflare_account_id'
 CF_API = "https://api.cloudflare.com/client/v4"
 
 
@@ -73,21 +75,12 @@ async def _cf_token(db: AsyncSession) -> str:
 
 
 async def _cf_request(token: str, method: str, path: str, *, params: dict | None = None, body: dict | None = None) -> dict:
-    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    from shop.services.cloudflare import request, CloudflareError
     try:
-        async with httpx.AsyncClient(timeout=httpx.Timeout(12.0, connect=4.0)) as client:
-            r = await client.request(method, f"{CF_API}{path}", params=params, json=body, headers=headers)
-    except httpx.RequestError as exc:
-        raise HTTPException(503, f"Cloudflare API недоступний: {type(exc).__name__}")
-    try:
-        data = r.json()
-    except Exception:
-        data = {}
-    if r.status_code >= 400 or data.get("success") is False:
-        errors = data.get("errors") or []
-        msg = "; ".join(str(x.get("message") or x) for x in errors[:3]) or f"Cloudflare HTTP {r.status_code}"
-        raise HTTPException(502 if r.status_code >= 500 else 400, msg)
-    return data
+        return await request(token, method, path, params=params, body=body)
+    except CloudflareError as exc:
+        headers = {'Retry-After': str(math.ceil(exc.retry_after))} if exc.retry_after is not None else None
+        raise HTTPException(exc.status, str(exc), headers=headers) from None
 
 
 async def _cf_find_zone(token: str, domain: str) -> dict | None:
@@ -520,6 +513,7 @@ def _dto(row: PromoLandingPage) -> dict:
 
 class CloudflareConfigIn(BaseModel):
     api_token: str = Field(min_length=20, max_length=256)
+    account_id: str = Field('', pattern=r'^(?:[0-9a-fA-F]{32})?$')
 
 
 @router.get("/cloudflare/config")
@@ -528,7 +522,8 @@ async def cloudflare_config_status(
     db: AsyncSession = Depends(get_session),
 ):
     token = await _cf_token(db)
-    return {"configured": bool(token)}
+    account = await db.get(Setting, CF_ACCOUNT_KEY)
+    return {"configured": bool(token), 'accountId': account.value if account else ''}
 
 
 @router.put("/cloudflare/config")
@@ -541,17 +536,27 @@ async def cloudflare_config_save(
     if not who.is_admin:
         raise HTTPException(403, "Cloudflare API Token може змінювати лише адміністратор")
     token = data.api_token.strip()
-    # Verify before storing. /user/tokens/verify works for API Tokens.
-    await _cf_request(token, 'GET', '/user/tokens/verify')
+    from shop.services.cloudflare import verify_token, CloudflareError
+    account_id = data.account_id.lower()
+    try:
+        await verify_token(token, account_id)
+    except CloudflareError as exc:
+        headers = {'Retry-After': str(math.ceil(exc.retry_after))} if exc.retry_after is not None else None
+        raise HTTPException(exc.status, str(exc), headers=headers) from None
     row = await db.get(Setting, CF_TOKEN_KEY)
     encrypted = encrypt_secret(token)
     if row:
         row.value = encrypted
     else:
         db.add(Setting(key=CF_TOKEN_KEY, value=encrypted))
+    account = await db.get(Setting, CF_ACCOUNT_KEY)
+    if account:
+        account.value = account_id
+    else:
+        db.add(Setting(key=CF_ACCOUNT_KEY, value=account_id))
     await db.commit()
     security.record('promo.cloudflare.configured', actor=who.login, reason='API token verified')
-    return {"configured": True}
+    return {"configured": True, 'accountId': account_id}
 
 
 @router.delete("/cloudflare/config")
@@ -563,7 +568,11 @@ async def cloudflare_config_remove(
         raise HTTPException(403, "Cloudflare API Token може змінювати лише адміністратор")
     row = await db.get(Setting, CF_TOKEN_KEY)
     if row:
-        await db.delete(row); await db.commit()
+        await db.delete(row)
+    account = await db.get(Setting, CF_ACCOUNT_KEY)
+    if account:
+        await db.delete(account)
+    await db.commit()
     security.record('promo.cloudflare.disconnected', actor=who.login, reason='token removed')
     return {"configured": False}
 
@@ -1070,7 +1079,7 @@ function emitEvent(name,data){if(mode==='google_tag'&&typeof gtag==='function')g
 function setConsent(value){try{localStorage.setItem('promo_google_consent',value)}catch(e){};if(typeof gtag==='function')gtag('consent','update',{analytics_storage:value,ad_storage:value,ad_user_data:value,ad_personalization:value});pushEvent('promo_consent_update',{consent:value});}
 if(consentMode==='banner'){var saved='';try{saved=localStorage.getItem('promo_google_consent')||''}catch(e){};var box=document.getElementById('googleConsent');if(saved==='granted'||saved==='denied')setConsent(saved);else if(box)box.hidden=false;if(box)box.addEventListener('click',function(e){var v=e.target&&e.target.getAttribute('data-consent');if(!v)return;setConsent(v==='grant'?'granted':'denied');box.hidden=true;});}
 var cta=document.querySelector('.cta');if(cta&&cta.getAttribute('href')!=='#'){var entry=new URLSearchParams(location.search),dest=new URL(cta.getAttribute('href'),location.href);['source','medium','campaign','content','term'].forEach(function(k){var v=entry.get('utm_'+k);if(v)dest.searchParams.set('utm_'+k,v.slice(0,160));});cta.setAttribute('href',dest.pathname+dest.search);}
-if(cta)cta.addEventListener('click',function(e){var href=cta.getAttribute('href');emitEvent('promo_cta_click',{promo_code:(document.querySelector('.code')||{}).textContent||'',destination:href});if(mode==='google_tag'&&sendTo&&typeof gtag==='function'){e.preventDefault();var done=false;var go=function(){if(done)return;done=true;location.href=href};gtag('event','conversion',{send_to:sendTo,event_callback:go});setTimeout(go,700);}});
+if(cta)cta.addEventListener('click',function(e){var href=cta.getAttribute('href');emitEvent('promo_cta_click',{promo_code:(document.querySelector('.code')||{}).textContent||'',destination:href});if(mode==='google_tag'&&sendTo&&typeof gtag==='function'){var navigate=e.button===0&&!e.ctrlKey&&!e.metaKey&&!e.shiftKey&&!e.altKey&&cta.target!=='_blank';if(navigate)e.preventDefault();var done=false;var go=function(){if(done||!navigate)return;done=true;location.href=href};gtag('event','conversion',{send_to:sendTo,event_callback:go,event_timeout:1000});if(navigate)setTimeout(go,1200);}});
 })();</script>'''
     runtime = runtime.replace("__MODE__", json.dumps(mode)).replace("__CONSENT__", json.dumps(consent)).replace("__SENDTO__", json.dumps(send_to))
     body.append(runtime)

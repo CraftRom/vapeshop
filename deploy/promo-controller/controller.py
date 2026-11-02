@@ -12,6 +12,7 @@ import subprocess
 import threading
 import time
 from datetime import datetime, timezone
+from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
@@ -101,18 +102,23 @@ def _valid_public_ip(value: str, version: int) -> str | None:
 def _fetch_public_ip(version: int) -> tuple[str | None, list[str], list[str]]:
     values: list[str] = []
     errors: list[str] = []
-    for endpoint in IP_ENDPOINTS[version]:
+    def fetch(endpoint):
         try:
             req = Request(endpoint, headers={"User-Agent": "ELFAR-PromoController/1.0"})
             with urlopen(req, timeout=3.5) as response:
                 raw = response.read(128).decode("ascii", "ignore").strip()
             value = _valid_public_ip(raw, version)
             if value:
-                values.append(value)
-            else:
-                errors.append(f"{endpoint}: invalid response")
+                return value, None
+            return None, f'{endpoint}: invalid response'
         except Exception as exc:
-            errors.append(f"{endpoint}: {type(exc).__name__}")
+            return None, f'{endpoint}: {type(exc).__name__}'
+    with ThreadPoolExecutor(max_workers=len(IP_ENDPOINTS[version])) as executor:
+        for value, error in executor.map(fetch, IP_ENDPOINTS[version]):
+            if value:
+                values.append(value)
+            if error:
+                errors.append(error)
     if not values:
         return None, [], errors
     # Use the majority result. With only one successful provider, accept it,
@@ -133,8 +139,11 @@ def public_ip_info(force: bool = False) -> dict:
 
         v4_override = _valid_public_ip(PUBLIC_IPV4_OVERRIDE, 4) if PUBLIC_IPV4_OVERRIDE else None
         v6_override = _valid_public_ip(PUBLIC_IPV6_OVERRIDE, 6) if PUBLIC_IPV6_OVERRIDE else None
-        v4, v4_sources, v4_errors = (v4_override, [v4_override], []) if v4_override else _fetch_public_ip(4)
-        v6, v6_sources, v6_errors = (v6_override, [v6_override], []) if v6_override else _fetch_public_ip(6)
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            ipv4 = executor.submit(lambda: (v4_override, [v4_override], []) if v4_override else _fetch_public_ip(4))
+            ipv6 = executor.submit(lambda: (v6_override, [v6_override], []) if v6_override else _fetch_public_ip(6))
+            v4, v4_sources, v4_errors = ipv4.result()
+            v6, v6_sources, v6_errors = ipv6.result()
 
         data = {
             "at": now,
@@ -165,10 +174,16 @@ def _doh_ns_query(name: str) -> tuple[list[str], str | None]:
             })
             with urlopen(req, timeout=4.0) as response:
                 payload = json.loads(response.read(65536).decode("utf-8"))
+            if not isinstance(payload, dict) or payload.get('Status') != 0:
+                errors.append('DNS provider returned an invalid or unsuccessful response')
+                continue
             answers = payload.get("Answer") or []
+            if not isinstance(answers, list):
+                errors.append('DNS provider returned malformed answers')
+                continue
             values = sorted({
                 str(item.get("data") or "").strip().lower().rstrip(".")
-                for item in answers if int(item.get("type") or 0) == 2 and item.get("data")
+                for item in answers if isinstance(item, dict) and int(item.get("type") or 0) == 2 and item.get("data")
             })
             if values:
                 return values, None
@@ -187,10 +202,14 @@ def _doh_address_query(endpoint: str, name: str, rrtype: str) -> tuple[list[str]
         })
         with urlopen(req, timeout=4.0) as response:
             payload = json.loads(response.read(65536).decode("utf-8"))
+        if not isinstance(payload, dict) or payload.get('Status') != 0:
+            return [], 'DNS provider returned an invalid or unsuccessful response'
         answers = payload.get("Answer") or []
+        if not isinstance(answers, list):
+            return [], 'DNS provider returned malformed answers'
         values = []
         for item in answers:
-            if int(item.get("type") or 0) != qtype or not item.get("data"):
+            if not isinstance(item, dict) or int(item.get("type") or 0) != qtype or not item.get("data"):
                 continue
             value = _valid_public_ip(str(item.get("data") or ""), 4 if rrtype == "A" else 6)
             if value:

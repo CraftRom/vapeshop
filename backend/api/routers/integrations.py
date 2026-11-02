@@ -111,3 +111,11 @@ def mapping_ready(shop) -> bool:
     return bool(salesdrive.mapping(shop.salesdrive_status_map)
                 and salesdrive.mapping(shop.salesdrive_payment_map)
                 and salesdrive.mapping(shop.salesdrive_shipping_map))
+
+
+@router.get('/health')
+async def integrations_health(live: bool = False, _who: Principal = Depends(require_sysadmin),
+                              repo: Repository = Depends(get_repo)):
+    """Manual diagnostics; GETs and provider read methods only. Never sends messages."""
+    from shop.services.integration_health import inspect_integrations
+    return await inspect_integrations(repo, live=live)

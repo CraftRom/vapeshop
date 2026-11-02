@@ -3,7 +3,6 @@
 #
 #   ./certbot-init.sh elfar.pp.ua
 #   ./certbot-init.sh elfar.pp.ua --staging     перевірка без витрати лімітів
-#   ./certbot-init.sh elfar.pp.ua --buypass     інший центр сертифікації
 #
 # Окремий скрипт, а не команда з документації, з однієї причини: сервіс
 # certbot у compose має власний entrypoint із циклом продовження. При
@@ -15,18 +14,13 @@
 # Тому тут entrypoint явно перевизначається на сам certbot.
 set -euo pipefail
 
-SCRIPT_VERSION="2026-10-10.1"
+SCRIPT_VERSION="2026-11-02.1"
 
 cd "$(dirname "$0")"
 echo "certbot-init ${SCRIPT_VERSION}"
 COMPOSE="docker compose --env-file ../.env -f docker-compose.prod.yml"
 
 [[ $# -ge 1 ]] || { echo "Вкажіть домени: ./certbot-init.sh elfar.pp.ua" >&2; exit 1; }
-
-EMAIL="${CERTBOT_EMAIL:-}"
-if [[ -z "$EMAIL" ]]; then
-    read -rp "Email для сповіщень Let's Encrypt: " EMAIL
-fi
 
 # Прапорці розбираємо до доменів: інакше вони поїхали б у certbot як
 # значення для -d, як уже було з -v.
@@ -43,14 +37,12 @@ for arg in "$@"; do
             ACME_ARGS+=(--staging)
             ;;
         --buypass)
-            # Інший центр сертифікації з тим самим протоколом ACME.
-            # Власні ліміти, не пов'язані з Let's Encrypt, і сертифікати
-            # на 180 днів. Браузери йому довіряють.
-            ACME_ARGS+=(--server https://api.buypass.com/acme/directory)
+            echo "Buypass припинив випуск TLS/SSL сертифікатів у жовтні 2025. Використовуйте Let's Encrypt без --buypass." >&2
+            exit 2
             ;;
         -*)
             echo "Невідомий прапорець: ${arg}" >&2
-            echo "Доступні: --staging (тестовий сервер), --buypass (інший ЦС)" >&2
+            echo "Доступні: --staging (тестовий сервер Let's Encrypt)" >&2
             exit 1
             ;;
         *)
@@ -58,6 +50,11 @@ for arg in "$@"; do
             ;;
     esac
 done
+
+EMAIL="${CERTBOT_EMAIL:-}"
+if [[ -z "$EMAIL" ]]; then
+    read -rp "Email для сповіщень Let's Encrypt: " EMAIL
+fi
 
 [[ ${#DOMAINS[@]} -ge 1 ]] || {
     echo "Вкажіть домени: ./certbot-init.sh elfar.pp.ua" >&2

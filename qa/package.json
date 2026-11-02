@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "test:external-api": "QA_BROWSER_SUITE=external-api bash run-browser.sh",
     "test:promo-codes": "QA_BROWSER_SUITE=promo-codes bash run-browser.sh",
     "test": "bash run-browser.sh",
     "test:analytics": "QA_BROWSER_SUITE=analytics bash run-browser.sh",

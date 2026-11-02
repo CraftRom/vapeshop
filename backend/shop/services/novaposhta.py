@@ -14,6 +14,9 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+import hashlib
+from urllib.parse import urljoin, urlsplit
+from weakref import WeakValueDictionary
 from dataclasses import dataclass
 
 import httpx
@@ -88,8 +91,8 @@ class Warehouse:
 # ------------------------------------------------------------------- кеш
 
 _cache: dict[str, tuple[float, list]] = {}
-_locks: dict[str, asyncio.Lock] = {}
-_provider_unavailable_until = 0.0
+_locks = WeakValueDictionary()
+_provider_unavailable_until: dict[str, float] = {}
 
 
 def reset_cache() -> None:
@@ -99,10 +102,9 @@ def reset_cache() -> None:
     старим ключем, і людина, яка щойно вписала новий, вирішила б, що він
     не застосувався.
     """
-    global _provider_unavailable_until
     _cache.clear()
     _locks.clear()
-    _provider_unavailable_until = 0.0
+    _provider_unavailable_until.clear()
 
 
 def _cached(key: str, *, allow_stale: bool = False):
@@ -123,11 +125,7 @@ def _cached(key: str, *, allow_stale: bool = False):
 def _key_lock(key: str) -> asyncio.Lock:
     lock = _locks.get(key)
     if lock is None:
-        # CACHE_MAX_ENTRIES одночасно обмежує практичну кількість ключів.
-        # При переповненні не потрібні lock-и теж можна скинути: вони лише
-        # оптимізація, а не частина коректності даних.
-        if len(_locks) >= CACHE_MAX_ENTRIES * 2:
-            _locks.clear()
+        # Weak references release idle locks while active readers keep theirs.
         lock = asyncio.Lock()
         _locks[key] = lock
     return lock
@@ -149,22 +147,39 @@ def _store(key: str, value: list) -> None:
 async def _post(payload: dict) -> dict:
     """Один HTTP-запит до довідника. Винесено окремо — так набір
     перевірок підставляє свої відповіді, не чіпаючи логіки навколо."""
-    # follow_redirects обовʼязково. Перевізник на частину запитів
-    # відповідає «303 See Other» на ту саму адресу, і httpx без цього
-    # прапорця вважає редирект помилкою. Зовні це виглядало як
-    # «довідник недоступний»: міста знаходились, а відділення — ні.
-    async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT,
-                                 follow_redirects=True) as client:
-        response = await client.post(API_URL, json=payload)
-        response.raise_for_status()
-        return response.json()
+    # The provider may redirect with 303; implicit HTTP redirect handling
+    # would turn the original POST into GET and discard its JSON body.
+    # Preserve the JSON POST across bounded, same-origin redirects. Never
+    # forward an apiKey to an arbitrary redirect target or downgrade HTTPS.
+    async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT, follow_redirects=False) as client:
+        url = API_URL
+        for _ in range(3):
+            response = await client.post(url, json=payload)
+            if response.status_code not in {301, 302, 303, 307, 308}:
+                response.raise_for_status()
+                try:
+                    return response.json()
+                except ValueError:
+                    raise NovaPoshtaError('Нова пошта повернула нечитабельну JSON-відповідь') from None
+            target = urljoin(url, response.headers.get('Location', ''))
+            parsed = urlsplit(target)
+            origin = urlsplit(API_URL)
+            if (not response.headers.get('Location') or parsed.scheme != 'https'
+                    or parsed.netloc != origin.netloc or parsed.username or parsed.password):
+                raise NovaPoshtaError('Нова пошта повернула неприпустиме перенаправлення')
+            url = target
+        raise NovaPoshtaError('Нова пошта повернула забагато перенаправлень')
+
+
+def _scope(api_key):
+    return hashlib.sha256(api_key.encode()).hexdigest()[:16]
 
 
 async def _call(api_key: str, model: str, method: str, properties: dict) -> list[dict]:
-    global _provider_unavailable_until
     if not api_key:
         raise NovaPoshtaError("Ключ API Нової пошти не заданий у налаштуваннях")
-    if time.monotonic() < _provider_unavailable_until:
+    scope = _scope(api_key)
+    if time.monotonic() < _provider_unavailable_until.get(scope, 0):
         raise NovaPoshtaError("Довідник Нової пошти тимчасово недоступний")
 
     payload = {
@@ -175,16 +190,22 @@ async def _call(api_key: str, model: str, method: str, properties: dict) -> list
     }
     try:
         data = await _post(payload)
-        _provider_unavailable_until = 0.0
-    except httpx.HTTPError as exc:
-        _provider_unavailable_until = time.monotonic() + OUTAGE_COOLDOWN_SECONDS
+        _provider_unavailable_until.pop(scope, None)
+    except (httpx.HTTPError, NovaPoshtaError) as exc:
+        delay = OUTAGE_COOLDOWN_SECONDS
+        if isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code == 429:
+            from shop.http_utils import retry_after_seconds
+            delay = max(delay, retry_after_seconds(exc.response.headers.get('Retry-After'), default=60))
+        _provider_unavailable_until[scope] = time.monotonic() + delay
         # Мережа лягла або перевізник віддав 5xx. Для покупця це не
         # відрізняється від «нічого не знайшлося», але в журналі має
         # лишитися саме причина, інакше шукатимемо помилку в себе.
-        log.warning("novaposhta.unreachable %s.%s: %s", model, method, exc)
+        log.warning("novaposhta.unreachable %s.%s: %s", model, method, type(exc).__name__)
         raise NovaPoshtaError("Довідник Нової пошти зараз недоступний") from exc
 
-    if not isinstance(data, dict) or not data.get("success"):
+    if not isinstance(data, dict):
+        raise NovaPoshtaError('Нова пошта повернула некоректну структуру відповіді')
+    if data.get("success") is not True:
         reasons = []
         for field in ("errors", "warnings", "info"):
             value = (data or {}).get(field)
@@ -192,15 +213,17 @@ async def _call(api_key: str, model: str, method: str, properties: dict) -> list
                 reasons += [str(v) for v in value if v]
             elif isinstance(value, dict):
                 reasons += [str(v) for v in value.values() if v]
-        detail = "; ".join(reasons) or "невідома причина"
+        detail = ('; '.join(reasons) or 'невідома причина').replace(api_key, '[redacted]')[:500]
         # Найчастіша причина — прострочений або чужий ключ. Пишемо саме
         # текст перевізника: він відрізняє «ключ недійсний» від
         # «перевищено ліміт», а це різні дії адміністратора.
         log.warning("novaposhta.rejected %s.%s: %s", model, method, detail)
         raise NovaPoshtaError(f"Нова пошта відмовила: {detail}")
 
-    result = data.get("data")
-    return result if isinstance(result, list) else []
+    result = data.get('data')
+    if not isinstance(result, list):
+        raise NovaPoshtaError('Нова пошта не повернула список даних')
+    return [row for row in result if isinstance(row, dict)]
 
 
 # ------------------------------------------------------------- довідники
@@ -225,7 +248,7 @@ async def search_settlements(api_key: str, query: str,
     if len(query) < 2:
         return []
 
-    key = f"settlements:{query.lower()}:{limit}"
+    key = f"{_scope(api_key)}:settlements:{query.lower()}:{limit}"
     hit = _cached(key)
     if hit is not None:
         return hit
@@ -288,7 +311,7 @@ async def warehouses(api_key: str, city_ref: str, settlement_ref: str = "",
     if not city_ref and not settlement_ref:
         return []
 
-    key = f"warehouses:{city_ref or settlement_ref}"
+    key = f"{_scope(api_key)}:warehouses:{city_ref or settlement_ref}"
     everything = _cached(key)
     if everything is None:
         async with _key_lock(key):
@@ -371,7 +394,7 @@ async def document_price(api_key: str, sender_ref: str, recipient_ref: str,
             "CargoType": "Money", "Amount": str(int(cash_on_delivery)),
         }
 
-    key = f"price:{sender_ref}:{recipient_ref}:{int(to_door)}:{int(declared)}:{weight}:{int(cash_on_delivery)}"
+    key = f"{_scope(api_key)}:price:{sender_ref}:{recipient_ref}:{int(to_door)}:{int(declared)}:{weight}:{int(cash_on_delivery)}"
     hit = _cached(key)
     if hit is not None:
         return hit[0]

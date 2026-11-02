@@ -9,7 +9,7 @@ security = (root / 'backend/shop/security_log.py').read_text(encoding='utf-8')
 
 checks = {
     'encrypted token storage': 'encrypt_secret(token)' in router and 'decrypt_secret(row.value)' in router,
-    'token never returned': 'return {"configured": bool(token)}' in router,
+    'token never returned': '"configured": bool(token)' in router and "'accountId': account.value" in router,
     'cf zone lookup': "'/zones'" in router and '_cf_find_zone' in router,
     'dns record inspection': '/dns_records' in router,
     'ssl mode inspection': '/settings/ssl' in router,

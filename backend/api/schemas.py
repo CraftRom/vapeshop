@@ -19,8 +19,16 @@ class ORMModel(BaseModel):
 # ------------------------------------------------------------------------ auth
 
 class LoginIn(BaseModel):
+    model_config = ConfigDict(extra='forbid', strict=True)
     login: str = Field(min_length=1, max_length=64)
     password: str = Field(min_length=1, max_length=1024)
+
+    @field_validator('login')
+    @classmethod
+    def valid_login_text(cls, value):
+        if not value.strip() or any(ord(char) < 32 or ord(char) == 127 for char in value):
+            raise ValueError('Логін не може бути порожнім або містити керівні символи')
+        return value
 
 
 class TokenOut(BaseModel):
@@ -933,8 +941,9 @@ class ShopSettingsOut(BaseModel):
 
 
 class OperatorCreate(BaseModel):
+    model_config = ConfigDict(extra='forbid')
     login: str = Field(..., min_length=3, max_length=64, pattern=r"^[A-Za-z0-9_.-]+$")
-    name: str = Field("", max_length=128)
+    name: str = Field("", max_length=128, pattern=r'^[^\x00]*$')
     password: str = Field(..., min_length=8, max_length=128)
     role: OperatorRole = OperatorRole.MANAGER
 
@@ -958,7 +967,8 @@ class OperatorCreate(BaseModel):
 
 
 class OperatorUpdate(BaseModel):
-    name: str | None = Field(None, max_length=128)
+    model_config = ConfigDict(extra='forbid')
+    name: str | None = Field(None, max_length=128, pattern=r'^[^\x00]*$')
     password: str | None = Field(None, min_length=8, max_length=128)
     role: OperatorRole | None = None
 

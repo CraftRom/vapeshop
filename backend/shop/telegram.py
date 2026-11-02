@@ -16,7 +16,6 @@ log = logging.getLogger("telegram")
 BASE = f"https://api.telegram.org/bot{settings.bot_token}"
 _TIMEOUT = httpx.Timeout(15.0)
 _MAX_ATTEMPTS = 3
-_RETRYABLE_STATUS = {408, 425, 429, 500, 502, 503, 504}
 
 
 @dataclass(frozen=True)
@@ -34,78 +33,48 @@ class DeliveryResult:
 
 
 def _retry_after(data: object, attempt: int) -> float:
-    """Пауза перед повтором Bot API з повагою до Telegram retry_after."""
-    if isinstance(data, dict):
-        try:
-            seconds = float((data.get("parameters") or {}).get("retry_after") or 0)
-            if seconds > 0:
-                return min(seconds, 10.0)
-        except (TypeError, ValueError):
-            pass
-    return min(0.6 * attempt, 2.0)
+    from shop.http_utils import retry_after_seconds
+    value = (data.get('parameters') or {}).get('retry_after') if isinstance(data, dict) and isinstance(data.get('parameters') or {}, dict) else None
+    return retry_after_seconds(value, default=min(.6 * attempt, 2.0))
 
 
 async def _call(method: str, payload: dict) -> tuple[bool, str | None]:
-    """Викликає Bot API з коротким retry лише для тимчасових збоїв.
-
-    400/403 та інші постійні помилки не повторюємо. Це принципово для
-    ``chat not found``: повтор без дії користувача нічого не змінює. Натомість
-    429/5xx/timeout із наданих логів — тимчасові й отримують до двох повторів.
-    """
-    last_error: str | None = None
-    attempts_made = 0
-
-    async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+    """Retry rejected floods and pre-connect failures, never an ambiguous write."""
+    async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=False) as client:
         for attempt in range(1, _MAX_ATTEMPTS + 1):
-            attempts_made = attempt
-            data: object = None
-            status_code: int | None = None
             try:
-                response = await client.post(f"{BASE}/{method}", json=payload)
-                status_code = response.status_code
-                try:
-                    data = response.json()
-                except ValueError:
-                    data = None
-
-                if isinstance(data, dict) and data.get("ok"):
-                    return True, None
-
-                if isinstance(data, dict):
-                    last_error = str(data.get("description") or f"HTTP {status_code}")
-                else:
-                    last_error = f"HTTP {status_code}"
-
-                retryable = status_code in _RETRYABLE_STATUS or (
-                    status_code is not None and status_code >= 500
-                )
-                if not retryable or attempt >= _MAX_ATTEMPTS:
-                    break
-
-            except (httpx.TimeoutException, httpx.NetworkError) as exc:
-                last_error = str(exc) or exc.__class__.__name__
-                if attempt >= _MAX_ATTEMPTS:
-                    break
-            except Exception as exc:  # непередбачений локальний збій
-                log.warning("Bot API %s failed: %s", method, exc)
-                return False, str(exc)
-
-            delay = _retry_after(data, attempt)
-            log.warning(
-                "Bot API %s тимчасово недоступний, повтор %s/%s за %.1f с: %s",
-                method, attempt + 1, _MAX_ATTEMPTS, delay, last_error,
-                extra={"event": "telegram.api.retry", "method": method,
-                       "attempt": attempt, "status": status_code},
-            )
-            await asyncio.sleep(delay)
-
-    if last_error:
-        log.warning(
-            "Bot API %s не виконав запит після %s спроб: %s",
-            method, attempts_made, last_error,
-            extra={"event": "telegram.api.failed", "method": method},
-        )
-    return False, last_error
+                response = await client.post(f'{BASE}/{method}', json=payload)
+            except (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout):
+                if attempt == _MAX_ATTEMPTS:
+                    return False, "З'єднання з Telegram не встановлено"
+                await asyncio.sleep(min(.6 * attempt, 2.0))
+                continue
+            except httpx.HTTPError:
+                return False, 'Відповідь Telegram втрачено; доставку не підтверджено'
+            try:
+                data = response.json()
+            except ValueError:
+                return False, 'Telegram повернув нечитабельну відповідь; доставку не підтверджено'
+            if not isinstance(data, dict):
+                return False, 'Telegram повернув некоректну відповідь; доставку не підтверджено'
+            if data.get('ok') is True:
+                return True, None
+            error = str(data.get('description') or f'HTTP {response.status_code}')[:500]
+            if settings.bot_token:
+                error = error.replace(settings.bot_token, '[redacted]')
+            try:
+                code = int(data.get('error_code') or response.status_code)
+            except (ValueError, TypeError):
+                code = response.status_code
+            if code == 429:
+                delay = _retry_after(data, attempt)
+                # Long waits belong to durable jobs, not an open checkout HTTP request.
+                if delay > 2 or attempt == _MAX_ATTEMPTS:
+                    return False, f'Telegram обмежив частоту запитів; пауза {delay:g} с'
+                await asyncio.sleep(delay)
+                continue
+            return False, error
+    return False, 'Telegram не підтвердив доставку'
 
 
 async def notify_user(tg_id: int, text: str) -> bool:
@@ -159,11 +128,11 @@ class BroadcastDeliveryResult:
 
 async def send_broadcast_once(tg_id: int, text: str, photo_url: str | None = None,
                               button_text: str | None = None,
-                              button_url: str | None = None, *, text_format: str = 'html') -> BroadcastDeliveryResult:
+                              button_url: str | None = None, *, text_format: str = 'html',
+                              client: httpx.AsyncClient | None = None) -> BroadcastDeliveryResult:
     """One durable queue attempt; never repeat an ambiguous network outcome.
 
-    The legacy _call retries timeouts. Broadcasts use a separate one-shot path
-    so the recipient journal, rather than an invisible HTTP loop, owns retries.
+    The recipient journal owns retries and the shared client reuses connections.
     """
     from shop.services.broadcast_content import validate_content
     from shop.services.broadcast_media import telegram_photo
@@ -182,30 +151,36 @@ async def send_broadcast_once(tg_id: int, text: str, photo_url: str | None = Non
     method = "sendPhoto" if photo_url else "sendMessage"
     payload.update({"photo": photo_url, "caption": text} if photo_url else {"text": text})
     try:
-        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+        async def post(connection):
             if photo is not None:
                 payload.pop('photo', None)
                 fields = {key: json.dumps(value, ensure_ascii=False) if isinstance(value, dict) else str(value)
                           for key, value in payload.items()}
-                response = await client.post(f"{BASE}/{method}", data=fields,
+                return await connection.post(f"{BASE}/{method}", data=fields,
                     files={'photo': ('broadcast.jpg', photo, 'image/jpeg')})
-            else:
-                response = await client.post(f"{BASE}/{method}", json=payload)
+            return await connection.post(f"{BASE}/{method}", json=payload)
+        if client is not None:
+            response = await post(client)
+        else:
+            async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=False) as owned_client:
+                response = await post(owned_client)
         try:
             data = response.json()
         except ValueError:
             return BroadcastDeliveryResult("unknown", "Telegram повернув нечитабельну відповідь")
         if not isinstance(data, dict):
             return BroadcastDeliveryResult("unknown", "Некоректна відповідь Telegram")
-        if data.get("ok"):
+        if data.get("ok") is True:
             return BroadcastDeliveryResult("sent")
         error = str(data.get("description") or f"HTTP {response.status_code}")[:500]
-        code = data.get("error_code") or response.status_code
+        if settings.bot_token:
+            error = error.replace(settings.bot_token, '[redacted]')
+        try:
+            code = int(data.get("error_code") or response.status_code)
+        except (TypeError, ValueError):
+            code = response.status_code
         if code == 429:
-            try:
-                delay = max(1.0, float((data.get("parameters") or {}).get("retry_after") or 1))
-            except (TypeError, ValueError):
-                delay = 1.0
+            delay = max(1.0, _retry_after(data, 1))
             return BroadcastDeliveryResult("retry", error, delay)
         if isinstance(code, int) and 400 <= code < 500:
             return BroadcastDeliveryResult("failed", error)

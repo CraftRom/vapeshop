@@ -3,13 +3,18 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 mkdir -p qa/output
+if [[ "${QA_BROWSER_SUITE:-all}" == "external-api" || "${QA_BROWSER_SUITE:-all}" == "all" ]]; then
+  PYTHONPATH=backend "${QA_PYTHON:-python3}" backend/qa/qa_external_google.py
+fi
 npm --prefix dashboard run dev -- --host 127.0.0.1 --port 5173 --strictPort >qa/output/dashboard-vite.log 2>&1 &
 DASH_PID=$!
 npm --prefix miniapp run dev -- --host 127.0.0.1 --port 5174 --strictPort >qa/output/miniapp-vite.log 2>&1 &
 MINI_PID=$!
 trap 'kill "$DASH_PID" "$MINI_PID" 2>/dev/null || true' EXIT
 node --input-type=module -e 'for (const port of [5173,5174]) { let ok=false; for(let i=0;i<200;i++){try{const r=await fetch(`http://127.0.0.1:${port}`);if(r.ok){ok=true;break}}catch{}await new Promise(r=>setTimeout(r,100))}if(!ok){console.error(`QA server not ready on port ${port}`);process.exit(1)}}'
-if [[ "${QA_BROWSER_SUITE:-all}" == "promo-codes" ]]; then
+if [[ "${QA_BROWSER_SUITE:-all}" == "external-api" ]]; then
+  node qa/browser-external-apis.mjs
+elif [[ "${QA_BROWSER_SUITE:-all}" == "promo-codes" ]]; then
   node qa/browser-promo-codes.mjs
 elif [[ "${QA_BROWSER_SUITE:-all}" == "support-history" ]]; then
   node qa/browser-support-history.mjs
@@ -47,6 +52,7 @@ elif [[ "${QA_BROWSER_SUITE:-all}" == "navigation" ]]; then
 elif [[ "${QA_BROWSER_SUITE:-all}" == "storefront" ]]; then
   node qa/browser-storefront.mjs
 else
+  node qa/browser-external-apis.mjs
   node qa/browser-promo-codes.mjs
   node qa/browser-support-history.mjs
   node qa/browser-financial-periods.mjs

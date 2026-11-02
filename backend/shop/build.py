@@ -6,4 +6,4 @@
 
 Число міняйте вручну при кожній збірці, яку віддаєте на деплой.
 """
-BUILD = "2026-10-12-stage2-working-data"
+BUILD = "2026-11-02-injection-protection"

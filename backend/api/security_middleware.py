@@ -23,8 +23,28 @@ class SecurityMiddleware:
             return await self.app(scope, receive, send)
         path = scope.get("path", "")
         headers = dict(scope.get("headers", []))
+        from api.input_security import check_url, credentials_body, check_credentials_json
+        def reject(detail, status=400):
+            from shop import security_log
+            security_log.record('security.input.rejected', reason=detail,
+                                method=scope.get('method', ''))
+            return JSONResponse({'detail': detail}, status, headers={
+                'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff',
+                'Referrer-Policy': 'no-referrer'})
+        try:
+            check_url(path, scope.get('query_string', b''), scope.get('method', ''))
+        except (ValueError, UnicodeError) as exc:
+            return await reject(str(exc) if isinstance(exc, ValueError) and not isinstance(exc, UnicodeError)
+                                else 'Некоректний шлях запиту')(scope, receive, send)
+        credential_body = credentials_body(path, scope.get('method', ''))
+        if credential_body:
+            content_type = headers.get(b'content-type', b'').split(b';', 1)[0].strip().lower()
+            if content_type != b'application/json' and not (content_type.startswith(b'application/') and content_type.endswith(b'+json')):
+                return await reject('Облікові дані приймаються лише як JSON', 415)(scope, receive, send)
         limit = 512 * 1024
-        if path == "/api/shop/client-log":
+        if credential_body:
+            limit = 16 * 1024
+        elif path == "/api/shop/client-log":
             limit = 16 * 1024
         elif path.startswith(("/api/telegram/", "/api/integrations/salesdrive/webhook/")):
             limit = 256 * 1024
@@ -91,6 +111,11 @@ class SecurityMiddleware:
                         break
             if spool:
                 await run_in_threadpool(spool.seek, 0)
+            if credential_body:
+                try:
+                    check_credentials_json(b''.join(message.get('body', b'') for message in messages))
+                except ValueError as exc:
+                    return await reject(str(exc))(scope, receive, send)
             index, replayed = 0, 0
             async def bounded_receive():
                 nonlocal index, replayed

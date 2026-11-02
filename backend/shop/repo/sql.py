@@ -613,8 +613,8 @@ class SqlRepository(Repository):
             query = query.where(m.Product.category_id.is_(None), m.Product.subcategory_id.is_(None))
         if search:
             query = query.where(or_(m.Product.name_lower.contains(search.lower(), autoescape=True),
-                                   m.Product.sku.ilike(f"%{search}%"),
-                                   m.Product.external_sku.ilike(f"%{search}%")))
+                                   m.Product.sku.icontains(search, autoescape=True),
+                                   m.Product.external_sku.icontains(search, autoescape=True)))
         if only_active:
             query = query.where(m.Product.is_active.is_(True))
         if is_new is not None:

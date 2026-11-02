@@ -340,6 +340,18 @@ class QueueTests(unittest.IsolatedAsyncioTestCase):
 
 
 class TelegramTests(unittest.IsolatedAsyncioTestCase):
+    async def test_malformed_flood_metadata_still_retries_without_nan(self):
+        for parameters in ([], {'retry_after': 'nan'}):
+            result, _ = await self.call(httpx.Response(429, json={
+                'ok': False, 'error_code': '429', 'parameters': parameters}))
+            self.assertEqual(result.status, 'retry')
+            self.assertGreaterEqual(result.retry_after, 1)
+            self.assertLess(result.retry_after, 60)
+
+    async def test_truthy_ok_is_not_a_confirmed_delivery(self):
+        result, _ = await self.call(httpx.Response(200, json={'ok': 'false'}))
+        self.assertEqual(result.status, 'unknown')
+
     async def call(self, response=None, error=None, **kw):
         client = AsyncMock()
         client.post = AsyncMock(side_effect=error,return_value=response)

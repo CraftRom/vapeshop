@@ -6,6 +6,7 @@ import contextlib
 import logging
 import time
 import uuid
+import httpx
 from datetime import datetime, timedelta, timezone
 
 from shop.entities import Broadcast
@@ -46,6 +47,7 @@ async def send_chunk(repo: Repository, broadcast: Broadcast, size: int) -> tuple
     task = asyncio.create_task(heartbeat())
     pending_at = []
     semaphore = asyncio.Semaphore(CONCURRENCY)
+    client = None
 
     async def deliver(user_id, tg_id):
         async with semaphore:
@@ -63,7 +65,7 @@ async def send_chunk(repo: Repository, broadcast: Broadcast, size: int) -> tuple
                 return
             result = await send_broadcast_once(tg_id, current.text, current.photo_url,
                                                 current.button_text, current.button_url,
-                                                text_format=current.text_format)
+                                                text_format=current.text_format, client=client)
             status = result.status
             next_at = None
             if status == "retry":
@@ -80,6 +82,8 @@ async def send_chunk(repo: Repository, broadcast: Broadcast, size: int) -> tuple
                 pending_at.append(next_at)
 
     try:
+        client = httpx.AsyncClient(timeout=httpx.Timeout(15.0), follow_redirects=False,
+                                  limits=httpx.Limits(max_connections=CONCURRENCY, max_keepalive_connections=CONCURRENCY))
         from shop.services.shop_settings import get_shop_settings
         shop = await get_shop_settings(repo)
         rate = min(max(int(shop.broadcast_rate_per_second or RATE_PER_SECOND), 1), MAX_RATE_PER_SECOND)
@@ -136,6 +140,8 @@ async def send_chunk(repo: Repository, broadcast: Broadcast, size: int) -> tuple
         task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await task
+        if client is not None:
+            await client.aclose()
 
 
 async def run_to_completion(broadcast_id: int, chunk: int = 100) -> bool:

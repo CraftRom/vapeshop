@@ -35,6 +35,7 @@ import hashlib
 import json
 import logging
 import time
+from weakref import WeakKeyDictionary
 from datetime import datetime, timezone
 from decimal import Decimal
 
@@ -88,10 +89,11 @@ _MAP_KEYS = {
 class SalesDriveError(Exception):
     """SalesDrive відмовив або недоступний. temporary — чи варто повторювати."""
 
-    def __init__(self, message: str, *, temporary: bool = True, uncertain: bool = False):
+    def __init__(self, message: str, *, temporary: bool = True, uncertain: bool = False, retry_after=None):
         super().__init__(message)
         self.temporary = temporary
         self.uncertain = uncertain
+        self.retry_after = retry_after
 
 
 
@@ -537,7 +539,31 @@ def _resolve_option(raw, items: list[dict]) -> tuple[str, str]:
     return value, value
 
 
+_read_inflight = WeakKeyDictionary()
+_read_cooldowns = WeakKeyDictionary()
+
+
 async def _get_json(shop, path: str, *, params: dict | None = None, client: httpx.AsyncClient | None = None):
+    """Coalesce identical concurrent reads; mutations never use this path."""
+    if client is not None:
+        return await _get_json_once(shop, path, params=params, client=client)
+    loop = asyncio.get_running_loop()
+    active = _read_inflight.setdefault(loop, {})
+    key = (_cache_key(shop), path, json.dumps(params or {}, sort_keys=True, default=str))
+    task = active.get(key)
+    if task is None:
+        task = asyncio.create_task(_get_json_once(shop, path, params=params))
+        active[key] = task
+        def release(done):
+            if active.get(key) is done:
+                active.pop(key, None)
+            if not done.cancelled():
+                done.exception()  # consume failures even if every waiter disconnected
+        task.add_done_callback(release)
+    return await asyncio.shield(task)
+
+
+async def _get_json_once(shop, path: str, *, params: dict | None = None, client: httpx.AsyncClient | None = None):
     """GET із SalesDrive з одним обережним retry для read-only помилок.
 
     Write-запити навмисно НЕ повторюємо автоматично: після таймауту POST міг
@@ -548,6 +574,11 @@ async def _get_json(shop, path: str, *, params: dict | None = None, client: http
         raise SalesDriveError("Не задано домен SalesDrive", temporary=False)
     if not getattr(shop, "salesdrive_api_connected", False):
         raise SalesDriveError("Не задано API-ключ SalesDrive", temporary=False)
+    cooldowns = _read_cooldowns.setdefault(asyncio.get_running_loop(), {})
+    scope = (_cache_key(shop), 'orders' if path == '/api/order/list/' else 'dictionaries')
+    remaining = cooldowns.get(scope, 0) - time.monotonic()
+    if remaining > 0:
+        raise SalesDriveError('SalesDrive: триває пауза після обмеження частоти запитів', retry_after=remaining)
     owned = client is None
     if owned:
         client = httpx.AsyncClient(timeout=REQUEST_TIMEOUT, follow_redirects=False)
@@ -570,13 +601,18 @@ async def _get_json(shop, path: str, *, params: dict | None = None, client: http
                 raise SalesDriveError(message) from exc
 
             if response.status_code in (502, 503, 504) and attempt == 0:
+                from shop.http_utils import retry_after_seconds
+                delay = retry_after_seconds(response.headers.get('Retry-After'), default=READ_RETRY_DELAY_SECONDS)
+                if delay > 1:
+                    cooldowns[scope] = time.monotonic() + delay
+                    raise SalesDriveError('SalesDrive просить зачекати перед наступним запитом', retry_after=delay)
                 log.warning(
                     "SalesDrive GET %s повернув %s, одна повторна спроба",
                     path, response.status_code,
                     extra={"event": "salesdrive.read.retry", "path": path,
                            "attempt": 1, "status": response.status_code},
                 )
-                await asyncio.sleep(READ_RETRY_DELAY_SECONDS)
+                await asyncio.sleep(max(READ_RETRY_DELAY_SECONDS, delay))
                 continue
             break
     finally:
@@ -588,9 +624,10 @@ async def _get_json(shop, path: str, *, params: dict | None = None, client: http
     if response.status_code in (401, 403):
         raise SalesDriveError("SalesDrive відхилив API-ключ", temporary=False)
     if response.status_code == 429:
-        retry = str(response.headers.get("Retry-After") or "").strip()
-        suffix = f"; повторити через {retry} с" if retry.isdigit() else ""
-        raise SalesDriveError(f"SalesDrive обмежив частоту запитів (429){suffix}")
+        from shop.http_utils import retry_after_seconds
+        retry = retry_after_seconds(response.headers.get('Retry-After'), default=60)
+        cooldowns[scope] = time.monotonic() + retry
+        raise SalesDriveError(f'SalesDrive обмежив частоту запитів (429); пауза {retry:g} с', retry_after=retry)
     if response.status_code >= 500:
         raise SalesDriveError(f"SalesDrive тимчасово відмовив ({response.status_code})")
     if response.status_code >= 400:
@@ -1456,12 +1493,13 @@ def _snapshot(data: dict, statuses: dict[str, str] | None = None, *,
             "description": x.get("description") or "", "note": x.get("note") or "",
             "stockId": x.get("stockId"), "mass": x.get("mass"), "volume": x.get("volume"),
             "restCount": x.get("restCount"), "manufacturer": x.get("manufacturer") or "",
-            # З 27.08.2026 SalesDrive використовує upsell; preSale лишаємо
+            # З 19.08.2026 SalesDrive використовує upsell; preSale лишаємо
             # лише як fallback для старих webhook payload.
             "upsell": x.get("upsell", x.get("preSale")), "isComplect": x.get("isComplect"),
             "categoryId": x.get("categoryId"), "categoryName": x.get("categoryName") or "",
             "href": x.get("href") or "", "defaultPriceData": x.get("defaultPriceData"),
             "priceTypes": x.get("priceTypes"), "complect": x.get("complect"),
+            "stockBalance": x.get('stockBalance'),
         })
 
     return {

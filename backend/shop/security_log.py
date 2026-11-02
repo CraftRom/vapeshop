@@ -62,6 +62,10 @@ def _e(code: str, severity: str, title: str, detail: str) -> Event:
 CATALOG: dict[str, Event] = {event.code: event for event in (
 
     # ------------------------------------------------------------ вхід
+    _e("security.input.rejected", "notice",
+       "Відхилено некоректний запит",
+       "Виявлено повторені параметри, неоднозначне JSON-тіло або спробу "
+       "передати облікові дані через URL. Значення полів у подію не записуються."),
     _e("security.login.ok", "info",
        "Вхід у панель",
        "Менеджер увійшов зі своїм логіном і паролем."),
