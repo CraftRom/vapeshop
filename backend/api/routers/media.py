@@ -15,15 +15,17 @@ import os
 import tempfile
 import warnings
 from io import BytesIO
-from PIL import Image, ImageSequence, UnidentifiedImageError
+from PIL import Image, ImageOps, ImageSequence, UnidentifiedImageError
 from starlette.concurrency import run_in_threadpool
 import re
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, Query
 
 from api.auth import Principal, require_staff
+from shop.repo.base import Repository
+from shop.repo.factory import get_repo
 
 router = APIRouter(prefix="/api/media", tags=["media"])
 
@@ -108,6 +110,7 @@ def _canonical_image(raw: bytes) -> tuple[bytes, str, str]:
                 frames, durations = [], []
                 for frame in ImageSequence.Iterator(image):
                     frame.load()
+                    frame = ImageOps.exif_transpose(frame)
                     clean = Image.new("RGB" if fmt == "JPEG" else "RGBA", frame.size)
                     clean.paste(frame.convert(clean.mode))
                     frames.append(clean)
@@ -160,7 +163,9 @@ async def upload(file: UploadFile = File(...), who: Principal = Depends(require_
 
 @router.get("")
 async def library(
-    limit: int = 100,
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    search: str = Query('', max_length=120),
     who: Principal = Depends(require_staff),
 ):
     """Уже завантажені зображення, найновіші першими."""
@@ -168,15 +173,20 @@ async def library(
     files = [p for p in directory.iterdir() if p.is_file() and not p.is_symlink() and p.suffix.lower() in {".jpg", ".jpeg", ".png", ".gif", ".webp"} and not p.name.startswith(".")]
     files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
     total_bytes = sum(p.stat().st_size for p in files)
+    stored_total = len(files)
+    if search.strip():
+        files = [p for p in files if search.strip().casefold() in p.name.casefold()]
     return {
-        "files": [_describe(p) for p in files[: max(1, min(limit, 500))]],
+        "files": [_describe(p) for p in files[offset:offset+limit]],
         "total": len(files),
+        "storedTotal": stored_total,
         "totalBytes": total_bytes,
+        "offset": offset, "limit": limit, "has_more": offset + limit < len(files),
     }
 
 
 @router.delete("/{name}", status_code=204)
-async def remove(name: str, who: Principal = Depends(require_staff)):
+async def remove(name: str, who: Principal = Depends(require_staff), repo: Repository = Depends(get_repo)):
     """Видалення файлу.
 
     Ім'я приходить із запиту й підставляється у шлях, тому перевіряємо
@@ -193,6 +203,9 @@ async def remove(name: str, who: Principal = Depends(require_staff)):
         raise HTTPException(400, "Неприпустиме ім'я файлу")
     if not target.exists():
         raise HTTPException(404, "Файл не знайдено")
+    references = await repo.media_references(_public_url(name))
+    if any(references.values()):
+        raise HTTPException(409, 'Зображення використовується в товарах або розсилках. Спочатку приберіть його з цих записів')
 
     target.unlink()
     return None

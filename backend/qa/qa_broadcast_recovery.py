@@ -137,7 +137,7 @@ class QueueTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_crash_after_network_before_result_is_unknown(self):
         b = await self.create()
-        async def crash(*args):
+        async def crash(*args, **kwargs):
             raise asyncio.CancelledError()
         self.sender.side_effect = crash
         with self.assertRaises(asyncio.CancelledError):
@@ -203,7 +203,7 @@ class QueueTests(unittest.IsolatedAsyncioTestCase):
     async def test_heartbeat_renews_during_slow_network(self):
         b = await self.create()
         entered = asyncio.Event()
-        async def slow(*args):
+        async def slow(*args, **kwargs):
             entered.set()
             await asyncio.sleep(.35)
             return Result('sent')
@@ -436,7 +436,7 @@ class MigrationTests(unittest.TestCase):
         config = Config(str(backend / 'alembic.ini'))
         config.set_main_option('script_location',str(backend/'alembic'))
         script = ScriptDirectory.from_config(config)
-        self.assertEqual(script.get_heads(),['f9b6d4e20c83'])
+        self.assertEqual(script.get_heads(),['fb4a8c2d1e70'])
         # Compile revision DDL through the PostgreSQL dialect without a live server.
         import importlib.util
         from alembic.migration import MigrationContext

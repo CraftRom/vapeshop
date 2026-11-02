@@ -260,6 +260,8 @@ class Broadcast:
     scheduled_at: datetime | None = None
     created_at: datetime | None = None
     finished_at: datetime | None = None
+    text_format: str = 'html'
+    client_key: str | None = None
 
 
 @dataclass

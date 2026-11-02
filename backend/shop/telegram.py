@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 import logging
+import json
 
 import httpx
 
@@ -130,6 +131,10 @@ async def send_broadcast_message(
     button_text: str | None = None,
     button_url: str | None = None,
 ) -> tuple[bool, str | None]:
+    from shop.services.broadcast_content import local_media_name
+    if photo_url and local_media_name(photo_url):
+        result = await send_broadcast_once(tg_id, text, photo_url, button_text, button_url)
+        return result.status == 'sent', result.error
     payload: dict = {"chat_id": tg_id, "parse_mode": "HTML"}
 
     if button_text and button_url:
@@ -154,13 +159,23 @@ class BroadcastDeliveryResult:
 
 async def send_broadcast_once(tg_id: int, text: str, photo_url: str | None = None,
                               button_text: str | None = None,
-                              button_url: str | None = None) -> BroadcastDeliveryResult:
+                              button_url: str | None = None, *, text_format: str = 'html') -> BroadcastDeliveryResult:
     """One durable queue attempt; never repeat an ambiguous network outcome.
 
     The legacy _call retries timeouts. Broadcasts use a separate one-shot path
     so the recipient journal, rather than an invisible HTTP loop, owns retries.
     """
-    payload: dict = {"chat_id": tg_id, "parse_mode": "HTML"}
+    from shop.services.broadcast_content import validate_content
+    from shop.services.broadcast_media import telegram_photo
+    from starlette.concurrency import run_in_threadpool
+    try:
+        validate_content(text, photo_url, text_format, button_text, button_url)
+        photo = await run_in_threadpool(telegram_photo, photo_url) if photo_url else None
+    except (ValueError, OSError):
+        return BroadcastDeliveryResult('failed', 'Перевірте текст і зображення розсилки; файл недоступний або вміст некоректний')
+    payload: dict = {"chat_id": tg_id}
+    if text_format == 'html':
+        payload['parse_mode'] = 'HTML'
     if button_text and button_url:
         payload["reply_markup"] = {"inline_keyboard": [[{
             "text": button_text, "url": canonical_button_url(button_url)}]]}
@@ -168,7 +183,14 @@ async def send_broadcast_once(tg_id: int, text: str, photo_url: str | None = Non
     payload.update({"photo": photo_url, "caption": text} if photo_url else {"text": text})
     try:
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-            response = await client.post(f"{BASE}/{method}", json=payload)
+            if photo is not None:
+                payload.pop('photo', None)
+                fields = {key: json.dumps(value, ensure_ascii=False) if isinstance(value, dict) else str(value)
+                          for key, value in payload.items()}
+                response = await client.post(f"{BASE}/{method}", data=fields,
+                    files={'photo': ('broadcast.jpg', photo, 'image/jpeg')})
+            else:
+                response = await client.post(f"{BASE}/{method}", json=payload)
         try:
             data = response.json()
         except ValueError:

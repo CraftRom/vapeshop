@@ -328,11 +328,14 @@ class BonusTx(Base):
 class Broadcast(Base):
     __tablename__ = "broadcasts"
     __table_args__ = (Index("ix_broadcasts_due", "status", "scheduled_at"),
-                      Index("ix_broadcasts_recovery", "status", "lease_until"),)
+                      Index("ix_broadcasts_recovery", "status", "lease_until"),
+                      Index('uq_broadcasts_client_key', 'client_key', unique=True))
 
     id: Mapped[int] = mapped_column(primary_key=True)
     title: Mapped[str] = mapped_column(String(255))
     text: Mapped[str] = mapped_column(Text)
+    text_format: Mapped[str] = mapped_column(String(8), nullable=False, default='html', server_default='html')
+    client_key: Mapped[str | None] = mapped_column(String(64))
     photo_url: Mapped[str | None] = mapped_column(String(512))
     button_text: Mapped[str | None] = mapped_column(String(64))
     button_url: Mapped[str | None] = mapped_column(String(512))

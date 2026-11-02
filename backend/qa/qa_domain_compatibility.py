@@ -47,7 +47,7 @@ class Migration(unittest.TestCase):
         for link in ['https://www.elfar.pp.ua.evil.test/app/','https://t.me/elfarshop_bot/elfar','https://partner.test/']:
             self.assertEqual(canonical_button_url(link),link)
         from api.schemas import BroadcastIn
-        self.assertEqual(BroadcastIn(title='test',text='test',button_url=old).button_url,old.replace('www.elfar.pp.ua','elfar.pp.ua'))
+        self.assertEqual(BroadcastIn(title='test',text='test',button_text='Shop',button_url=old).button_url,old.replace('www.elfar.pp.ua','elfar.pp.ua'))
 
     def certificate(self, staging=False):
         with tempfile.TemporaryDirectory() as tmp:

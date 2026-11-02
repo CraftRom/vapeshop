@@ -200,3 +200,12 @@ Python-набори `qa_promo_codes.py`, `qa_promo_categories.py`,
 `qa_promo_category_migration.py` і Node-набір `dashboard/tests/promo-form.mjs`
 входять до стандартного `backend/qa/run_all.sh`. Браузерний набір також
 входить до повного `qa/run-browser.sh`.
+
+
+## Розсилки — текст і фото, 02.11.2026
+
+`npm run test:broadcasts` перевіряє журнал та нову форму, список,
+завантаження/вибір фото, повтор після помилки, текст і HTML.
+Python-набори `qa_broadcast_content.py`, `qa_broadcast_content_migration.py`
+та `qa_broadcast_recovery.py` включені до `backend/qa/run_all.sh`.
+Реальних повідомлень клієнтам ці перевірки не надсилають.

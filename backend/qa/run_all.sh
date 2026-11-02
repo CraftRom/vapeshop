@@ -207,6 +207,8 @@ run promo-landing qa/qa_promo_landing.py
 run promo-cloudflare qa/qa_promo_cloudflare.py
 run scheduler qa/qa_scheduler.py
 run broadcast-recovery qa/qa_broadcast_recovery.py
+run broadcast-content qa/qa_broadcast_content.py
+run broadcast-content-migration qa/qa_broadcast_content_migration.py
 run public qa/qa_public_chat.py
 run logging qa/qa_logging.py
 run storefront-log qa/qa_storefront_logging.py

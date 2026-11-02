@@ -1,212 +1,388 @@
-import { useEffect, useRef, useState } from 'react'
-import { Modal } from './ui'
+import { useEffect, useId, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
+import { Empty, ErrorBar, Loading, Modal } from './ui'
 import { api } from '../api'
+import './imageField.css'
 
-/** Поле зображення: завантаження на сервер, вибір із уже завантажених
- *  або посилання вручну.
- *
- *  Три способи, а не один, бо випадки різні: нову картинку треба залити,
- *  ту саму обкладинку для десятка товарів — вибрати зі сховища, а на
- *  чуже фото інколи справді потрібне зовнішнє посилання.
- */
-export default function ImageField({ value, onChange, label = 'Зображення', hint }) {
+const MAX_BYTES = 8 * 1024 * 1024
+const TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
+const humanSize = (bytes) =>
+  bytes < 1024 * 1024
+    ? `${Math.ceil(bytes / 1024)} КБ`
+    : `${(bytes / 1024 / 1024).toFixed(1)} МБ`
+
+export default function ImageField({
+  value,
+  onChange,
+  label = 'Зображення',
+  hint,
+  onBusyChange,
+  disabled = false,
+}) {
+  const id = useId()
   const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [broken, setBroken] = useState(false)
+  const [dragging, setDragging] = useState(false)
+  const [linkOpen, setLinkOpen] = useState(false)
   const fileInput = useRef(null)
+  const locked = useRef(false)
+  const alive = useRef(true)
+  const latestChange = useRef(onChange)
+  latestChange.current = onChange
+  useEffect(() => {
+    alive.current = true
+    return () => {
+      alive.current = false
+    }
+  }, [])
+  useEffect(() => {
+    setBroken(false)
+  }, [value])
+  useEffect(() => {
+    onBusyChange?.(busy)
+  }, [busy, onBusyChange])
 
   const upload = async (file) => {
-    if (!file) return
-    setBusy(true)
+    if (!file || locked.current || disabled) return
     setError('')
+    if (
+      !TYPES.includes(file.type) &&
+      !(file.type === '' && /\.(jpe?g|png|gif|webp)$/i.test(file.name))
+    ) {
+      setError(
+        'Виберіть JPG, PNG, WebP або GIF. Інші формати не підтримуються.',
+      )
+      return
+    }
+    if (file.size > MAX_BYTES) {
+      setError('Файл більший за 8 МБ. Зменште його або виберіть інший.')
+      return
+    }
+    locked.current = true
+    setBusy(true)
     try {
       const result = await api.media.upload(file)
-      onChange(result.url)
+      if (alive.current) {
+        latestChange.current(result.url)
+        setLinkOpen(false)
+      }
     } catch (err) {
-      setError(err.message)
+      if (alive.current) setError(err.message)
     } finally {
-      setBusy(false)
-      // Скидаємо поле, інакше повторний вибір того самого файлу не
-      // викличе onChange — браузер вважає, що нічого не змінилось.
+      locked.current = false
+      if (alive.current) setBusy(false)
       if (fileInput.current) fileInput.current.value = ''
     }
   }
+  const paste = (event) => {
+    const file = [...event.clipboardData.items]
+      .find((item) => item.kind === 'file' && item.type.startsWith('image/'))
+      ?.getAsFile()
+    if (file) {
+      event.preventDefault()
+      upload(file)
+    }
+  }
+  const blocked = busy || disabled
 
   return (
-    <div style={{ marginBottom: 14 }}>
-      <div className="faint" style={{ marginBottom: 6 }}>{label}</div>
-
-      {value && (
-        <div style={{ display: 'flex', gap: 12, marginBottom: 10, alignItems: 'flex-start' }}>
+    <div
+      className={`image-field ${dragging ? 'is-dragging' : ''}`}
+      onPaste={paste}
+      onDragOver={(e) => {
+        if (!blocked) {
+          e.preventDefault()
+          setDragging(true)
+        }
+      }}
+      onDragLeave={() => setDragging(false)}
+      onDrop={(e) => {
+        e.preventDefault()
+        setDragging(false)
+        if (!blocked) upload(e.dataTransfer.files?.[0])
+      }}
+    >
+      <div className="image-field-heading">
+        <span id={`${id}-label`}>{label}</span>
+        {value && <span className="chip info">Додано</span>}
+      </div>
+      <ErrorBar error={error} />
+      {value ? (
+        <div className="image-field-preview">
           <img
+            key={value}
             src={value}
-            alt=""
-            style={{
-              // contain: у прев'ю треба бачити, що саме за картинка,
-              // а обрізане по центру фото товару часто виглядає як
-              // невиразна пляма й не дає її впізнати.
-              width: 84, height: 84, objectFit: 'contain',
-              // Одне тло. Тут їх було два, і діяло лише останнє.
-              borderRadius: 10, background: 'rgba(0,0,0,.25)',
-            }}
-            onError={(e) => { e.currentTarget.style.opacity = 0.25 }}
+            alt="Попередній перегляд зображення"
+            onError={() => setBroken(true)}
           />
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div className="faint" style={{ wordBreak: 'break-all', fontSize: 12 }}>
-              {value}
-            </div>
+          <div>
+            <strong>
+              {broken
+                ? 'Попередній перегляд недоступний'
+                : 'Зображення вибрано'}
+            </strong>
+            <p>{value}</p>
+            {broken && (
+              <small>
+                Перевірте посилання або завантажте файл. Зовнішній сайт може
+                блокувати перегляд.
+              </small>
+            )}
             <button
               type="button"
               className="btn ghost small"
-              style={{ marginTop: 6 }}
-              onClick={() => onChange('')}
+              disabled={blocked}
+              onClick={() => {
+                setError('')
+                onChange('')
+              }}
             >
-              Прибрати
+              Прибрати зображення
             </button>
           </div>
         </div>
-      )}
-
-      <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+      ) : (
         <button
           type="button"
-          className="btn small"
+          className="image-dropzone"
+          disabled={blocked}
           onClick={() => fileInput.current?.click()}
-          disabled={busy}
         >
-          {busy ? 'Завантажую…' : 'Завантажити файл'}
+          <span className="image-drop-symbol" aria-hidden="true">
+            ↑
+          </span>
+          <strong>
+            {busy ? 'Завантажуємо зображення…' : 'Додати зображення'}
+          </strong>
+          <small>
+            Перетягніть файл, вставте з буфера або натисніть для вибору
+          </small>
         </button>
-        <button type="button" className="btn ghost small" onClick={() => setOpen(true)}>
+      )}
+      <div className="image-field-actions">
+        <button
+          type="button"
+          className="btn ghost small"
+          onClick={() => fileInput.current?.click()}
+          disabled={blocked}
+        >
+          {busy
+            ? 'Завантажуємо…'
+            : value
+              ? 'Замінити файл'
+              : 'Завантажити файл'}
+        </button>
+        <button
+          type="button"
+          className="btn ghost small"
+          disabled={blocked}
+          onClick={() => setOpen(true)}
+        >
           Обрати зі сховища
         </button>
-        <input
-          ref={fileInput}
-          type="file"
-          accept="image/jpeg,image/png,image/gif,image/webp"
-          style={{ display: 'none' }}
-          onChange={(e) => upload(e.target.files?.[0])}
-        />
+        <button
+          type="button"
+          className="btn ghost small"
+          disabled={blocked}
+          aria-expanded={linkOpen}
+          onClick={() => setLinkOpen((v) => !v)}
+        >
+          За посиланням
+        </button>
       </div>
-
       <input
-        className="input"
-        style={{ marginTop: 8 }}
-        value={value || ''}
-        placeholder="або вставте пряме посилання"
-        onChange={(e) => onChange(e.target.value)}
+        ref={fileInput}
+        type="file"
+        aria-label={`Завантажити: ${label}`}
+        accept={TYPES.join(',')}
+        hidden
+        disabled={blocked}
+        onChange={(e) => upload(e.target.files?.[0])}
       />
-      {hint && <div className="faint" style={{ marginTop: 4 }}>{hint}</div>}
-      {error && <div className="faint" style={{ color: 'var(--bad)', marginTop: 4 }}>{error}</div>}
-
+      {linkOpen && (
+        <label className="image-link-input">
+          <span>Пряме посилання на зображення</span>
+          <input
+            className="input"
+            aria-label="Пряме посилання на зображення"
+            type="text"
+            inputMode="url"
+            disabled={blocked}
+            placeholder="https://example.com/photo.jpg"
+            value={value || ''}
+            onChange={(e) => {
+              setError('')
+              onChange(e.target.value.trim())
+            }}
+          />
+          <small>
+            Для зовнішнього посилання використовуйте JPG або PNG. WebP і GIF
+            краще завантажити файлом.
+          </small>
+        </label>
+      )}
+      <p className="image-field-hint">
+        {hint || 'JPG, PNG, WebP або GIF, до 8 МБ.'}
+      </p>
       {open && (
-        <Library
+        <ImageLibrary
           onClose={() => setOpen(false)}
-          onPick={(url) => { onChange(url); setOpen(false) }}
+          onPick={(url) => {
+            setError('')
+            onChange(url)
+            setOpen(false)
+          }}
         />
       )}
     </div>
   )
 }
 
-function humanSize(bytes) {
-  if (bytes < 1024) return `${bytes} Б`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} КБ`
-  return `${(bytes / 1024 / 1024).toFixed(1)} МБ`
-}
-
-function Library({ onPick, onClose }) {
+function ImageLibrary({ onPick, onClose }) {
+  const bodyRef = useRef(null)
   const [data, setData] = useState(null)
   const [error, setError] = useState('')
   const [search, setSearch] = useState('')
-
-  const load = () => api.media.list().then(setData).catch((e) => setError(e.message))
-  useEffect(() => { load() }, [])
-
+  const [page, setPage] = useState(0)
+  const [revision, setRevision] = useState(0)
+  const [pending, setPending] = useState(null)
+  useEffect(() => {
+    const dialog = bodyRef.current?.closest('[role="dialog"]')
+    if (dialog && !dialog.contains(document.activeElement))
+      dialog.focus({ preventScroll: true })
+  }, [data, error])
+  useEffect(() => {
+    let alive = true
+    setError('')
+    setData(null)
+    const timer = setTimeout(
+      () =>
+        api.media
+          .list({ search, offset: page * 24, limit: 24 })
+          .then((result) => {
+            if (alive) setData(result)
+          })
+          .catch((err) => {
+            if (alive) setError(err.message)
+          }),
+      search ? 200 : 0,
+    )
+    return () => {
+      alive = false
+      clearTimeout(timer)
+    }
+  }, [search, page, revision])
   const remove = async (name) => {
-    // Файл може використовуватись у товарі, який зараз не відкритий.
-    // Перевірити це дешево не вийде, тому просто попереджаємо прямо.
-    if (!window.confirm(
-      `Видалити ${name}?\n\nЯкщо це зображення вже стоїть у товарі чи розсилці, ` +
-      'воно перестане показуватись.',
-    )) return
+    if (pending || !window.confirm(`Видалити файл «${name}» зі сховища?`))
+      return
+    setPending(name)
+    setError('')
     try {
       await api.media.remove(name)
-      load()
+      setRevision((v) => v + 1)
     } catch (err) {
       setError(err.message)
+    } finally {
+      setPending(null)
     }
   }
-
-  const files = (data?.files || []).filter(
-    (f) => !search || f.name.toLowerCase().includes(search.toLowerCase()),
-  )
-
-  return (
-    // Той самий Modal, що й на решті екранів: власна розмітка означала б
-    // власні класи, власну поведінку Escape і власні відступи — тобто три
-    // місця, де вікно поводитиметься не так, як усі інші в панелі.
-    <Modal title="Сховище зображень" onClose={onClose}>
-
-        {error && <div className="card error" style={{ marginBottom: 12 }}>{error}</div>}
-
+  return createPortal(
+    <Modal
+      title="Сховище зображень"
+      className="image-library-modal"
+      onClose={onClose}
+      footer={
+        <>
+          <span className="muted">Знайдено: {data?.total ?? '…'}</span>
+          <button
+            type="button"
+            className="btn ghost small"
+            disabled={!page}
+            onClick={() => setPage((v) => v - 1)}
+          >
+            Попередня
+          </button>
+          <button
+            type="button"
+            className="btn ghost small"
+            disabled={!data?.has_more}
+            onClick={() => setPage((v) => v + 1)}
+          >
+            Наступна
+          </button>
+        </>
+      }
+    >
+      <div className="image-library-body" ref={bodyRef}>
         <input
           className="input"
+          type="search"
+          aria-label="Пошук зображень"
+          placeholder="Пошук у всьому сховищі…"
           value={search}
-          placeholder="Пошук за назвою"
-          onChange={(e) => setSearch(e.target.value)}
-          style={{ marginBottom: 12 }}
-        />
-
-        {data && (
-          <p className="faint" style={{ marginTop: 0 }}>
-            Файлів: {data.total} · займають {humanSize(data.totalBytes)}
-          </p>
-        )}
-
-        {data && files.length === 0 && (
-          <p className="faint">
-            {data.total === 0
-              ? 'Сховище порожнє. Завантажте перше зображення кнопкою «Завантажити файл».'
-              : 'За цим запитом нічого немає.'}
-          </p>
-        )}
-
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))',
-            gap: 12,
-            maxHeight: '55vh',
-            overflowY: 'auto',
+          onChange={(e) => {
+            setSearch(e.target.value)
+            setPage(0)
           }}
-        >
-          {files.map((f) => (
-            <div key={f.name} style={{ textAlign: 'center' }}>
-              <img
-                src={f.url}
-                alt={f.name}
-                onClick={() => onPick(f.url)}
-                style={{
-                  width: '100%', height: 120, objectFit: 'contain',
-                  borderRadius: 10, cursor: 'pointer',
-                  background: 'rgba(0,0,0,.25)',
-                }}
-              />
-              <div className="faint" style={{ fontSize: 11, wordBreak: 'break-all' }}>
-                {f.name}
-              </div>
-              <div className="faint" style={{ fontSize: 11 }}>{humanSize(f.sizeBytes)}</div>
-              <button
-                type="button"
-                className="btn danger small"
-                style={{ marginTop: 4 }}
-                onClick={() => remove(f.name)}
-              >
-                Видалити
-              </button>
-            </div>
-          ))}
-        </div>
-    </Modal>
+        />
+        <ErrorBar error={error} />
+        {error && (
+          <button
+            type="button"
+            className="btn ghost small"
+            onClick={() => setRevision((v) => v + 1)}
+          >
+            Повторити завантаження
+          </button>
+        )}
+        {!data && !error ? (
+          <Loading rows={3} />
+        ) : (
+          data && (
+            <>
+              <p className="muted">
+                У сховищі: {data.storedTotal ?? data.total} ·{' '}
+                {humanSize(data.totalBytes || 0)}
+              </p>
+              {!data.files.length ? (
+                <Empty title="Зображень немає">
+                  Змініть пошук або завантажте новий файл.
+                </Empty>
+              ) : (
+                <div className="image-library-grid">
+                  {data.files.map((file) => (
+                    <article key={file.name}>
+                      <button
+                        type="button"
+                        className="image-library-pick"
+                        onClick={() => onPick(file.url)}
+                        aria-label={`Вибрати ${file.name}`}
+                      >
+                        <img src={file.url} alt="" loading="lazy" />
+                        <span>{file.name}</span>
+                      </button>
+                      <div>
+                        <small>{humanSize(file.sizeBytes)}</small>
+                        <button
+                          type="button"
+                          className="btn danger small"
+                          disabled={pending !== null}
+                          onClick={() => remove(file.name)}
+                        >
+                          Видалити
+                        </button>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              )}
+            </>
+          )
+        )}
+      </div>
+    </Modal>,
+    document.body,
   )
 }

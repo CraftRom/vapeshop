@@ -430,7 +430,7 @@ export const api = {
   },
 
   media: {
-    list: () => request('/media'),
+    list: (params = {}) => request('/media', { params }),
     remove: (name) => request(`/media/${encodeURIComponent(name)}`, { method: 'DELETE' }),
     upload: async (file) => {
       // FormData, а не JSON: файл треба слати як є. Заголовок Content-Type
@@ -525,10 +525,12 @@ export const api = {
 
   broadcasts: {
     list: () => request('/broadcasts'),
+    get: (id) => request(`/broadcasts/${id}`),
     deliveries: (id, after = 0) => request(`/broadcasts/${id}/deliveries?after=${after}&limit=50`),
     segments: () => request('/broadcasts/segments'),
     preview: (segment) => request('/broadcasts/preview', { method: 'POST', body: segment }),
     create: (data) => request('/broadcasts', { method: 'POST', body: data }),
+    update: (id, data) => request(`/broadcasts/${id}`, { method: 'PUT', body: data }),
     send: (id) => request(`/broadcasts/${id}/send`, { method: 'POST' }),
     schedule: (id, scheduledAt) =>
       request(`/broadcasts/${id}/schedule`, {

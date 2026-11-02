@@ -12,6 +12,9 @@ from shop.entities import BroadcastStatus
 from shop.repo.base import Repository
 from shop.repo.factory import get_repo
 from shop.services import broadcast as broadcast_service
+from shop.services.broadcast_content import validate_content
+from shop.services.broadcast_media import telegram_photo
+from starlette.concurrency import run_in_threadpool
 
 router = APIRouter(dependencies=[Depends(require_staff)])
 log = logging.getLogger("broadcast")
@@ -57,14 +60,46 @@ def _normalize_schedule(moment: datetime | None) -> datetime | None:
 
 @router.post("", response_model=BroadcastOut, status_code=201)
 async def create_broadcast(data: BroadcastIn, repo: Repository = Depends(get_repo)):
+    if data.client_key:
+        existing = await repo.get_broadcast_by_client_key(data.client_key)
+        if existing:
+            return existing
+    await preflight(data)
     payload = data.model_dump(exclude={"segment"})
     payload["segment"] = data.segment.model_dump(exclude_none=True)
 
     scheduled = _normalize_schedule(payload.get("scheduled_at"))
     payload["scheduled_at"] = scheduled
     if scheduled:
+        if scheduled < datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0):
+            raise HTTPException(422, 'Час запуску вже минув')
         payload["status"] = BroadcastStatus.SCHEDULED
     return await repo.create_broadcast(payload)
+
+
+async def preflight(broadcast):
+    try:
+        validate_content(broadcast.text, broadcast.photo_url, broadcast.text_format,
+                         broadcast.button_text, broadcast.button_url)
+        if broadcast.photo_url:
+            await run_in_threadpool(telegram_photo, broadcast.photo_url)
+    except (ValueError, OSError) as exc:
+        raise HTTPException(422, str(exc)) from None
+
+
+@router.put('/{broadcast_id}', response_model=BroadcastOut)
+async def update_draft(broadcast_id: int, data: BroadcastIn, repo: Repository = Depends(get_repo)):
+    found = await repo.get_broadcast(broadcast_id)
+    if not found:
+        raise HTTPException(404, 'Розсилку не знайдено')
+    if found.status != BroadcastStatus.DRAFT:
+        raise HTTPException(409, 'Редагувати можна лише чернетку. Зніміть розсилку з черги або створіть копію')
+    await preflight(data)
+    payload = data.model_dump(exclude={'segment', 'client_key', 'scheduled_at'})
+    payload['segment'] = data.segment.model_dump(exclude_none=True)
+    if not await repo.transition_broadcast(broadcast_id, [BroadcastStatus.DRAFT], payload):
+        raise HTTPException(409, 'Розсилка вже запущена. Оновіть список')
+    return await repo.get_broadcast(broadcast_id)
 
 
 @router.post("/{broadcast_id}/schedule", response_model=BroadcastOut)
@@ -79,6 +114,7 @@ async def schedule_broadcast(
         raise HTTPException(404, "Розсилку не знайдено")
     if broadcast.status in (BroadcastStatus.SENDING, BroadcastStatus.SENT):
         raise HTTPException(409, "Розсилка вже виконується або надіслана")
+    await preflight(broadcast)
 
     moment = _normalize_schedule(data.scheduled_at)
     # Порівнюємо з поточною годиною, а не з точним «зараз»: інакше о 14:05
@@ -124,6 +160,7 @@ async def send_broadcast(
         raise HTTPException(409, "Розсилка вже виконується")
     if broadcast.status == BroadcastStatus.SENT:
         raise HTTPException(409, "Цю розсилку вже надіслано")
+    await preflight(broadcast)
 
     if not await repo.transition_broadcast(broadcast_id,
             [BroadcastStatus.DRAFT, BroadcastStatus.SCHEDULED, BroadcastStatus.FAILED],

@@ -16,7 +16,7 @@ with tempfile.TemporaryDirectory(prefix='promo-migration-') as temp:
         import sys
         return subprocess.run([sys.executable, '-m', 'alembic', *args], env=env, check=True, capture_output=True, text=True)
     alembic('stamp', 'f9b6d4e20c83')
-    alembic('upgrade', 'head')
+    alembic('upgrade', 'fa3d7b2e1c90')
     with sqlite3.connect(path) as connection:
         row = connection.execute('SELECT code, used_count, category_ids FROM promo_codes').fetchone()
         r.check(row == ('LEGACY', 7, '[]'), 'existing codes keep usage and all-products scope')
@@ -27,6 +27,6 @@ with tempfile.TemporaryDirectory(prefix='promo-migration-') as temp:
     with sqlite3.connect(path) as connection:
         r.check('category_ids' not in [row[1] for row in connection.execute('PRAGMA table_info(promo_codes)')], 'downgrade removes only new column')
         r.check(connection.execute('SELECT code, used_count FROM promo_codes WHERE id=1').fetchone() == ('LEGACY', 7), 'downgrade preserves original data')
-    sql = alembic('upgrade', 'f9b6d4e20c83:head', '--sql', env={**env, 'DATABASE_URL': 'postgresql+asyncpg://qa:qa@127.0.0.1/qa'}).stdout
+    sql = alembic('upgrade', 'f9b6d4e20c83:fa3d7b2e1c90', '--sql', env={**env, 'DATABASE_URL': 'postgresql+asyncpg://qa:qa@127.0.0.1/qa'}).stdout
     r.check("category_ids JSONB DEFAULT '[]' NOT NULL" in sql, 'PostgreSQL DDL has non-null JSONB and safe legacy default')
 raise SystemExit(bool(r.done()))

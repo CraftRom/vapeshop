@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
 from zoneinfo import ZoneInfo
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import (
     BaseModel, ConfigDict, Field, computed_field, field_validator, model_validator,
@@ -545,21 +545,45 @@ class PromoOut(ORMModel):
 # -------------------------------------------------------------------- розсилки
 
 class SegmentIn(BaseModel):
-    type: str = "all"
-    days: int | None = None
-    min_total: Decimal | None = None
+    type: Literal['all', 'with_orders', 'no_orders', 'inactive', 'top_spenders', 'with_referrals'] = 'all'
+    days: int | None = Field(None, ge=1, le=36500)
+    min_total: Decimal | None = Field(None, ge=0, max_digits=12, decimal_places=2)
+
+    @model_validator(mode='after')
+    def required_parameter(self):
+        if self.type == 'inactive' and self.days is None:
+            raise ValueError('Укажіть кількість днів без активності')
+        if self.type == 'top_spenders' and self.min_total is None:
+            raise ValueError('Укажіть мінімальну суму покупок')
+        return self
 
 
 class BroadcastIn(BaseModel):
     title: str = Field(min_length=1, max_length=255)
-    text: str = Field(min_length=1)
-    photo_url: str | None = None
-    button_text: str | None = None
-    button_url: str | None = None
+    text: str = Field(min_length=1, max_length=32768)
+    text_format: Literal['plain', 'html'] = 'plain'
+    photo_url: str | None = Field(None, max_length=512)
+    button_text: str | None = Field(None, max_length=64)
+    button_url: str | None = Field(None, max_length=512)
+    client_key: str | None = Field(None, min_length=8, max_length=64, pattern=r'^[A-Za-z0-9_-]+$')
     segment: SegmentIn = SegmentIn()
     # Точність — година: планувальник прокидається рідше, ніж раз на хвилину,
     # і обіцяти хвилинну точність було б неправдою.
     scheduled_at: datetime | None = None
+
+    @field_validator('title', 'photo_url', 'button_text', 'button_url', mode='before')
+    @classmethod
+    def trim_fields(cls, value):
+        return value.strip() if isinstance(value, str) else value
+
+    @model_validator(mode='after')
+    def valid_message(self):
+        from shop.services.broadcast_content import validate_content
+        self.photo_url = self.photo_url or None
+        self.button_text = self.button_text or None
+        self.button_url = self.button_url or None
+        validate_content(self.text, self.photo_url, self.text_format, self.button_text, self.button_url)
+        return self
 
     @field_validator('button_url')
     @classmethod
@@ -576,6 +600,7 @@ class BroadcastOut(ORMModel):
     id: int
     title: str
     text: str
+    text_format: str = 'html'
     photo_url: str | None
     button_text: str | None
     button_url: str | None

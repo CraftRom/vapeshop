@@ -62,7 +62,8 @@ async def send_chunk(repo: Repository, broadcast: Broadcast, size: int) -> tuple
             if attempt["action"] != "send":
                 return
             result = await send_broadcast_once(tg_id, current.text, current.photo_url,
-                                                current.button_text, current.button_url)
+                                                current.button_text, current.button_url,
+                                                text_format=current.text_format)
             status = result.status
             next_at = None
             if status == "retry":

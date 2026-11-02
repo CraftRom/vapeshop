@@ -377,6 +377,12 @@ class Repository(ABC):
     @abstractmethod
     async def get_broadcast(self, broadcast_id: int) -> Broadcast | None: ...
 
+    async def get_broadcast_by_client_key(self, client_key: str) -> Broadcast | None:
+        return None
+
+    async def media_references(self, url: str) -> dict:
+        return {}
+
     @abstractmethod
     async def create_broadcast(self, data: dict) -> Broadcast: ...
 

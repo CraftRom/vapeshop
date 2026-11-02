@@ -361,6 +361,7 @@ def _broadcast(row) -> Broadcast | None:
         return None
     return Broadcast(
         id=row.id, title=row.title, text=row.text, photo_url=row.photo_url,
+        text_format=row.text_format, client_key=row.client_key,
         button_text=row.button_text, button_url=row.button_url,
         segment=row.segment or {}, status=BroadcastStatus(row.status.value),
         sent_count=row.sent_count, failed_count=row.failed_count,
@@ -1662,10 +1663,28 @@ class SqlRepository(Repository):
     async def get_broadcast(self, broadcast_id) -> Broadcast | None:
         return _broadcast(await self.s.get(m.Broadcast, broadcast_id, populate_existing=True))
 
+    async def get_broadcast_by_client_key(self, client_key):
+        return _broadcast(await self.s.scalar(select(m.Broadcast).where(m.Broadcast.client_key == client_key)))
+
+    async def media_references(self, url):
+        result = {}
+        for label, model in [('products', m.Product), ('broadcasts', m.Broadcast)]:
+            result[label] = int(await self.s.scalar(select(func.count()).select_from(model).where(
+                or_(model.photo_url == url, model.photo_url.endswith(url, autoescape=True))
+            )) or 0)
+        return result
+
     async def create_broadcast(self, data: dict) -> Broadcast:
         row = m.Broadcast(**data)
         self.s.add(row)
-        await self.s.commit()
+        try:
+            await self.s.commit()
+        except IntegrityError:
+            await self.s.rollback()
+            existing = await self.get_broadcast_by_client_key(data['client_key']) if data.get('client_key') else None
+            if existing:
+                return existing
+            raise
         await self.s.refresh(row)
         return _broadcast(row)
 

@@ -33,6 +33,7 @@ elif [[ "${QA_BROWSER_SUITE:-all}" == "chat" ]]; then
   node qa/browser-after-sales-chat.mjs
 elif [[ "${QA_BROWSER_SUITE:-all}" == "broadcasts" ]]; then
   node qa/browser-broadcasts.mjs
+  node qa/browser-broadcast-compose.mjs
 elif [[ "${QA_BROWSER_SUITE:-all}" == "working-data" ]]; then
   node qa/browser-working-data.mjs
 elif [[ "${QA_BROWSER_SUITE:-all}" == "analytics" ]]; then
@@ -58,6 +59,7 @@ else
   node qa/browser-ux-stage6.mjs
   node qa/browser-after-sales-chat.mjs
   node qa/browser-broadcasts.mjs
+  node qa/browser-broadcast-compose.mjs
   node qa/browser-working-data.mjs
   node qa/browser-ui.mjs
   node qa/browser-checkout.mjs
