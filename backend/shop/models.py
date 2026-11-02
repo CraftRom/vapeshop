@@ -298,6 +298,7 @@ class PromoCode(Base):
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    category_ids: Mapped[list] = mapped_column(JsonType, nullable=False, default=list, server_default=text("'[]'"))
 
 
 class PromoUsage(Base):

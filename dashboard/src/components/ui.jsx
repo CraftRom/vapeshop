@@ -35,10 +35,10 @@ export const useToast = () => useContext(ToastContext)
 
 // ---------------------------------------------------------------------- поля
 
-export function Field({ label, hint, children }) {
+export function Field({ label, hint, children, htmlFor }) {
   return (
     <div className="field">
-      {label && <label>{label}</label>}
+      {label && <label htmlFor={htmlFor}>{label}</label>}
       {children}
       {hint && <span className="hint">{hint}</span>}
     </div>
@@ -47,7 +47,7 @@ export function Field({ label, hint, children }) {
 
 // -------------------------------------------------------------------- модалка
 
-export function Modal({ title, onClose, children, footer }) {
+export function Modal({ title, onClose, children, footer, className = '' }) {
   const modalRef = useRef(null)
   const closeRef = useRef(onClose)
   closeRef.current = onClose
@@ -55,7 +55,7 @@ export function Modal({ title, onClose, children, footer }) {
 
   return (
     <div className="overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="modal" ref={modalRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label={title}>
+      <div className={`modal ${className}`} ref={modalRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label={title}>
         <header>
           <h2>{title}</h2>
           <button className="icon-btn" onClick={onClose} aria-label="Закрити">×</button>

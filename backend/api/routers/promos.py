@@ -4,10 +4,17 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from api.auth import require_staff
 from api.schemas import PromoIn, PromoOut
-from shop.repo.base import Repository
+from shop.repo.base import PromoCodeConflict, Repository
 from shop.repo.factory import get_repo
 
 router = APIRouter(dependencies=[Depends(require_staff)])
+
+
+async def validate_categories(data: PromoIn, repo: Repository):
+    if data.category_ids:
+        existing = {category.id for category in await repo.list_categories()}
+        if set(data.category_ids) - existing:
+            raise HTTPException(422, "Деякі категорії вже видалені. Оновіть вибір категорій")
 
 
 @router.get("", response_model=list[PromoOut])
@@ -17,9 +24,13 @@ async def list_promos(repo: Repository = Depends(get_repo)):
 
 @router.post("", response_model=PromoOut, status_code=201)
 async def create_promo(data: PromoIn, repo: Repository = Depends(get_repo)):
+    await validate_categories(data, repo)
     if await repo.get_promo_by_code(data.code):
         raise HTTPException(409, "Промокод із таким кодом уже існує")
-    return await repo.create_promo(data.model_dump())
+    try:
+        return await repo.create_promo(data.model_dump())
+    except PromoCodeConflict:
+        raise HTTPException(409, "Промокод із таким кодом уже існує") from None
 
 
 @router.get("/{promo_id}", response_model=PromoOut)
@@ -32,7 +43,16 @@ async def get_promo(promo_id: int, repo: Repository = Depends(get_repo)):
 
 @router.put("/{promo_id}", response_model=PromoOut)
 async def update_promo(promo_id: int, data: PromoIn, repo: Repository = Depends(get_repo)):
-    promo = await repo.update_promo(promo_id, data.model_dump())
+    if not await repo.get_promo(promo_id):
+        raise HTTPException(404, "Промокод не знайдено")
+    await validate_categories(data, repo)
+    existing = await repo.get_promo_by_code(data.code)
+    if existing and existing.id != promo_id:
+        raise HTTPException(409, "Промокод із таким кодом уже існує")
+    try:
+        promo = await repo.update_promo(promo_id, data.model_dump())
+    except PromoCodeConflict:
+        raise HTTPException(409, "Промокод із таким кодом уже існує") from None
     if not promo:
         raise HTTPException(404, "Промокод не знайдено")
     return promo

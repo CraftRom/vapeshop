@@ -21,6 +21,10 @@ from shop.entities import (
 )
 
 
+class PromoCodeConflict(ValueError):
+    """A normalized promo code is already assigned to another promotion."""
+
+
 class Repository(ABC):
     """Одна одиниця роботи. Створюється на запит, закривається після нього."""
 

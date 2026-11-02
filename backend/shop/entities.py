@@ -234,6 +234,8 @@ class Promo:
     expires_at: datetime | None = None
     is_active: bool = True
     created_at: datetime | None = None
+    # Empty means the whole catalog; retain deleted IDs to avoid widening scope.
+    category_ids: list[int] = field(default_factory=list)
 
 
 @dataclass

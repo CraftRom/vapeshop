@@ -9,7 +9,8 @@ from decimal import Decimal
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from shop.models import PromoCode, PromoType, PromoUsage
+from shop.models import PromoCode, PromoUsage
+from shop.services.promo_rules import eligible_subtotal, promo_discount
 
 
 @dataclass
@@ -20,14 +21,18 @@ class PromoResult:
     error: str | None = None
 
 
-async def apply(session: AsyncSession, code: str, user_id: int, subtotal: Decimal) -> PromoResult:
+async def apply(session: AsyncSession, code: str, user_id: int, subtotal: Decimal, *, lines=None) -> PromoResult:
     promo = await session.scalar(select(PromoCode).where(func.upper(PromoCode.code) == code.strip().upper()))
 
     if not promo or not promo.is_active:
         return PromoResult(False, error="Такого промокоду немає")
 
-    if promo.expires_at and promo.expires_at < datetime.now(timezone.utc):
-        return PromoResult(False, error="Термін дії промокоду вичерпано")
+    if promo.expires_at:
+        expires = promo.expires_at
+        if expires.tzinfo is None:
+            expires = expires.replace(tzinfo=timezone.utc)
+        if expires < datetime.now(timezone.utc):
+            return PromoResult(False, error="Термін дії промокоду вичерпано")
 
     if promo.max_uses is not None and promo.used_count >= promo.max_uses:
         return PromoResult(False, error="Ліміт використань вичерпано")
@@ -43,13 +48,17 @@ async def apply(session: AsyncSession, code: str, user_id: int, subtotal: Decima
     if used_by_user >= promo.per_user_limit:
         return PromoResult(False, error="Ви вже використали цей промокод")
 
-    if promo.type == PromoType.PERCENT:
-        discount = (subtotal * promo.value / Decimal(100)).quantize(Decimal("0.01"))
-    else:
-        discount = promo.value
-
-    discount = min(discount, subtotal)
-    return PromoResult(True, discount=discount, promo=promo)
+    base = subtotal
+    if promo.category_ids:
+        from shop.models import Subcategory
+        if lines is None:
+            from shop.services import cart
+            lines = await cart.get_items(session, user_id)
+        parents = {s.id: s.category_id for s in await session.scalars(select(Subcategory))}
+        base = eligible_subtotal(lines, promo.category_ids, parents)
+        if base <= 0:
+            return PromoResult(False, error="У кошику немає товарів з категорій цього промокоду")
+    return PromoResult(True, discount=promo_discount(promo, base), promo=promo)
 
 
 async def register_usage(session: AsyncSession, promo_id: int, user_id: int, order_id: int) -> None:

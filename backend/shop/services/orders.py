@@ -63,7 +63,7 @@ async def create_from_cart(
     discount = Decimal(0)
     promo_id = None
     if promo_code:
-        res = await promo_service.apply(session, promo_code, user.id, subtotal)
+        res = await promo_service.apply(session, promo_code, user.id, subtotal, lines=items)
         if not res.ok:
             return None, res.error
         discount = res.discount

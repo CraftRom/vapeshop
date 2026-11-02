@@ -1,7 +1,9 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
+from zoneinfo import ZoneInfo
+from typing import Annotated
 
 from pydantic import (
     BaseModel, ConfigDict, Field, computed_field, field_validator, model_validator,
@@ -471,20 +473,73 @@ class CustomerPatch(BaseModel):
 class PromoIn(BaseModel):
     code: str = Field(min_length=2, max_length=32)
     type: PromoType = PromoType.PERCENT
-    value: Decimal = Field(gt=0)
+    value: Decimal = Field(gt=0, max_digits=12, decimal_places=2)
     # Дефолт саме Decimal: ціле 0 доходило до бази як int і псувало
     # серіалізацію відповіді попередженням pydantic
-    min_order: Decimal = Field(ge=0, default=Decimal(0))
-    max_uses: int | None = None
-    per_user_limit: int = Field(ge=1, default=1)
+    min_order: Decimal = Field(ge=0, max_digits=12, decimal_places=2, default=Decimal(0))
+    max_uses: int | None = Field(None, ge=1, le=2147483647)
+    per_user_limit: int = Field(ge=1, le=2147483647, default=1)
     expires_at: datetime | None = None
+    # Calendar dates from the dashboard are resolved on the server, including DST.
+    # This is an input-only convenience; the database still stores expires_at.
+    expires_on: date | None = Field(None, exclude=True)
     is_active: bool = True
+    category_ids: list[Annotated[int, Field(gt=0, strict=True)]] = Field(default_factory=list, max_length=1000)
+
+    @field_validator("category_ids")
+    @classmethod
+    def unique_categories(cls, value):
+        return sorted(set(value))
+
+    @field_validator("code", mode="before")
+    @classmethod
+    def normalize_code(cls, value):
+        if not isinstance(value, str):
+            return value
+        value = value.strip().upper()
+        if any(c.isspace() or not c.isprintable() for c in value):
+            raise ValueError("Код не може містити пробіли або керівні символи")
+        return value
+
+    @field_validator("expires_at")
+    @classmethod
+    def aware_expiry(cls, value):
+        if value is not None:
+            if value.tzinfo is None:
+                raise ValueError("Укажіть часовий пояс дати або поле expires_on")
+            return value.astimezone(timezone.utc)
+        return value
+
+    @model_validator(mode="after")
+    def validate_promo(self):
+        if self.type == PromoType.PERCENT and self.value > 100:
+            raise ValueError("Відсоткова знижка не може перевищувати 100%")
+        if self.expires_on is not None:
+            if self.expires_at is not None:
+                raise ValueError("Укажіть лише expires_on або expires_at")
+            try:
+                next_day = self.expires_on + timedelta(days=1)
+                end = datetime.combine(next_day, time.min, ZoneInfo("Europe/Kyiv"))
+                self.expires_at = end.astimezone(timezone.utc) - timedelta(microseconds=1)
+            except OverflowError as exc:
+                raise ValueError("Дата завершення поза допустимим діапазоном") from exc
+        return self
 
 
-class PromoOut(ORMModel, PromoIn):
+class PromoOut(ORMModel):
+    # Read legacy entries even if they fail today's input rules, so staff can fix them.
     id: int
+    code: str
+    type: PromoType
+    value: Decimal
+    min_order: Decimal
+    max_uses: int | None
+    per_user_limit: int
+    expires_at: datetime | None = None
+    is_active: bool
     used_count: int = 0
     created_at: datetime | None = None
+    category_ids: list[int] = Field(default_factory=list)
 
 
 # -------------------------------------------------------------------- розсилки

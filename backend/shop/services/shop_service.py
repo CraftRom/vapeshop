@@ -17,8 +17,9 @@ from shop.config import settings
 from shop.formatting import money as format_money
 from shop.services.shop_settings import get_shop_settings
 from shop.services.identity import safe_telegram_first_name
+from shop.services.promo_rules import eligible_subtotal, promo_discount
 from shop.entities import (
-    STATUS_LABELS, Order, OrderLine, OrderStatus, Promo, PromoType, User,
+    STATUS_LABELS, Order, OrderLine, OrderStatus, Promo, User,
 )
 from shop.repo.base import Repository
 
@@ -63,7 +64,7 @@ class PromoResult:
 
 
 async def check_promo(
-    repo: Repository, code: str, user_id: int, subtotal: Decimal
+    repo: Repository, code: str, user_id: int, subtotal: Decimal, *, lines=None
 ) -> PromoResult:
     promo = await repo.get_promo_by_code(code)
 
@@ -90,12 +91,16 @@ async def check_promo(
     if await repo.promo_uses_by_user(promo.id, user_id) >= promo.per_user_limit:
         return PromoResult(False, error="Ви вже використали цей промокод")
 
-    if promo.type == PromoType.PERCENT:
-        discount = (subtotal * promo.value / Decimal(100)).quantize(Decimal("0.01"))
-    else:
-        discount = promo.value
+    base = subtotal
+    if promo.category_ids:
+        if lines is None:
+            lines = await repo.get_cart(user_id)
+        parents = {s.id: s.category_id for s in await repo.list_subcategories()}
+        base = eligible_subtotal(lines, promo.category_ids, parents)
+        if base <= 0:
+            return PromoResult(False, error="У кошику немає товарів з категорій цього промокоду")
 
-    return PromoResult(True, discount=min(discount, subtotal), promo=promo)
+    return PromoResult(True, discount=promo_discount(promo, base), promo=promo)
 
 
 # ---------------------------------------------------------------------- кошик
@@ -208,7 +213,7 @@ async def checkout_quote(repo: Repository, user: User, *, promo_code=None,
     subtotal = sum((line.line_total for line in lines), Decimal(0))
     promo_discount, promo_id = Decimal(0), None
     if promo_code:
-        result = await check_promo(repo, promo_code, user.id, subtotal)
+        result = await check_promo(repo, promo_code, user.id, subtotal, lines=lines)
         if not result.ok:
             raise CheckoutQuoteError(result.error, "promo")
         promo_discount, promo_id = result.discount, result.promo.id

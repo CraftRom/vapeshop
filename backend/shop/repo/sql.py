@@ -22,9 +22,10 @@ from shop.entities import (
     Broadcast, BroadcastStatus, CartLine, Category, Subcategory, Order,
     OrderLine, OrderStatus, Product, Promo, Stats, User,
 )
-from shop.repo.base import Repository
+from shop.repo.base import PromoCodeConflict, Repository
 from shop.services import order_business as business
 from shop.services.chat_access import aware, is_closed, record_completion
+from shop.services.promo_rules import eligible_subtotal, promo_discount
 
 ALPHABET = string.ascii_uppercase + string.digits
 # Local status описує workflow, а не факт продажу. Єдиним джерелом продажу
@@ -351,6 +352,7 @@ def _promo(row) -> Promo | None:
         min_order=_dec(row.min_order), max_uses=row.max_uses,
         per_user_limit=row.per_user_limit, used_count=row.used_count,
         expires_at=row.expires_at, is_active=row.is_active, created_at=row.created_at,
+        category_ids=list(row.category_ids or []),
     )
 
 
@@ -1052,6 +1054,7 @@ class SqlRepository(Repository):
             if promo_id:
                 promo = await self.s.scalar(
                     select(m.PromoCode).where(m.PromoCode.id == promo_id).with_for_update()
+                    .execution_options(populate_existing=True)
                 )
                 if not promo or not promo.is_active:
                     await self.s.rollback()
@@ -1067,19 +1070,6 @@ class SqlRepository(Repository):
                     await self.s.rollback()
                     return None, "promo"
                 if Decimal(str(order.subtotal or 0)) < Decimal(str(promo.min_order or 0)):
-                    await self.s.rollback()
-                    return None, "promo"
-                if promo.type == m.PromoType.PERCENT:
-                    live_discount = (
-                        Decimal(str(order.subtotal or 0)) * Decimal(str(promo.value or 0)) / Decimal(100)
-                    ).quantize(Decimal("0.01"))
-                else:
-                    live_discount = Decimal(str(promo.value or 0))
-                live_discount = min(live_discount, Decimal(str(order.subtotal or 0)))
-                if live_discount != Decimal(str(order.discount or 0)):
-                    # Промокод відредагували між preview та checkout.
-                    # Не оформлюємо за старою ціною — клієнт має побачити
-                    # новий розрахунок і свідомо підтвердити його.
                     await self.s.rollback()
                     return None, "promo"
                 used_by_user = await self.s.scalar(
@@ -1103,9 +1093,11 @@ class SqlRepository(Repository):
             # однаковими товарами, доданими в різному порядку, інакше могли
             # отримати взаємний deadlock. Під lock повторно звіряємо active,
             # stock і ціну — validate_cart() був лише попереднім snapshot.
+            locked_lines = []
             for line in sorted(lines, key=lambda item: int(item.product_id)):
                 product = await self.s.scalar(
                     select(m.Product).where(m.Product.id == line.product_id).with_for_update()
+                    .execution_options(populate_existing=True)
                 )
                 if not product or not product.is_active or int(product.stock or 0) < int(line.qty):
                     await self.s.rollback()
@@ -1113,7 +1105,25 @@ class SqlRepository(Repository):
                 if Decimal(str(product.price)) != Decimal(str(line.price)):
                     await self.s.rollback()
                     return None, "cart"
+                locked_lines.append(CartLine(product_id=product.id, qty=line.qty, product=product))
                 product.stock = int(product.stock or 0) - int(line.qty)
+
+            if promo_id:
+                # Recheck scope against the current, locked products as well as
+                # the locked promo. A category change must not reuse an old quote.
+                sub_ids = {line.product.subcategory_id for line in locked_lines
+                           if line.product.subcategory_id is not None}
+                parents = {}
+                if promo.category_ids and sub_ids:
+                    parents = {s.id: s.category_id for s in await self.s.scalars(
+                        select(m.Subcategory).where(m.Subcategory.id.in_(sub_ids))
+                        .order_by(m.Subcategory.id).with_for_update()
+                        .execution_options(populate_existing=True)
+                    )}
+                base = eligible_subtotal(locked_lines, promo.category_ids, parents)
+                if base <= 0 or promo_discount(promo, base) != Decimal(str(order.discount or 0)):
+                    await self.s.rollback()
+                    return None, "promo"
 
             row = m.Order(
                 user_id=order.user_id, subtotal=order.subtotal, discount=order.discount,
@@ -1596,9 +1606,16 @@ class SqlRepository(Repository):
         )]
 
     async def create_promo(self, data: dict) -> Promo:
+        data = {**data, "code": data["code"].strip().upper()}
         row = m.PromoCode(**data)
         self.s.add(row)
-        await self.s.commit()
+        try:
+            await self.s.commit()
+        except IntegrityError:
+            await self.s.rollback()
+            if await self.get_promo_by_code(data["code"]):
+                raise PromoCodeConflict(data["code"]) from None
+            raise
         await self.s.refresh(row)
         return _promo(row)
 
@@ -1606,9 +1623,18 @@ class SqlRepository(Repository):
         row = await self.s.get(m.PromoCode, promo_id)
         if not row:
             return None
+        if "code" in data:
+            data = {**data, "code": data["code"].strip().upper()}
         for key, value in data.items():
             setattr(row, key, value)
-        await self.s.commit()
+        try:
+            await self.s.commit()
+        except IntegrityError:
+            await self.s.rollback()
+            existing = await self.get_promo_by_code(data.get("code", ""))
+            if existing and existing.id != promo_id:
+                raise PromoCodeConflict(existing.code) from None
+            raise
         return _promo(row)
 
     async def promo_uses_by_user(self, promo_id, user_id) -> int:

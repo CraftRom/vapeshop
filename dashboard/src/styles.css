@@ -441,7 +441,7 @@ input.input::-webkit-calendar-picker-indicator {
   justify-content: center;
   padding: 40px 16px;
   overflow-y: auto;
-  z-index: 40;
+  z-index: 1000;
 }
 
 .modal {
@@ -455,6 +455,11 @@ input.input::-webkit-calendar-picker-indicator {
 
 .modal header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; }
 .modal footer { display: flex; gap: 10px; justify-content: flex-end; margin-top: 22px; }
+
+.promo-form-fields { margin: 0; padding: 0; border: 0; min-width: 0; }
+.promo-field-error { color: var(--rose); font-size: 12px; line-height: 1.4; }
+.promo-editor [aria-invalid='true'] { border-color: var(--rose); }
+.promo-editor input[type='date'] { color-scheme: dark; }
 
 .icon-btn {
   background: none;

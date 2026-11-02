@@ -136,6 +136,7 @@ run_node stats-business-ui tests/stats-business.mjs dashboard
 run_node form-chart tests/form-chart-normalization.mjs dashboard
 run_node deep-actions-ui tests/deep-actions.mjs dashboard
 run_node promo-domain-ux tests/promo-domain-ux.mjs dashboard
+run_node promo-form tests/promo-form.mjs dashboard
 run_node settings-model tests/settings-model.mjs dashboard
 run_node scroll tests/scroll.mjs
 
@@ -152,6 +153,9 @@ run bot-text-receipts qa/qa_bot_text_receipts.py
 run qa-isolation qa/qa_isolation.py
 run cart-unstick qa/qa_cart_unstick.py
 run checkout-integrity qa/qa_checkout_integrity.py
+run promo-codes qa/qa_promo_codes.py
+run promo-categories qa/qa_promo_categories.py
+run promo-category-migration qa/qa_promo_category_migration.py
 run working-data qa/qa_working_data.py
 run after-sales-chat qa/qa_after_sales_chat.py
 run enum-migration qa/qa_migration_enum_backfill.py

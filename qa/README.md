@@ -188,3 +188,15 @@ POST, запізнілий GET після перевірки оформленн�
 повторне додавання. Перевіряються також серверні суми, індикатор збереження,
 горизонтальне переповнення й помилки React. Набір входить до стандартного
 браузерного runner; API та Telegram підмінені.
+
+
+## Промокоди — 02.11.2026
+
+`npm run test:promo-codes` з каталогу `qa` або
+`QA_BROWSER_SUITE=promo-codes bash qa/run-browser.sh`: форма, категорії,
+точність сум, ліміти, повторна відправка, помилка сервера та часові пояси.
+
+Python-набори `qa_promo_codes.py`, `qa_promo_categories.py`,
+`qa_promo_category_migration.py` і Node-набір `dashboard/tests/promo-form.mjs`
+входять до стандартного `backend/qa/run_all.sh`. Браузерний набір також
+входить до повного `qa/run-browser.sh`.
