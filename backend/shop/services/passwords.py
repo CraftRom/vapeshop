@@ -39,13 +39,13 @@ def validate(password: str) -> None:
     if len(password) < MIN_LENGTH:
         raise WeakPassword(f"Пароль має бути щонайменше {MIN_LENGTH} символів")
     if password.isdigit():
-        raise WeakPassword("Пароль лише з цифр підбирається за секунди")
+        raise WeakPassword("Пароль не може складатися лише з цифр.")
     if password.lower() in COMMON:
-        raise WeakPassword("Такий пароль є в будь-якому словнику для підбору")
+        raise WeakPassword("Цей пароль надто поширений. Виберіть інший.")
     # «aaaaaaaaaaaa» чи «abababababab» формально довгі, але перебираються
     # миттєво — довжина без різноманіття нічого не додає.
     if len(set(password)) <= 2:
-        raise WeakPassword("Пароль з одного-двох повторених символів підбирається миттєво")
+        raise WeakPassword("Пароль має містити більше двох різних символів.")
 
 
 def hash_password(password: str) -> str:

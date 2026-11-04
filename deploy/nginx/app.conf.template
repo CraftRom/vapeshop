@@ -237,6 +237,9 @@ server {
     }
 
     location = /api/shop/orders/stream {
+        # Захист від великої кількості завислих SSE-зʼєднань; при ліміті
+        # клієнт продовжує працювати через резервне фонове опитування.
+        limit_conn miniapp_stream 24;
         limit_req zone=api burst=20 nodelay;
         proxy_pass $api_backend;
         proxy_http_version 1.1;
@@ -283,7 +286,9 @@ server {
         # перелічені повторно; без цього вітрина лишилась би зовсім без них.
         include /etc/nginx/hsts.d/*.conf;
         add_header X-Content-Type-Options "nosniff" always;
-        add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+        # Підпис Telegram іноді передається в URL старим WebView. Жодних
+        # referrer-метаданих за межі Mini App, навіть на фото товарів.
+        add_header Referrer-Policy "no-referrer" always;
         add_header Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=()" always;
         add_header X-Permitted-Cross-Domain-Policies "none" always;
 
@@ -298,7 +303,7 @@ server {
         # якого немає ні initData, ні теми, ні кнопки «назад».
         # style-src з unsafe-inline — через style={{...}} у React: це
         # атрибути елементів, а не сторонній код.
-        add_header Content-Security-Policy "default-src 'self'; script-src 'self' https://telegram.org; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self'; font-src 'self' data:; frame-ancestors https://web.telegram.org https://*.telegram.org; base-uri 'self'; form-action 'self'; object-src 'none'" always;
+        add_header Content-Security-Policy "default-src 'self'; script-src 'self' https://telegram.org; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; connect-src 'self'; font-src 'self' data:; frame-ancestors https://web.telegram.org https://*.telegram.org; base-uri 'self'; form-action 'self'; object-src 'none'" always;
     }
 
     location / {

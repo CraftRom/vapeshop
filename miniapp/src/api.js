@@ -1,12 +1,14 @@
-import { getInitData } from './telegram'
+import { clearInitDataCache, getInitData } from './telegram'
 import { clientLog } from './logger'
 import { clearSupportRequests } from './supportRequests'
+import { createGetCoordinator } from './requestCoordinator'
 
 const BASE = '/api/shop'
 const REQUEST_TIMEOUT_MS = 12000
 const GET_RETRIES = 1
 export const AUTH_FAILURE_EVENT = 'elfar:auth-failure'
 let authFailure = ''
+const getCoordinator = createGetCoordinator()
 
 function isExpiredAuthMessage(message = '') {
   return String(message).toLowerCase().includes('сесію прострочено')
@@ -23,6 +25,8 @@ function signalAuthFailure(message = 'Сесію завершено') {
   const normalized = String(message || 'Сесію завершено')
   if (authFailure) return
   authFailure = normalized
+  getCoordinator.clear()
+  clearInitDataCache()
   clearSupportRequests()
   clientLog('storefront.auth.invalidated', {
     level: isExpiredAuthMessage(normalized) ? 'info' : 'warning',
@@ -68,7 +72,16 @@ async function responseDetail(res) {
   return detail
 }
 
-async function request(path, { method = 'GET', body } = {}) {
+function request(path, options = {}) {
+  const { method = 'GET' } = options
+  if (method !== 'GET' || authFailure) return performRequest(path, options)
+  // The hash identifies an initData generation, without storing the raw
+  // bearer payload as a map key. New account/signature gets a new gate.
+  const signedHash = new URLSearchParams(getInitData()).get('hash') || ''
+  return getCoordinator.run(path, signedHash, () => performRequest(path, options))
+}
+
+async function performRequest(path, { method = 'GET', body } = {}) {
   if (authFailure) throw authFailureError()
   const started = performance.now()
   const logPath = String(path).split('?')[0]
@@ -84,7 +97,7 @@ async function request(path, { method = 'GET', body } = {}) {
         // GET із власного HTTP cache.
         cache: 'no-store',
         headers: {
-          'Content-Type': 'application/json',
+          ...(method !== 'GET' ? { 'Content-Type': 'application/json' } : {}),
           // Підписаний Telegram рядок — ним бекенд упізнає покупця.
           'X-Telegram-Init-Data': getInitData(),
         },
@@ -219,12 +232,14 @@ export const api = {
   subcategories: () => request('/subcategories'),
   product: (id) => request(`/products/${id}`),
   productPhoto: async (productId) => {
+    if (authFailure) throw authFailureError()
     const endpoint = `/products/${productId}/photo`
     for (let attempt = 1; attempt <= GET_RETRIES + 1; attempt += 1) {
       let res
       try {
         res = await fetchTimed(`${BASE}${endpoint}`, {
           headers: { 'X-Telegram-Init-Data': getInitData() },
+          cache: 'no-store',
         })
       } catch (err) {
         const hidden = document.visibilityState === 'hidden'
@@ -233,6 +248,11 @@ export const api = {
           continue
         }
         throw err
+      }
+      if (res.status === 401) {
+        const detail = await responseDetail(res)
+        signalAuthFailure(detail)
+        throw authFailureError(detail)
       }
       if (!res.ok && attempt <= GET_RETRIES && isTransientStatus(res.status)) {
         await wait(res.status === 429 ? 900 : 350 * attempt)
@@ -283,6 +303,7 @@ export const api = {
   // Вкладення тягнемо як двійкові дані, а не посилання в src: до запиту
   // треба додати підпис Telegram, а тег <img> заголовків не надсилає.
   chatFile: async (orderId, messageId, support = false) => {
+    if (authFailure) throw authFailureError()
     const started = performance.now()
     const endpoint = support ? `/support/threads/${orderId}/files/${messageId}` : `/orders/${orderId}/chat/${messageId}/file`
 
@@ -291,6 +312,7 @@ export const api = {
       try {
         res = await fetchTimed(`${BASE}${endpoint}`, {
           headers: { 'X-Telegram-Init-Data': getInitData() },
+          cache: 'no-store',
         })
       } catch (err) {
         const hidden = document.visibilityState === 'hidden'
@@ -318,6 +340,11 @@ export const api = {
         throw err
       }
 
+      if (res.status === 401) {
+        const detail = await responseDetail(res)
+        signalAuthFailure(detail)
+        throw authFailureError(detail)
+      }
       if (!res.ok && attempt <= GET_RETRIES && isTransientStatus(res.status)) {
         clientLog('storefront.api.retry', {
           level: 'warning', message: `Вкладення чату: HTTP ${res.status} — повтор GET`,
@@ -349,6 +376,7 @@ export const api = {
   },
 
   chatPhoto: async (orderId, file) => {
+    if (authFailure) throw authFailureError()
     const body = new FormData()
     body.append('file', file)
     const started = performance.now()
@@ -380,6 +408,10 @@ export const api = {
       } catch {
         /* тіло не JSON — лишаємо код статусу */
       }
+      if (res.status === 401) {
+        signalAuthFailure(detail)
+        throw authFailureError(detail)
+      }
       clientLog('storefront.api.http_error', {
         level: res.status >= 500 ? 'error' : 'warning',
         message: detail, status: res.status, method: 'POST', endpoint,
@@ -395,7 +427,7 @@ export const api = {
   cancelOrder: (id) => request(`/orders/${id}/cancel`, { method: 'POST' }),
 
   delivery: {
-    cities: (q) => request(`/delivery/cities?q=${encodeURIComponent(q)}`),
+    cities: (q, page = 1) => request(`/delivery/cities?q=${encodeURIComponent(q)}&page=${page}`),
     price: (cityRef, settlementRef, method, paymentMethod) =>
       request(
         `/delivery/price?city_ref=${encodeURIComponent(cityRef || '')}` +
@@ -403,12 +435,15 @@ export const api = {
         `&method=${encodeURIComponent(method)}` +
         `&payment_method=${encodeURIComponent(paymentMethod)}`,
       ),
-    warehouses: (cityRef, settlementRef, q = '') =>
+    warehouses: (cityRef, settlementRef, q = '', page = 1) =>
       request(
         `/delivery/warehouses?city_ref=${encodeURIComponent(cityRef || '')}` +
         `&settlement_ref=${encodeURIComponent(settlementRef || '')}` +
-        `&q=${encodeURIComponent(q)}`,
+        `&q=${encodeURIComponent(q)}&page=${page}`,
       ),
+    streets: (settlementRef, q, page = 1) =>
+      request(`/delivery/streets?settlement_ref=${encodeURIComponent(settlementRef || '')}` +
+        `&q=${encodeURIComponent(q)}&page=${page}`),
   },
 
   wishlists: {

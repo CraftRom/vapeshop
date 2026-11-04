@@ -39,7 +39,7 @@ export function AgeGate({ config, onConfirmed }) {
       {error && <div className="banner warn">{error}</div>}
       <div className="actions">
         <button className="primary" onClick={confirm} disabled={busy}>
-          {busy ? 'Хвилинку…' : `Мені є ${age}`}
+          {busy ? 'Підтверджуємо…' : `Мені є ${age}`}
         </button>
         <button className="secondary" onClick={close}>
           Мені менше — вийти

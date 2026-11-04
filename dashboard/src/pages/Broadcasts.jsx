@@ -451,19 +451,19 @@ function BroadcastForm({ source, segments, onClose, onSaved }) {
                   'У цій аудиторії немає отримувачів. Можна зберегти чернетку.'
                 ) : (
                   <>
-                    Отримають повідомлення: <strong>{reach} клієнтів</strong>
+                    Вибрані отримувачі: <strong>{reach} клієнтів</strong>
                   </>
                 )}
               </div>
               <Field
                 label="Час запуску"
-                hint={`Для кнопки «Запланувати». Час пристрою: ${Intl.DateTimeFormat().resolvedOptions().timeZone}. Черга перевіряється щогодини; тихі години враховуються.`}
+                hint={`Для кнопки «Запланувати». Час пристрою: ${Intl.DateTimeFormat().resolvedOptions().timeZone}. Надсилання почнеться не раніше вибраного часу. Черга перевіряється приблизно кожні 15 секунд; тихі години враховуються.`}
               >
                 <input
                   className="input"
                   aria-label="Час запуску"
                   type="datetime-local"
-                  step="3600"
+                  step="60"
                   value={when}
                   onChange={(e) => setWhen(e.target.value)}
                 />

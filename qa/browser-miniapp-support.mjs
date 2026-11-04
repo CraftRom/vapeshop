@@ -105,7 +105,7 @@ try{
   state.fail=true;await page.evaluate(()=>window.dispatchEvent(new Event('focus')))
   await page.getByText('Переписка тимчасово недоступна',{exact:false}).waitFor()
   check(await log.locator('[data-message-id]').count()===452 && await input.inputValue()==='Не губити чернетку',width+': polling error retains messages and draft')
-  state.fail=false;await page.getByRole('button',{name:'Повторити',exact:true}).click();await until(async()=>await page.getByText('Переписка тимчасово недоступна',{exact:false}).count()===0)
+  state.fail=false;await page.getByRole('button',{name:'Оновити чат',exact:true}).click();await until(async()=>await page.getByText('Переписка тимчасово недоступна',{exact:false}).count()===0)
   await page.getByRole('button',{name:'Завершити звернення',exact:true}).click();await until(async()=>await input.isDisabled())
   check(state.threads[0].status==='closed',width+': client close locks composer and keeps history')
   await page.getByRole('button',{name:'Звернення',exact:true}).click();await page.getByRole('button',{name:'Написати в підтримку',exact:true}).click();await input.waitFor()

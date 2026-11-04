@@ -2200,3 +2200,13 @@ input, textarea, select {
 .cart-availability{margin:6px 0 4px;padding:6px 8px;border-left:3px solid var(--accent);border-radius:4px;background:var(--accent-soft);font-size:13px;line-height:1.4;overflow-wrap:anywhere}
 
 .cart-quantity-state{grid-column:1/-1;margin:0;color:var(--tg-hint);font-size:13px;line-height:1.4;overflow-wrap:anywhere}
+
+/* Довідник доставки: дії в нижній частині того ж списку, придатні для touch. */
+.combo-more,.combo-manual{display:block;width:100%;min-height:44px;padding:10px 14px;border:0;border-top:1px solid var(--line);border-radius:0;background:var(--card);color:var(--accent);font:inherit;font-size:13px;text-align:left;cursor:pointer}
+.combo-manual{color:var(--tg-hint)}
+.combo-more:disabled{opacity:.65;cursor:wait}
+.combo-list{max-height:min(44dvh,350px);scrollbar-gutter:stable;touch-action:pan-y}
+.text-action{display:inline;padding:0;border:0;background:transparent;color:var(--accent);font:inherit;text-decoration:underline;cursor:pointer}
+.courier-row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.courier-row .field{min-width:0}
+@media(max-width:360px){.courier-row{grid-template-columns:1fr}}

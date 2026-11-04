@@ -45,17 +45,16 @@ async def list_broadcasts(repo: Repository = Depends(get_repo)):
 
 
 def _normalize_schedule(moment: datetime | None) -> datetime | None:
-    """Округлює час запуску вниз до цілої години і приводить до UTC.
+    """Приводить час до UTC без округлення, щоб не запустити розсилку раніше.
 
-    Точність планувальника — година. Зберігати «14:37» означало б показувати
-    в панелі час, якого система не обіцяє: реально розсилка пішла б о 15:00.
-    Краще округлити явно й показати те, що станеться насправді.
+    Старі клієнти без часового поясу, як і раніше, передають UTC.
+    Панель передає ISO 8601 з явним часовим поясом.
     """
     if moment is None:
         return None
     if moment.tzinfo is None:
         moment = moment.replace(tzinfo=timezone.utc)
-    return moment.astimezone(timezone.utc).replace(minute=0, second=0, microsecond=0)
+    return moment.astimezone(timezone.utc)
 
 
 @router.post("", response_model=BroadcastOut, status_code=201)
@@ -71,7 +70,7 @@ async def create_broadcast(data: BroadcastIn, repo: Repository = Depends(get_rep
     scheduled = _normalize_schedule(payload.get("scheduled_at"))
     payload["scheduled_at"] = scheduled
     if scheduled:
-        if scheduled < datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0):
+        if scheduled <= datetime.now(timezone.utc):
             raise HTTPException(422, 'Час запуску вже минув')
         payload["status"] = BroadcastStatus.SCHEDULED
     return await repo.create_broadcast(payload)
@@ -108,7 +107,7 @@ async def schedule_broadcast(
     data: ScheduleIn,
     repo: Repository = Depends(get_repo),
 ):
-    """Ставить розсилку в чергу на конкретну годину."""
+    """Ставить розсилку в чергу не раніше вибраного часу."""
     broadcast = await repo.get_broadcast(broadcast_id)
     if not broadcast:
         raise HTTPException(404, "Розсилку не знайдено")
@@ -117,11 +116,7 @@ async def schedule_broadcast(
     await preflight(broadcast)
 
     moment = _normalize_schedule(data.scheduled_at)
-    # Порівнюємо з поточною годиною, а не з точним «зараз»: інакше о 14:05
-    # неможливо було б поставити розсилку на 14:00, хоч планувальник
-    # візьме її вже наступним тіком.
-    current_hour = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
-    if moment < current_hour:
+    if moment <= datetime.now(timezone.utc):
         raise HTTPException(422, "Час запуску вже минув")
 
     if not await repo.transition_broadcast(broadcast_id,

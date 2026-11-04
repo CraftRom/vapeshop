@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { api, AUTH_FAILURE_EVENT, consumeOrderEvents } from './api'
 import { clientLog } from './logger'
+import { backgroundSyncPlan, realtimeSyncPlan } from './syncPlan'
 import { trackVisit } from './attribution'
 import { horizontalWheel, trackViewport } from './scroll'
 import { AgeGate, Catalog } from './screens/Catalog'
@@ -129,6 +130,8 @@ export default function App() {
   const checkoutPreparingRef = useRef(false)
   const checkoutPreparationVersion = useRef(0)
   const [checkoutPreparing,setCheckoutPreparing] = useState(false)
+  const viewRef = useRef('catalog')
+  viewRef.current = checkingOut ? 'checkout' : tab
 
   useEffect(() => {
     ready()
@@ -246,6 +249,13 @@ export default function App() {
   useEffect(() => {
     if (config?.age_confirmed) void refresh()
   }, [config?.age_confirmed, refresh])
+  // Повернення до профілю не повинно показувати історію, яка залишалася
+  // на паузі, поки людина гортала каталог.
+  useEffect(() => {
+    if (tab === 'profile' && config?.age_confirmed) {
+      void Promise.allSettled([readHistory(), readProfile(), readSaved()])
+    }
+  }, [tab, config?.age_confirmed, readHistory, readProfile, readSaved])
 
   // Тихий read-side refresh вітрини. Чат має свій швидший delta-poll,
   // а тут синхронізуємо статуси замовлень, профіль і кошик між вкладками/
@@ -274,10 +284,14 @@ export default function App() {
       backgroundSyncRef.current = true
       cycle += 1
       try {
-        const jobs = [readHistory(), readActive(), readProfile(), readSaved()]
+        const plan = backgroundSyncPlan(viewRef.current, cycle)
+        const jobs = [readActive()]
+        if (plan.history) jobs.push(readHistory())
+        if (plan.profile) jobs.push(readProfile())
+        if (plan.saved) jobs.push(readSaved())
         const canRefreshCart = cartMutating.current === 0 && Object.keys(pendingRef.current || {}).length === 0
-        if (canRefreshCart && cycle % 2 === 0) jobs.push(readCart())
-        if (cycle % 4 === 0) jobs.push(api.config().then((value) => { if (!stopped) setConfig(value) }))
+        if (canRefreshCart && plan.cart) jobs.push(readCart())
+        if (plan.config) jobs.push(api.config().then((value) => { if (!stopped) setConfig(value) }))
         await Promise.allSettled(jobs)
       } finally {
         backgroundSyncRef.current = false
@@ -318,7 +332,11 @@ export default function App() {
       if (stopped || liveRefreshRef.current || document.hidden || navigator.onLine === false) return
       liveRefreshRef.current = true
       try {
-        await Promise.all([readHistory(), readActive(), readProfile()])
+        const plan = realtimeSyncPlan(viewRef.current)
+        const jobs = [readActive()]
+        if (plan.history) jobs.push(readHistory())
+        if (plan.profile) jobs.push(readProfile())
+        await Promise.all(jobs)
       } finally {
         liveRefreshRef.current = false
       }

@@ -44,5 +44,5 @@ export function DescriptionField({ form, setForm }) {
   return <Field label="Опис товару"><textarea className="input catalog-description-input" aria-label="Опис товару" value={form.description || ''} onChange={changeField(setForm, 'description')} placeholder="Особливості, характеристики та комплектація" /></Field>
 }
 export function ProductImageField({ form, setForm }) {
-  return <ImageField label="Зображення товару" value={form.photo_url || ''} onChange={(photo_url) => setForm((old) => ({ ...old, photo_url }))} hint="Завантажте файл, виберіть зі сховища або вкажіть посилання. До 5 МБ." />
+  return <ImageField label="Зображення товару" value={form.photo_url || ''} onChange={(photo_url) => setForm((old) => ({ ...old, photo_url }))} hint="Завантажте файл, виберіть зі сховища або вкажіть посилання. До 8 МБ." />
 }

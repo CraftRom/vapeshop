@@ -96,7 +96,7 @@ function CustomerOrders({ customer, onClose }) {
   return (
     <Modal title={`Замовлення: ${customer.first_name || customer.tg_id}`} onClose={onClose}>
       <ErrorBar error={ordersError} />
-      {ordersError && <div className="row"><span className="faint">{orders ? 'Попередні замовлення можуть бути застарілими.' : 'Замовлення не завантажено.'}</span><button className="btn ghost small" disabled={ordersLoading} onClick={loadOrders}>Повторити замовлення</button></div>}
+      {ordersError && <div className="row"><span className="faint">{orders ? 'Попередні замовлення можуть бути застарілими.' : 'Замовлення не завантажено.'}</span><button className="btn ghost small" disabled={ordersLoading} onClick={loadOrders}>Оновити замовлення</button></div>}
       {orders && <Pagination page={page} total={total} count={orders.length} loading={ordersLoading} onPage={setPage} />}
       {!orders ? (
         ordersLoading ? <Loading rows={3} /> : null
@@ -131,7 +131,7 @@ function CustomerOrders({ customer, onClose }) {
 
       <h3 style={{ marginTop: 18 }}>Збережені списки</h3>
       <ErrorBar error={savedError} />
-      {savedError && <div className="row"><span className="faint">{saved ? 'Попередні списки можуть бути застарілими.' : 'Списки не завантажено.'}</span><button className="btn ghost small" disabled={savedLoading} onClick={loadSaved}>Повторити списки</button></div>}
+      {savedError && <div className="row"><span className="faint">{saved ? 'Попередні списки можуть бути застарілими.' : 'Списки не завантажено.'}</span><button className="btn ghost small" disabled={savedLoading} onClick={loadSaved}>Оновити списки</button></div>}
       {savedLoading && !saved && <Loading rows={2} />}
       {saved && !savedError && !saved.some((w) => w.products.length > 0) && <p className="faint">Збережених товарів немає.</p>}
       {saved && saved.some((w) => w.products.length > 0) && (

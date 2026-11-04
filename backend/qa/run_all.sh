@@ -103,6 +103,10 @@ run_node input-visibility tests/input-visibility.mjs
 run_node field-paint tests/field-paint.mjs
 run_node phone tests/phone.mjs
 run_node client-logging tests/client-logging.mjs
+run_node request-gate tests/request-coordinator.mjs
+run_node sync-plan tests/sync-planning.mjs
+run_node photo-cache tests/photo-cache.mjs
+run_node session-safety tests/telegram-session-security.mjs
 run_node legacy-bridge tests/legacy-bridge.mjs
 run_node bridge-runtime tests/legacy-bridge-runtime.mjs
 # Набори полів і дизайну. field-guard і text-input стерегли поля, але не
@@ -181,6 +185,7 @@ run smoke qa/qa_smoke.py
 run negative qa/qa_negative.py
 run security qa/qa_security.py
 run modern-security qa/qa_modern_security.py
+run shop-write-budget qa/qa_shop_write_budget.py
 run chat-draft-scope qa/qa_chat_draft_scope.py
 run session-expiry qa/qa_session_expiry_1519.py
 run revoke qa/qa_revoke.py
@@ -237,6 +242,7 @@ run edges qa/qa_edges.py
 run dialect qa/qa_dialect.py
 run orders_delete qa/qa_orders_delete.py
 run settings_save qa/qa_settings_save.py
+run np-catalog qa/qa_delivery_paging.py
 run novaposhta qa/qa_novaposhta.py
 run product-io qa/qa_product_io.py
 run e2e qa/qa_e2e.py

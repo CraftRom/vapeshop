@@ -2,6 +2,7 @@ import React from 'react'
 import { createRoot } from 'react-dom/client'
 
 import App from './App'
+import { ConnectivityNotice } from './ConnectivityNotice'
 import { clientLog, registerGlobalClientLogging } from './logger'
 import { getInitData, isTelegramContext, legacyHostRedirectUrl, waitForInitData } from './telegram'
 import './styles.css'
@@ -77,6 +78,7 @@ async function boot() {
 
   root.render(
     <React.StrictMode>
+      <ConnectivityNotice />
       <App />
     </React.StrictMode>,
   )

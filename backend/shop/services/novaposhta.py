@@ -237,119 +237,188 @@ def _int(value) -> int:
 
 
 async def search_settlements(api_key: str, query: str,
-                             limit: int = CITY_LIMIT) -> list[Settlement]:
-    """Населені пункти за початком назви.
+                             limit: int = CITY_LIMIT, page: int = 1,
+                             return_meta: bool = False):
+    """Посторінковий пошук населених пунктів, включно з однойменними селами.
 
-    Пункти без жодного відділення відсіюємо: вибрати такий означає зайти
-    в глухий кут — список відділень буде порожній, і людина вирішить, що
-    зламалась форма.
+    За замовчуванням повертає список, щоб старі внутрішні виклики й бот
+    залишилися сумісними. Для WebView повертаємо items/has_more/total.
     """
-    query = (query or "").strip()
+    query = (query or "").strip()[:120]
+    limit = max(1, min(int(limit), 50))
+    page = max(1, min(int(page), 1000))
+    empty = {"items": [], "has_more": False, "total": 0}
     if len(query) < 2:
-        return []
+        return empty if return_meta else []
 
-    key = f"{_scope(api_key)}:settlements:{query.lower()}:{limit}"
-    hit = _cached(key)
-    if hit is not None:
-        return hit
+    key = f"{_scope(api_key)}:settlements:{query.casefold()}:{limit}:{page}"
+    cached = _cached(key)
+    if cached is None:
+        async with _key_lock(key):
+            cached = _cached(key)
+            if cached is None:
+                try:
+                    rows = await _call(api_key, "Address", "searchSettlements", {
+                        "CityName": query, "Limit": str(limit), "Page": str(page),
+                    })
+                except NovaPoshtaError:
+                    cached = _cached(key, allow_stale=True)
+                    if cached is None:
+                        raise
+                    log.info("novaposhta.stale_cache settlements page=%s", page)
+                else:
+                    addresses = []
+                    total = 0
+                    for row in rows:
+                        if isinstance(row.get("Addresses"), list):
+                            addresses.extend(x for x in row["Addresses"] if isinstance(x, dict))
+                        total = max(total, _int(row.get("TotalCount")))
+                    found = []
+                    for row in addresses:
+                        count = _int(row.get("Warehouses"))
+                        if count <= 0:
+                            continue
+                        name = str(row.get("MainDescription") or "").strip()
+                        area = str(row.get("Area") or "").strip()
+                        region = str(row.get("Region") or "").strip()
+                        ref = str(row.get("DeliveryCity") or "").strip()
+                        settlement_ref = str(row.get("SettlementRef") or row.get("Ref") or "").strip()
+                        if not name or not (ref or settlement_ref):
+                            continue
+                        found.append(Settlement(
+                            ref=ref, settlement_ref=settlement_ref,
+                            name=name, area=area, region=region,
+                            label=str(row.get("Present") or "").strip() or ", ".join(
+                                part for part in (name, region and f"{region} р-н", area and f"{area} обл.") if part
+                            ), warehouses=count,
+                        ))
+                    has_more = page * limit < total if total else len(addresses) >= limit
+                    cached = {"items": found, "has_more": has_more, "total": total}
+                    _store(key, cached)
+    return cached if return_meta else cached["items"]
 
+
+def _warehouse_row(row: dict) -> Warehouse | None:
+    ref = str(row.get("Ref") or "").strip()
+    if not ref:
+        return None
+    description = str(row.get("Description") or "").strip()
+    category = str(row.get("CategoryOfWarehouse") or "").strip().casefold()
+    return Warehouse(
+        ref=ref, number=_int(row.get("Number")), label=description,
+        short=str(row.get("ShortAddress") or "").strip(),
+        is_postomat=category == "postomat" or "оштомат" in description.casefold(),
+    )
+
+
+async def warehouses(api_key: str, city_ref: str, settlement_ref: str = "",
+                     query: str = "", limit: int = WAREHOUSE_LIMIT,
+                     page: int = 1, return_meta: bool = False):
+    """Пошук у провайдера: номер/вулиця і сторінки, а не перші 50 локально.
+
+    Номер перевіряється додатковим WarehouseId, коли звичайний пошук
+    нічого не знайшов. Якщо CityRef не дає результату, пробуємо
+    SettlementRef. Помилка мережі не перетворюється на порожній список.
+    """
+    city_ref = (city_ref or "").strip()
+    settlement_ref = (settlement_ref or "").strip()
+    query = (query or "").strip()[:120]
+    page = max(1, min(int(page), 1000))
+    limit = max(1, min(int(limit), 100))
+    empty = {"items": [], "has_more": False}
+    if not city_ref and not settlement_ref:
+        return empty if return_meta else []
+
+    cache_key = f"{_scope(api_key)}:wh:{city_ref}:{settlement_ref}:{query.casefold()}:{page}:{limit}"
+    result = _cached(cache_key)
+    if result is None:
+        async with _key_lock(cache_key):
+            result = _cached(cache_key)
+            if result is None:
+                base_refs = ([{"CityRef": city_ref}] if city_ref else [])
+                if settlement_ref:
+                    base_refs.append({"SettlementRef": settlement_ref})
+                # Provider filtering is essential in cities with thousands of points.
+                # Never silently truncate the unfiltered result before searching.
+                best_rows = []
+                last_error = None
+                for ref_props in base_refs:
+                    variants = [{"FindByString": query}] if query else [{}]
+                    if query.isdecimal():
+                        variants.append({"WarehouseId": query})
+                    for variant in variants:
+                        props = {**ref_props, **variant, "Page": str(page), "Limit": str(limit)}
+                        try:
+                            rows = await _call(api_key, "Address", "getWarehouses", props)
+                        except NovaPoshtaError as exc:
+                            last_error = exc
+                            # Do not try another query kind after transport failure;
+                            # keep the provider failure visible to the buyer.
+                            break
+                        if query:
+                            needle = query.casefold()
+                            rows = [w for w in rows if (
+                                (query.isdecimal() and _int(w.get("Number")) == int(query))
+                                or (not query.isdecimal() and (needle in str(w.get("Description") or "").casefold()
+                                     or needle in str(w.get("ShortAddress") or "").casefold()))
+                            )]
+                        if rows:
+                            best_rows = rows
+                            break
+                    if best_rows or last_error:
+                        break
+                if last_error is not None:
+                    result = _cached(cache_key, allow_stale=True)
+                    if result is None:
+                        raise last_error
+                    log.info("novaposhta.stale_cache warehouses page=%s", page)
+                else:
+                    found = [w for row in best_rows if (w := _warehouse_row(row)) is not None]
+                    unique = {w.ref: w for w in found}
+                    items = sorted(unique.values(), key=lambda w: (w.number == 0, w.number, w.label))
+                    result = {"items": items, "has_more": len(best_rows) >= limit}
+                    _store(cache_key, result)
+    return result if return_meta else result["items"]
+
+
+async def search_streets(api_key: str, settlement_ref: str, query: str,
+                         page: int = 1, limit: int = 20) -> dict:
+    """Необов'язкові підказки кур'єрських вулиць (ручне введення дозволено)."""
+    settlement_ref = (settlement_ref or "").strip()
+    query = (query or "").strip()[:120]
+    page = max(1, min(int(page), 1000))
+    if not settlement_ref or len(query) < 2:
+        return {"items": [], "has_more": False}
+    key = f"{_scope(api_key)}:streets:{settlement_ref}:{query.casefold()}:{page}:{limit}"
+    cached = _cached(key)
+    if cached is not None:
+        return cached
     async with _key_lock(key):
-        # Інший coroutine міг уже завершити такий самий запит, поки ми
-        # чекали lock. Не дублюємо звернення до провайдера.
-        hit = _cached(key)
-        if hit is not None:
-            return hit
+        cached = _cached(key)
+        if cached is not None:
+            return cached
         try:
-            rows = await _call(api_key, "Address", "searchSettlements", {
-                "CityName": query, "Limit": str(limit), "Page": "1",
+            rows = await _call(api_key, "Address", "searchSettlementStreets", {
+                "SettlementRef": settlement_ref, "StreetName": query,
+                "Page": str(page), "Limit": str(limit),
             })
         except NovaPoshtaError:
             stale = _cached(key, allow_stale=True)
             if stale is not None:
-                log.info("novaposhta.stale_cache settlements:%s", query)
                 return stale
             raise
-        # Відповідь приходить обгорнутою: список із одного запису, всередині
-        # якого лежить сам перелік адрес.
         addresses = []
+        total = 0
         for row in rows:
-            addresses += row.get("Addresses") or []
-
-        found = []
-        for row in addresses:
-            count = _int(row.get("Warehouses"))
-            if count <= 0:
-                continue
-            name = (row.get("MainDescription") or "").strip()
-            area = (row.get("Area") or "").strip()
-            region = (row.get("Region") or "").strip()
-            found.append(Settlement(
-                ref=(row.get("DeliveryCity") or "").strip(),
-                settlement_ref=(row.get("Ref") or "").strip(),
-                name=name, area=area, region=region,
-                label=(row.get("Present") or "").strip() or ", ".join(
-                    p for p in (name, region and f"{region} р-н", area and f"{area} обл.") if p
-                ),
-                warehouses=count,
-            ))
-
-        _store(key, found)
-        return found
-
-
-async def warehouses(api_key: str, city_ref: str, settlement_ref: str = "",
-                     query: str = "", limit: int = WAREHOUSE_LIMIT) -> list[Warehouse]:
-    """Відділення й поштомати населеного пункту.
-
-    Перелік для міста тягнемо цілком і кладемо в кеш, а фільтр і межу
-    застосовуємо вже до нього. Так сортування за номером правильне:
-    попроси перевізника про перші пʼятдесят — і №100 може приїхати
-    раніше за №7, бо порядок у відповіді не наш.
-    """
-    city_ref = (city_ref or "").strip()
-    settlement_ref = (settlement_ref or "").strip()
-    if not city_ref and not settlement_ref:
-        return []
-
-    key = f"{_scope(api_key)}:warehouses:{city_ref or settlement_ref}"
-    everything = _cached(key)
-    if everything is None:
-        async with _key_lock(key):
-            everything = _cached(key)
-            if everything is None:
-                props = {"CityRef": city_ref} if city_ref else {"SettlementRef": settlement_ref}
-                try:
-                    rows = await _call(api_key, "Address", "getWarehouses", props)
-                except NovaPoshtaError:
-                    stale = _cached(key, allow_stale=True)
-                    if stale is not None:
-                        log.info("novaposhta.stale_cache warehouses:%s", city_ref or settlement_ref)
-                        everything = stale
-                    else:
-                        raise
-                if everything is None:
-                    everything = []
-                    for row in rows:
-                        description = (row.get("Description") or "").strip()
-                        category = (row.get("CategoryOfWarehouse") or "").strip()
-                        everything.append(Warehouse(
-                            ref=(row.get("Ref") or "").strip(),
-                            number=_int(row.get("Number")),
-                            label=description,
-                            short=(row.get("ShortAddress") or "").strip(),
-                            is_postomat=category == "Postomat" or "оштомат" in description,
-                        ))
-                    everything.sort(key=lambda w: (w.number == 0, w.number, w.label))
-                    _store(key, everything)
-
-    needle = (query or "").strip().lower()
-    if needle:
-        picked = [w for w in everything
-                  if needle in w.label.lower() or needle in w.short.lower()
-                  or needle == str(w.number)]
-    else:
-        picked = everything
-    return picked[:limit]
+            addresses.extend(x for x in (row.get("Addresses") or []) if isinstance(x, dict))
+            total = max(total, _int(row.get("TotalCount")))
+        result = {"items": [
+            {"ref": str(x.get("Ref") or ""),
+             "name": str(x.get("SettlementStreetDescription") or x.get("Description") or x.get("Present") or "").strip()}
+            for x in addresses if x.get("SettlementStreetDescription") or x.get("Description") or x.get("Present")
+        ], "has_more": page * limit < total if total else len(addresses) >= limit}
+        _store(key, result)
+        return result
 
 
 # ----------------------------------------------------------- розрахунок

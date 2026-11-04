@@ -1199,7 +1199,7 @@ async def _novaposhta_key(repo: Repository) -> str:
 
 @router.get("/delivery/cities")
 async def delivery_cities(
-    q: str = "",
+    q: str = "", page: int = Query(1, ge=1, le=1000),
     user: User = Depends(require_webapp_user),
     repo: Repository = Depends(get_repo),
 ):
@@ -1211,19 +1211,20 @@ async def delivery_cities(
     _require_age(user)
     key = await _novaposhta_key(repo)
     try:
-        found = await np.search_settlements(key, q)
+        result = await np.search_settlements(key, q, page=page, return_meta=True)
     except np.NovaPoshtaError as exc:
         raise HTTPException(502, str(exc)) from exc
     return {"items": [
         {"ref": s.ref, "settlement_ref": s.settlement_ref, "name": s.name,
          "area": s.area, "label": s.label, "warehouses": s.warehouses}
-        for s in found
-    ]}
+        for s in result["items"]
+    ], "page": page, "has_more": result["has_more"], "total": result["total"]}
 
 
 @router.get("/delivery/warehouses")
 async def delivery_warehouses(
     city_ref: str = "", settlement_ref: str = "", q: str = "",
+    page: int = Query(1, ge=1, le=1000),
     user: User = Depends(require_webapp_user),
     repo: Repository = Depends(get_repo),
 ):
@@ -1231,14 +1232,29 @@ async def delivery_warehouses(
     _require_age(user)
     key = await _novaposhta_key(repo)
     try:
-        found = await np.warehouses(key, city_ref, settlement_ref, q)
+        result = await np.warehouses(key, city_ref, settlement_ref, q, page=page, return_meta=True)
     except np.NovaPoshtaError as exc:
         raise HTTPException(502, str(exc)) from exc
     return {"items": [
         {"ref": w.ref, "number": w.number, "label": w.label,
          "short": w.short, "is_postomat": w.is_postomat}
-        for w in found
-    ]}
+        for w in result["items"]
+    ], "page": page, "has_more": result["has_more"]}
+
+
+@router.get("/delivery/streets")
+async def delivery_streets(
+    settlement_ref: str = "", q: str = "", page: int = Query(1, ge=1, le=1000),
+    user: User = Depends(require_webapp_user),
+    repo: Repository = Depends(get_repo),
+):
+    """Підказки вулиць для кур'єрської доставки. Ручний ввід лишається."""
+    _require_age(user)
+    key = await _novaposhta_key(repo)
+    try:
+        return await np.search_streets(key, settlement_ref, q, page=page)
+    except np.NovaPoshtaError as exc:
+        raise HTTPException(502, str(exc)) from exc
 
 
 @router.get("/delivery/price")

@@ -209,7 +209,7 @@ const Conversation = memo(function Conversation({ threadId, onBack, onStatus, on
   const closeSession = async () => {
     if (!thread || thread.status !== 'open' || actionRef.current) return
     const yes = window.confirm(
-      `Закрити звернення #${thread.id}?\n\nСесію буде завершено для клієнта й менеджера. Історія залишиться незмінною. Для наступного питання клієнт створить нове звернення через /ask.`
+      `Закрити звернення #${thread.id}?\n\nКлієнт і менеджер більше не зможуть писати в цьому зверненні. Історія залишиться незмінною. Для наступного питання клієнт створить нове звернення через /ask.`
     )
     if (!yes) return
     const owner = lifecycle.current
@@ -307,7 +307,7 @@ const Conversation = memo(function Conversation({ threadId, onBack, onStatus, on
         <div className="chat-log-content">
         {olderError && <div className="chat-history-more" role="alert">
           <span>Попередні повідомлення не завантажилися.</span>
-          <button className="btn ghost compact" onClick={loadOlderMessages} disabled={loadingOlder}>Повторити історію</button>
+          <button className="btn ghost compact" onClick={loadOlderMessages} disabled={loadingOlder}>Завантажити попередні</button>
         </div>}
         {hasOlder && messages.length > 0 && <div className="chat-history-more">
           <button className="btn ghost compact" disabled={loadingOlder} onClick={loadOlderMessages}>
@@ -350,8 +350,8 @@ const Conversation = memo(function Conversation({ threadId, onBack, onStatus, on
       <div className="support-compose">
         {thread.status === 'closed' ? (
           <div className="support-compose-note support-compose-closed">
-            <strong>Ця сесія завершена.</strong> Відповідати або перевідкривати її не можна.
-            Нове питання клієнт починає окремою сесією через «🆘 Підтримка» або /ask.
+            <strong>Це звернення завершено.</strong> Відповідати в ньому або відкривати його знову не можна.
+            Для нового питання клієнт створює окреме звернення через «🆘 Підтримка» або /ask.
           </div>
         ) : (
           <>

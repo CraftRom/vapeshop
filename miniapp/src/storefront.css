@@ -246,3 +246,29 @@
 .order-success-details dd { margin: 0; font-weight: 650; overflow-wrap: anywhere; }
 .order-success-actions { display: grid; gap: 10px; }
 .order-success-actions button { min-height: 48px; }
+
+/* Не перекриваємо checkout при зникненні мережі; повідомлення не ловить
+   дотики, а після reconnect тихо зникає. */
+.connection-notice {
+  position: fixed;
+  z-index: 1200;
+  inset-inline: max(12px, env(safe-area-inset-left)) max(12px, env(safe-area-inset-right));
+  top: max(8px, env(safe-area-inset-top));
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 12px 14px;
+  border: 1px solid var(--border, #9a91a7);
+  border-radius: 14px;
+  background: var(--surface, #fff);
+  color: var(--text, #272335);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, .18);
+  font-size: .88rem;
+  line-height: 1.4;
+  pointer-events: none;
+}
+.connection-notice.disconnected { border-left: 4px solid #b46c1b; }
+.connection-notice.recovered { border-left: 4px solid #377f62; }
+@media (prefers-reduced-motion: reduce) {
+  .connection-notice { animation: none; transition: none; }
+}

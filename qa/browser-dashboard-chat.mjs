@@ -123,7 +123,7 @@ try {
       check(await compose.inputValue() === 'Чернетка для ' + label, label + ': failure retains draft')
       data.fail = false
       // Programmatic click avoids Playwright scrolling a long order page for this assertion.
-      await card.getByRole('button', { name: 'Повторити', exact: true }).evaluate(el => el.click()); await pause(200)
+      await card.getByRole('button', { name: 'Оновити чат', exact: true }).evaluate(el => el.click()); await pause(200)
       await anchorStayed(log, old, label + ': retry')
       await latest.evaluate(el => el.click()); await pause(80)
       check(await bottom(log), label + ': explicit jump reaches newest reply')

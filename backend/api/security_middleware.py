@@ -36,6 +36,20 @@ class SecurityMiddleware:
         except (ValueError, UnicodeError) as exc:
             return await reject(str(exc) if isinstance(exc, ValueError) and not isinstance(exc, UnicodeError)
                                 else 'Некоректний шлях запиту')(scope, receive, send)
+        # User-level mutation budgets apply even when a trusted proxy's IP
+        # limits are bypassed by an internal client. Auth/ownership remain
+        # enforced by the endpoint; this guard only throttles *valid* tokens.
+        if path.startswith('/api/shop/') and scope.get('method') in ('POST', 'PUT', 'PATCH', 'DELETE'):
+            from api.shop_rate_limit import check_signed_write
+            init_header = headers.get(b'x-telegram-init-data', b'')
+            if len(init_header) <= 16384:
+                allowed = await check_signed_write(path, scope.get('method', ''),
+                                                  init_header.decode('utf-8', errors='replace'))
+                if not allowed:
+                    return await JSONResponse(
+                        {'detail': 'Забагато дій за короткий час. Повторіть через хвилину.'},
+                        429, headers={'Retry-After': '60', 'Cache-Control': 'no-store'},
+                    )(scope, receive, send)
         credential_body = credentials_body(path, scope.get('method', ''))
         if credential_body:
             content_type = headers.get(b'content-type', b'').split(b';', 1)[0].strip().lower()

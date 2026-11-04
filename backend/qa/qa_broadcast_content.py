@@ -20,7 +20,7 @@ from shop import models
 from shop.repo.sql import SqlRepository
 from shop.telegram import send_broadcast_once
 from shop.services.broadcast_content import local_media_name
-from api.routers import media
+from api.routers import media, broadcasts
 from shop.services import broadcast as queue
 r = Report('Broadcast content and media')
 
@@ -114,6 +114,42 @@ async def run():
         r.check(response.status_code == 409, 'referenced campaign image cannot be deleted')
         response = await create(scheduled_at=(datetime.now(timezone.utc)-timedelta(days=1)).isoformat())
         r.check(response.status_code == 422, 'past schedule rejected during creation')
+        # Freeze the API clock so minute boundaries cannot make these assertions flaky.
+        fixed = datetime(2027, 2, 3, 12, 5, 30, tzinfo=timezone.utc)
+        class Clock(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return fixed.astimezone(tz) if tz else fixed.replace(tzinfo=None)
+        with patch.object(broadcasts, 'datetime', Clock):
+            expected = datetime(2027, 2, 3, 12, 37, 41, 123456, tzinfo=timezone.utc)
+            response = await create(scheduled_at='2027-02-03T14:37:41.123456+02:00')
+            r.check(response.status_code == 201 and response.json()['status'] == 'scheduled'
+                    and datetime.fromisoformat(response.json()['scheduled_at']) == expected,
+                    'creation preserves minutes, seconds and fractional seconds while converting offset to UTC', response.text)
+            scheduled_id = response.json()['id']
+            back = await client.get(f'/api/broadcasts/{scheduled_id}', headers=admin)
+            r.check(datetime.fromisoformat(back.json()['scheduled_at']) == expected,
+                    'exact scheduled time survives a database read')
+            listing = (await client.get('/api/broadcasts', headers=admin)).json()
+            r.check(datetime.fromisoformat(next(b['scheduled_at'] for b in listing if b['id'] == scheduled_id)) == expected,
+                    'list preserves the same scheduled time')
+            for moment in ['2027-02-03T12:04:59Z', fixed.isoformat()]:
+                rejected = await create(scheduled_at=moment)
+                r.check(rejected.status_code == 422, 'creation rejects past or present time within the current hour')
+                rejected = await client.post(f'/api/broadcasts/{scheduled_id}/schedule', headers=admin, json={'scheduled_at':moment})
+                r.check(rejected.status_code == 422, 'rescheduling rejects past or present time within the current hour')
+            back = await client.get(f'/api/broadcasts/{scheduled_id}', headers=admin)
+            r.check(datetime.fromisoformat(back.json()['scheduled_at']) == expected,
+                    'rejected schedule leaves the existing time intact')
+            for raw, utc in [('2027-07-03T14:37:00+03:00','2027-07-03T11:37:00+00:00'),
+                             ('2027-02-03T13:00:00Z','2027-02-03T13:00:00+00:00'),
+                             ('2027-02-03T13:37:00','2027-02-03T13:37:00+00:00')]:
+                result = await client.post(f'/api/broadcasts/{scheduled_id}/schedule', headers=admin, json={'scheduled_at':raw})
+                r.check(result.status_code == 200 and datetime.fromisoformat(result.json()['scheduled_at']) == datetime.fromisoformat(utc),
+                        'rescheduling preserves summer offsets and legacy whole-hour or naive UTC values', result.text)
+            result = await client.post(f'/api/broadcasts/{scheduled_id}/unschedule', headers=admin)
+            r.check(result.status_code == 200 and result.json()['status'] == 'draft' and result.json()['scheduled_at'] is None,
+                    'minute-precision schedule can still be removed from the queue')
         # Gallery search and pagination must include old images beyond the initial page.
         directory = media._media_dir()
         for index in range(30):

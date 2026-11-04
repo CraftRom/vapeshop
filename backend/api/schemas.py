@@ -575,8 +575,8 @@ class BroadcastIn(BaseModel):
     button_url: str | None = Field(None, max_length=512)
     client_key: str | None = Field(None, min_length=8, max_length=64, pattern=r'^[A-Za-z0-9_-]+$')
     segment: SegmentIn = SegmentIn()
-    # Точність — година: планувальник прокидається рідше, ніж раз на хвилину,
-    # і обіцяти хвилинну точність було б неправдою.
+    # Час зберігається без округлення. Планувальник починає надсилання
+    # не раніше нього з урахуванням тихих годин і доступності сервісів.
     scheduled_at: datetime | None = None
 
     @field_validator('title', 'photo_url', 'button_text', 'button_url', mode='before')
@@ -624,6 +624,17 @@ class BroadcastOut(ORMModel):
     scheduled_at: datetime | None = None
     created_at: datetime | None = None
     finished_at: datetime | None = None
+
+    @field_validator('scheduled_at')
+    @classmethod
+    def scheduled_time_utc(cls, value: datetime | None) -> datetime | None:
+        # SQLite повертає збережений UTC без tzinfo. Явний пояс потрібен,
+        # щоб браузер не сприйняв час розсилки як місцевий час пристрою.
+        if value is None:
+            return None
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc)
 
 
 # ------------------------------------------------------------------ статистика

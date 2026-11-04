@@ -224,8 +224,9 @@ const Chat = memo(function Chat({ orderId, canChat, chatUntil }) {
         )}
         {!loading && messages.length === 0 ? (
           <p className="faint" style={{ margin: 0 }}>
-            Повідомлень ще немає. Клієнт отримає ваше в чаті з ботом і зможе
-            відповісти прямо звідти.
+            {canChat === false
+              ? 'Повідомлень у цьому замовленні немає.'
+              : 'Повідомлень ще немає. Повідомлення надсилаються клієнту через бота; його відповіді з’являться тут.'}
           </p>
         ) : (
           messages.map((m, index) => {
@@ -758,8 +759,8 @@ function CrmEditPanel({ order, onSave }) {
             </Field>
           </div>
           <p className="faint crm-editor-warning">
-            Місто, відділення та адресу Нової Пошти/Укрпошти цей endpoint SalesDrive не дозволяє змінювати. Панель їх лише читає з CRM.
-            {initialRef.current.tracking_number ? ' Для вже створеної ТТН перевізник зафіксований: змінюється тільки номер у тому самому carrier-блоці.' : ''}
+            Місто, відділення та адресу Нової Пошти/Укрпошти тут можна лише переглядати: SalesDrive не дозволяє змінювати їх цим способом.
+            {initialRef.current.tracking_number ? ' Для вже створеної ТТН перевізник зафіксований. Можна змінити лише номер ТТН у того самого перевізника.' : ''}
           </p>
         </div>
 
@@ -983,7 +984,7 @@ function CrmSnapshotPanel({ order, crmStatuses, refreshing, onRefresh, onUpdate 
 
           {products.length > 0 && (
             <div className="crm-section">
-              <div className="crm-section-head compact"><div><h3>Товари в заявці</h3><p>Позиції читаються з актуального data[].products, без застарілого meta.products.options</p></div></div>
+              <div className="crm-section-head compact"><div><h3>Товари в заявці</h3><p>Товари та їхні параметри з поточної заявки SalesDrive.</p></div></div>
               <div className="crm-products-v2">
                 {products.map((product, index) => (
                   <div className="crm-product-row" key={`${product.id || product.productId || product.sku || index}-${index}`}>
@@ -1058,7 +1059,7 @@ function CrmSnapshotPanel({ order, crmStatuses, refreshing, onRefresh, onUpdate 
       )}
 
       <p className="faint crm-live-note">
-        SalesDrive є джерелом цих CRM-даних. Локальний каталог ELFAR і його ціни з read-side snapshot не перезаписуються.
+        Ці дані надходять із SalesDrive. Їх перегляд не змінює локальний каталог ELFAR і його ціни.
       </p>
     </section>
   )
@@ -1547,7 +1548,7 @@ export default function OrderPage() {
                 а не після того, як він не вийшов на звʼязок. */}
             {client.bot_reachable === false && (
               <Info label="Увага">
-                Бот не може написати цьому клієнту — він не відкривав чат.
+                Бот не може надіслати повідомлення цьому клієнту.
                 Статуси й реквізити не дійдуть; пишіть у стрічку замовлення
                 нижче або телефонуйте.
               </Info>

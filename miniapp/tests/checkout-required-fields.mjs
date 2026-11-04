@@ -10,7 +10,7 @@ const tests = [
   ['name marked required', checkout.includes('htmlFor="name"><span>Імʼя</span><Requirement />')],
   ['phone marked required', checkout.includes('htmlFor="phone"><span>Телефон</span><Requirement />')],
   ['city marked required', checkout.includes('htmlFor="city"><span>Населений пункт</span><Requirement />')],
-  ['delivery address marked required', checkout.includes("<Requirement />\n        </label>\n        <Field\n          id=\"address\"")],
+  ['delivery address marked required', /htmlFor="address"[^>]*>[^\n]*<Requirement \/>/.test(checkout) && /<Field id="address" required aria-required="true"/.test(checkout)],
   ['patronymic optional', checkout.includes('<span>По батькові</span><Requirement optional />')],
   ['promo optional', checkout.includes('htmlFor="promo"><span>Промокод</span><Requirement optional />')],
   ['comment optional', checkout.includes('<span>Коментар</span><Requirement optional />')],

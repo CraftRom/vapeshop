@@ -9,11 +9,13 @@ const webApp = () => window.Telegram?.WebApp
 const CACHE_KEY = 'tgInitData'
 const BRIDGE_PARAM = 'elfarInitData'
 let lastInitDataSource = ''
-// Android інколи вивантажує WebView і повертає вже обрізану адресу. Для
-// короткого self-heal тримаємо підпис і в localStorage, але лише 15 хвилин:
-// довгий persistent cache перетворювався б на фактичну повторно придатну
-// сесію Telegram і міг би пережити перемикання акаунта на тому самому ПК.
+// Підпис Telegram є bearer credential. Не записуємо його у localStorage:
+// він переживає закриття Telegram, перемикання акаунта й вразливіший до
+// викрадення іншими скриптами цього origin. Відновлення дозволене лише в
+// поточній вкладці (sessionStorage), максимум 15 хвилин.
 const CACHE_TTL_MS = 15 * 60 * 1000
+let cachedInMemory = null
+let authInvalidated = false
 
 const LEGACY_HOSTS = new Map([
   ['www.elfar.pp.ua', 'elfar.pp.ua'],
@@ -50,36 +52,48 @@ export function legacyHostRedirectUrl(initData = '') {
   return url.toString()
 }
 
+function clearCacheStorage() {
+  cachedInMemory = null
+  try { window.sessionStorage.removeItem(CACHE_KEY) } catch { /* privacy mode */ }
+  // Очищаємо залишок від старих випусків, які зберігали credential на диск.
+  try { window.localStorage.removeItem(CACHE_KEY) } catch { /* privacy mode */ }
+}
+
+export function clearInitDataCache() {
+  authInvalidated = true
+  clearCacheStorage()
+  lastInitDataSource = ''
+}
+
 function cacheWrite(value) {
-  const payload = JSON.stringify({
-    value,
-    at: Date.now(),
-    userId: signedUserId(value),
-  })
-  for (const store of [window.localStorage, window.sessionStorage]) {
-    try {
-      store.setItem(CACHE_KEY, payload)
-    } catch {
-      /* приватний режим або переповнення — просто пропускаємо */
-    }
-  }
+  if (!value || value.length > 16384) return
+  if (cachedInMemory?.value === value && Date.now() - cachedInMemory.at < 60000) return
+  const payload = { value, at: Date.now(), userId: signedUserId(value) }
+  cachedInMemory = payload
+  try { window.sessionStorage.setItem(CACHE_KEY, JSON.stringify(payload)) }
+  catch { /* закритий storage: memory-only */ }
+  try { window.localStorage.removeItem(CACHE_KEY) }
+  catch { /* стару копію прибере наступний запуск із доступним storage */ }
 }
 
 function cacheRead() {
   const currentUserId = String(webApp()?.initDataUnsafe?.user?.id || '')
-  for (const store of [window.sessionStorage, window.localStorage]) {
-    try {
-      const raw = store.getItem(CACHE_KEY)
-      if (!raw) continue
-      const { value, at, userId = '' } = JSON.parse(raw)
-      const fresh = value && Number.isFinite(at) && Date.now() - at < CACHE_TTL_MS
-      const sameUser = !currentUserId || !userId || currentUserId === String(userId)
-      if (fresh && sameUser) return value
-      store.removeItem(CACHE_KEY)
-    } catch {
-      try { store.removeItem(CACHE_KEY) } catch { /* ignore */ }
-    }
+  const read = () => {
+    if (cachedInMemory) return cachedInMemory
+    try { return JSON.parse(window.sessionStorage.getItem(CACHE_KEY) || 'null') }
+    catch { return null }
   }
+  const stored = read()
+  const { value, at, userId = '' } = stored || {}
+  const age = Date.now() - at
+  const fresh = typeof value === 'string' && value.length > 0 && value.length <= 16384
+    && Number.isFinite(at) && age >= 0 && age < CACHE_TTL_MS
+  const sameUser = !currentUserId || !userId || currentUserId === String(userId)
+  if (fresh && sameUser) {
+    cachedInMemory = stored
+    return value
+  }
+  if (stored) clearCacheStorage()
   return ''
 }
 
@@ -162,6 +176,7 @@ function fromSearch() {
  * воно живе рівно стільки, скільки вкладка, і не потрапляє на диск.
  */
 export function getInitData() {
+  if (authInvalidated) return ''
   const fromSdk = webApp()?.initData
   if (fromSdk) {
     lastInitDataSource = 'SDK'
@@ -465,7 +480,14 @@ export function close() {
 }
 
 export function openLink(url) {
-  webApp()?.openTelegramLink ? webApp().openTelegramLink(url) : window.open(url, '_blank')
+  // Лише t.me посилання. Не віддаємо неперевірений URL SDK/новій вкладці.
+  let safe
+  try {
+    safe = new URL(url)
+    if (safe.protocol !== 'https:' || !['t.me', 'telegram.me'].includes(safe.hostname.toLowerCase())) return
+  } catch { return }
+  if (webApp()?.openTelegramLink) webApp().openTelegramLink(safe.toString())
+  else window.open(safe.toString(), '_blank', 'noopener,noreferrer')
 }
 
 /** Нативний діалог замість window.confirm — той у Telegram виглядає чужим. */

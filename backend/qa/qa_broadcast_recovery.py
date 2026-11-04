@@ -75,6 +75,29 @@ class QueueTests(unittest.IsolatedAsyncioTestCase):
         async with open_repo() as r:
             return await service.send_chunk(r, b, size)
 
+    async def test_minute_schedule_is_not_sent_before_selected_time(self):
+        moment = datetime.now(timezone.utc).replace(minute=37, second=41, microsecond=123456) + timedelta(days=1)
+        b = await self.create(status=S.DRAFT)
+        async with open_repo() as r:
+            await schedule_broadcast(b.id, ScheduleIn(scheduled_at=moment), r)
+        from scheduler import tasks
+        from shop.repo import sql
+        class Clock(datetime):
+            current = moment - timedelta(microseconds=1)
+            @classmethod
+            def now(cls, tz=None):
+                return cls.current.astimezone(tz) if tz else cls.current.replace(tzinfo=None)
+        with patch.object(tasks, 'datetime', Clock), patch.object(sql, 'datetime', Clock), patch.object(service, 'datetime', Clock):
+            self.assertEqual(await run_due_broadcasts(), 0)
+            self.sender.assert_not_awaited()
+            self.assertEqual((await self.read(b.id)).status, S.SCHEDULED)
+            Clock.current = moment
+            self.assertEqual(await run_due_broadcasts(), 1)
+            self.assertEqual(self.sender.await_count, 4)
+            self.assertEqual((await self.read(b.id)).status, S.SENT)
+            self.assertEqual(await run_due_broadcasts(), 0)
+            self.assertEqual(self.sender.await_count, 4)
+
     async def test_quiet_hours_hold_recovery_without_losing_progress(self):
         b = await self.create(cursor_id=2,sent_count=2)
         await self.claim(b.id)

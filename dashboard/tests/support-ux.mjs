@@ -39,7 +39,7 @@ check(page.includes("value=\"unread\"") || page.includes("<option value=\"unread
 check(page.includes("<option value=\"name\">"), 'є сортування за клієнтом')
 check(page.includes('api.support.setStatus') && page.includes('api.support.remove') && !page.includes('Відкрити знову'), 'чат можна закрити й видалити, але не перевідкрити')
 check(page.includes('window.confirm'), 'закриття та остаточне видалення захищені підтвердженням')
-check(page.includes('Ця сесія завершена') && page.includes('closeDescription'), 'закрита сесія є read-only та показує хто/коли її закрив')
+check(page.includes('Це звернення завершено') && page.includes('closeDescription'), 'закрита сесія є read-only та показує хто/коли її закрив')
 check(page.includes('support-mobile-back'), 'на телефоні є повернення зі чату до списку')
 check(page.includes('message.is_automatic') && page.includes('Автовідповідь') && page.includes("automatic ? 'Бот'"), 'автоматична відповідь має службовий бейдж і автора Бот')
 check(css.includes('.support-bubble.automatic') && css.includes('.support-auto-badge'), 'автовідповідь візуально відрізняється лише в dashboard')

@@ -153,13 +153,14 @@ async def scenario():
             "відділення сортуються за номером, а не за назвою", numbers)
     r.check(picked[0].is_postomat and not picked[1].is_postomat,
             "поштомат позначений окремо")
-    r.check(calls[0]["methodProperties"] == {"CityRef": "city-dnipro"},
-            "місто шукається за CityRef", calls[0]["methodProperties"])
+    r.check(calls[0]["methodProperties"]["CityRef"] == "city-dnipro"
+            and calls[0]["methodProperties"]["Page"] == "1",
+            "місто шукається за CityRef з пагінацією", calls[0]["methodProperties"])
 
     print("\n--- село без CityRef ---")
     reset()
     await np.warehouses(KEY, "", "settlement-dnipryany")
-    r.check(calls[0]["methodProperties"] == {"SettlementRef": "settlement-dnipryany"},
+    r.check(calls[0]["methodProperties"]["SettlementRef"] == "settlement-dnipryany",
             "село шукається за SettlementRef", calls[0]["methodProperties"])
     r.check("CityRef" not in calls[0]["methodProperties"],
             "обидва ключі одразу не надсилаються — перевізник відповів би порожньо")
@@ -172,8 +173,9 @@ async def scenario():
     by_street = await np.warehouses(KEY, "city-dnipro", query="широка")
     r.check([w.number for w in by_street] == [100], "фільтр за вулицею",
             [w.number for w in by_street])
-    r.check(len(calls) == 1,
-            "перелік міста тягнеться один раз, фільтр рахується в нас", len(calls))
+    r.check(len(calls) == 2
+            and all("FindByString" in row["methodProperties"] for row in calls),
+            "номер/вулиця шукаються безпосередньо у провайдера", len(calls))
 
     print("\n--- зміна ключа знецінює кеш ---")
     reset()

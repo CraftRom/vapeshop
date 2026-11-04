@@ -49,7 +49,7 @@ export function ChatList({ config, orders, onOpen }) {
     <>
       <div className="head">
         <h1>Чат з менеджером</h1>
-        <p>Оберіть замовлення — кожне веде окрему розмову</p>
+        <p>Оберіть замовлення, щоб відкрити його чат.</p>
       </div>
 
       {open.map((o) => (
@@ -396,7 +396,7 @@ export function ChatRoom({ config, order, onBack, support = false, draft = null,
         }}>Завершити звернення</button>}
       </div>
 
-      {error && <div className="banner warn">{error} <button className="secondary" onClick={() => load(false, messages === null)}>Повторити</button></div>}
+      {error && <div className="banner warn">{error} <button className="secondary" onClick={() => load(false, messages === null)}>Оновити чат</button></div>}
       {access.can_chat && access.chat_until && <p className="hint chat-policy">Писати менеджеру можна до {clock(access.chat_until)}.</p>}
       {!access.can_chat && <div className="banner warn">{support?'Звернення завершено. Історія доступна; для нового питання поверніться до списку й створіть нове звернення.':'Чат замовлення закрито. Історія доступна; для допомоги зверніться до загальної підтримки.'}{!support && onSupport && <button className="secondary" onClick={onSupport}>Загальна підтримка</button>}</div>}
 
@@ -407,12 +407,14 @@ export function ChatRoom({ config, order, onBack, support = false, draft = null,
         {messages !== null && (hasOlder
           ? <button className="secondary chat-history" onClick={loadOlder} disabled={loadingOlder}>{loadingOlder ? 'Завантажуємо…' : 'Раніші повідомлення'}</button>
           : <p className="hint chat-history">Початок історії</p>)}
-        {olderError && <div className="banner warn">{olderError} <button className="secondary" onClick={loadOlder}>Повторити</button></div>}
+        {olderError && <div className="banner warn">{olderError} <button className="secondary" onClick={loadOlder}>Завантажити раніші</button></div>}
         {messages === null ? (
           <div className="skeleton skeleton-line" />
         ) : messages.length === 0 ? (
           <p className="hint chat-empty">
-            Напишіть питання — менеджер відповість сюди й у чат із ботом.
+            {access.can_chat
+              ? 'Напишіть питання менеджеру. Його відповідь з’явиться в цьому чаті.'
+              : 'У цьому чаті немає повідомлень.'}
           </p>
         ) : (
           messages.map((m) => (

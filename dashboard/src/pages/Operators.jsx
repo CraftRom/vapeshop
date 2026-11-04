@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 
 import { api } from '../api'
 import { Empty, ErrorBar, Field, Loading, Modal, confirmPurge, useToast } from '../components/ui'
@@ -17,8 +17,12 @@ const CREATABLE_ROLES = [
   { value: 'operator', label: 'Менеджер',
     hint: 'Працює із замовленнями й клієнтами' },
   { value: 'shop_admin', label: 'Адміністратор',
-    hint: 'Додатково керує каталогом, промокодами й менеджерами' },
+    hint: 'Додатково змінює платіжні реквізити й керує обліковими записами' },
 ]
+
+const MIN_PASSWORD_LENGTH = 12
+const MAX_PASSWORD_LENGTH = 128
+const characterCount = (value) => [...value].length
 
 function formatDate(value) {
   if (!value) return '—'
@@ -39,10 +43,30 @@ function OperatorForm({ operator, onClose, onSaved }) {
   })
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const [touched, setTouched] = useState({})
+  const saving = useRef(false)
+  const formId = useId()
 
-  const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }))
+  const loginValid = editing || /^[A-Za-z0-9_.-]{3,64}$/.test(form.login.trim())
+  const passwordLength = characterCount(form.password)
+  const passwordValid = (editing && form.password === '') ||
+    (passwordLength >= MIN_PASSWORD_LENGTH && passwordLength <= MAX_PASSWORD_LENGTH)
+  const nameProblem = characterCount(form.name.trim()) > 128
+    ? 'Ім’я має містити не більше 128 символів.'
+    : form.name.includes('\0') ? 'Приберіть неприпустимий символ з імені.' : ''
+  const nameValid = !nameProblem
+  const canSave = loginValid && passwordValid && nameValid
+  const touch = (field) => () => setTouched((old) => ({ ...old, [field]: true }))
+  const close = () => { if (!saving.current) onClose() }
+
+  const set = (key) => (e) => {
+    setForm((f) => ({ ...f, [key]: e.target.value }))
+    setError('')
+  }
 
   const save = async () => {
+    if (saving.current || !canSave) return
+    saving.current = true
     setBusy(true)
     setError('')
     try {
@@ -59,28 +83,25 @@ function OperatorForm({ operator, onClose, onSaved }) {
           password: form.password,
           role: form.role,
         })
-        notify('Менеджера створено')
+        notify('Обліковий запис створено')
       }
       onSaved()
       onClose()
     } catch (err) {
       setError(err.message)
     } finally {
+      saving.current = false
       setBusy(false)
     }
   }
 
-  const canSave = editing
-    ? form.name.trim().length > 0 || form.password.length >= 8
-    : form.login.trim().length >= 3 && form.password.length >= 8
-
   return (
     <Modal
       title={editing ? `Обліковий запис «${operator.login}»` : 'Новий обліковий запис'}
-      onClose={onClose}
+      onClose={close}
       footer={
         <>
-          <button className="btn ghost" onClick={onClose}>Скасувати</button>
+          <button className="btn ghost" onClick={close} disabled={busy}>Скасувати</button>
           <button className="btn" onClick={save} disabled={!canSave || busy}>
             {busy ? 'Збереження…' : editing ? 'Зберегти' : 'Створити'}
           </button>
@@ -90,39 +111,60 @@ function OperatorForm({ operator, onClose, onSaved }) {
       <ErrorBar error={error} />
 
       {!editing && (
-        <Field label="Логін" hint="Латиниця, цифри, крапка, дефіс. Змінити пізніше не можна">
-          <input className="input" value={form.login} onChange={set('login')} autoFocus />
+        <Field label="Логін" htmlFor={`${formId}-login`} hint={<span id={`${formId}-login-hint`}>
+          {touched.login && !loginValid
+            ? 'Введіть від 3 до 64 символів: латиниця, цифри, крапка, дефіс або підкреслення.'
+            : 'Від 3 до 64 символів: латиниця, цифри, крапка, дефіс або підкреслення. Змінити пізніше не можна.'}
+        </span>}>
+          <input id={`${formId}-login`} className="input" value={form.login} onChange={set('login')}
+            onBlur={touch('login')} aria-invalid={Boolean(touched.login && !loginValid)} aria-describedby={`${formId}-login-hint`} disabled={busy} autoFocus />
         </Field>
       )}
 
-      <Field label="Імʼя" hint="Показується в панелі, щоб було видно, хто на зміні">
-        <input className="input" value={form.name} onChange={set('name')} />
+      <Field label="Імʼя" htmlFor={`${formId}-name`} hint={<span id={`${formId}-name-hint`}>
+        {touched.name && nameProblem
+          ? nameProblem
+          : 'Показується в панелі. До 128 символів; можна залишити порожнім.'}
+      </span>}>
+        <input id={`${formId}-name`} className="input" value={form.name} onChange={set('name')} onBlur={touch('name')}
+          aria-invalid={Boolean(touched.name && !nameValid)} aria-describedby={`${formId}-name-hint`} disabled={busy} />
       </Field>
 
       <Field
         label={editing ? 'Новий пароль' : 'Пароль'}
-        hint={editing
-          ? 'Лишіть порожнім, щоб не змінювати. Мінімум 12 символів'
-          : 'Мінімум 12 символів, не лише цифри'}
+        htmlFor={`${formId}-password`}
+        hint={<span id={`${formId}-password-hint`}>
+          {touched.password && !passwordValid
+            ? 'Мінімум 12 символів, максимум 128. Пробіли й спецсимволи дозволені.'
+            : editing
+              ? 'Лишіть порожнім, щоб не змінювати. Мінімум 12 символів, максимум 128.'
+              : 'Мінімум 12 символів, максимум 128. Не лише цифри.'}
+        </span>}
       >
         <input
           className="input"
+          id={`${formId}-password`}
           type="password"
           value={form.password}
           onChange={set('password')}
+          onBlur={touch('password')}
+          aria-invalid={Boolean(touched.password && !passwordValid)}
+          aria-describedby={`${formId}-password-hint`}
+          disabled={busy}
           autoComplete="new-password"
         />
       </Field>
 
       <Field
         label="Роль"
+        htmlFor={`${formId}-role`}
         hint={
           (CREATABLE_ROLES.find((r) => r.value === form.role) || {}).hint +
           '. Налаштування бота, розсилок і бекапів лишаються за системним ' +
           'адміністратором — його обліковий запис задається у файлі .env'
         }
       >
-        <select className="input" value={form.role} onChange={set('role')}>
+        <select id={`${formId}-role`} className="input" value={form.role} onChange={set('role')} disabled={busy}>
           {CREATABLE_ROLES.map((r) => (
             <option key={r.value} value={r.value}>{r.label}</option>
           ))}
@@ -191,8 +233,9 @@ export default function Operators() {
       <div className="card" style={{ marginBottom: 18 }}>
         <p className="faint" style={{ margin: 0 }}>
           Менеджер працює із замовленнями, каталогом, клієнтами, промокодами та
-          розсилками. З налаштувань йому доступна лише реферальна програма —
-          реквізити оплати, адреси й список менеджерів лишаються за адміністратором.
+          розсилками. З налаштувань йому доступні бонуси, реферальна програма
+          та знижка від суми. Реквізити оплати, адреси й список менеджерів
+          лишаються за адміністратором.
         </p>
       </div>
 

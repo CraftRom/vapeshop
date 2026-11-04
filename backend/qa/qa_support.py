@@ -349,7 +349,7 @@ def static_contracts():
             "БД гарантує максимум одну open-сесію на клієнта")
     r.check('Закриту сесію не можна перевідкрити' in api and 'add_support_message_if_open' in api,
             "API не має неявного reopen")
-    r.check('Відкрити знову' not in dashboard and 'Ця сесія завершена' in dashboard,
+    r.check('Відкрити знову' not in dashboard and 'Це звернення завершено' in dashboard,
             "панель не пропонує перевідкриття закритої історії")
     r.check('support.save_automatic_reply' in handler and 'decision = faq.decide(text, shop=shop, context=context)' in handler
             and 'faq.render(rule, shop)' in handler and 'has_attachment=True' in handler,

@@ -122,12 +122,12 @@ try {
   }else{
    state.modalOrdersFail=true;state.modalSavedFail=true
    await page.getByRole('button',{name:'Замовлення',exact:true}).first().click()
-   await page.getByRole('button',{name:'Повторити замовлення'}).waitFor();await page.getByRole('button',{name:'Повторити списки'}).waitFor()
+   await page.getByRole('button',{name:'Оновити замовлення'}).waitFor();await page.getByRole('button',{name:'Оновити списки'}).waitFor()
    check(await page.getByText('Клієнт ще нічого не замовляв.').count()===0,'modal errors never say empty')
-   state.modalOrdersFail=false;await page.getByRole('button',{name:'Повторити замовлення'}).click()
+   state.modalOrdersFail=false;await page.getByRole('button',{name:'Оновити замовлення'}).click()
    await page.getByRole('dialog').getByText('Усього:',{exact:false}).waitFor()
-   check(await page.getByRole('button',{name:'Повторити списки'}).isVisible(),'modal orders success independent of lists error')
-   state.modalSavedFail=false;await page.getByRole('button',{name:'Повторити списки'}).click();await page.getByText('Збережений товар —',{exact:false}).waitFor()
+   check(await page.getByRole('button',{name:'Оновити списки'}).isVisible(),'modal orders success independent of lists error')
+   state.modalSavedFail=false;await page.getByRole('button',{name:'Оновити списки'}).click();await page.getByText('Збережений товар —',{exact:false}).waitFor()
    check(true,'modal lists retry recovers data')
   }
   await page.setViewportSize({width:360,height:820})

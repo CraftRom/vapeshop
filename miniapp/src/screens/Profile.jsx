@@ -117,7 +117,7 @@ export function Profile({ config, profile, profileFailed, orders, ordersState, o
         <h2>Запрошуйте друзів</h2>
         <p>
           Отримуйте {Number(config.referral_percent).toLocaleString('uk-UA', { maximumFractionDigits: 2 })}% бонусами з кожного
-          виконаного замовлення запрошеного. Бонусами можна закрити до{' '}
+          виконаного замовлення запрошеного. Бонусами можна оплатити до{' '}
           {Number(config.bonus_max_percent).toLocaleString('uk-UA', { maximumFractionDigits: 2 })}% вартості.
         </p>
       </div>
@@ -154,9 +154,8 @@ export function Profile({ config, profile, profileFailed, orders, ordersState, o
         <div className="banner warn">
           <b>Ви не отримуєте повідомлень від бота</b>
           <p>
-            Статуси замовлень і реквізити для оплати приходять у чат із ботом,
-            а він у вас не відкритий. Натисніть кнопку нижче й «Старт» —
-            після цього все почне приходити.
+            Статуси замовлень і реквізити для оплати не надходять у чат із ботом.
+            Відкрийте чат кнопкою нижче й натисніть «Старт».
           </p>
           {profile.bot_link && (
             <div className="actions">

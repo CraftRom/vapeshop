@@ -5,11 +5,11 @@ import { Empty, ErrorBar, Field, Loading, Modal, useToast } from '../components/
 
 const DEFAULT_CONTENT = {
   background_image: '', logo_image: '', eyebrow: '',
-  title: 'Телеграм канал шалених знижок 🔥',
+  title: 'Телеграм-канал зі знижками',
   promo_label: 'Ваш персональний промокод:', promo_code: 'PROMO2026',
-  description: 'Отримайте 7% знижки, скориставшись ним під час замовлення.',
-  validity_text: 'Не зволікайте — промокод активний лише 1 добу після отримання.',
-  button_text: 'ПЕРЕЙТИ', button_url: 'https://t.me/', footer_text: '',
+  description: 'Введіть промокод під час замовлення та отримайте 7% знижки.',
+  validity_text: 'Промокод активний лише 1 добу після отримання.',
+  button_text: 'Перейти до каналу', button_url: 'https://t.me/', footer_text: '',
 }
 const DEFAULT_SEO = {
   title: 'Акційна пропозиція',
@@ -51,10 +51,10 @@ const SEO_HELP = {
   robots: { title: 'Robots', text: 'Керує індексацією та способом показу контенту пошуковими роботами. index,follow дозволяє індексувати сторінку й переходити за посиланнями; max-image-preview:large дозволяє великі прев’ю зображень; max-snippet:-1 і max-video-preview:-1 не обмежують розмір доступних сніпетів.' },
   og_locale: { title: 'Open Graph locale', text: 'Мова й регіон Open Graph-даних. Використовується соцмережами та месенджерами під час формування картки посилання. Для української сторінки стандартне значення — uk_UA.' },
   og_title: { title: 'Open Graph title', text: 'Заголовок картки при поширенні посилання у Telegram, Facebook, Discord та інших сервісах, що читають Open Graph. Може бути трохи рекламнішим за Meta title, але повинен точно відповідати змісту сторінки.' },
-  og_description: { title: 'Open Graph description', text: 'Опис для картки посилання у соцмережах і месенджерах. Дає людині контекст ще до відкриття сторінки. Генератор створює окрему варіацію, щоб вона не дублювала Meta description слово в слово.' },
+  og_description: { title: 'Open Graph description', text: 'Опис для картки посилання у соцмережах і месенджерах. Генератор створює окрему варіацію, щоб вона не дублювала Meta description слово в слово.' },
   site_name: { title: 'Site name', text: 'Назва бренду або сайту, яка може відображатися у картці Open Graph і допомагає ідентифікувати джерело. Генератор визначає її з домену та внутрішньої назви сторінки.' },
   og_image: { title: 'OG / social image', text: 'Головне зображення для прев’ю посилання в соцмережах і месенджерах. Воно має бути локальним файлом із /media/. Якщо спеціальне зображення не задано, генератор використовує вибраний фон або логотип сторінки.' },
-  schema_name: { title: 'Schema name', text: 'Назва сторінки у структурованих даних Schema.org / JSON-LD. Допомагає пошуковим системам машинно прочитати сутність сторінки та зв’язати її назву з URL, описом і основним зображенням.' },
+  schema_name: { title: 'Schema name', text: 'Назва сторінки у структурованих даних Schema.org / JSON-LD. Допомагає пошуковим системам пов’язати назву сторінки з URL, описом і основним зображенням.' },
   schema_description: { title: 'Schema description', text: 'Розгорнутий машинозчитуваний опис для JSON-LD WebPage. Він не показується як звичайний текст на сторінці, але додає контекст пошуковим системам. Генератор формує його з фактичного промо-тексту та умов.' },
 }
 
@@ -143,7 +143,7 @@ function deployReadiness(state) {
   if (state.dns?.ok && state.dns?.pointsHere === false) return { tone: 'problem', title: 'Домен веде не туди', text: 'Зараз домен веде на іншу адресу. Виправте DNS-запис і дочекайтеся поширення.' }
   if (state.dns?.propagating) return { tone: 'progress', title: 'DNS ще оновлюється', text: 'Частина мереж уже бачить правильну адресу, але ще не всі. Панель перевірятиме це автоматично.' }
   if (state.routePresent && !state.tls?.present) return { tone: 'progress', title: 'Підключаємо захищений доступ', text: 'Маршрут уже створено. Зараз чекаємо HTTPS-сертифікат або завершення перевірки.' }
-  if (state.routePresent && state.tls?.present && state.live?.status !== 'up') return { tone: 'progress', title: 'Майже готово', text: state.live?.message || 'HTTPS уже активний, завершуємо перевірку доступності сайту.' }
+  if (state.routePresent && state.tls?.present && state.live?.status !== 'up') return { tone: 'progress', title: 'Перевіряємо доступність', text: state.live?.message || 'HTTPS уже активний. Перевіряємо доступність сайту.' }
   if (state.dns?.pointsHere) return { tone: 'ready', title: 'Можна запускати сайт', text: 'DNS налаштовано правильно. Наступний крок — підключити домен і видати HTTPS.' }
   return { tone: 'waiting', title: 'Підготуйте домен', text: 'Почніть із DNS-записів нижче. Коли домен почне вести на цей сервер, запуск стане доступним.' }
 }
@@ -419,7 +419,7 @@ export default function LandingPages() {
 
   return <div>
     <div className="page-head">
-      <div><h1>Промо-сторінки</h1><p>Тут менеджер працює лише з тим, що справді потрібно: тексти, зображення, промокод, адреса сайту та SEO. Усі технічні деталі панель бере на себе.</p></div>
+      <div><h1>Промо-сторінки</h1><p>Редагуйте текст, зображення, промокод, адресу сайту та SEO. Налаштування домену й HTTPS розташовані нижче.</p></div>
       <button className="btn" onClick={() => { setForm(newForm()); setCreating(true) }}>Створити сторінку</button>
     </div>
     <ErrorBar error={error} />
@@ -497,7 +497,7 @@ export default function LandingPages() {
             <button className="btn ghost" onClick={generateSeo} disabled={seoBusy}>{seoBusy ? 'Генеруємо…' : 'Згенерувати SEO'}</button>
           </div>
           <div className="promo-seo-generator-note">
-            <strong>Контекстний генератор</strong>
+            <strong>Автоматичне заповнення SEO</strong>
             <span>Під час створення сторінки SEO заповнюється автоматично з назви, домену, заголовка, опису, промокоду, терміну дії, CTA та вибраних зображень. Повторна генерація створює іншу коректну варіацію, але не вигадує факти, яких немає у промо.</span>
           </div>
           <div className="grid k2">
@@ -512,7 +512,7 @@ export default function LandingPages() {
             <Field label={<SeoLabel field="site_name" />}><input className="input" value={form.seo.site_name} onChange={(e) => setSeo('site_name', e.target.value)} /></Field>
             <Field label={<SeoLabel field="schema_name" />}><input className="input" value={form.seo.schema_name} onChange={(e) => setSeo('schema_name', e.target.value)} /></Field>
           </div>
-          <div className="seo-image-field"><div className="seo-image-title"><SeoLabel field="og_image" /></div><ImageField label="Зображення" value={form.seo.og_image} onChange={(v) => setSeo('og_image', v)} hint="Локальний файл із /media/. Якщо порожньо — renderer використає фон або логотип." /></div>
+          <div className="seo-image-field"><div className="seo-image-title"><SeoLabel field="og_image" /></div><ImageField label="Зображення" value={form.seo.og_image} onChange={(v) => setSeo('og_image', v)} hint="Локальний файл із /media/. Якщо поле порожнє, використовується фон або логотип." /></div>
           <Field label={<SeoLabel field="schema_description" />} hint={`${form.seo.schema_description.length}/240`}><textarea className="input" rows="3" value={form.seo.schema_description} onChange={(e) => setSeo('schema_description', e.target.value)} /></Field>
         </div>}
 
@@ -594,7 +594,7 @@ export default function LandingPages() {
 
         {tab === 'deploy' && <div className="card">
           <h2 style={{ marginTop: 0 }}>Домен і запуск сайту</h2>
-          <p><strong>Усе керується прямо з панелі.</strong> Тут ви бачите, чи готовий домен, чи працює захищене з'єднання і чи сайт реально відкривається для людей.</p>
+          <p><strong>Перевірка домену й сайту.</strong> Тут показано стан домену, HTTPS і доступності сайту.</p>
           <div className="promo-check-banner">
             <div className={`promo-check-dot ${(domainRefreshing || domainBusy) ? 'is-checking' : checkSummary.overall === 'ready' ? 'is-ok' : checkSummary.overall === 'progress' ? 'is-progress' : 'is-waiting'}`} aria-hidden="true"></div>
             <div className="promo-check-banner-copy">
@@ -660,7 +660,7 @@ export default function LandingPages() {
           </div>
 
           <div className="grid k2">
-            <Field label="Домен" hint={domainState?.routePresent ? 'Щоб змінити домен, спочатку відключіть поточний route.' : 'A/AAAA запис має вже вести на цей сервер.'}>
+            <Field label="Домен" hint={domainState?.routePresent ? 'Щоб змінити домен, спочатку відключіть його поточний маршрут.' : 'A/AAAA запис має вже вести на цей сервер.'}>
               <input className="input" value={form.domain} disabled={!!domainState?.routePresent} onChange={(e) => setForm({ ...form, domain: e.target.value })} />
             </Field>
             <Field label="Production URL"><input className="input" readOnly value={`https://${form.domain || 'domain.example'}/`} /></Field>

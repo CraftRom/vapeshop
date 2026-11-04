@@ -79,6 +79,10 @@ async def lifespan(app: FastAPI):
         with suppress(asyncio.CancelledError):
             await crm_watchdog
 
+    # Закриваємо спільні Redis-зʼєднання лімітів Mini App при shutdown.
+    from api.shop_rate_limit import close_rate_limit_connections
+    await close_rate_limit_connections()
+
     # Бот, яким API шле сповіщення, тримає власну сесію aiohttp. Ніхто її
     # не закривав, тому кожне вимкнення контейнера давало в журналі
     # «Unclosed client session» рівнем error — а на кожен error іде
@@ -100,7 +104,7 @@ app = FastAPI(
     title=f"{settings.shop_name} — Dashboard API",
     # Версія API піднімається разом зі змінами read/write контракту.
     # 1.10: актуальна нормалізація доставки SalesDrive order/list.
-    version="1.30.0",
+    version="1.31.0",
     lifespan=lifespan,
     docs_url="/docs" if _docs_on else None,
     redoc_url=None,

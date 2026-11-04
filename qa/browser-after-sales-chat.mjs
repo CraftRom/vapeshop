@@ -50,7 +50,7 @@ try {
   await page.getByText('Історія тимчасово недоступна',{exact:false}).waitFor()
   check(await page.locator('.bubble').count()===200,'history error preserves loaded page '+width)
   state.failOlder=false
-  await page.getByRole('button',{name:'Повторити',exact:true}).click()
+  await page.getByRole('button',{name:'Завантажити раніші',exact:true}).click()
   await page.locator('[data-message-id="52"]').waitFor()
   check(await page.locator('.bubble').count()===400,'older 200 merged '+width)
   const log=page.locator('.chat-log')

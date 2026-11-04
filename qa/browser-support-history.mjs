@@ -56,11 +56,11 @@ try {
   const compose=page.locator('.support-compose textarea');await compose.fill('Збережена чернетка історії')
   await log.evaluate(el=>{el.scrollTop=0});await pause(80)
   await page.getByRole('button',{name:'Показати попередні повідомлення',exact:true}).evaluate(b=>b.click())
-  await page.getByRole('button',{name:'Повторити історію',exact:true}).waitFor()
+  await page.getByRole('button',{name:'Завантажити попередні',exact:true}).waitFor()
   check(await log.locator('[data-message-id]').count()===200,`${width}: older page failure preserves loaded messages`)
   let prior=await anchor(log);data.holdOlder=true
   const ready=new Promise(resolve=>{data.ready=resolve})
-  await page.getByRole('button',{name:'Повторити історію',exact:true}).evaluate(b=>{b.click();b.click()});await ready;await pause(100);prior=await anchor(log)
+  await page.getByRole('button',{name:'Завантажити попередні',exact:true}).evaluate(b=>{b.click();b.click()});await ready;await pause(100);prior=await anchor(log)
   data[1].push(message(651));await wake(page);await log.locator('[data-message-id="651"]').waitFor()
   await sameAnchor(log,prior,`${width}: incoming reply preserves reading anchor while older page waits`)
   data.release();await log.locator('[data-message-id="251"]').waitFor()

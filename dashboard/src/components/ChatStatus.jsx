@@ -1,6 +1,6 @@
 export function ChatStatus({ loading, error, onRetry }) {
   return <div className="chat-sync-status" role="status">
-    {error ? <><span title={error}>Не вдалося оновити переписку.</span><button className="btn ghost small" onClick={onRetry}>Повторити</button></>
+    {error ? <><span title={error}>Не вдалося оновити переписку.</span><button className="btn ghost small" onClick={onRetry}>Оновити чат</button></>
       : <span className="faint">{loading ? 'Завантажуємо повідомлення…' : 'Повідомлення оновлюються у фоні'}</span>}
   </div>
 }

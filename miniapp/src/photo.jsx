@@ -9,6 +9,9 @@ import { useEffect, useState } from 'react'
 
 import { api } from './api'
 import { clientLog } from './logger'
+import { createPhotoCache } from './photoCache'
+
+const photoCache = createPhotoCache(id => api.productPhoto(id), url => URL.revokeObjectURL(url))
 
 export function Photo({ product, className = 'product-photo', loading = 'lazy' }) {
   const [blobUrl, setBlobUrl] = useState(null)
@@ -20,17 +23,11 @@ export function Photo({ product, className = 'product-photo', loading = 'lazy' }
     // has_photo приходить із ProductOut. Без цієї перевірки кожен товар без
     // картинки робив зайвий GET /photo → 404, що засмічувало мережу й журнал.
     if (product.photo_url || !product.has_photo) return undefined
-    let revoked = null
     let cancelled = false
-
-    api.productPhoto(product.id)
+    const image = photoCache.acquire(product.id)
+    image.promise
       .then((url) => {
-        if (cancelled) {
-          URL.revokeObjectURL(url)
-          return
-        }
-        revoked = url
-        setBlobUrl(revoked)
+        if (!cancelled) setBlobUrl(url)
       })
       .catch((err) => {
         if (cancelled) return
@@ -47,7 +44,7 @@ export function Photo({ product, className = 'product-photo', loading = 'lazy' }
 
     return () => {
       cancelled = true
-      if (revoked) URL.revokeObjectURL(revoked)
+      image.release()
     }
   }, [product.id, product.photo_url, product.has_photo])
 
@@ -62,6 +59,8 @@ export function Photo({ product, className = 'product-photo', loading = 'lazy' }
       src={src}
       alt={product.name}
       loading={loading}
+      referrerPolicy="no-referrer"
+      decoding="async"
       onError={() => {
         setFailed(true)
         clientLog('storefront.photo.render_failed', {
