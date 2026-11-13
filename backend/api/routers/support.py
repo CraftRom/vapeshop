@@ -94,6 +94,9 @@ async def patch_thread(
                 )
             except Exception:
                 log.warning("Не вдалося сповістити клієнта про закриття звернення %s", thread_id, exc_info=True)
+    if changed:
+        from shop.services.realtime import emit_support_changed
+        emit_support_changed(thread_id)
     return thread
 
 
@@ -109,6 +112,8 @@ async def delete_thread(
         raise HTTPException(409, "Спершу закрийте звернення, потім його можна видалити")
     if not await repo.delete_support_thread(thread_id):
         raise HTTPException(404, "Звернення не знайдено")
+    from shop.services.realtime import emit_support_changed
+    emit_support_changed(thread_id)
     return Response(status_code=204)
 
 
@@ -188,6 +193,8 @@ async def send_message(
             bot, repo, thread, data.text, author
         )
 
+    from shop.services.realtime import emit_support_changed
+    emit_support_changed(thread_id, direction="out")
     return SupportMessageResult(
         message=saved,
         delivered=delivered,
@@ -227,6 +234,8 @@ async def send_pdf(
         # the atomic DB write. The chat cannot be reopened by this route.
         raise HTTPException(409, "Звернення закрилося під час надсилання PDF")
     await repo.set_bot_reachable(user.tg_id, True)
+    from shop.services.realtime import emit_support_changed
+    emit_support_changed(thread_id, direction="out")
     return SupportMessageResult(message=saved, delivered=True)
 
 

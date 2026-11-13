@@ -92,7 +92,7 @@ export async function authorizedFetch(url, options = {}, timeoutMs = REQUEST_TIM
   }
 }
 
-export async function consumeOrderEvents(onOrder, signal) {
+export async function consumeOrderEvents(onOrder, signal, onSupport = () => {}) {
   const token = getToken()
   if (!token) throw new ApiError('Сесія завершилась', 401)
   const url = new URL(`${BASE}/realtime/orders`, window.location.origin)
@@ -127,8 +127,12 @@ export async function consumeOrderEvents(onOrder, signal) {
         if (line.startsWith('event:')) event = line.slice(6).trim()
         if (line.startsWith('data:')) data.push(line.slice(5).trimStart())
       }
-      if (event !== 'order' || !data.length) continue
-      try { onOrder(JSON.parse(data.join('\n'))) } catch { /* malformed live frame: skip */ }
+      if (!['order', 'support'].includes(event) || !data.length) continue
+      try {
+        const payload = JSON.parse(data.join('\n'))
+        if (event === 'support' && Number.isSafeInteger(payload.threadId) && payload.threadId > 0) onSupport(payload)
+        else if (event === 'order' && Number.isSafeInteger(payload.orderId) && payload.orderId > 0) onOrder(payload)
+      } catch { /* malformed live frame: skip */ }
     }
   }
 }

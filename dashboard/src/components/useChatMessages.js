@@ -20,6 +20,7 @@ export function useChatMessages(kind, id) {
   const initialized = useRef(false)
   const epoch = useRef(0)
   const polling = useRef(null)
+  const pending = useRef(false)
   const olderRequest = useRef(null)
   const tick = useRef(0)
   // Only contiguous GET results advance this cursor. A successful POST can
@@ -49,7 +50,7 @@ export function useChatMessages(kind, id) {
 
   const refresh = useCallback(async () => {
     const owner = epoch.current
-    if (polling.current === owner) return
+    if (polling.current === owner) { pending.current = true; return }
     polling.current = owner
     try {
       {
@@ -88,15 +89,33 @@ export function useChatMessages(kind, id) {
       if (epoch.current === owner) { setError(err.message); setLoading(false) }
     } finally {
       if (polling.current === owner) polling.current = null
+      if (pending.current && epoch.current === owner) {
+        pending.current = false
+        queueMicrotask(() => { if (epoch.current === owner) refresh() })
+      }
     }
   }, [kind, id, commit, acknowledge])
 
   useEffect(() => {
     epoch.current += 1
+    pending.current = false
     refresh()
     return () => { epoch.current += 1 }
   }, [refresh])
-  useVisiblePolling(refresh, 5000)
+  // Redis/SSE invalidates the active thread immediately; polling covers a
+  // disconnected stream and deployments with Redis temporarily unavailable.
+  useVisiblePolling(refresh, kind === 'support' ? 3000 : 5000)
+  useEffect(() => {
+    if (kind !== 'support') return undefined
+    let timer = null
+    const changed = (event) => {
+      if (Number(event.detail?.threadId) !== Number(id)) return
+      clearTimeout(timer)
+      timer = setTimeout(() => refresh().catch(() => {}), 80)
+    }
+    window.addEventListener('elfar:support:changed', changed)
+    return () => { clearTimeout(timer); window.removeEventListener('elfar:support:changed', changed) }
+  }, [kind, id, refresh])
 
   const loadOlderMessages = useCallback(async () => {
     const owner = epoch.current

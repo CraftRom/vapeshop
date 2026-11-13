@@ -1,4 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useNavigate, useParams } from 'react-router-dom'
 
 import { api } from '../api'
 import { ChatAttachment } from '../components/ChatAttachment'
@@ -9,6 +10,9 @@ import { useChatViewport } from '../components/useChatViewport'
 import { useChatDraft } from '../components/useChatDraft'
 import { useSupportRead } from '../components/useSupportRead'
 import { ChatDraftStatus, ChatLatest, ChatStatus } from '../components/ChatStatus'
+import { NotificationCenter } from '../components/NotificationCenter'
+import { RealtimeOrders } from '../components/RealtimeOrders'
+import { useSupportLayoutSize, DEFAULT_INBOX_WIDTH, DEFAULT_CHAT_HEIGHT } from '../components/useSupportLayoutSize'
 
 const EMPTY_STATS = { open: 0, closed: 0, total: 0, clients: 0, unread: 0 }
 
@@ -101,7 +105,7 @@ function ClientGroup({ group, selectedId, onSelect }) {
   )
 }
 
-const Conversation = memo(function Conversation({ threadId, onBack, onStatus, onDelete }) {
+const Conversation = memo(function Conversation({ threadId, onBack, onStatus, onDelete, standalone = false }) {
   const notify = useToast()
   useEffect(() => {
     document.body.classList.add('dashboard-chat-open')
@@ -140,6 +144,16 @@ const Conversation = memo(function Conversation({ threadId, onBack, onStatus, on
     return () => { lifecycle.current += 1 }
   }, [refreshThread])
   useVisiblePolling(refreshThread, 5000)
+  useEffect(() => {
+    let timer = null
+    const changed = (event) => {
+      if (Number(event.detail?.threadId) !== Number(threadId)) return
+      clearTimeout(timer)
+      timer = setTimeout(() => refreshThread().catch(() => {}), 120)
+    }
+    window.addEventListener('elfar:support:changed', changed)
+    return () => { clearTimeout(timer); window.removeEventListener('elfar:support:changed', changed) }
+  }, [threadId, refreshThread])
   const retry = () => { refresh(); refreshThread() }
 
   const send = async () => {
@@ -243,6 +257,15 @@ const Conversation = memo(function Conversation({ threadId, onBack, onStatus, on
   }
 
   const user = thread.user || {}
+  const openPopout = () => {
+    // A stable target for a thread re-focuses its existing window. Different
+    // thread IDs never navigate or replace one another.
+    const url = `${window.location.origin}/support/chat/${thread.id}`
+    const popup = window.open(url, `elfar-support-${thread.id}`,
+      'popup=yes,width=960,height=760,resizable=yes,scrollbars=yes')
+    if (!popup) { notify('Браузер заблокував нове вікно. Дозвольте спливні вікна для цієї панелі.', 'bad'); return }
+    try { popup.opener = null; popup.focus() } catch { /* browser controls window placement */ }
+  }
   return (
     <section className="support-conversation">
       <header className="support-chat-head">
@@ -267,6 +290,11 @@ const Conversation = memo(function Conversation({ threadId, onBack, onStatus, on
           )}
         </div>
         <div className="support-chat-actions">
+          {!standalone && <button type="button" className="btn ghost small support-popout-button"
+            onClick={openPopout} title="Відкрити лише цей чат в окремому вікні браузера">
+            <span aria-hidden="true">▣</span> Окреме вікно
+          </button>}
+          {standalone && <button type="button" className="btn ghost small" onClick={onBack}>Закрити вікно</button>}
           {thread.status === 'open' ? (
             <button className="btn ghost small" onClick={closeSession} disabled={busy}>Закрити звернення</button>
           ) : (
@@ -366,6 +394,34 @@ const Conversation = memo(function Conversation({ threadId, onBack, onStatus, on
   )
 })
 
+export function SupportChatWindow() {
+  const { id } = useParams()
+  const navigate = useNavigate()
+  const threadId = Number(id)
+  const valid = Number.isSafeInteger(threadId) && threadId > 0 && threadId <= 2147483647
+  useEffect(() => {
+    if (window.opener) { try { window.opener = null } catch { /* browser policy */ } }
+    const previousTitle = document.title
+    document.title = valid ? `Звернення #${threadId} · ELFar Shop` : 'Чат · ELFar Shop'
+    return () => { document.title = previousTitle }
+  }, [threadId, valid])
+  const leave = () => {
+    window.close()
+    // Tabs opened manually cannot close themselves; keep a useful fallback.
+    if (!window.closed) navigate(valid ? `/support?thread=${threadId}` : '/support')
+  }
+  if (!valid) return <div className="support-popout-page"><div className="card">Некоректний номер звернення.</div></div>
+  return <div className="support-popout-page">
+    <RealtimeOrders />
+    <NotificationCenter headless />
+    <Conversation key={threadId} threadId={threadId} standalone onBack={leave}
+      onStatus={async () => {}} onDelete={leave} />
+    <div className="support-popout-audio-hint" aria-live="polite">
+      Звуки чатів — за налаштуваннями сповіщень панелі. Для запуску звуку браузер може вимагати першого натискання.
+    </div>
+  </div>
+}
+
 export default function Support() {
   const initialThreadId = useMemo(() => {
     const value = Number(new URLSearchParams(window.location.search).get('thread') || 0)
@@ -386,6 +442,7 @@ export default function Support() {
   const selectedRef = useRef(selectedId)
   selectedRef.current = selectedId
   const listSequence = useRef(0)
+  const chatSize = useSupportLayoutSize()
 
   const loadThreads = useCallback(async (quiet = false) => {
     const sequence = ++listSequence.current
@@ -416,6 +473,15 @@ export default function Support() {
   }, [loadThreads])
   const pollInbox = useCallback(() => loadThreads(true), [loadThreads])
   useVisiblePolling(pollInbox, 15000)
+  useEffect(() => {
+    let timer = null
+    const changed = () => {
+      clearTimeout(timer)
+      timer = setTimeout(() => pollInbox().catch(() => {}), 110)
+    }
+    window.addEventListener('elfar:support:changed', changed)
+    return () => { clearTimeout(timer); window.removeEventListener('elfar:support:changed', changed) }
+  }, [pollInbox])
   useEffect(() => {
     let timer = null
     const onRead = () => { clearTimeout(timer);timer = setTimeout(pollInbox, 200) }
@@ -511,7 +577,9 @@ export default function Support() {
         </div>
       </div>
 
-      <div className={`support-layout ${selectedId ? 'has-selection' : ''}`}>
+      <div className={`support-layout ${selectedId ? 'has-selection' : ''}`}
+        ref={chatSize.containerRef}
+        style={{ '--support-inbox-width': `${chatSize.width}px`, '--support-chat-height': `${chatSize.height}px` }}>
         <aside className="support-inbox card">
           <div className="support-filters">
             <div className="support-tabs" role="tablist" aria-label="Статус звернень">
@@ -561,6 +629,15 @@ export default function Support() {
           </div>
         </aside>
 
+        <div className="support-width-divider" role="separator" aria-label="Змінити ширину списку чатів"
+          aria-orientation="vertical" tabIndex={0}
+          aria-valuemin={240} aria-valuemax={chatSize.maxWidth} aria-valuenow={Math.min(chatSize.width, chatSize.maxWidth)}
+          title="Перетягніть для зміни ширини. Подвійне натискання — відновити."
+          onPointerDown={(event) => chatSize.beginResize(event, 'width')}
+          onPointerMove={chatSize.moveResize} onPointerUp={chatSize.endResize}
+          onPointerCancel={chatSize.endResize} onDoubleClick={() => chatSize.setWidth(DEFAULT_INBOX_WIDTH)}
+          onKeyDown={(event) => chatSize.onKeyDown(event, 'width')} />
+
         {selectedId ? <Conversation
           key={selectedId}
           threadId={selectedId}
@@ -570,6 +647,14 @@ export default function Support() {
         /> : <div className="support-conversation-empty"><Empty title="Оберіть звернення">
           Відкрийте потрібний чат, щоб побачити його окрему історію.
         </Empty></div>}
+        <div className="support-height-divider" role="separator" aria-label="Змінити висоту чатів"
+          aria-orientation="horizontal" tabIndex={0}
+          aria-valuemin={440} aria-valuemax={1100} aria-valuenow={chatSize.height}
+          title="Перетягніть для зміни висоти. Подвійне натискання — відновити."
+          onPointerDown={(event) => chatSize.beginResize(event, 'height')}
+          onPointerMove={chatSize.moveResize} onPointerUp={chatSize.endResize}
+          onPointerCancel={chatSize.endResize} onDoubleClick={() => chatSize.setHeight(DEFAULT_CHAT_HEIGHT)}
+          onKeyDown={(event) => chatSize.onKeyDown(event, 'height')} />
       </div>
     </>
   )

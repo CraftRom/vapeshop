@@ -9,7 +9,7 @@ const css = fs.readFileSync('src/styles.css', 'utf8')
 const checks = [
   ['message send appends locally', page.includes('appendSentMessage: onSent') && page.includes('onSent(result.message)')],
   ['legacy broad onSent load removed', !page.includes('onSent={load}')],
-  ['message polling is isolated', chat.includes('useVisiblePolling(refresh, 5000)')],
+  ['message polling is isolated', chat.includes("kind === 'support' ? 3000 : 5000")],
   ['message polling uses delta after_id instead of full history every cycle', chat.includes('api.orders.messages(id, false, after, null, 200)')],
   ['message receipts are periodically reconciled', chat.includes('tick.current % 6 === 0')],
   ['order polling is fallback-only behind realtime', page.includes('useVisiblePolling(refreshLocalOrder, 15000)') && page.includes("elfar:orders:changed")],

@@ -134,6 +134,7 @@ run_node filters tests/filters.mjs dashboard
 run_node new-markers tests/new-order-message-markers.mjs dashboard
 run_node catalog-ux tests/catalog-ux.mjs dashboard
 run_node support-ux tests/support-ux.mjs dashboard
+run_node support-multiwindow tests/support-multiwindow.mjs dashboard
 run_node notifications tests/notifications.mjs dashboard
 # Ці три набори існували, але в зведення не входили. Два з них уже падали
 # (закріплена версія 1.32.1), і цього ніхто не бачив.
@@ -152,6 +153,7 @@ echo
 echo "Контракти й дані"
 run domains qa/qa_domain_compatibility.py
 
+run support-realtime qa/qa_support_realtime.py
 run miniapp-support qa/qa_miniapp_support.py
 run support-migration qa/qa_support_request_migration.py
 run bot-lifecycle qa/qa_bot_lifecycle.py

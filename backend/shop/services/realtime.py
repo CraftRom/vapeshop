@@ -1,6 +1,7 @@
 """Легка внутрішня шина live-подій ELFAR.
 
-Статуси замовлень змінюються з кількох процесів: API приймає webhook
+Статуси замовлень і повідомлення підтримки змінюються з кількох процесів:
+API приймає webhook
 SalesDrive, bot виконує дії менеджера/покупця, scheduler страхує CRM read-side.
 Оновлювати браузер лише polling-ом означає гарантовану затримку. Redis уже є
 частиною production stack, тому використовуємо його як pub/sub без нового ENV.
@@ -71,6 +72,54 @@ async def _publish_local(payload: dict) -> None:
             stale.append(queue)
     for queue in stale:
         _local_subscribers.discard(queue)
+
+
+async def publish_support_changed(thread_id: int, *, direction: str = 'update') -> None:
+    """Notify staff windows after a committed support change (no user data in payload)."""
+    if not isinstance(thread_id, int) or thread_id <= 0:
+        return
+    payload = {
+        "eventId": uuid.uuid4().hex,
+        "kind": "support.changed",
+        "threadId": thread_id,
+        "direction": direction if direction in ("in", "out", "update") else "update",
+        "at": time.time(),
+    }
+    await _publish_payload(payload)
+
+
+def emit_support_changed(thread_id: int, *, direction: str = 'update') -> None:
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return
+    task = loop.create_task(publish_support_changed(int(thread_id), direction=direction))
+    def done(future: asyncio.Task) -> None:
+        try:
+            future.result()
+        except asyncio.CancelledError:
+            pass
+        except Exception:
+            log.exception("Could not publish support invalidation")
+    task.add_done_callback(done)
+
+
+async def _publish_payload(payload: dict) -> None:
+    url = _redis_url()
+    if not url:
+        await _publish_local(payload)
+        return
+    try:
+        import redis.asyncio as redis
+        client = redis.from_url(url, encoding="utf-8", decode_responses=True,
+                                socket_connect_timeout=0.4, socket_timeout=0.6, health_check_interval=30)
+        try:
+            await client.publish(CHANNEL, json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
+        finally:
+            await client.aclose()
+    except Exception as exc:
+        await _publish_local(payload)
+        log.warning("Redis realtime publish failed: %s", exc)
 
 
 async def publish_order_changed(
@@ -160,11 +209,18 @@ async def _local_events() -> AsyncIterator[dict | None]:
 
 
 async def subscribe_order_events() -> AsyncIterator[dict | None]:
-    """Події Redis; ``None`` — heartbeat. При недоступному Redis local fallback."""
+    """Події замовлень та підтримки; ``None`` — heartbeat.
+
+    Назва функції збережена для старих клієнтів, які читали лише замовлення.
+    """
     url = _redis_url()
     if not url:
-        async for item in _local_events():
-            yield item
+        local_stream = _local_events()
+        try:
+            async for item in local_stream:
+                yield item
+        finally:
+            await local_stream.aclose()
         return
 
     try:
@@ -196,7 +252,7 @@ async def subscribe_order_events() -> AsyncIterator[dict | None]:
                     payload = json.loads(raw)
                 except json.JSONDecodeError:
                     continue
-                if isinstance(payload, dict) and payload.get("orderId"):
+                if isinstance(payload, dict) and (payload.get("orderId") or payload.get("threadId")):
                     yield payload
         finally:
             try:
@@ -212,5 +268,9 @@ async def subscribe_order_events() -> AsyncIterator[dict | None]:
             exc,
             extra={"event": "realtime.subscribe.fallback"},
         )
-        async for item in _local_events():
-            yield item
+        local_stream = _local_events()
+        try:
+            async for item in local_stream:
+                yield item
+        finally:
+            await local_stream.aclose()

@@ -5196,3 +5196,159 @@ button.support-stat:hover { border-color: rgba(139, 123, 240, 0.38); }
 .chat-pdf-upload { display: inline-flex; align-items: center; justify-content: center; cursor: pointer; flex-shrink: 0; min-height: 40px; }
 .chat-pdf-upload input { display: none; }
 .chat-pdf-upload.is-uploading { opacity: .65; cursor: progress; }
+
+/* Support 1.82: one scroll owner, no overlapping/tightly clipped sessions.
+   Resize only the conversation workspace; headers and composer stay in flow. */
+.support-layout {
+  position: relative;
+  height: var(--support-chat-height, 620px);
+  min-height: 440px;
+  display: grid;
+  grid-template-columns: clamp(240px, var(--support-inbox-width, 360px), 48%) 9px minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  align-items: stretch;
+  gap: 6px;
+}
+.support-layout > .support-inbox { grid-column: 1; grid-row: 1; height: 100%; min-height: 0; }
+.support-layout > .support-conversation,
+.support-layout > .support-conversation-empty { grid-column: 3; grid-row: 1; height: 100%; min-height: 0; }
+.support-inbox .support-filters { flex: 0 0 auto; }
+.support-inbox .support-thread-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-gutter: stable;
+  overscroll-behavior: contain;
+  padding: 9px 8px 14px;
+  gap: 9px;
+}
+.support-thread-list > .support-client-group { flex: 0 0 auto; min-height: auto; }
+.support-client-group { display: block; overflow: visible; }
+.support-client-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
+.support-client-identity { min-width: 0; }
+.support-client-counters { min-width: 0; }
+.support-session-list { display: flex; flex-direction: column; gap: 0; }
+.support-session {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  min-height: 65px;
+  height: auto;
+  padding: 9px 10px;
+  align-items: center;
+  flex-shrink: 0;
+  overflow: visible;
+}
+.support-session-main {
+  display: grid;
+  justify-items: start;
+  align-content: center;
+  min-width: 0;
+  gap: 5px;
+}
+.support-session-main strong {
+  max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.support-session-side {
+  display: grid;
+  justify-items: end;
+  align-content: center;
+  gap: 4px;
+  min-width: 0;
+  max-width: 132px;
+  text-align: right;
+}
+.support-session-side .faint { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.support-session .support-state { width: max-content; min-height: 20px; padding: 1px 7px; }
+.support-session.active { box-shadow: inset 0 0 0 1px rgba(139, 123, 240, .13); }
+.support-width-divider {
+  grid-column: 2;
+  grid-row: 1;
+  cursor: col-resize;
+  min-height: 0;
+  touch-action: none;
+  border-radius: 999px;
+  position: relative;
+  outline-offset: -1px;
+}
+.support-width-divider::before {
+  content: '';
+  position: absolute;
+  top: 32%; bottom: 32%; left: 3px; width: 3px;
+  background: var(--line);
+  border-radius: 8px;
+  transition: background .15s;
+}
+.support-width-divider:hover::before,
+.support-width-divider:focus-visible::before { background: var(--violet); }
+.support-height-divider {
+  position: absolute;
+  z-index: 6;
+  left: 48%;
+  bottom: -6px;
+  width: 64px;
+  height: 13px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--panel-2);
+  box-shadow: inset 0 0 0 1px var(--line);
+  cursor: row-resize;
+  touch-action: none;
+}
+.support-height-divider::before {
+  content: '';
+  position: absolute;
+  top: 5px; left: 21px; right: 21px; height: 3px;
+  border-radius: 4px; background: var(--muted);
+}
+.support-height-divider:hover::before,
+.support-height-divider:focus-visible::before { background: var(--violet); }
+.support-width-divider:focus-visible,
+.support-height-divider:focus-visible { outline: 2px solid var(--violet); }
+.support-chat-actions { flex-wrap: wrap; justify-content: flex-end; }
+.support-popout-button { white-space: nowrap; }
+
+/* Standalone window is the SAME protected chat component, not a duplicate UI. */
+.support-popout-page {
+  box-sizing: border-box;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: 6px;
+  height: 100dvh;
+  width: 100%;
+  min-height: 0;
+  padding: 8px;
+  background: var(--bg, var(--ink));
+}
+.support-popout-page > .support-conversation,
+.support-popout-page > .support-conversation-empty { min-width: 0; min-height: 0; height: 100%; }
+.support-popout-page .support-chat-log { min-height: 0; }
+.support-popout-audio-hint { color: var(--faint); font-size: 11px; text-align: center; padding: 0 5px 2px; }
+
+@media (max-width: 760px) {
+  .support-layout { display: block; height: auto !important; min-height: 0; }
+  .support-layout > .support-inbox { height: auto; }
+  .support-layout > .support-conversation,
+  .support-layout > .support-conversation-empty { height: auto; }
+  .support-layout .support-width-divider, .support-layout .support-height-divider { display: none; }
+  .support-inbox .support-thread-list { overflow-y: visible; scrollbar-gutter: auto; }
+  .support-client-counters { flex-wrap: wrap; justify-content: end; }
+  .support-session { min-height: 62px; }
+  .support-chat-actions { display: flex; }
+  .support-chat-actions .btn { flex: 1 1 140px; }
+  .support-popout-page .support-chat-head { position: static; }
+  .support-popout-page .support-compose { position: static; }
+  .support-popout-page .support-conversation { min-height: 0; }
+  .support-popout-page .support-chat-log { min-height: 0; }
+}
+@media (max-width: 390px) {
+  .support-client-head { grid-template-columns: minmax(0, 1fr); }
+  .support-client-counters { justify-content: flex-start; }
+  .support-session-side { max-width: 96px; }
+  .support-popout-audio-hint { font-size: 10px; }
+}

@@ -71,12 +71,15 @@ async def close(
     thread = await repo.get_support_thread_for_user(user_id)
     if not thread:
         return None, False
-    return await repo.close_support_thread(
+    result = await repo.close_support_thread(
         thread.id,
         closed_by=closed_by,
         closed_by_name=closed_by_name,
         close_reason=close_reason,
     )
+    from shop.services.realtime import emit_support_changed
+    emit_support_changed(thread.id)
+    return result
 
 
 def describe_attachment(message) -> dict | None:
@@ -169,6 +172,8 @@ async def save_incoming(
         actor=author,
     )
 
+    from shop.services.realtime import emit_support_changed
+    emit_support_changed(thread.id, direction="in")
     if bot is not None:
         await _notify_staff(bot, repo, thread.id, user, text)
     return saved
@@ -186,7 +191,7 @@ async def save_automatic_reply(
     Telegram-клієнту надсилається тільки сам текст FAQ-відповіді, без бейджа,
     підпису або фрази «сформовано автоматично».
     """
-    return await repo.add_support_message_if_open({
+    saved = await repo.add_support_message_if_open({
         "thread_id": int(thread_id),
         "user_id": user.id,
         "direction": "out",
@@ -196,6 +201,10 @@ async def save_automatic_reply(
         "is_read": True,
         "is_automatic": True,
     })
+    if saved is not None:
+        from shop.services.realtime import emit_support_changed
+        emit_support_changed(int(thread_id), direction="out")
+    return saved
 
 
 async def _notify_staff(bot, repo: Repository, thread_id: int, user, text: str) -> None:

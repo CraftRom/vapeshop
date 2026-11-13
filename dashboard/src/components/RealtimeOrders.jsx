@@ -5,8 +5,8 @@ import { consumeOrderEvents, getToken } from '../api'
 const MAX_RETRY_MS = 15000
 
 /**
- * Authenticated live invalidation channel for order state. The stream carries
- * only IDs/change hints; pages still read canonical authorized API endpoints.
+ * Authenticated live invalidation channel for orders and support chats.
+ * Events contain only IDs/change hints; pages still read canonical API.
  */
 export function RealtimeOrders() {
   useEffect(() => {
@@ -36,7 +36,9 @@ export function RealtimeOrders() {
       try {
         await consumeOrderEvents((payload) => {
           window.dispatchEvent(new CustomEvent('elfar:orders:changed', { detail: payload }))
-        }, controller.signal)
+        }, controller.signal, (payload) => {
+          window.dispatchEvent(new CustomEvent('elfar:support:changed', { detail: payload }))
+        })
         retryMs = 1000
       } catch (err) {
         if (err?.name === 'AbortError' || disposed) return

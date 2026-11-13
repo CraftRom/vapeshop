@@ -46,6 +46,7 @@ const page = (load) => lazy(() => load().then((mod) => {
 const Overview = page(() => import('./pages/Overview'))
 const Orders = page(() => import('./pages/Orders'))
 const Support = page(() => import('./pages/Support'))
+const SupportChatWindow = page(() => import('./pages/Support').then(mod => ({ default: mod.SupportChatWindow })))
 const Catalog = page(() => import('./pages/Catalog'))
 const CatalogProduct = page(() => import('./pages/CatalogProduct'))
 const Customers = page(() => import('./pages/Customers'))
@@ -287,6 +288,13 @@ function Protected({ children }) {
   return getToken() ? <Shell>{children}</Shell> : <Navigate to="/login" replace />
 }
 
+function ProtectedChatWindow({ children }) {
+  // An independent authenticated document: no sidebar, page cards or global
+  // page overlays, but the same HttpOnly session and access checks apply.
+  return getToken() ? <PageBoundary><Suspense fallback={<Loading rows={2} />}>{children}</Suspense></PageBoundary>
+    : <Navigate to="/login" replace />
+}
+
 export default function App() {
   const [sessionState, setSessionState] = useState('loading')
   const [sessionError, setSessionError] = useState('')
@@ -304,6 +312,7 @@ export default function App() {
         <Route path="/" element={<Protected><Overview /></Protected>} />
         <Route path="/orders" element={<Protected><Orders /></Protected>} />
         <Route path="/support" element={<Protected><Support /></Protected>} />
+        <Route path="/support/chat/:id" element={<ProtectedChatWindow><SupportChatWindow /></ProtectedChatWindow>} />
         <Route path="/orders/:id" element={<Protected><OrderPage /></Protected>} />
         <Route path="/catalog" element={<Protected><Catalog /></Protected>} />
         <Route path="/catalog/products/:id" element={<Protected><CatalogProduct /></Protected>} />

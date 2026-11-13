@@ -89,6 +89,8 @@ async def send(thread_id: ID, data: SendIn, user=Depends(require_webapp_user), r
         bot = _bot()
         if bot is not None:
             await support_chat._notify_staff(bot, repo, thread_id, user, data.text)
+    from shop.services.realtime import emit_support_changed
+    emit_support_changed(thread_id, direction='in')
     return message_out(saved)
 
 @router.post('/threads/{thread_id}/close')
@@ -98,6 +100,8 @@ async def close(thread_id: ID, user=Depends(require_webapp_user), repo=Depends(g
         closed_by_name=user.first_name or 'Клієнт', close_reason='miniapp')
     if thread is None:
         raise HTTPException(404, 'Звернення не знайдено')
+    from shop.services.realtime import emit_support_changed
+    emit_support_changed(thread_id)
     return thread_out(thread)
 
 @router.get('/threads/{thread_id}/files/{message_id}')
@@ -133,4 +137,6 @@ async def upload_media(thread_id: ID, file: UploadFile = File(...),
     await safe_publish(repo, 'support.message', f'Нове вкладення в підтримку · #{thread_id}',
                        description, href=f'/support?thread={thread_id}', entity_id=thread_id,
                        actor=user.first_name or user.username or str(user.tg_id))
+    from shop.services.realtime import emit_support_changed
+    emit_support_changed(thread_id, direction='in')
     return {'messages': [message_out(saved)]}

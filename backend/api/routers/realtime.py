@@ -16,18 +16,19 @@ STREAM_MAX_SECONDS = 5 * 60
 def _frame(payload: dict) -> str:
     return (
         f"id: {payload.get('eventId', '')}\n"
-        f"event: order\n"
+        f"event: {'support' if payload.get('kind') == 'support.changed' else 'order'}\n"
         f"data: {json.dumps(payload, ensure_ascii=False, separators=(',', ':'))}\n\n"
     )
 
 
 @router.get("/orders")
 async def order_events(request: Request, _who: Principal = Depends(require_staff)):
-    """Авторизований live-stream інвалідації замовлень для панелі.
+    """Авторизований live-stream інвалідації замовлень та підтримки.
 
     Стрім навмисно закривається раз на 5 хвилин: reconnect повторно проходить
     require_staff, тому вимкнений менеджер не тримає старе з'єднання до кінця
-    JWT. Дані замовлення через SSE не віддаються — лише id/тип зміни.
+    JWT. Тексти повідомлень та приватні дані через SSE не віддаються:
+    тільки ID зміненого замовлення/звернення і тип події.
     """
     async def generate():
         started = time.monotonic()

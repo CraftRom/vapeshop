@@ -235,32 +235,44 @@ function useNotificationLeader() {
   const leader = useRef(false)
 
   useEffect(() => {
-    const claim = () => {
+    const release = () => {
+      try {
+        const current = JSON.parse(localStorage.getItem(LEADER_KEY) || 'null')
+        if (current?.id === id.current) localStorage.removeItem(LEADER_KEY)
+      } catch { /* ignore */ }
+      leader.current = false
+    }
+    const claim = (preferFocused = false) => {
+      if (document.hidden) { release(); return }
       const now = Date.now()
       let current = null
       try { current = JSON.parse(localStorage.getItem(LEADER_KEY) || 'null') } catch { current = null }
-      if (!current || current.expires < now || current.id === id.current) {
-        localStorage.setItem(LEADER_KEY, JSON.stringify({ id: id.current, expires: now + LEADER_TTL }))
+      if (!current || current.expires < now || current.id === id.current || (preferFocused && document.hasFocus())) {
+        try { localStorage.setItem(LEADER_KEY, JSON.stringify({ id: id.current, expires: now + LEADER_TTL })) }
+        catch { /* sound is best-effort */ }
         leader.current = true
       } else {
         leader.current = false
       }
     }
-    claim()
-    const timer = setInterval(claim, 5000)
-    const onStorage = (event) => event.key === LEADER_KEY && claim()
+    claim(document.hasFocus())
+    const timer = setInterval(() => claim(), 5000)
+    const onStorage = (event) => { if (event.key === LEADER_KEY) claim() }
+    const onFocus = () => claim(true)
+    const onVisibility = () => document.hidden ? release() : claim(document.hasFocus())
     window.addEventListener('storage', onStorage)
+    window.addEventListener('focus', onFocus)
+    document.addEventListener('visibilitychange', onVisibility)
     return () => {
       clearInterval(timer)
       window.removeEventListener('storage', onStorage)
-      try {
-        const current = JSON.parse(localStorage.getItem(LEADER_KEY) || 'null')
-        if (current?.id === id.current) localStorage.removeItem(LEADER_KEY)
-      } catch { /* ignore */ }
+      window.removeEventListener('focus', onFocus)
+      document.removeEventListener('visibilitychange', onVisibility)
+      release()
     }
   }, [])
 
-  return () => leader.current
+  return useCallback(() => leader.current, [])
 }
 
 async function registerWorker() {
@@ -412,7 +424,7 @@ function NotificationToastStack({ items, docked, expanded, onHoverExpand, onPinE
   )
 }
 
-export function NotificationCenter() {
+export function NotificationCenter({ headless = false }) {
   const navigate = useNavigate()
   const notify = useToast()
   const isLeader = useNotificationLeader()
@@ -436,6 +448,7 @@ export function NotificationCenter() {
   const initialized = useRef(false)
   const latestId = useRef(null)
   const unreadRef = useRef(0)
+  const recentSupportSounds = useRef(new Map())
   const worker = useRef(null)
   const polling = useRef(false)
   const centerRef = useRef(null)
@@ -552,7 +565,17 @@ export function NotificationCenter() {
     const visible = showToastBatch(fresh)
     for (const item of [...visible].sort((a, b) => a.id - b.id)) {
       const tone = (KIND[item.kind] || KIND.system).tone
-      if (settings.sound) playTone(tone, settings.soundVolume)
+      // An active chat may have already read an inbound message before the
+      // notification poll completes. Its Redis/SSE hint has played the same
+      // sound; do not play it twice when the persisted notification arrives.
+      const recentAt = recentSupportSounds.current.get(Number(item.entity_id)) || 0
+      const alreadyPlayed = item.kind === 'support.message' && Date.now() - recentAt < 3500
+      if (settings.sound && !alreadyPlayed) {
+        playTone(tone, settings.soundVolume)
+        if (item.kind === 'support.message' && Number(item.entity_id) > 0) {
+          recentSupportSounds.current.set(Number(item.entity_id), Date.now())
+        }
+      }
       if (settings.browser && 'Notification' in window && Notification.permission === 'granted') {
         // Системний popup корисний насамперед, коли панель не перед очима.
         if (document.hidden || !document.hasFocus()) {
@@ -710,6 +733,37 @@ export function NotificationCenter() {
     }
   }, [poll])
 
+  // The server publishes support invalidation as soon as the message is saved.
+  // Poll the notification source, which remains the single owner of sounds,
+  // rather than playing a tone in every independent chat window.
+  useEffect(() => {
+    let timer = null
+    const changed = (event) => {
+      if (event.detail?.kind !== 'support.changed') return
+      // Only the elected visible window plays the immediate inbound tone.
+      // The persisted notification still owns its browser popup and history.
+      if (event.detail.direction === 'in' && isLeader() && settings.sound) {
+        const id = Number(event.detail.threadId)
+        const recent = recentSupportSounds.current.get(id) || 0
+        if (id > 0 && !recentSupportSounds.current.has(`event:${event.detail.eventId}`)) {
+          recentSupportSounds.current.set(id, Date.now())
+          recentSupportSounds.current.set(`event:${event.detail.eventId}`, Date.now())
+          if (recentSupportSounds.current.size > 100) {
+            const cutoff = Date.now() - 10000
+            for (const [key, timestamp] of recentSupportSounds.current) {
+              if (timestamp < cutoff) recentSupportSounds.current.delete(key)
+            }
+          }
+          if (Date.now() - recent >= 3500) playTone('support', settings.soundVolume)
+        }
+      }
+      clearTimeout(timer)
+      timer = setTimeout(() => poll().catch(() => {}), 200)
+    }
+    window.addEventListener('elfar:support:changed', changed)
+    return () => { clearTimeout(timer); window.removeEventListener('elfar:support:changed', changed) }
+  }, [poll, isLeader, settings.sound, settings.soundVolume])
+
   useEffect(() => {
     if (!open) return
     // При відкритті беремо повний список: інша вкладка могла прочитати події.
@@ -829,6 +883,10 @@ export function NotificationCenter() {
     ...item,
     meta: KIND[item.kind] || KIND.system,
   })), [items])
+
+  // Pop-out windows retain the cross-window sound/notification coordinator,
+  // but must not render a second bell, toast dock, or unrelated UI.
+  if (headless) return null
 
   return (
     <div className="notification-center" ref={centerRef}>
