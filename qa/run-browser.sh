@@ -28,12 +28,15 @@ elif [[ "${QA_BROWSER_SUITE:-all}" == "cart-recovery" ]]; then
   node qa/browser-cart-recovery.mjs
 elif [[ "${QA_BROWSER_SUITE:-all}" == "miniapp-support" ]]; then
   node qa/browser-miniapp-support.mjs
+  node qa/browser-chat-video.mjs
 elif [[ "${QA_BROWSER_SUITE:-all}" == "chat-drafts" ]]; then
   node qa/browser-chat-drafts.mjs
 elif [[ "${QA_BROWSER_SUITE:-all}" == "dashboard-chat" ]]; then
   node qa/browser-dashboard-chat.mjs
 elif [[ "${QA_BROWSER_SUITE:-all}" == "ux" ]]; then
   node qa/browser-ux-stage6.mjs
+elif [[ "${QA_BROWSER_SUITE:-all}" == "chat-video" ]]; then
+  node qa/browser-chat-video.mjs
 elif [[ "${QA_BROWSER_SUITE:-all}" == "chat" ]]; then
   node qa/browser-after-sales-chat.mjs
 elif [[ "${QA_BROWSER_SUITE:-all}" == "broadcasts" ]]; then
@@ -60,6 +63,7 @@ else
   node qa/browser-cart-checkout-guard.mjs
   node qa/browser-cart-recovery.mjs
   node qa/browser-miniapp-support.mjs
+  node qa/browser-chat-video.mjs
   node qa/browser-chat-drafts.mjs
   node qa/browser-dashboard-chat.mjs
   node qa/browser-ux-stage6.mjs

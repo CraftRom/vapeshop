@@ -89,8 +89,19 @@ def describe_attachment(message) -> dict | None:
     if getattr(message, "document", None):
         return {
             "file_id": message.document.file_id,
-            "file_kind": "document",
-            "file_name": message.document.file_name or "Документ",
+            "file_kind": (
+                "video" if (
+                    (getattr(message.document, "mime_type", None) or "").lower() in
+                    ("video/mp4", "video/webm", "video/quicktime")
+                    or (message.document.file_name or "").lower().endswith((".mp4", ".webm", ".mov", ".m4v"))
+                ) else "document"
+            ),
+            "file_name": (
+                ((message.document.file_name or "Документ") + ".pdf")
+                if (getattr(message.document, "mime_type", None) or "").lower() == "application/pdf"
+                and not (message.document.file_name or "").lower().endswith(".pdf")
+                else (message.document.file_name or "Документ")
+            )[:255],
         }
     if getattr(message, "video", None):
         return {
@@ -98,6 +109,15 @@ def describe_attachment(message) -> dict | None:
             "file_kind": "video",
             "file_name": "Відео",
         }
+    if getattr(message, "video_note", None):
+        return {"file_id": message.video_note.file_id, "file_kind": "video",
+                "file_name": "Відеоповідомлення.mp4"}
+    if getattr(message, "animation", None):
+        animation = message.animation
+        is_video = (getattr(animation, "mime_type", None) or "").lower() == "video/mp4"
+        return {"file_id": animation.file_id,
+                "file_kind": "video" if is_video else "document",
+                "file_name": getattr(animation, "file_name", None) or ("Анімація.mp4" if is_video else "Анімація.gif")}
     if getattr(message, "voice", None):
         return {
             "file_id": message.voice.file_id,

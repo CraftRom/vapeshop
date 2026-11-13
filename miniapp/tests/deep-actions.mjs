@@ -48,7 +48,7 @@ check(src.includes('await flushCart()') && src.indexOf('await flushCart()') < sr
 check(checkout.includes('const submittingRef = useRef(false)') && checkout.includes('if (submittingRef.current) return'), 'double-click checkout блокується синхронним ref')
 check(checkout.includes('checkout_key: checkoutKey.current'), 'checkout має idempotency key')
 const successBlock = checkout.slice(checkout.indexOf('const order = await api.checkout(payload)'), checkout.indexOf('} catch (err)', checkout.indexOf('const order = await api.checkout(payload)')))
-check(successBlock.includes('onDone({ ...order, currency: checkoutCurrency })') && !successBlock.includes('await alert(') && !successBlock.includes('close()'), 'успішний checkout передає результат у постійний екран без закриття Mini App')
+check((/onDone\(\{\s*\.\.\.order,\s*currency:\s*checkoutCurrency\b/.test(successBlock)) && !successBlock.includes('await alert(') && !successBlock.includes('close()'), 'успішний checkout передає результат у постійний екран без закриття Mini App')
 check(checkout.includes('api.checkoutQuote(') && checkout.includes('quote_token: quote.quote_token') && !checkout.includes('const bonusCap ='), 'UI бере серверний підсумок і підтверджує його token')
 check(api.includes("const maxAttempts = method === 'GET' ? GET_RETRIES + 1 : 1"), 'POST checkout не ретраїться автоматично')
 

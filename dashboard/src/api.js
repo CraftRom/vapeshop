@@ -133,6 +133,23 @@ export async function consumeOrderEvents(onOrder, signal) {
   }
 }
 
+async function uploadChatPdf(path, file) {
+  if (!file || !(file.type === 'application/pdf' || file.type === 'application/x-pdf' || /\.pdf$/i.test(file.name))) {
+    throw new Error('Оберіть PDF-документ')
+  }
+  if (file.size > 15 * 1024 * 1024) throw new Error('PDF має бути до 15 МБ')
+  const body = new FormData()
+  body.append('file', file)
+  // Browser sets multipart boundary; authorizedFetch adds cookies + CSRF.
+  const response = await authorizedFetch(new URL(`${BASE}${path}`, window.location.origin), { method: 'POST', body }, 120000)
+  if (!response.ok) {
+    let detail = `Не вдалося надіслати PDF (HTTP ${response.status})`
+    try { detail = (await response.json()).detail || detail } catch { /* network or proxy body */ }
+    throw new Error(typeof detail === 'string' ? detail : 'Помилка завантаження PDF')
+  }
+  return response.json()
+}
+
 async function request(path, { method = 'GET', body, params } = {}) {
   const url = new URL(`${BASE}${path}`, window.location.origin)
   if (params) {
@@ -286,6 +303,7 @@ export const api = {
     markMessagesRead: (id, messageIds) => request(`/orders/${id}/messages/read`, { method: 'POST', body: { message_ids: messageIds } }),
     sendMessage: (id, text) =>
       request(`/orders/${id}/messages`, { method: 'POST', body: { text } }),
+    sendPdf: (id, file) => uploadChatPdf(`/orders/${id}/messages/pdf`, file),
     unread: () => request('/orders/unread/counts'),
     // Накладна й CRM — ті самі поля замовлення, звідки б не прийшла зміна
     waybillReadiness: (id) => request(`/orders/${id}/waybill/readiness`),
@@ -323,6 +341,7 @@ export const api = {
     markMessagesRead: (id, messageIds) => request(`/support/${id}/messages/read`, { method: 'POST', body: { message_ids: messageIds } }),
     send: (id, text) =>
       request(`/support/${id}/messages`, { method: 'POST', body: { text } }),
+    sendPdf: (id, file) => uploadChatPdf(`/support/${id}/messages/pdf`, file),
     setStatus: (id, status) =>
       request(`/support/${id}`, { method: 'PATCH', body: { status } }),
     remove: (id) => request(`/support/${id}`, { method: 'DELETE' }),

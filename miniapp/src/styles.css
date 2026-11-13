@@ -63,7 +63,10 @@
 
   --bar-height: 72px;
   --content-max: 720px;
-  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  /* Telegram exposes its own safe area separately from browser env().
+     Use the maximum, never add the insets (which would double padding). */
+  --safe-top: max(env(safe-area-inset-top, 0px), var(--tg-content-safe-area-inset-top, 0px));
+  --safe-bottom: max(env(safe-area-inset-bottom, 0px), var(--tg-safe-area-inset-bottom, 0px), var(--tg-content-safe-area-inset-bottom, 0px));
 
   /* Каже браузеру, що палітра темна. Без цього iOS малює власні елементи —
      автозаповнення, календар, випадні списки — за світлою схемою: чорний
@@ -516,7 +519,7 @@ input, textarea, select {
   justify-content: space-between;
   gap: var(--s3);
   min-height: 48px;
-  padding: calc(var(--s1) + env(safe-area-inset-top, 0px)) var(--page-x) 0;
+  padding: calc(var(--s1) + var(--safe-top)) var(--page-x) 0;
   background: var(--tg-bg);
 }
 
@@ -1256,7 +1259,8 @@ input, textarea, select {
   transition: transform 0.22s cubic-bezier(0.2, 0.8, 0.3, 1);
 }
 
-.bar[hidden] { display: flex; transform: translateY(110%); }
+/* Respect the HTML hidden attribute: offscreen focusable checkout is a bug. */
+.bar[hidden] { display: none; }
 
 .bar-info { flex: 1; min-width: 0; }
 
@@ -2210,3 +2214,40 @@ input, textarea, select {
 .courier-row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .courier-row .field{min-width:0}
 @media(max-width:360px){.courier-row{grid-template-columns:1fr}}
+
+/* Пояснення для післяплати в поштоматі: не помилка, а умова оплати.
+   Однаково читається у світлій і темній темах Telegram. */
+.postomat-cod-hint {
+  margin: 0 var(--page-x) var(--s3);
+  padding: var(--s2) var(--s3);
+  border-inline-start: 3px solid var(--accent);
+  border-radius: var(--radius-xs);
+  background: var(--accent-soft);
+  color: var(--tg-text);
+  line-height: 1.5;
+}
+
+/* Shared photo/video/voice attachments in order and support rooms. */
+.chat-media-action {
+  display: flex; align-items: center; gap: 10px; max-width: 100%; min-height: 44px;
+  margin-top: 6px; padding: 9px 12px; border: 1px solid var(--line);
+  border-radius: var(--radius-sm); background: var(--well); color: var(--tg-text);
+  font-size: 14px; text-align: left; overflow-wrap: anywhere; cursor: pointer;
+}
+.chat-media-action:disabled { opacity: .75; cursor: progress; }
+.chat-media-action span { font-size: 20px; color: var(--accent); }
+.chat-media-player { margin-top: 6px; max-width: 100%; }
+.chat-video { display: block; width: min(100%, 360px); max-height: 52dvh; border-radius: var(--radius-sm); background: #101010; }
+.chat-audio { margin-top: 6px; width: min(100%, 320px); }
+.chat-media-download { display: inline-block; margin-top: 7px; font-size: 13px; overflow-wrap: anywhere; color: var(--accent); }
+.chat-media-state { display: grid; justify-items: start; gap: 5px; font-size: 13px; overflow-wrap: anywhere; }
+.chat-upload-state { margin: 0 12px; padding: 6px; }
+
+.chat-codec-hint { font-size: 12px; max-width: 340px; margin: 6px 0 0; }
+
+/* Safe opt-in PDF viewer: browser PDF plugin varies by Telegram WebView. */
+.chat-pdf { min-width: 0; max-width: 100%; margin-top: 8px; }
+.chat-pdf-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px; }
+.chat-pdf-actions .chat-media-download { margin: 0; }
+.chat-pdf-frame { display: block; width: min(100%, 680px); height: min(65dvh, 640px); min-height: 240px; margin-top: 9px; border: 1px solid var(--line, #7775); border-radius: 10px; background: #fff; }
+.chat-pdf-hint { font-size: 12px; line-height: 1.4; margin: 8px 0 0; overflow-wrap: anywhere; }

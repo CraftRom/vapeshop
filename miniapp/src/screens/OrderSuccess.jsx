@@ -13,7 +13,13 @@ export function OrderSuccess({ order, onCatalog, onOrders, onChat }) {
       <div><dt>До сплати</dt><dd className="num">{money(order.total)} {order.currency}</dd></div>
       <div><dt>Спосіб оплати</dt><dd>{order.payment_method === 'cod' ? 'Накладений платіж' : 'Переказ на картку'}</dd></div>
     </dl>
-    <p className="hint">{order.payment_method === 'cod' ? 'Оплата при отриманні. Доставку та комісію перевізника сплачуєте окремо.' : Number(order.total) > 0 ? 'Менеджер надішле реквізити у чат. Після оплати надішліть квитанцію боту як фото або документ.' : 'Додаткова оплата товарів не потрібна. Умови доставки уточнить менеджер.'}</p>
+    <p className="hint">{order.payment_method === 'cod'
+      ? order.postomat_cod
+        ? 'Для отримання з поштомата сплатіть післяплату онлайн у застосунку Нової пошти або NovaPay до відкриття комірки. Готівкою на місці оплатити неможливо. Доставку та комісію перевізника сплачуєте окремо.'
+        : 'Оплата при отриманні. Доставку та комісію перевізника сплачуєте окремо.'
+      : Number(order.total) > 0
+        ? 'Менеджер надішле реквізити у чат. Після оплати надішліть квитанцію боту як фото або документ.'
+        : 'Додаткова оплата товарів не потрібна. Умови доставки уточнить менеджер.'}</p>
     <div className="actions order-success-actions">
       <button className="primary" onClick={onChat}>Чат замовлення</button>
       <button className="secondary" onClick={onOrders}>Мої замовлення</button>

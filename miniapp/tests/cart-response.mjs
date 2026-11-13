@@ -71,7 +71,7 @@ console.log('\n--- гроші показуються лише серверні -
 // списується інша.
 check(/<Cart config=\{config\} cart=\{cart\}/.test(app),
       'кошик читає серверний стан, а не очікуваний')
-check(/<Checkout\s+config=\{config\}\s+cart=\{cart\}/.test(app),
+check(/config=\{config\}\s+cart=\{cart\}/.test(block(app, '<Checkout', '/>')),
       'оформлення читає серверний стан')
 check(app.includes('await flushCart()'),
       'перед оформленням незбережене дописується — інакше останнє '

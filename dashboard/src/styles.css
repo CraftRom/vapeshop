@@ -5179,3 +5179,20 @@ button.support-stat:hover { border-color: rgba(139, 123, 240, 0.38); }
 /* Support status occupies one grid row even when a read receipt fails. */
 .support-sync-state { padding:0 12px;min-width:0; }
 .support-sync-state .chat-sync-status { flex-wrap:wrap;padding-block:3px; }
+
+/* Playback is opt-in in both order and support threads. */
+.chat-file-action { margin-top: 7px; min-height: 36px; white-space: normal; overflow-wrap: anywhere; text-align: left; }
+.chat-video-wrapper { max-width: 100%; margin-top: 6px; }
+.chat-video-inline { width: min(100%, 420px); max-height: 44dvh; background: #101010; object-fit: contain; }
+.chat-video-save { display: inline-block; margin-top: 8px; font-size: 12px; }
+.chat-file-error { display: grid; justify-items: start; gap: 6px; margin-top: 6px; font-size: 12px; }
+
+/* Private PDF attachments in both staff chats. No third-party viewer. */
+.chat-pdf { margin-top: 8px; max-width: 100%; min-width: 0; }
+.chat-pdf-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px; }
+.chat-pdf-actions .chat-video-save { margin: 0; }
+.chat-pdf-frame { display: block; width: min(100%, 680px); height: min(65dvh, 640px); min-height: 240px; margin-top: 10px; border: 1px solid var(--border, #7775); border-radius: 10px; background: #fff; }
+.chat-pdf-hint { margin: 7px 0 0; font-size: 12px; }
+.chat-pdf-upload { display: inline-flex; align-items: center; justify-content: center; cursor: pointer; flex-shrink: 0; min-height: 40px; }
+.chat-pdf-upload input { display: none; }
+.chat-pdf-upload.is-uploading { opacity: .65; cursor: progress; }

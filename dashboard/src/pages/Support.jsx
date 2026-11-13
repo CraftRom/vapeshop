@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { api, authorizedFetch } from '../api'
+import { api } from '../api'
+import { ChatAttachment } from '../components/ChatAttachment'
 import { Empty, ErrorBar, Loading, dateTime, useToast } from '../components/ui'
 import { useVisiblePolling } from '../components/useVisiblePolling'
 import { useChatMessages } from '../components/useChatMessages'
@@ -8,10 +9,6 @@ import { useChatViewport } from '../components/useChatViewport'
 import { useChatDraft } from '../components/useChatDraft'
 import { useSupportRead } from '../components/useSupportRead'
 import { ChatDraftStatus, ChatLatest, ChatStatus } from '../components/ChatStatus'
-
-const FILE_LABEL = {
-  photo: 'Фото', document: 'Документ', video: 'Відео', voice: 'Голосове',
-}
 
 const EMPTY_STATS = { open: 0, closed: 0, total: 0, clients: 0, unread: 0 }
 
@@ -51,46 +48,7 @@ function closeDescription(thread, compact = false) {
 }
 
 function Attachment({ threadId, message }) {
-  const [url, setUrl] = useState(null)
-  const [failed, setFailed] = useState(false)
-
-  useEffect(() => {
-    let revoked = null
-    let cancelled = false
-    authorizedFetch(api.support.fileUrl(threadId, message.id))
-      .then((r) => (r.ok ? r.blob() : Promise.reject(new Error(String(r.status)))))
-      .then((blob) => {
-        if (cancelled) return
-        revoked = URL.createObjectURL(blob)
-        setUrl(revoked)
-      })
-      .catch((err) => !cancelled && setFailed(err.message === '410' ? 'gone' : true))
-    return () => {
-      cancelled = true
-      if (revoked) URL.revokeObjectURL(revoked)
-    }
-  }, [threadId, message.id])
-
-  const label = FILE_LABEL[message.file_kind] || 'Файл'
-  if (failed) {
-    return <div className="faint support-file-state">{failed === 'gone' ? `${label} більше недоступний` : `${label} не завантажився`}</div>
-  }
-  if (!url) return <div className="faint support-file-state">{label} завантажується…</div>
-
-  if (message.file_kind === 'photo') {
-    return (
-      <a href={url} target="_blank" rel="noreferrer">
-        <img className="bubble-photo" src={url} alt={label} />
-      </a>
-    )
-  }
-  if (message.file_kind === 'voice') return <audio controls src={url} className="support-media" />
-  if (message.file_kind === 'video') return <video controls src={url} className="bubble-photo" />
-  return (
-    <a href={url} download={message.file_name || 'file'} className="btn ghost small support-file-link">
-      ↓ {message.file_name || label}
-    </a>
-  )
+  return <ChatAttachment fileUrl={api.support.fileUrl(threadId, message.id)} message={message} />
 }
 
 function SessionRow({ thread, active, onClick }) {
@@ -153,6 +111,7 @@ const Conversation = memo(function Conversation({ threadId, onBack, onStatus, on
   const [threadError, setThreadError] = useState('')
   const [text, setText, draft] = useChatDraft('support', threadId)
   const [busy, setBusy] = useState(false)
+  const [uploadingPdf, setUploadingPdf] = useState(false)
   const actionRef = useRef(false)
   const lifecycle = useRef(0)
   const metadataRequest = useRef(null)
@@ -203,6 +162,27 @@ const Conversation = memo(function Conversation({ threadId, onBack, onStatus, on
     } finally {
       actionRef.current = false
       if (owner === lifecycle.current) setBusy(false)
+    }
+  }
+
+  const attachPdf = async (event) => {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file || !thread || thread.status !== 'open' || actionRef.current) return
+    const owner = lifecycle.current
+    actionRef.current = true
+    setUploadingPdf(true)
+    try {
+      const result = await api.support.sendPdf(thread.id, file)
+      if (owner !== lifecycle.current) return
+      viewport.jumpToLatest()
+      appendSentMessage(result.message)
+      refresh()
+    } catch (err) {
+      if (owner === lifecycle.current) notify(err.message, 'bad')
+    } finally {
+      actionRef.current = false
+      if (owner === lifecycle.current) setUploadingPdf(false)
     }
   }
 
@@ -369,7 +349,11 @@ const Conversation = memo(function Conversation({ threadId, onBack, onStatus, on
                   }
                 }}
               />
-              <button className="btn" onClick={send} disabled={busy || !text.trim()}>
+              <label className={`btn ghost small chat-pdf-upload${uploadingPdf ? ' is-uploading' : ''}`} title="Надіслати PDF клієнту (до 15 МБ)">
+                {uploadingPdf ? 'Завантаження…' : '📎 PDF'}
+                <input type="file" accept="application/pdf,.pdf" onChange={attachPdf} disabled={busy || uploadingPdf} />
+              </label>
+              <button className="btn" onClick={send} disabled={busy || uploadingPdf || !text.trim()}>
                 {busy ? 'Надсилаємо…' : 'Надіслати'}
               </button>
             </div>

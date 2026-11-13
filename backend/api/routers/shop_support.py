@@ -1,5 +1,5 @@
 """Customer-owned general support; the same threads as Telegram /ask and CRM."""
-from fastapi import APIRouter, Depends, HTTPException, Query, Path
+from fastapi import APIRouter, Depends, HTTPException, Query, Path, File, UploadFile
 from typing import Annotated
 from html.parser import HTMLParser
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -106,3 +106,31 @@ async def file(thread_id: ID, message_id: ID, user=Depends(require_webapp_user),
     # Reuse Telegram file proxy and its retention/error behavior.
     from api.routers.support import support_file
     return await support_file(thread_id, message_id, repo)
+
+
+@router.post('/threads/{thread_id}/media', status_code=201)
+async def upload_media(thread_id: ID, file: UploadFile = File(...),
+                       user=Depends(require_webapp_user), repo=Depends(get_repo)):
+    """Private support MP4/photo/PDF; no writes to a closed/foreign thread."""
+    thread = await own(repo, user, thread_id)
+    if thread.status != 'open':
+        raise HTTPException(409, 'Звернення завершено. Створіть нове.')
+    from api.chat_media import send_media_to_staff
+    from api.routers.support import _bot
+    bot = _bot()
+    if bot is None:
+        raise HTTPException(503, 'Бот недоступний — вкладення не збережено')
+    attachment = await send_media_to_staff(bot, repo, file, f'🆘 Вкладення до звернення №{thread_id}')
+    description = {'video': 'Надіслав відео', 'document': 'Надіслав PDF'}.get(attachment['file_kind'], 'Надіслав фото')
+    saved = await repo.add_support_message_if_open({
+        'thread_id': thread_id, 'user_id': user.id, 'direction': 'in',
+        'author': user.first_name or user.username or f'id{user.tg_id}',
+        'text': description, 'tg_message_id': None, 'is_read': False,
+        **attachment,
+    })
+    if saved is None:
+        raise HTTPException(409, 'Звернення завершено під час завантаження. Створіть нове.')
+    await safe_publish(repo, 'support.message', f'Нове вкладення в підтримку · #{thread_id}',
+                       description, href=f'/support?thread={thread_id}', entity_id=thread_id,
+                       actor=user.first_name or user.username or str(user.tg_id))
+    return {'messages': [message_out(saved)]}

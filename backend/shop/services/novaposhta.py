@@ -18,6 +18,7 @@ import hashlib
 from urllib.parse import urljoin, urlsplit
 from weakref import WeakValueDictionary
 from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
 import httpx
 
@@ -74,8 +75,8 @@ class Price:
     налаштувань — тож число показуємо як орієнтир, а не як ціну.
     """
 
-    cost: int
-    redelivery: int
+    cost: float
+    redelivery: float
     weight: float
 
 
@@ -341,6 +342,9 @@ async def warehouses(api_key: str, city_ref: str, settlement_ref: str = "",
                 # Provider filtering is essential in cities with thousands of points.
                 # Never silently truncate the unfiltered result before searching.
                 best_rows = []
+                # Pagination belongs to the provider result, not to our post-filter.
+                # A full provider page may contain fewer locally matched items.
+                provider_has_more = False
                 last_error = None
                 for ref_props in base_refs:
                     variants = [{"FindByString": query}] if query else [{}]
@@ -355,6 +359,7 @@ async def warehouses(api_key: str, city_ref: str, settlement_ref: str = "",
                             # Do not try another query kind after transport failure;
                             # keep the provider failure visible to the buyer.
                             break
+                        provider_has_more = provider_has_more or len(rows) >= limit
                         if query:
                             needle = query.casefold()
                             rows = [w for w in rows if (
@@ -376,7 +381,7 @@ async def warehouses(api_key: str, city_ref: str, settlement_ref: str = "",
                     found = [w for row in best_rows if (w := _warehouse_row(row)) is not None]
                     unique = {w.ref: w for w in found}
                     items = sorted(unique.values(), key=lambda w: (w.number == 0, w.number, w.label))
-                    result = {"items": items, "has_more": len(best_rows) >= limit}
+                    result = {"items": items, "has_more": provider_has_more}
                     _store(cache_key, result)
     return result if return_meta else result["items"]
 
@@ -435,35 +440,48 @@ async def city_ref_by_name(api_key: str, name: str) -> str:
     return found[0].ref or found[0].settlement_ref if found else ""
 
 
+def _money_amount(value, *, minimum: str = "0") -> Decimal:
+    """Finite, nonnegative amount with two decimal places for Nova Poshta JSON.
+
+    Do not truncate to whole hryvnias: declared value, COD, provider prices and
+    our cache key must agree even if they differ only by a kopeck.
+    """
+    try:
+        amount = Decimal(str(value)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        if not amount.is_finite() or amount < 0:
+            raise InvalidOperation
+    except (InvalidOperation, ValueError, TypeError):
+        raise NovaPoshtaError("Некоректна сума для розрахунку доставки") from None
+    return max(amount, Decimal(minimum))
+
+
 async def document_price(api_key: str, sender_ref: str, recipient_ref: str,
                          to_door: bool, declared: float, weight: float,
                          cash_on_delivery: float = 0) -> Price:
-    """Скільки перевізник візьме за таку посилку.
+    """Preliminary delivery quote using the same parcel cargo type as the waybill.
 
-    Оголошена вартість впливає на ціну — страхування рахується від неї,
-    тож підставляємо суму замовлення, а не нуль.
+    The real order may apply bonuses/promos later. This is an estimate, not a
+    promise about the carrier's final tariff or acceptance of COD for a parcel.
     """
+    declared_value = _money_amount(declared, minimum="1")
+    cod = _money_amount(cash_on_delivery)
     props = {
         "CitySender": sender_ref,
         "CityRecipient": recipient_ref,
         "ServiceType": "WarehouseDoors" if to_door else "WarehouseWarehouse",
-        "CargoType": "Cargo",
-        # Перевізник не приймає нульову оголошену вартість, а нуль сюди
-        # потрапляє легко: кошик спорожнили в іншій вкладці, знижка
-        # зʼїла суму. Одна гривня — достатньо, щоб розрахунок пройшов.
-        "Cost": str(max(int(declared), 1)),
+        # The generated waybill is CargoType=Parcel, not Cargo.
+        "CargoType": "Parcel",
+        "Cost": format(declared_value.normalize(), "f"),
         "Weight": str(weight),
         "SeatsAmount": "1",
     }
-    if cash_on_delivery > 0:
-        # Комісія за переказ грошей назад продавцеві. Її платить покупець
-        # окремо від доставки, і не показати її означає здивувати людину
-        # на відділенні.
+    if cod > 0:
         props["RedeliveryCalculate"] = {
-            "CargoType": "Money", "Amount": str(int(cash_on_delivery)),
+            "CargoType": "Money", "Amount": format(cod.normalize(), "f"),
         }
 
-    key = f"{_scope(api_key)}:price:{sender_ref}:{recipient_ref}:{int(to_door)}:{int(declared)}:{weight}:{int(cash_on_delivery)}"
+    key = (f"{_scope(api_key)}:price:{sender_ref}:{recipient_ref}:"
+           f"{int(to_door)}:{declared_value}:{weight}:{cod}")
     hit = _cached(key)
     if hit is not None:
         return hit[0]
@@ -473,9 +491,11 @@ async def document_price(api_key: str, sender_ref: str, recipient_ref: str,
         raise NovaPoshtaError("Перевізник не повернув розрахунку")
 
     row = rows[0]
+    # Providers may return decimal price strings such as "82.50". Using int()
+    # would silently turn them into zero (or drop the fraction).
     price = Price(
-        cost=_int(row.get("Cost")),
-        redelivery=_int(row.get("CostRedelivery")),
+        cost=float(_money_amount(row.get("Cost"))),
+        redelivery=float(_money_amount(row.get("CostRedelivery") or 0)),
         weight=weight,
     )
     _store(key, [price])

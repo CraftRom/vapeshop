@@ -23,6 +23,13 @@ export function Profile({ config, profile, profileFailed, orders, ordersState, o
   const [cancelling, setCancelling] = useState(null)
   const cancellingRef = useRef(null)
   const [cancelError, setCancelError] = useState('')
+  const [orderFilter, setOrderFilter] = useState('all')
+  const closedStatus = new Set(['done', 'completed', 'delivered', 'cancelled', 'returned'])
+  const visibleOrders = (orders || []).filter((order) => {
+    if (orderFilter === 'all') return true
+    const closed = closedStatus.has(String(order.status || '').toLowerCase())
+    return orderFilter === 'closed' ? closed : !closed
+  })
 
   const cancel = async (order) => {
     // Ref ставимо ДО confirm(): два дуже швидкі тапи інакше відкривають
@@ -170,6 +177,11 @@ export function Profile({ config, profile, profileFailed, orders, ordersState, o
       {cancelError && <div className="banner warn">{cancelError}</div>}
 
       <ResourceStatus resource={ordersState} label="Історія замовлень" />
+      {orders && orders.length > 0 && <div className="profile-order-filters" role="group" aria-label="Фільтр історії замовлень">
+        {[
+          ['all', 'Усі'], ['active', 'У роботі'], ['closed', 'Завершені'],
+        ].map(([id, label]) => <button key={id} type="button" aria-pressed={orderFilter === id} onClick={() => setOrderFilter(id)}>{label}</button>)}
+      </div>}
       {orders === null ? (
         null
       ) : orders.length === 0 && ordersState.error ? null : orders.length === 0 ? (
@@ -177,8 +189,10 @@ export function Profile({ config, profile, profileFailed, orders, ordersState, o
           <h2>Історія замовлень поки порожня</h2>
           <p>Після першого оформлення покупки записи зʼявляться тут автоматично.</p>
         </div>
+      ) : visibleOrders.length === 0 ? (
+        <p className="order-list-empty" role="status">На завантажених сторінках немає замовлень цього типу. {ordersState.data?.has_more ? 'Завантажте наступні сторінки або змініть фільтр.' : 'Спробуйте інший фільтр.'}</p>
       ) : (
-        orders.map((o) => (
+        visibleOrders.map((o) => (
           <div className="order" key={o.id}>
             <div className="order-head">
               <span className="num">№{o.id}</span>
@@ -193,11 +207,11 @@ export function Profile({ config, profile, profileFailed, orders, ordersState, o
                 {o.status_label || STATUS[o.status] || o.status}
               </span>
               <span className="hint num">
-                {new Date(o.created_at).toLocaleDateString('uk-UA')}
+                {Number.isFinite(Date.parse(o.created_at)) ? new Date(o.created_at).toLocaleDateString('uk-UA') : 'Дата уточнюється'}
               </span>
             </div>
             <ul className="order-items">
-              {o.items.map((i, idx) => (
+              {(o.items || []).map((i, idx) => (
                 <li key={idx}>
                   {i.name} × {i.qty}
                 </li>
@@ -222,7 +236,7 @@ export function Profile({ config, profile, profileFailed, orders, ordersState, o
         ))
       )}
       {orders && <div className="actions">
-        <span className="hint">Показано {orders.length} із {ordersState.data.total}</span>
+        <span className="hint">Завантажено {orders.length} із {ordersState.data?.total ?? orders.length}{orderFilter !== 'all' ? ` · показано ${visibleOrders.length} за фільтром` : ''}</span>
         {ordersState.data.has_more && <button className="secondary" disabled={ordersState.loading} onClick={onLoadMore}>Показати ще</button>}
       </div>}
 

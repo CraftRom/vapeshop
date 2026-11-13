@@ -2,9 +2,8 @@ from __future__ import annotations
 from api.schemas import MessageReadIn
 
 import logging
-from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, File, UploadFile
 
 from api.auth import Principal, require_staff, require_sysadmin
 from api.schemas import OrderMessageIn, OrderMessageOut, OrderMessageResult, OrderPage, OrderOut, OrderPatch, SalesDriveOrderPatch, SalesDriveStatusPatch
@@ -472,6 +471,38 @@ async def send_message(
     )
 
 
+@router.post("/{order_id}/messages/pdf", response_model=OrderMessageResult, status_code=201)
+async def send_pdf(
+    order_id: int, file: UploadFile = File(...),
+    who: Principal = Depends(require_staff), repo: Repository = Depends(get_repo),
+):
+    """Staff-to-customer PDF, included in the existing private order chat."""
+    order = await repo.get_order(order_id)
+    if not order:
+        raise HTTPException(404, "Замовлення не знайдено")
+    from shop.services.order_chat import is_chattable
+    if not is_chattable(order):
+        raise HTTPException(409, "Чат замовлення закрито")
+    user = order.user or await repo.get_user(order.user_id)
+    if not user or user.bot_reachable is False:
+        raise HTTPException(409, "Клієнт недоступний у Telegram")
+    bot = _bot()
+    if not bot:
+        raise HTTPException(503, "Бот недоступний — PDF не надіслано")
+    from api.chat_media import send_pdf_to_client
+    attachment, sent = await send_pdf_to_client(bot, user.tg_id, file, f"📄 Документ до замовлення №{order.id}")
+    author = who.name or who.login
+    if not order.operator_id:
+        await repo.update_order(order_id, {"operator_id": who.operator_id, "operator_name": author})
+    saved = await repo.add_order_message({
+        "order_id": order.id, "user_id": order.user_id, "direction": "out",
+        "author": author, "text": "Надіслав PDF", "tg_message_id": sent.message_id,
+        "is_read": False, "delivered": True, **attachment,
+    })
+    await repo.set_bot_reachable(user.tg_id, True)
+    return OrderMessageResult(message=saved, delivered=True)
+
+
 @router.get("/{order_id}/files/{message_id}")
 async def order_file(order_id: int, message_id: int, repo: Repository = Depends(get_repo)):
     """Віддає вкладення з Telegram.
@@ -493,23 +524,8 @@ async def order_file(order_id: int, message_id: int, repo: Repository = Depends(
     bot = _bot()
     if not bot:
         raise HTTPException(503, "Бот недоступний — файл не отримати")
-
-    try:
-        info = await bot.get_file(target.file_id)
-        content = await bot.download_file(info.file_path)
-    except Exception:
-        log.warning("Не вдалося отримати файл %s", target.file_id, exc_info=True)
-        raise HTTPException(502, "Telegram не віддав файл. Можливо, він застарів")
-
-    media = {"photo": "image/jpeg", "video": "video/mp4", "voice": "audio/ogg"}
-    return Response(
-        content=content.read(),
-        media_type=media.get(target.file_kind, "application/octet-stream"),
-        headers={
-            "Content-Disposition":
-                f"inline; filename*=UTF-8''{quote((target.file_name or 'file')[:255], safe='')}"
-        },
-    )
+    from api.chat_media import telegram_chat_file_response
+    return await telegram_chat_file_response(bot, target)
 
 
 @router.get("/unread/counts")

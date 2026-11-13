@@ -216,7 +216,7 @@
 
 @media (max-width: 599px) { .taxonomy-scroll-buttons { display: none; } .catalog-reset { width: 100%; } }
 
-.storefront .chat-screen { height: calc(100dvh - 80px - var(--store-nav-height) - var(--safe-bottom)); min-height: 240px; }
+.storefront .chat-screen { height: max(240px, calc(min(var(--viewport-height, 100dvh), var(--viewport-stable-height, 100dvh)) - 80px - var(--store-nav-height) - var(--safe-bottom))); min-height: 240px; }
 .storefront .chat-screen .chat-compose { bottom: auto; }
 
 /* Stage 6: compact controls preserve the existing palette and touch targets. */
@@ -258,10 +258,10 @@
   gap: 10px;
   align-items: center;
   padding: 12px 14px;
-  border: 1px solid var(--border, #9a91a7);
+  border: 1px solid var(--line-strong);
   border-radius: 14px;
-  background: var(--surface, #fff);
-  color: var(--text, #272335);
+  background: var(--card);
+  color: var(--tg-text);
   box-shadow: 0 6px 24px rgba(0, 0, 0, .18);
   font-size: .88rem;
   line-height: 1.4;
@@ -269,6 +269,25 @@
 }
 .connection-notice.disconnected { border-left: 4px solid #b46c1b; }
 .connection-notice.recovered { border-left: 4px solid #377f62; }
+/* With the software keyboard open, keep the search/composer visible instead
+   of covering it with both bottom navigation and the cart action. */
+.miniapp-keyboard-open .store-nav,
+.miniapp-keyboard-open .storefront .bar { display: none; }
+.miniapp-keyboard-open .storefront .chat-compose { bottom: 0; }
+
+/* Shared form, navigation, and profile controls for both Shop themes. */
+.checkout-back { padding-bottom: 0; }
+.checkout-back .back { min-height: 44px; }
+.profile-order-filters { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 var(--page-x) 14px; }
+.profile-order-filters button { flex: 1 1 auto; min-height: 44px; padding: 8px 12px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--card); color: var(--tg-text); font-size: 14px; }
+.profile-order-filters button[aria-pressed='true'] { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); font-weight: 650; }
+.order-list-empty { margin-inline: var(--page-x); padding: 18px; border-radius: var(--radius); background: var(--card); color: var(--tg-hint); font-size: 14px; }
+.cart-saving-note { margin: 6px 0; font-size: 13px; color: var(--tg-hint); }
+@media (max-width: 380px) {
+  .storefront .bar button { min-width: 116px; padding-inline: 10px; font-size: 14px; }
+  .storefront .bar-info strong { font-size: 16px; }
+  .profile-order-filters button { font-size: 13px; }
+}
 @media (prefers-reduced-motion: reduce) {
   .connection-notice { animation: none; transition: none; }
 }

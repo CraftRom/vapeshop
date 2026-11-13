@@ -47,9 +47,9 @@ function isTransientStatus(status) {
   return status === 408 || status === 425 || status === 429 || status >= 500
 }
 
-async function fetchTimed(url, options) {
+async function fetchTimed(url, options, timeoutMs = REQUEST_TIMEOUT_MS) {
   const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
+  const timeout = setTimeout(() => controller.abort(), timeoutMs)
   try {
     return await fetch(url, { ...options, signal: controller.signal })
   } finally {
@@ -240,7 +240,7 @@ export const api = {
         res = await fetchTimed(`${BASE}${endpoint}`, {
           headers: { 'X-Telegram-Init-Data': getInitData() },
           cache: 'no-store',
-        })
+        }, 60000)
       } catch (err) {
         const hidden = document.visibilityState === 'hidden'
         if (!hidden && attempt <= GET_RETRIES) {
@@ -313,7 +313,7 @@ export const api = {
         res = await fetchTimed(`${BASE}${endpoint}`, {
           headers: { 'X-Telegram-Init-Data': getInitData() },
           cache: 'no-store',
-        })
+        }, 60000)
       } catch (err) {
         const hidden = document.visibilityState === 'hidden'
         if (!hidden && attempt <= GET_RETRIES) {
@@ -364,6 +364,8 @@ export const api = {
         const error = new Error(
           res.status === 410
             ? 'Вкладення видалене за строком зберігання'
+            : res.status === 413 ? 'Файл завеликий для перегляду через Telegram'
+            : res.status === 403 ? 'Немає доступу до вкладення'
             : 'Не вдалося завантажити вкладення',
         )
         error.status = res.status
@@ -375,19 +377,19 @@ export const api = {
     throw new Error('Не вдалося завантажити вкладення')
   },
 
-  chatPhoto: async (orderId, file) => {
+  chatMedia: async (orderId, file, support = false) => {
     if (authFailure) throw authFailureError()
     const body = new FormData()
     body.append('file', file)
     const started = performance.now()
-    const endpoint = `/orders/${orderId}/chat/photo`
+    const endpoint = support ? `/support/threads/${orderId}/media` : `/orders/${orderId}/chat/media`
     let res
     try {
       res = await fetchTimed(`${BASE}${endpoint}`, {
         method: 'POST',
         headers: { 'X-Telegram-Init-Data': getInitData() },
         body,
-      })
+      }, 60000)
     } catch (err) {
       clientLog('storefront.api.network_error', {
         level: 'error', message: err?.name === 'AbortError' ? 'API timeout' : (err?.message || 'network error'),
@@ -395,7 +397,7 @@ export const api = {
         durationMs: Math.round(performance.now() - started),
       })
       if (err?.name === 'AbortError') {
-        const timeoutError = new Error('Фото не завантажилось вчасно. Спробуйте ще раз.')
+        const timeoutError = new Error('Вкладення не завантажилось вчасно. Спробуйте ще раз.')
         timeoutError.name = 'TimeoutError'
         throw timeoutError
       }

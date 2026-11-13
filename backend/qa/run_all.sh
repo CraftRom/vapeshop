@@ -107,6 +107,10 @@ run_node request-gate tests/request-coordinator.mjs
 run_node sync-plan tests/sync-planning.mjs
 run_node photo-cache tests/photo-cache.mjs
 run_node session-safety tests/telegram-session-security.mjs
+run_node miniapp-ux tests/miniapp-ux.mjs
+run_node chat-pdf tests/chat-pdf.mjs
+run_node chat-video tests/chat-video.mjs
+run_node postomat-cod-ui tests/checkout-postomat-cod.mjs
 run_node legacy-bridge tests/legacy-bridge.mjs
 run_node bridge-runtime tests/legacy-bridge-runtime.mjs
 # Набори полів і дизайну. field-guard і text-input стерегли поля, але не
@@ -211,6 +215,7 @@ run promo-google qa/qa_promo_google.py
 run promo-landing qa/qa_promo_landing.py
 run promo-cloudflare qa/qa_promo_cloudflare.py
 run external-api qa/qa_external_api_contracts.py
+run api-compat-matrix qa/qa_api_compat_matrix.py
 run injection-boundaries qa/qa_injection_boundaries.py
 run external-origin qa/qa_external_origin.py
 run external-google qa/qa_external_google.py
@@ -218,6 +223,9 @@ run scheduler qa/qa_scheduler.py
 run broadcast-recovery qa/qa_broadcast_recovery.py
 run broadcast-content qa/qa_broadcast_content.py
 run broadcast-content-migration qa/qa_broadcast_content_migration.py
+run chat-video qa/qa_chat_video.py
+run chat-pdf qa/qa_chat_pdf.py
+run postomat-cod qa/qa_postomat_cod.py
 run public qa/qa_public_chat.py
 run logging qa/qa_logging.py
 run storefront-log qa/qa_storefront_logging.py

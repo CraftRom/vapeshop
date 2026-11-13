@@ -863,29 +863,15 @@ async def order_chat_file(
         # помилка й не втрата: так і задумано, тому й код інший.
         raise HTTPException(410, "Вкладення видалене за строком зберігання")
 
-    bot = None
+    from api.chat_media import telegram_chat_file_response
     try:
         from api.routers.telegram import _instances
-
         bot, _ = _instances()
     except Exception:
-        log.warning("Бот недоступний — вкладення не віддати", exc_info=True)
+        bot = None
     if not bot:
         raise HTTPException(503, "Бот недоступний — файл не отримати")
-
-    try:
-        info = await bot.get_file(target.file_id)
-        content = await bot.download_file(info.file_path)
-    except Exception:
-        log.warning("Не вдалося отримати файл %s", target.file_id, exc_info=True)
-        raise HTTPException(502, "Telegram не віддав файл")
-
-    media = {"photo": "image/jpeg", "video": "video/mp4", "voice": "audio/ogg"}
-    return Response(
-        content=content.read(),
-        media_type=media.get(target.file_kind, "application/octet-stream"),
-        headers={"Cache-Control": "private, max-age=300"},
-    )
+    return await telegram_chat_file_response(bot, target)
 
 
 @router.post("/orders/{order_id}/chat/photo", status_code=201)
@@ -964,6 +950,36 @@ async def order_chat_photo(
     }
     await svc_chat.save_incoming(
         repo, order, user, "Надіслав вкладення", bot=None, attachment=attachment,
+    )
+    await repo.set_chat_order(user.id, order.id)
+    return {"messages": await repo.list_order_messages(order_id)}
+
+
+@router.post("/orders/{order_id}/chat/media", status_code=201)
+async def order_chat_media(
+    order_id: int,
+    file: UploadFile = File(...),
+    user: User = Depends(require_webapp_user),
+    repo: Repository = Depends(get_repo),
+):
+    """MP4/фото/PDF у чат замовлення; /chat/photo лишається сумісним."""
+    _require_age(user)
+    order = await _own_order(repo, user, order_id)
+    if not svc_chat.is_chattable(order):
+        raise HTTPException(409, "Чат замовлення закрито. Зверніться до підтримки.")
+    from api.chat_media import send_media_to_staff
+    try:
+        from api.routers.telegram import _instances
+        bot, _ = _instances()
+    except Exception:
+        bot = None
+    if not bot:
+        raise HTTPException(503, "Бот недоступний — вкладення не збережено")
+    attachment = await send_media_to_staff(bot, repo, file, f"📎 Вкладення до замовлення №{order.id}")
+    await svc_chat.save_incoming(
+        repo, order, user,
+        {'video': 'Надіслав відео', 'document': 'Надіслав PDF'}.get(attachment['file_kind'], 'Надіслав фото'),
+        bot=None, attachment=attachment,
     )
     await repo.set_chat_order(user.id, order.id)
     return {"messages": await repo.list_order_messages(order_id)}

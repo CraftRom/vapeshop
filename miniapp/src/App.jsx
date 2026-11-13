@@ -1,6 +1,7 @@
 import { useResource, ResourceStatus } from './useResource'
 import { money } from './money'
 import { hasCartProblems } from './cartAvailability'
+import { cartSignature, resumeCheckoutDraft } from './checkoutSession'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { api, AUTH_FAILURE_EVENT, consumeOrderEvents } from './api'
@@ -21,6 +22,7 @@ import { StoreNavigation } from './StoreNavigation'
 import {
   applyTheme, backButton, getInitData, hideMainButton, initDataSource, isTelegramContext,
   launchParamNames, notify, onThemeChange, ready, startTarget, waitForInitData,
+  haptic, isMiniAppActive, onActivityChange,
 } from './telegram'
 
 export default function App() {
@@ -68,6 +70,11 @@ export default function App() {
   const [recentProducts, setRecentProducts] = useState([])
   const navigationRequest = useRef(0)
   const [checkingOut, setCheckingOut] = useState(false)
+  // The checkout draft and idempotency key stay in memory while the user
+  // checks their cart. Nothing sensitive is written to persistent storage.
+  const checkoutDraftRef = useRef(null)
+  const checkoutSubmittingRef = useRef(false)
+  const checkoutSignatureRef = useRef('')
   // Відкрите замовлення в чаті. Кнопка з бота веде сюди напряму.
   const [chatOrder, setChatOrder] = useState(null)
   const [supportOpen,setSupportOpen]=useState(false)
@@ -93,6 +100,7 @@ export default function App() {
     if (request !== navigationRequest.current) return
     setOpenProduct(null)
     setOpenListId(null)
+    haptic('light')
     setTab(section)
     if (section === 'search') setSearchRequest((value) => value + 1)
     window.scrollTo({ top: 0, behavior: 'instant' })
@@ -155,6 +163,8 @@ export default function App() {
       checkoutPreparationVersion.current += 1
       checkoutPreparingRef.current = false;setCheckoutPreparing(false)
       setConfig(null)
+      checkoutDraftRef.current = null
+      checkoutSubmittingRef.current = false
       pendingRef.current = {};pendingTotalRef.current = {};pendingEpochRef.current = {}
       setPendingQty({});setQuantityErrors({});setQuantityInFlight(new Set())
       supportRooms.current.clear()
@@ -267,7 +277,7 @@ export default function App() {
     let cycle = 0
     let timer = null
 
-    const visibleAndOnline = () => !document.hidden && navigator.onLine !== false
+    const visibleAndOnline = () => !document.hidden && navigator.onLine !== false && isMiniAppActive()
     const clearTimer = () => {
       if (timer !== null) {
         clearTimeout(timer)
@@ -307,12 +317,14 @@ export default function App() {
     document.addEventListener('visibilitychange', wake)
     window.addEventListener('focus', wake)
     window.addEventListener('online', wake)
+    const offActivity = onActivityChange(wake)
     return () => {
       stopped = true
       clearTimer()
       document.removeEventListener('visibilitychange', wake)
       window.removeEventListener('focus', wake)
       window.removeEventListener('online', wake)
+      offActivity()
     }
   }, [config?.age_confirmed])
 
@@ -329,7 +341,7 @@ export default function App() {
     let retryMs = 1000
 
     const refreshOrderState = async () => {
-      if (stopped || liveRefreshRef.current || document.hidden || navigator.onLine === false) return
+      if (stopped || liveRefreshRef.current || document.hidden || navigator.onLine === false || !isMiniAppActive()) return
       liveRefreshRef.current = true
       try {
         const plan = realtimeSyncPlan(viewRef.current)
@@ -350,7 +362,7 @@ export default function App() {
     }
 
     const scheduleReconnect = () => {
-      if (stopped || document.hidden || navigator.onLine === false) return
+      if (stopped || document.hidden || navigator.onLine === false || !isMiniAppActive()) return
       if (retryTimer) clearTimeout(retryTimer)
       retryTimer = setTimeout(connect, retryMs)
       retryMs = Math.min(15000, retryMs * 2)
@@ -362,7 +374,7 @@ export default function App() {
     }
 
     const connect = async () => {
-      if (stopped || document.hidden || navigator.onLine === false) return
+      if (stopped || document.hidden || navigator.onLine === false || !isMiniAppActive()) return
       stopConnection()
       controller = new AbortController()
       try {
@@ -384,13 +396,14 @@ export default function App() {
     }
 
     const wake = () => {
-      if (document.hidden || navigator.onLine === false) stopConnection()
+      if (document.hidden || navigator.onLine === false || !isMiniAppActive()) stopConnection()
       else { retryMs = 1000; connect(); refreshOrderState().catch(() => {}) }
     }
 
     document.addEventListener('visibilitychange', wake)
     window.addEventListener('online', wake)
     window.addEventListener('offline', wake)
+    const offActivity = onActivityChange(wake)
     connect()
     return () => {
       stopped = true
@@ -399,6 +412,7 @@ export default function App() {
       document.removeEventListener('visibilitychange', wake)
       window.removeEventListener('online', wake)
       window.removeEventListener('offline', wake)
+      offActivity()
     }
   }, [config?.age_confirmed])
 
@@ -443,7 +457,9 @@ export default function App() {
     if (legal) return backButton(() => setLegal(null))
     if (saving) return backButton(() => setSaving(null))
     if (completedOrder) return backButton(() => { setCompletedOrder(null); setTab('profile') })
-    if (checkingOut) return backButton(() => setCheckingOut(false))
+    if (checkingOut) return backButton(() => {
+      if (!checkoutSubmittingRef.current) setCheckingOut(false)
+    })
     if (openProduct) return backButton(() => setOpenProduct(null))
     if (openListId) return backButton(() => setOpenListId(null))
     if (supportOpen && tab === 'chat') return backButton(() => supportBack.current?.())
@@ -681,6 +697,9 @@ export default function App() {
         setCartError('Змінилася наявність. Перевірте позначені товари перед оформленням.');showCart();return
       }
       setCartError('')
+      const signature = cartSignature(fresh)
+      checkoutDraftRef.current = resumeCheckoutDraft(checkoutDraftRef.current, signature)
+      checkoutSignatureRef.current = signature
       void readProfile()
       setCheckingOut(true)
     } catch (err) {
@@ -763,8 +782,10 @@ initData: ${getInitData() ? `${getInitData().length} символів` : 'пор
     )
   }
 
-  const count = cart?.lines?.reduce((sum, l) => sum + l.qty, 0) || 0
+  // The badge and bar react immediately to taps; prices remain server-authoritative.
+  const count = shownCart?.lines?.reduce((sum, l) => sum + l.qty, 0) || 0
   const subtotal = Number(cart?.subtotal || 0)
+  const cartSaving = Object.values(pendingQty).some(Boolean) || quantityInFlight.size > 0
 
   if (legal) {
     return (
@@ -859,11 +880,17 @@ initData: ${getInitData() ? `${getInitData().length} символів` : 'пор
     return (
       <div className="app app-form">
         <Checkout
+          initialDraft={checkoutDraftRef.current}
+          onDraftChange={(draft) => { checkoutDraftRef.current = { ...draft, signature: checkoutSignatureRef.current } }}
+          onSubmittingChange={(busy) => { checkoutSubmittingRef.current = busy }}
+          onBack={() => { if (!checkoutSubmittingRef.current) setCheckingOut(false) }}
           config={config}
           cart={cart}
           profile={profile}
           onLegal={(key) => setLegal(key)}
           onDone={(order) => {
+            checkoutDraftRef.current = null
+            checkoutSubmittingRef.current = false
             setCompletedOrder(order)
             setCheckingOut(false)
             refresh().catch(() => {})
@@ -922,7 +949,7 @@ initData: ${getInitData() ? `${getInitData().length} символів` : 'пор
         <>
           <ResourceStatus resource={profileResource} label="Профіль" />
           <Profile config={config} profile={profile} profileFailed={Boolean(profileResource.error)}
-            orders={orders} ordersState={historyResource} onOpenChat={(order) => { setChatOrder(order); setTab('chat') }} onOrdersChange={() => refresh()}
+            orders={orders} ordersState={historyResource} onOpenChat={(order) => { setChatOrder(order); setTab('chat') }} onOrdersChange={() => Promise.allSettled([readHistory(), readActive(), readCart(), readProfile()])}
             onLoadMore={loadMoreOrders} />
           <ResourceStatus resource={savedResource} label="Збережені списки" />
           {/* Збережене живе в профілі, а не окремою вкладкою: у навігації
@@ -964,13 +991,13 @@ initData: ${getInitData() ? `${getInitData().length} символів` : 'пор
       {/* Панель тримається внизу на всіх вкладках: сума завжди перед очима */}
       {/* У чаті панель кошика перекрила б поле вводу */}
       <StoreNavigation active={tab} count={count} onNavigate={navigate} />
-      <div className="bar" hidden={count === 0 || tab === 'chat'}>
+      <div className="bar" hidden={count === 0 || tab === 'chat'} aria-busy={cartSaving || checkoutPreparing}>
         <div className="bar-info">
           <strong className="num">
             {money(subtotal)} {config.currency}
           </strong>
-          <span className="num">
-            {count} {count === 1 ? 'товар' : count < 5 ? 'товари' : 'товарів'} у кошику
+          <span className="num" role="status" aria-live="polite">
+            {cartSaving ? 'Зберігаємо кількість · сума уточнюється' : `${count} ${count % 10 === 1 && count % 100 !== 11 ? 'товар' : [2, 3, 4].includes(count % 10) && ![12, 13, 14].includes(count % 100) ? 'товари' : 'товарів'} у кошику`}
           </span>
         </div>
         <button onClick={prepareCheckout} disabled={checkoutPreparing} aria-busy={checkoutPreparing}>

@@ -262,6 +262,21 @@ export function initDataSource() {
   return 'немає'
 }
 
+/** A minimized Mini App can remain document-visible inside Telegram. */
+export function isMiniAppActive() {
+  return webApp()?.isActive !== false
+}
+
+export function onActivityChange(handler) {
+  const app = webApp()
+  try { app?.onEvent?.('activated', handler) } catch { /* older Telegram SDK */ }
+  try { app?.onEvent?.('deactivated', handler) } catch { /* older Telegram SDK */ }
+  return () => {
+    try { app?.offEvent?.('activated', handler) } catch { /* noop */ }
+    try { app?.offEvent?.('deactivated', handler) } catch { /* noop */ }
+  }
+}
+
 export function isTelegramContext() {
   const current = window.Telegram?.WebApp
   return Boolean(current?.initData || fromHash() || fromBridge() || fromSearch() || current?.platform)

@@ -103,9 +103,14 @@ check(!/disabled=\{[^}]*directory/.test(src),
 check(src.includes('setTimeout') && src.includes('clearTimeout'),
       'пошук міста йде з паузою, а не на кожну літеру')
 
-// Поштомат не приймає накладений платіж.
-check(src.includes('is_postomat') && src.includes("payment_method === 'cod'"),
-      'накладений платіж у поштомат не пропускається')
+// Післяплата в поштоматі працює через онлайн-оплату до відкриття комірки.
+check(src.includes('postomatCod') && src.includes('chosenPoint?.is_postomat'),
+      'поштомат із довідника розпізнається для підказки про онлайн-оплату')
+check(src.includes('postomat-cod-hint') && src.includes('до відкриття комірки'),
+      'показано умови післяплати в поштоматі')
+const submitBody = src.slice(src.indexOf('const submit ='), src.indexOf('// Ref ставимо синхронно:'))
+check(!submitBody.includes("form.payment_method === 'cod'"),
+      'оформлення не блокується через накладений платіж у поштомат')
 
 console.log('\n--- попередній розрахунок доставки ---')
 // Він мусить бути видимим і тоді, коли довідник вимкнений: без ключа

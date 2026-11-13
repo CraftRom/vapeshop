@@ -1,6 +1,7 @@
 """Strict Cloudflare v4 transport. Only reads get a bounded retry."""
 import asyncio
 import hashlib
+import re
 import time
 from weakref import WeakKeyDictionary
 from datetime import datetime, timezone
@@ -65,6 +66,10 @@ async def request(token, method, path, *, params=None, body=None):
 
 
 async def verify_token(token, account_id=''):
+    # Cloudflare documents a 32-character account identifier. Never pass a
+    # free-form string into a privileged API path with a bearer token.
+    if account_id and not re.fullmatch(r'[0-9a-fA-F]{32}', str(account_id)):
+        raise CloudflareError('Некоректний Account ID Cloudflare (очікується 32 hex-символи)', 400)
     path = f'/accounts/{account_id}/tokens/verify' if account_id else '/user/tokens/verify'
     data = await request(token, 'GET', path)
     result = data.get('result')

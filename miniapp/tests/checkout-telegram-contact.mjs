@@ -41,7 +41,7 @@ check(checkout.includes("contact_phone: f.contact_phone || normalizePhone(profil
 
 console.log('\n--- успішний checkout не зависає на «Оформлюємо…» ---')
 const success = checkout.slice(checkout.indexOf('const order = await api.checkout(payload)'), checkout.indexOf('} catch (err)', checkout.indexOf('const order = await api.checkout(payload)')))
-check(success.includes('onDone({ ...order, currency: checkoutCurrency })') && !success.includes('await alert(') && !success.includes('close()'),
+check((/onDone\(\{\s*\.\.\.order,\s*currency:\s*checkoutCurrency\b/.test(success)) && !success.includes('await alert(') && !success.includes('close()'),
       'checkout відкриває постійний результат без очікування нативного діалогу')
 check(success.includes('submittingRef.current = false') && success.includes('setBusy(false)'),
       'busy/ref guard скидаються одразу після створення замовлення')

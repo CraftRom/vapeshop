@@ -2,6 +2,7 @@ import { memo, useCallback, useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 
 import { api, authorizedFetch } from '../api'
+import { ChatAttachment } from '../components/ChatAttachment'
 import { ErrorBar, Field, Info, Loading, Modal, money, useToast } from '../components/ui'
 import { STATUS_LABELS, allowedFrom } from '../components/StatusRail'
 import {
@@ -29,10 +30,6 @@ function timestamp(value) {
   })
 }
 
-const FILE_LABEL = {
-  photo: 'Фото', document: 'Документ', video: 'Відео', voice: 'Голосове',
-}
-
 
 /** Вкладення з Telegram.
  *
@@ -40,61 +37,7 @@ const FILE_LABEL = {
  * просто підставити в src. Тягнемо як blob і показуємо з обʼєктного URL.
  */
 function Attachment({ orderId, message }) {
-  const [url, setUrl] = useState(null)
-  const [failed, setFailed] = useState(false)
-
-  useEffect(() => {
-    let revoked = null
-    let cancelled = false
-    authorizedFetch(api.orders.fileUrl(orderId, message.id))
-      .then((r) => (r.ok ? r.blob() : Promise.reject(new Error(String(r.status)))))
-      .then((blob) => {
-        if (cancelled) return
-        revoked = URL.createObjectURL(blob)
-        setUrl(revoked)
-      })
-      .catch((err) => !cancelled && setFailed(err.message === '410' ? 'gone' : true))
-    return () => {
-      cancelled = true
-      if (revoked) URL.revokeObjectURL(revoked)
-    }
-  }, [orderId, message.id])
-
-  const label = FILE_LABEL[message.file_kind] || 'Файл'
-
-  if (failed) {
-    return (
-      <div className="faint" style={{ fontSize: 12.5 }}>
-        {failed === 'gone'
-          // Не поломка, а строк зберігання: коди вкладень виконаних
-          // замовлень прибираються через три дні, щоб база не тримала
-          // доступу до чужих квитанцій довше, ніж це комусь потрібно.
-          ? `${label} прибрано за строком зберігання`
-          : `${label} недоступний — Telegram видаляє старі вкладення`}
-      </div>
-    )
-  }
-  if (!url) return <div className="faint" style={{ fontSize: 12.5 }}>{label} завантажується…</div>
-
-  if (message.file_kind === 'photo') {
-    return (
-      <a href={url} target="_blank" rel="noreferrer">
-        <img src={url} alt={label} className="bubble-photo" />
-      </a>
-    )
-  }
-  if (message.file_kind === 'voice') {
-    return <audio controls src={url} style={{ width: '100%', marginTop: 6 }} />
-  }
-  if (message.file_kind === 'video') {
-    return <video controls src={url} className="bubble-photo" />
-  }
-  return (
-    <a href={url} download={message.file_name || 'file'} className="btn ghost small"
-       style={{ marginTop: 6, display: 'inline-block' }}>
-      ↓ {message.file_name || label}
-    </a>
-  )
+  return <ChatAttachment fileUrl={api.orders.fileUrl(orderId, message.id)} message={message} />
 }
 
 /** Вікно введення накладної.
@@ -154,6 +97,7 @@ const Chat = memo(function Chat({ orderId, canChat, chatUntil }) {
   const notify = useToast()
   const [text, setText, draft] = useChatDraft('order', orderId)
   const [busy, setBusy] = useState(false)
+  const [uploadingPdf, setUploadingPdf] = useState(false)
   const sendingRef = useRef(false)
   const alive = useRef(true)
   useEffect(() => { alive.current = true; return () => { alive.current = false } }, [])
@@ -185,6 +129,25 @@ const Chat = memo(function Chat({ orderId, canChat, chatUntil }) {
     } finally {
       sendingRef.current = false
       if (alive.current) setBusy(false)
+    }
+  }
+
+  const attachPdf = async (event) => {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file || sendingRef.current || canChat === false) return
+    sendingRef.current = true
+    setUploadingPdf(true)
+    try {
+      const result = await api.orders.sendPdf(orderId, file)
+      if (!alive.current) return
+      viewport.jumpToLatest()
+      onSent(result.message)
+    } catch (err) {
+      if (alive.current) notify(err.message, 'bad')
+    } finally {
+      sendingRef.current = false
+      if (alive.current) setUploadingPdf(false)
     }
   }
 
@@ -285,7 +248,11 @@ const Chat = memo(function Chat({ orderId, canChat, chatUntil }) {
       />
       <div className="row" style={{ justifyContent: 'space-between', marginTop: 10 }}>
         <ChatDraftStatus text={text} status={draft.status} />
-        <button className="btn" onClick={send} disabled={busy || !text.trim() || canChat === false}>
+        <label className={`btn ghost small chat-pdf-upload${uploadingPdf ? ' is-uploading' : ''}`} title="Надіслати PDF клієнту (до 15 МБ)">
+          {uploadingPdf ? 'Завантаження…' : '📎 PDF'}
+          <input type="file" accept="application/pdf,.pdf" onChange={attachPdf} disabled={uploadingPdf || busy || canChat === false} />
+        </label>
+        <button className="btn" onClick={send} disabled={busy || uploadingPdf || !text.trim() || canChat === false}>
           {busy ? 'Надсилаємо…' : 'Надіслати'}
         </button>
       </div>

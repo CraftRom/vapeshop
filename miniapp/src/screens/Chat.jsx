@@ -82,40 +82,94 @@ export function ChatList({ config, orders, onOpen }) {
  * додати підпис Telegram, а тег <img> заголовків не надсилає.
  */
 function Attachment({ order, message, onOpen, support = false }) {
+  const kind = message.file_kind
+  const isPdf = kind === 'document' && /\.pdf$/i.test(message.file_name || '')
+  const [previewPdf, setPreviewPdf] = useState(false)
   const [src, setSrc] = useState(null)
   const [failed, setFailed] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [codecError, setCodecError] = useState(false)
+  const pending = useRef(false)
+  const objectUrl = useRef(null)
+  const active = useRef(true)
 
   useEffect(() => {
-    if (message.file_kind !== 'photo') return undefined
-    let alive = true
-    let created = null
-    api.chatFile(order, message.id, support)
-      .then((url) => {
-        created = url
-        if (alive) setSrc(url)
-        else URL.revokeObjectURL(url)
-      })
-      .catch((err) => alive && setFailed(err.message))
+    active.current = true
     return () => {
-      alive = false
-      // Обʼєктні посилання тримають файл у памʼяті вкладки, доки їх не
-      // звільнити. У довгій стрічці це десятки мегабайт.
-      if (created) URL.revokeObjectURL(created)
+      active.current = false
+      if (objectUrl.current) URL.revokeObjectURL(objectUrl.current)
     }
-  }, [order, message.id, message.file_kind, support])
+  }, [])
 
-  if (failed) return <div className="bubble-head">{failed}</div>
-  if (message.file_kind !== 'photo') {
-    return <div className="bubble-head">Вкладення: {message.file_name || message.file_kind}</div>
+  const fetchMedia = useCallback(async () => {
+    if (pending.current || objectUrl.current) return
+    pending.current = true
+    setLoading(true)
+    setFailed('')
+    try {
+      // Download via signed first-party API, not public Telegram URLs.
+      // Video/voice/document bytes are loaded ONLY after the user asks.
+      const url = await api.chatFile(order, message.id, support)
+      if (active.current) {
+        objectUrl.current = url
+        setSrc(url)
+      } else URL.revokeObjectURL(url)
+    } catch (err) {
+      if (active.current) setFailed(err.message || 'Не вдалося завантажити файл')
+    } finally {
+      pending.current = false
+      if (active.current) setLoading(false)
+    }
+  }, [order, message.id, support])
+
+  useEffect(() => {
+    if (kind === 'photo') fetchMedia()
+  }, [kind, fetchMedia])
+
+  const label = kind === 'video' ? 'Відео' : kind === 'voice' ? 'Голосове' : kind === 'photo' ? 'Фото' : isPdf ? 'PDF' : 'Документ'
+  if (failed) return (
+    <div className="chat-media-state" role="alert">
+      <span>{label}: {failed}</span>
+      <button className="secondary" type="button" onClick={fetchMedia}>Повторити</button>
+    </div>
+  )
+  if (kind === 'photo') {
+    if (!src) return <div className="skeleton thumb" role="status" aria-label="Завантаження фото" />
+    return <button type="button" className="thumb-open" onClick={() => onOpen(src)} aria-label="Відкрити фото">
+      <img className="thumb" src={src} alt={message.file_name || 'Фото'} loading="lazy" />
+    </button>
   }
-  if (!src) return <div className="skeleton thumb" />
-
-  return (
-    <button className="thumb-open" onClick={() => onOpen(src)}>
-      <img className="thumb" src={src} alt={message.file_name || 'Вкладення'} />
+  if (!src) return (
+    <button type="button" className="chat-media-action" onClick={fetchMedia} disabled={loading}>
+      <span aria-hidden="true">{kind === 'video' ? '▶' : kind === 'voice' ? '♫' : '↓'}</span>
+      {loading ? 'Завантажуємо вкладення…' : kind === 'video' ? 'Переглянути відео' : kind === 'voice' ? 'Слухати голосове' : isPdf ? `Відкрити PDF · ${message.file_name || 'Документ'}` : `Завантажити ${message.file_name || 'документ'}`}
     </button>
   )
+  if (kind === 'video') return (
+    <div className="chat-media-player">
+      <video src={src} controls preload="metadata" playsInline className="chat-video" aria-label={message.file_name || 'Відео в чаті'} onError={() => setCodecError(true)}>
+        Ваш браузер не підтримує це відео.
+      </video>
+      {codecError && <p className="hint chat-codec-hint">Цей формат або кодек не підтримується вашим браузером. Спробуйте зберегти відео.</p>}
+      <a href={src} download={message.file_name || 'video.mp4'} className="chat-media-download">Зберегти відео</a>
+    </div>
+  )
+  if (isPdf) return (
+    <div className="chat-pdf">
+      <div className="chat-pdf-actions">
+        <button type="button" className="secondary" onClick={() => setPreviewPdf(v => !v)} aria-expanded={previewPdf}>
+          {previewPdf ? 'Сховати PDF' : 'Переглянути PDF'}
+        </button>
+        <a href={src} download={message.file_name || 'document.pdf'} className="chat-media-download">Завантажити PDF</a>
+      </div>
+      {previewPdf && <iframe src={src} sandbox="allow-scripts" title={`PDF: ${message.file_name || 'Документ'}`} className="chat-pdf-frame" loading="lazy" referrerPolicy="no-referrer" />}
+      <p className="hint chat-pdf-hint">Якщо перегляд недоступний у Telegram, збережіть файл і відкрийте його в переглядачі PDF.</p>
+    </div>
+  )
+  if (kind === 'voice') return <audio src={src} controls preload="metadata" className="chat-audio" />
+  return <a href={src} download={message.file_name || 'attachment'} className="chat-media-download">Завантажити {message.file_name || 'документ'}</a>
 }
+
 
 export function ChatRoom({ config, order, onBack, support = false, draft = null, onSupport }) {
   const transport = useMemo(() => support ? {
@@ -332,7 +386,17 @@ export function ChatRoom({ config, order, onBack, support = false, draft = null,
     setUploading(true)
     setSendError('')
     try {
-      const data = await api.chatPhoto(order.id, file)
+      const video = file.type === 'video/mp4' ||
+        ((!file.type || file.type === 'application/octet-stream') && /\.mp4$/i.test(file.name))
+      const pdf = file.type === 'application/pdf' || file.type === 'application/x-pdf' ||
+        ((!file.type || file.type === 'application/octet-stream') && /\.pdf$/i.test(file.name))
+      if (!video && !pdf && !['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+        throw new Error('Виберіть фото JPEG/PNG/WebP, відео MP4 або PDF')
+      }
+      if (file.size > (video || pdf ? 15 : 8) * 1024 * 1024) {
+        throw new Error(video ? 'Відео має бути до 15 МБ' : pdf ? 'PDF має бути до 15 МБ' : 'Фото має бути до 8 МБ')
+      }
+      const data = await api.chatMedia(order.id, file, support)
       if (!aliveRef.current) return
       stickBottomRef.current = true
       setMessages((current) => mergeMessages(current, data.messages))
@@ -432,22 +496,21 @@ export function ChatRoom({ config, order, onBack, support = false, draft = null,
         <div ref={bottom} />
       </div>
 
-      {sendError && <div className="banner warn">{sendError}</div>}
+      {sendError && <div className="banner warn" role="alert">{sendError}</div>}
 
+      {uploading && <p className="hint chat-upload-state" role="status">Надсилаємо вкладення… Не закривайте чат.</p>}
       <div className="chat-compose">
-        {/* Скріншот квитанції — рівно те, чого просить текст після
-            оформлення. Досі вітрина це обіцяла, а надіслати не давала:
-            вкладення приймала тільки розмова з ботом. */}
-        {!support && <label className="attach" aria-label="Додати фото">
+        {/* Один вибір файлів для чату замовлення і підтримки: фото, MP4 або PDF. */}
+        <label className="attach" aria-label="Додати фото, відео або PDF" title="Фото до 8 МБ, MP4/PDF до 15 МБ">
           {uploading ? '…' : '📎'}
           <input
             type="file"
-            accept="image/*"
+            accept="image/jpeg,image/png,image/webp,video/mp4,.mp4,application/pdf,.pdf"
             hidden
             onChange={attach}
             disabled={uploading || !access.can_chat}
           />
-        </label>}
+        </label>
         {/* Той самий компонент, що й у формі замовлення. Тут його
             бракувало найбільше: людина писала менеджеру наосліп — у полі
             не було видно жодної літери, поки не перейдеш кудись інде. */}

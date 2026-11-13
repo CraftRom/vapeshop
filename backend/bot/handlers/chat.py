@@ -263,7 +263,7 @@ async def _support_auto_reply(
     return True
 
 
-@router.message(F.photo | F.document | F.video | F.voice)
+@router.message(F.photo | F.document | F.video | F.video_note | F.animation | F.voice)
 async def incoming_file(
     message: Message, repo: Repository, user: User, state: FSMContext
 ) -> None:

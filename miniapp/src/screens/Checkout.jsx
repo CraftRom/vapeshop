@@ -55,7 +55,8 @@ export function Cart({ config, cart, onCartChange, quantityPending = {}, quantit
   const listRef = useRef(null), clearRef = useRef(null), emptyRef = useRef(null)
   const restoreFocus = useRef(false)
   const lines = cart?.lines || []
-  const totalQty = lines.reduce((sum, line) => sum + line.qty, 0)
+  const totalQty = lines.reduce((sum, line) => sum + Math.max(0, line.qty + Number(quantityPending[line.product_id] || 0)), 0)
+  const changingQuantity = Object.values(quantityPending).some(Boolean) || quantityInFlight.size > 0
   const busy = pending.size > 0
   const clearing = pending.has('all')
   const outsideErrors = Object.entries(rowErrors).filter(([id]) => !lines.some(line => String(line.product_id) === id))
@@ -144,7 +145,7 @@ export function Cart({ config, cart, onCartChange, quantityPending = {}, quantit
           <div className="card-body">
             <p className="card-title">{l.name}</p>
             {availability && <p className="cart-availability" id={`cart-availability-${l.product_id}`}>{availability}</p>}
-            <p className="card-note num">{money(l.price)} {config.currency} × {l.qty}</p>
+            <p className="card-note num">{money(l.price)} {config.currency} × {displayQty}</p>
             <div className="price num">{money(l.line_total)} <small>{config.currency}</small></div>
           </div>
           <div className="stepper cart-stepper" role="group" aria-label={`Кількість: ${l.name}`} aria-describedby={availability ? `cart-availability-${l.product_id}` : undefined}>
@@ -175,7 +176,8 @@ export function Cart({ config, cart, onCartChange, quantityPending = {}, quantit
       })}
     </div>
     <div className="summary summary-premium">
-      <div className="row-between total num"><span>Разом</span><span>{money(cart.subtotal)} {config.currency}</span></div>
+      <div className="row-between total num"><span>Разом{changingQuantity ? ' (попередньо)' : ''}</span><span>{money(cart.subtotal)} {config.currency}</span></div>
+      {changingQuantity && <p className="cart-saving-note" role="status">Зберігаємо зміни. Підсумкова сума оновиться після підтвердження сервера.</p>}
       <p className="summary-note">Знижки, промокод і бонуси врахуємо на наступному кроці. Доставка оплачується окремо.</p>
     </div>
     <div className="cart-tools">
@@ -215,16 +217,16 @@ function Requirement({ optional = false }) {
     : <span className="field-requirement required"><span aria-hidden="true">*</span> Обовʼязково</span>
 }
 
-export function Checkout({ config, cart, profile, onDone, onLegal }) {
+export function Checkout({ config, cart, profile, onDone, onLegal, onBack, initialDraft, onDraftChange, onSubmittingChange }) {
   const submittingRef = useRef(false)
-  const pendingPayload = useRef(null)
-  const [replayPending, setReplayPending] = useState(false)
-  const checkoutKey = useRef(
+  const pendingPayload = useRef(initialDraft?.pendingPayload || null)
+  const [replayPending, setReplayPending] = useState(Boolean(initialDraft?.replayPending))
+  const checkoutKey = useRef(initialDraft?.checkoutKey || (
     globalThis.crypto?.randomUUID?.().replace(/-/g, '')
-      || `${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`,
-  )
-  const [form, setForm] = useState(EMPTY_FORM)
-  const [promo, setPromo] = useState(null)
+      || `${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`
+  ))
+  const [form, setForm] = useState(() => ({ ...EMPTY_FORM, ...(initialDraft?.form || {}) }))
+  const [promo, setPromo] = useState(initialDraft?.promo || null)
   const [checking, setChecking] = useState(false)
   const [busy, setBusy] = useState(false)
   const [phoneBusy, setPhoneBusy] = useState(false)
@@ -259,7 +261,7 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
   // Довідник Нової пошти. Обраний пункт тримаємо окремо від форми: щоб
   // спитати відділення, потрібні обидва коди — CityRef для міст і
   // SettlementRef для сіл, у яких свого CityRef немає.
-  const [cityPick, setCityPick] = useState(null)
+  const [cityPick, setCityPick] = useState(initialDraft?.cityPick ?? null)
   const [cityHits, setCityHits] = useState([])
   const [cityOpen, setCityOpen] = useState(false)
   const [cityBusy, setCityBusy] = useState(false)
@@ -267,7 +269,7 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
   const [cityMore, setCityMore] = useState(false)
   const [cityError, setCityError] = useState('')
   const [cityRetry, setCityRetry] = useState(0)
-  const [manualCity, setManualCity] = useState(false)
+  const [manualCity, setManualCity] = useState(initialDraft?.manualCity ?? false)
   const [points, setPoints] = useState([])
   const [pointsOpen, setPointsOpen] = useState(false)
   const [pointsBusy, setPointsBusy] = useState(false)
@@ -275,14 +277,24 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
   const [pointMore, setPointMore] = useState(false)
   const [pointError, setPointError] = useState('')
   const [pointRetry, setPointRetry] = useState(0)
-  const [manualPoint, setManualPoint] = useState(false)
-  const [selectedPoint, setSelectedPoint] = useState(null)
-  const [street, setStreet] = useState('')
-  const [house, setHouse] = useState('')
-  const [apartment, setApartment] = useState('')
+  const [manualPoint, setManualPoint] = useState(initialDraft?.manualPoint ?? false)
+  const [selectedPoint, setSelectedPoint] = useState(initialDraft?.selectedPoint ?? null)
+  const [street, setStreet] = useState(initialDraft?.street ?? '')
+  const [house, setHouse] = useState(initialDraft?.house ?? '')
+  const [apartment, setApartment] = useState(initialDraft?.apartment ?? '')
   const [streetHits, setStreetHits] = useState([])
   const [streetOpen, setStreetOpen] = useState(false)
   const [streetError, setStreetError] = useState('')
+  // Only in-memory draft: never persist buyer contact or address in web storage.
+  // Keep the checkout key and uncertain request payload across Cart ↔ Checkout.
+  useEffect(() => {
+    onDraftChange?.({
+      checkoutKey: checkoutKey.current, pendingPayload: pendingPayload.current,
+      replayPending, form, promo, cityPick, selectedPoint, manualCity,
+      manualPoint, street, house, apartment,
+    })
+  }, [form, promo, cityPick, selectedPoint, manualCity, manualPoint,
+      street, house, apartment, replayPending, busy, onDraftChange])
   // Налаштування каталогу можуть бути відсутні: ручне введення лишається,
   // але користувачеві показуємо справжній стан довідника, а не «не знайдено».
   const [directoryDown, setDirectoryDown] = useState(false)
@@ -560,6 +572,12 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
   }
 
   const chosenPoint = selectedPoint
+  // Післяплата в поштоматі дозволена. Проте сплатити її можна лише
+  // онлайн до відкриття комірки, не готівкою на місці. Враховуємо як
+  // вибір із довідника, так і ручний ввід, коли каталог недоступний.
+  const postomatCod = toWarehouse && form.payment_method === 'cod' && (
+    Boolean(chosenPoint?.is_postomat) || /поштомат/i.test(form.address)
+  )
 
   const applyPromo = async () => {
     const code = form.promo_code.trim()
@@ -634,18 +652,10 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
       if (node) node.scrollIntoView({ behavior: 'smooth', block: 'center' })
       return
     }
-    // Накладений платіж у поштомат не приймають. Дізнатися про це при
-    // спробі забрати посилку — це зіпсоване замовлення й повернення.
-    if (!replayPending && (chosenPoint?.is_postomat || (manualPoint && /поштомат/i.test(form.address)))
-        && form.payment_method === 'cod') {
-      notify('error')
-      setError('У поштоматі накладений платіж не приймають — оберіть '
-               + 'відділення або оплату на картку.')
-      return
-    }
     // Ref ставимо синхронно: state busy оновиться тільки після render і
     // не блокує другий click у тому самому кадрі.
     submittingRef.current = true
+    onSubmittingChange?.(true)
     setBusy(true)
     setError('')
     let completed = false
@@ -674,11 +684,13 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
       // конкретне замовлення. Номер картки, розісланий усім наперед,
       // застаріває швидше, ніж встигають правити налаштування.
       submittingRef.current = false
+      onSubmittingChange?.(false)
       setBusy(false)
-      onDone({ ...order, currency: checkoutCurrency })
+      onDone({ ...order, currency: checkoutCurrency, postomat_cod: postomatCod })
     } catch (err) {
       if (completed) return
       submittingRef.current = false
+      onSubmittingChange?.(false)
       notify('error')
       setError(err.message)
       setBusy(false)
@@ -702,6 +714,11 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
 
   return (
     <>
+      <div className="page-back checkout-back">
+        <button className="back" disabled={busy} type="button" onClick={onBack}>
+          Повернутися до кошика
+        </button>
+      </div>
       <div className="head checkout-head">
         <h1>Оформлення</h1>
         <p>Куди доставити й на кого оформити</p>
@@ -892,9 +909,6 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
         {manualPoint && <p className="hint">Відділення введено вручну, менеджер уточнить його. <button className="text-action" onClick={() => { setManualPoint(false); setPointsOpen(true); setPointPage(1) }}>Знайти у довіднику</button></p>}
         {(directoryDown || manualCity) && <p className="hint">Вкажіть номер відділення або його адресу вручну.</p>}
         {chosenPoint && <p className="combo-picked">Обрано: {chosenPoint.short || chosenPoint.label}</p>}
-        {chosenPoint?.is_postomat && form.payment_method === 'cod' && (
-          <p className="field-error">Для поштомату недоступний накладений платіж. Оберіть відділення або оплату на картку.</p>
-        )}
       </div>
       ) : (
         <div className="courier-fields">
@@ -948,6 +962,13 @@ export function Checkout({ config, cart, profile, onDone, onLegal }) {
           Накладений платіж
         </button>
       </div>
+      {postomatCod && (
+        <p className="hint postomat-cod-hint" role="status">
+          У поштоматі післяплата доступна, але оплатити замовлення потрібно
+          онлайн у застосунку Нової пошти або NovaPay <strong>до відкриття комірки</strong>.
+          Готівку поштомат не приймає.
+        </p>
+      )}
 
       <div className="field">
         <label htmlFor="promo"><span>Промокод</span><Requirement optional /></label>

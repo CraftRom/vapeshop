@@ -2,9 +2,8 @@ from __future__ import annotations
 
 import logging
 from typing import Annotated
-from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, Path
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, Path, File, UploadFile
 
 from api.auth import Principal, require_staff
 from api.schemas import (
@@ -198,6 +197,39 @@ async def send_message(
     )
 
 
+@router.post("/{thread_id}/messages/pdf", response_model=SupportMessageResult, status_code=201)
+async def send_pdf(
+    thread_id: SupportID, file: UploadFile = File(...),
+    who: Principal = Depends(require_staff), repo: Repository = Depends(get_repo),
+):
+    """Staff PDF into the existing support session; closed threads cannot write."""
+    thread = await repo.get_support_thread(thread_id)
+    if not thread:
+        raise HTTPException(404, "Звернення не знайдено")
+    if thread.status != "open":
+        raise HTTPException(409, "Звернення вже закрито")
+    user = thread.user or await repo.get_user(thread.user_id)
+    if not user or user.bot_reachable is False:
+        raise HTTPException(409, "Клієнт недоступний у Telegram")
+    bot = _bot()
+    if not bot:
+        raise HTTPException(503, "Бот недоступний — PDF не надіслано")
+    from api.chat_media import send_pdf_to_client
+    attachment, sent = await send_pdf_to_client(bot, user.tg_id, file, f"📄 Документ до звернення №{thread_id}")
+    author = who.name or who.login
+    saved = await repo.add_support_message_if_open({
+        "thread_id": thread_id, "user_id": thread.user_id, "direction": "out",
+        "author": author, "text": "Надіслав PDF", "tg_message_id": sent.message_id,
+        "is_read": True, **attachment,
+    })
+    if saved is None:
+        # Telegram may have accepted the file between session closure and
+        # the atomic DB write. The chat cannot be reopened by this route.
+        raise HTTPException(409, "Звернення закрилося під час надсилання PDF")
+    await repo.set_bot_reachable(user.tg_id, True)
+    return SupportMessageResult(message=saved, delivered=True)
+
+
 @router.get("/{thread_id}/files/{message_id}")
 async def support_file(
     thread_id: int,
@@ -215,19 +247,5 @@ async def support_file(
     bot = _bot()
     if not bot:
         raise HTTPException(503, "Бот недоступний — файл не отримати")
-    try:
-        info = await bot.get_file(target.file_id)
-        content = await bot.download_file(info.file_path)
-    except Exception:
-        log.warning("Не вдалося отримати файл підтримки %s", target.file_id, exc_info=True)
-        raise HTTPException(502, "Telegram не віддав файл")
-
-    media = {"photo": "image/jpeg", "video": "video/mp4", "voice": "audio/ogg"}
-    return Response(
-        content=content.read(),
-        media_type=media.get(target.file_kind, "application/octet-stream"),
-        headers={
-            "Content-Disposition":
-                f"inline; filename*=UTF-8''{quote((target.file_name or 'file')[:255], safe='')}"
-        },
-    )
+    from api.chat_media import telegram_chat_file_response
+    return await telegram_chat_file_response(bot, target)

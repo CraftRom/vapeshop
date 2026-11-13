@@ -64,6 +64,8 @@ class SecurityMiddleware:
             limit = 256 * 1024
         elif path == "/api/media" or re.fullmatch(r"/api/shop/orders/[0-9]+/chat/photo", path) or path in ("/api/catalog/product-transfer", "/api/catalog/products/import", "/api/catalog/product-transfer/import"):
             limit = 11 * 1024 * 1024
+        elif re.fullmatch(r"/api/shop/(orders/[0-9]+/chat/media|support/threads/[0-9]+/media)", path) or re.fullmatch(r"/api/(orders/[0-9]+/messages/pdf|support/[0-9]+/messages/pdf)", path):
+            limit = 18 * 1024 * 1024
         elif path == "/api/backups/upload":
             limit = 201 * 1024 * 1024
         try:
@@ -88,7 +90,7 @@ class SecurityMiddleware:
             try:
                 repo = await generator.__anext__()
                 creds = await HTTPBearer(auto_error=False)(request)
-                if re.fullmatch(r"/api/shop/orders/[0-9]+/chat/photo", path):
+                if re.fullmatch(r"/api/shop/(orders/[0-9]+/chat/(photo|media)|support/threads/[0-9]+/media)", path):
                     from api.webapp_auth import require_webapp_user
                     await require_webapp_user(request.headers.get("x-telegram-init-data", ""), repo)
                 elif path == "/api/backups/upload":
@@ -106,6 +108,8 @@ class SecurityMiddleware:
         if path == "/api/backups/upload":
             from shop.paths import backups_dir
             spool = tempfile.SpooledTemporaryFile(max_size=1024 * 1024, dir=backups_dir())
+        elif re.fullmatch(r"/api/shop/(orders/[0-9]+/chat/media|support/threads/[0-9]+/media)", path) or re.fullmatch(r"/api/(orders/[0-9]+/messages/pdf|support/[0-9]+/messages/pdf)", path):
+            spool = tempfile.SpooledTemporaryFile(max_size=1024 * 1024)
         messages, total = [], 0
         try:
             if scope.get("method") not in ("GET", "HEAD", "OPTIONS"):
