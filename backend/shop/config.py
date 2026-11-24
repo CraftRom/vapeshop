@@ -346,7 +346,7 @@ class Settings(BaseSettings):
             entry("JWT_SECRET", "JWT_SECRET" not in invalid_secrets, "critical",
                   "Щонайменше 32 символи, без шаблонного значення"),
             entry("DASHBOARD_PASSWORD", "DASHBOARD_PASSWORD" not in invalid_secrets, "critical",
-                  "Щонайменше 12 символів, без шаблонного значення"),
+                  "Щонайменше 8 символів, без шаблонного значення"),
             entry("WEBHOOK_SECRET", self.webhook_secret, "critical" if serverless else "optional",
                   "Адреса, на яку Telegram шле оновлення. Потрібен у serverless"),
             entry("Адреса сайту", str(effective("public_url")).startswith("https://"), "critical",

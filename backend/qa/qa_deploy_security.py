@@ -43,12 +43,12 @@ class DeploySecurity(unittest.TestCase):
             return result, calls.read_text() if calls.exists() else ""
 
     def test_bad_password_stops_before_any_docker_call(self):
-        for password in ("secret", "a" * 11, "Change-this-password-2026", "your_password_2026"):
+        for password in ("secret", "a" * 7, "Change-this-password-2026", "your_password_2026"):
             with self.subTest(password_length=len(password)):
                 result, calls = self.deploy(DASHBOARD_PASSWORD=password)
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn("DASHBOARD_PASSWORD", result.stderr)
-                self.assertIn("12 символів", result.stderr)
+                self.assertIn("8 символів", result.stderr)
                 self.assertNotIn(password, result.stderr)
                 self.assertEqual(calls, "")
                 self.assertNotIn("ФАЗА 2", result.stdout)
@@ -60,7 +60,7 @@ class DeploySecurity(unittest.TestCase):
         self.assertEqual(calls, "")
 
     def test_minimum_valid_secrets_reach_compose_validation(self):
-        result, calls = self.deploy(DASHBOARD_PASSWORD="a" * 12)
+        result, calls = self.deploy(DASHBOARD_PASSWORD="a" * 8)
         self.assertEqual(result.returncode, 91)  # mock Docker intentionally ends the run
         self.assertIn("env preflight: OK", result.stdout)
         self.assertIn("config --quiet", calls)
@@ -83,11 +83,11 @@ class DeploySecurity(unittest.TestCase):
 
     def test_image_preflight_checks_effective_env_before_import(self):
         env = {k: v for k, v in os.environ.items() if k.upper() not in {"PUBLIC_URL", "JWT_SECRET", "DASHBOARD_PASSWORD"}}
-        env.update(VALID, DASHBOARD_PASSWORD="image-short", PYTHONPATH=str(ROOT / "backend"))
+        env.update(VALID, DASHBOARD_PASSWORD="shortpw", PYTHONPATH=str(ROOT / "backend"))
         result = subprocess.run([sys.executable, "-m", "shop.preflight"], cwd=tempfile.gettempdir(), env=env, text=True, capture_output=True, timeout=15)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("DASHBOARD_PASSWORD", result.stderr)
-        self.assertNotIn("image-short", result.stderr)
+        self.assertNotIn("shortpw", result.stderr)
         self.assertNotIn("backend pre-start smoke: OK", result.stdout)
 
     def test_valid_image_preflight_needs_no_running_database(self):
