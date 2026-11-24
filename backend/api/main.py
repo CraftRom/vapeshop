@@ -324,3 +324,4 @@ async def validation_error(request: Request, exc: RequestValidationError):
         {"loc": error["loc"], "msg": error["msg"], "type": error["type"]}
         for error in exc.errors()
     ]})
+

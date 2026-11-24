@@ -2,6 +2,7 @@ import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } fro
 
 import { useSearchParams } from 'react-router-dom'
 import { api } from '../api'
+import CommerceWorkspace from '../components/CommerceWorkspace'
 import { AnalyticsControls, MarketingMetrics, AnalyticsOrders, SpendEditor, dateInZone } from '../components/AnalyticsPanels'
 import { ManagedTable } from '../components/ManagedTable'
 import { ClosedPeriods } from '../components/ClosedPeriods'
@@ -202,7 +203,7 @@ export default function Overview() {
     <>
       <div className="page-head">
         <div>
-          <h1>Огляд</h1>
+          <h1>Огляд магазину</h1>
           <p>{snapshotMonth ? `Збережений звіт за ${snapshotMonth}` : caption ? (period === 'all' ? 'Статистика за весь час' : `Статистика за ${caption}`) : 'Фінанси, замовлення й активність магазину'}</p>
         </div>
         {!snapshotMonth && <div className="row stats-periods">
@@ -219,6 +220,7 @@ export default function Overview() {
         </div>}
       </div>
 
+      {!snapshotMonth && <CommerceWorkspace/>}
       <ClosedPeriods timezone={timezone} selected={snapshotMonth} onOpen={openSnapshot} snapshot={data?.snapshot} />
       {!snapshotMonth && <AnalyticsControls selection={selection} setSelection={setSelection} months={months} timezone={timezone} busy={busy} refresh={() => load()} />}
       <ErrorBar error={error} />

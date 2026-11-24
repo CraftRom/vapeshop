@@ -292,6 +292,7 @@ export const api = {
   },
 
   orders: {
+    operations: () => request('/orders/operations'),
     list: (params) => request('/orders', { params }),
     get: (id) => request(`/orders/${id}`),
     patch: (id, data) => request(`/orders/${id}`, { method: 'PATCH', body: data }),

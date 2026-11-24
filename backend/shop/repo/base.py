@@ -160,6 +160,7 @@ class Repository(ABC):
         only_active: bool = False, limit: int = 500, offset: int = 0,
         subcategory_id: int | None = None, is_new: bool | None = None,
         is_sale: bool | None = None, uncategorized: bool = False,
+        inventory: str | None = None, sort: str | None = None,
     ) -> list[Product]: ...
 
     @abstractmethod
@@ -239,6 +240,8 @@ class Repository(ABC):
         user_id: int | None = None, date_from: str | None = None,
         date_to: str | None = None, limit: int = 100, offset: int = 0,
         crm_status_id: str | None = None, legacy_only: bool = False, active_only: bool = False,
+        channel: str | None = None, queue: str | None = None,
+        payment_method: str | None = None, delivery_method: str | None = None,
     ) -> list[Order]: ...
 
     @abstractmethod

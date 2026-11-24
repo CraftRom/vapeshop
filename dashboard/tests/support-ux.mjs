@@ -1,3 +1,4 @@
+import {navigationFor} from '../src/commerce.js'
 import { readFileSync } from 'node:fs'
 
 const app = readFileSync('src/App.jsx', 'utf8')
@@ -30,8 +31,9 @@ const check = (ok, label) => {
 }
 
 console.log('\n--- підтримка: багатосесійний inbox UX 1.29 ---')
-check(app.includes("to: '/support'") && app.includes('path="/support"'), 'у панелі є окремий розділ Підтримка')
-check(app.includes("badge: 'support'") && app.includes('api.stats.badges()'), 'sidebar показує непрочитані звернення')
+const support=navigationFor('operator').flatMap(group=>group.items).find(item=>item.to==='/support')
+check(support?.label==='Підтримка', 'у панелі є окремий розділ Підтримка')
+check(support?.badge==='support' && app.includes('badges[item.badge]'), 'sidebar показує непрочитані звернення')
 check(api.includes("stats: () => request('/support/stats')") && api.includes("remove: (id)"), 'API-клієнт має статистику та ручне видалення')
 check(page.includes('support-stats') && page.includes('stats.open') && page.includes('stats.closed'), 'показані лічильники відкритих і закритих чатів')
 check(page.includes('support-client-group') && page.includes('group.threads.map'), 'різні чати згруповані під одним клієнтом')

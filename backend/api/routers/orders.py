@@ -2,6 +2,7 @@ from __future__ import annotations
 from api.schemas import MessageReadIn
 
 import logging
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, File, UploadFile
 
@@ -24,13 +25,17 @@ async def list_orders(
     status: OrderStatus | None = None,
     crm_status_id: str | None = Query(None, max_length=32),
     legacy_only: bool = False,
-    search: str | None = None,
+    search: str | None = Query(None,max_length=160),
     # Дати у форматі YYYY-MM-DD, обидві межі включно
     date_from: str | None = Query(None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
     date_to: str | None = Query(None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
     paginated: bool = False,
+    channel: Literal['','miniapp','bot','unknown'] = '',
+    queue: Literal['','new','open','without_tracking'] = '',
+    payment_method: Literal['','cod','card','unknown'] = '',
+    delivery_method: Literal['','warehouse','courier','unknown'] = '',
     repo: Repository = Depends(get_repo),
 ):
     from shop.services.calendar import validate_dates
@@ -40,12 +45,19 @@ async def list_orders(
         raise HTTPException(422, "Вкажіть коректні календарні дати й порядок меж") from exc
     filters = dict(status=status, crm_status_id=crm_status_id, legacy_only=legacy_only,
                    search=search, date_from=date_from, date_to=date_to)
+    filters.update({key:value for key,value in dict(channel=channel,queue=queue,payment_method=payment_method,delivery_method=delivery_method).items() if value})
     items = await repo.list_orders(**filters, limit=limit, offset=offset)
     if not paginated:
         return items
     total = await repo.count_filtered_orders(**filters)
     return dict(items=items, total=total, limit=limit, offset=offset,
                 has_more=offset + len(items) < total)
+
+
+@router.get('/operations')
+async def operations(who: Principal=Depends(require_staff),repo: Repository=Depends(get_repo)):
+    from shop.services.commerce_workspace import workspace
+    return await workspace(repo)
 
 
 @router.get("/salesdrive-statuses")

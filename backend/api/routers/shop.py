@@ -1427,6 +1427,7 @@ async def checkout(
         repo.s, user.id, data.attribution.session_id if data.attribution else None,
         data.attribution.model_dump() if data.attribution else {"source": "unknown"},
     )
+    attribution['channel']='telegram_miniapp'
     order, error = await svc.create_order(
         repo, user,
         attribution=attribution,

@@ -299,7 +299,7 @@ async def create_order(
     draft = Order(
         id=0, user_id=user.id, subtotal=subtotal, discount=discount,
         bonus_used=bonus_used, total=total, promo_code_id=promo_id,
-        attribution=attribution or {"source": "telegram_bot", "medium": "bot"},
+        attribution=attribution or {"source": "telegram_bot", "medium": "bot", "channel":"telegram_bot"},
         payment_method=payment_method, checkout_key=(checkout_key or "").strip() or None,
         # CRM queue-state записується разом із самим замовленням. Інакше
         # crash після COMMIT order, але до окремого UPDATE crm_state лишав

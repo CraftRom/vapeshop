@@ -76,11 +76,15 @@ pub = {r.key for r in faq.RULES if r.public}
 check({"delivery","payment","age","order"} <= pub, "бот сам відповідає про доставку, оплату, вік", pub)
 
 print("\n--- розділи інструкції відповідають меню ---")
-app = (root/"dashboard/src/App.jsx").read_text()
-nav = set(re.findall(r"label: '([^']+)'", app))
+# Menu items live in commerce.js (one table filtered per role by roles.js).
+_menu = (root/"dashboard/src/commerce.js").read_text()
+nav = dict((label, path) for path, label in re.findall(r"\['(/[^']*)','([^']+)'", _menu))
 titles = set(re.findall(r"title: '([^']+)'", guide))
-for label in ("Замовлення","Каталог","Клієнти","Промокоди","Розсилки","Налаштування","Огляд","Менеджери"):
-    check(label in nav and label in titles, f"розділ «{label}» є в меню й описаний")
+_sections = {"Огляд": "/", "Замовлення": "/orders", "Каталог": "/catalog", "Клієнти": "/customers",
+             "Промокоди": "/promos", "Розсилки": "/broadcasts", "Налаштування": "/settings",
+             "Менеджери": "/operators"}
+for label, path in _sections.items():
+    check(path in nav.values() and label in titles, f"розділ «{label}» є в меню й описаний")
 
 print("\n--- нічого не обіцяно зайвого ---")
 check("adminOnly" in guide, "адмінські розділи приховані від менеджера")

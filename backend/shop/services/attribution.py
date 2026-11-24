@@ -5,7 +5,7 @@ SOURCE_RE = re.compile(r"[^a-z0-9._-]+")
 
 
 def clean_attribution(data: dict | None) -> dict:
-    data = data or {}
+    data = data if isinstance(data,dict) else {}
     source = SOURCE_RE.sub("_", str(data.get("source") or "unknown").lower().strip())[:80] or "unknown"
     return {
         "source": source,
@@ -18,9 +18,11 @@ def order_attribution(attribution, snapshot=None):
     local = clean_attribution(attribution)
     if isinstance(attribution, dict) and attribution.get('session_id'):
         local['session_id'] = str(attribution['session_id'])[:64]
+    if isinstance(attribution,dict) and attribution.get('channel') in {'telegram_miniapp','telegram_bot'}:
+        local['channel']=attribution['channel']
     if local['source'] != 'unknown':
         return local
     utm = (snapshot or {}).get('utm') or {}
     if not isinstance(utm, dict) or not utm.get('source'):
         return local
-    return clean_attribution(utm)
+    return {**clean_attribution(utm),**{key:local[key] for key in ['channel','session_id'] if key in local}}
