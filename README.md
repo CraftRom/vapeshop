@@ -1,3 +1,14 @@
+# ELFar Shop — 1.86.3: планувальник, бот і maintenance видно після деплою (24.11.2026)
+
+Після 1.86.2 на сервері «Стан модулів» показував «Планувальник не запущений», «maintenance не подає heartbeat» і «бот не подає heartbeat», хоча контейнери працювали.
+
+- **Причина.** `deploy.sh` створював `deploy/data/heartbeats` і `deploy/data/jobs` від імені того, хто його запускав. Після деплою через `sudo` власником ставав root. Процеси магазину працюють як `APP_UID` (`shop`), тож не могли записати ні heartbeat, ні фонові завдання копій. Помилка йшла лише в журнал як попередження.
+- **Новий одноразовий сервіс `data-init`** у `docker-compose.prod.yml`. Він має лише `CHOWN` і `FOWNER` і працює без мережі. Сервіс віддає каталоги `logs`, `backups`, `jobs`, `heartbeats`, `media` користувачу застосунку. `deploy.sh` запускає його явно перед API, а `elfar.service` після перезавантаження сервера — через залежності compose.
+- **Деплой перевіряє, що виконавці справді працюють.** Після старту він чекає до 90 с на heartbeat від планувальника й maintenance. Без heartbeat деплой відкочується і показує причину та журнал. Відсутній heartbeat бота лише дає попередження, бо бот залежить від Telegram.
+- **Панель називає причину.** Якщо каталог heartbeat недоступний для запису, «Стан модулів» і «Готовність релізу» пишуть про це прямо, замість «не запущений».
+
+**Як виправити на сервері зараз:** `git pull` і `bash deploy/deploy.sh`. Крок `data-init` поверне права, і модулі покажуть «працює». Якщо треба лише відновити роботу без оновлення: `sudo chown -R shop:shop /opt/elfar/deploy/data/heartbeats /opt/elfar/deploy/data/jobs`, потім `cd /opt/elfar/deploy && docker compose --env-file ../.env -f docker-compose.prod.yml restart scheduler maintenance bot`.
+
 # ELFar Shop — 1.86.2: ELFAR і ACCORD NICHE на одному сервері й в одному Docker (24.11.2026)
 
 Зміни лише в деплої. Код застосунків, міграції й кольори без змін. Подробиці й порядок дій на VPS — у [docs/SHARED_SERVER_ACCORD_UA.md](docs/SHARED_SERVER_ACCORD_UA.md).

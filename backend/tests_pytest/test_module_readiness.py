@@ -92,6 +92,22 @@ async def test_enabled_module_without_worker_is_not_reported_ready(db, tmp_path,
 
 
 @pytest.mark.asyncio
+async def test_unwritable_heartbeat_directory_is_named_as_the_cause(db, tmp_path, monkeypatch):
+    # Seen on the VPS: data/heartbeats owned by root after deploy.sh via sudo;
+    # every worker ran but could not report, the panel said "not started".
+    session, _ = db
+    repo = SqlRepository(session)
+    monkeypatch.setattr(module_status.os, 'access', lambda path, mode: False)
+    report = await module_status.module_report(repo, heartbeat_directory=tmp_path)
+    assert 'недоступний для запису' in report['heartbeat_problem']
+    broadcasts = next(item for item in report['modules'] if item['key'] == 'scheduled_broadcasts')
+    assert broadcasts['status'] == 'no_worker' and 'data-init' in broadcasts['detail']
+    for service in ('scheduler', 'maintenance', 'bot'):
+        worker_health.beat(service, directory=tmp_path)
+    assert (await module_status.module_report(repo, heartbeat_directory=tmp_path))['heartbeat_problem'] is None
+
+
+@pytest.mark.asyncio
 async def test_disabled_backups_are_disabled_not_missing(db, tmp_path):
     session, _ = db
     repo = SqlRepository(session)

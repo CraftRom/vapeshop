@@ -82,6 +82,43 @@ services:
       - /tmp:size=64m,mode=1777
     networks: [internal]
 
+  # Каталоги даних на хості належать тому, хто їх створив (часто root, якщо
+  # deploy.sh запущено через sudo). Процеси магазину працюють як APP_UID і не
+  # могли писати heartbeat/завдання: панель показувала «планувальник не
+  # запущений», хоч контейнер працював. Цей одноразовий крок віддає каталоги
+  # користувачу застосунку перед стартом решти сервісів.
+  data-init:
+    build: *backend-build
+    user: "0:0"
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        set -eu
+        for d in logs backups jobs heartbeats media; do
+          [ -d "/data/$$d" ] || continue
+          chown "$${APP_UID}:$${APP_GID}" "/data/$$d"
+          chmod u+rwx "/data/$$d"
+        done
+        # Невеликі каталоги стану: файли всередині теж мають належати застосунку.
+        chown -R "$${APP_UID}:$${APP_GID}" /data/jobs /data/heartbeats
+    environment:
+      APP_UID: ${APP_UID:-1000}
+      APP_GID: ${APP_GID:-1000}
+    volumes:
+      - ./data/logs:/data/logs
+      - ./data/backups:/data/backups
+      - ./data/jobs:/data/jobs
+      - ./data/heartbeats:/data/heartbeats
+      - ./data/media:/data/media
+    restart: "no"
+    network_mode: none
+    logging: *default-logging
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: ["ALL"]
+    cap_add: ["CHOWN", "FOWNER"]
+    read_only: true
+
   api:
     volumes:
       - ./data/heartbeats:/data/heartbeats
@@ -98,6 +135,8 @@ services:
     env_file: ../.env
     depends_on:
       migrate:
+        condition: service_completed_successfully
+      data-init:
         condition: service_completed_successfully
       redis:
         condition: service_healthy
@@ -130,6 +169,8 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
+      data-init:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
     deploy:
@@ -157,6 +198,8 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
+      data-init:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
     volumes:
@@ -183,6 +226,8 @@ services:
     env_file: ../.env
     depends_on:
       migrate:
+        condition: service_completed_successfully
+      data-init:
         condition: service_completed_successfully
     volumes:
       - ./data/heartbeats:/data/heartbeats

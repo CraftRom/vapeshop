@@ -20,6 +20,8 @@ elif a[0]=='compose':
  cmd=a[5]; args=a[6:]
  if cmd=='ps' and '-q' in args: print('qa-'+args[-1])
  elif cmd=='run' and 'shop.catalog_upgrade' in args: print('0')
+ elif cmd=='exec' and any('shop.worker_health' in x for x in args):
+  print(os.environ.get('QA_WORKERS','scheduler maintenance bot'))
  elif cmd=='exec' and 'wget' in args:
   if 'http://127.0.0.1:8080/__deploy_api_health' in args:
    sys.exit(22 if os.environ.get('QA_FAIL_INTERNAL')=='1' else 0)
@@ -67,6 +69,24 @@ class DeployHealth(unittest.TestCase):
         self.assertTrue(any('http://127.0.0.1:8080/__deploy_api_health' in a for a in probes))
         self.assertTrue(any('https://127.0.0.1/api/health' in a for a in probes))
         self.assertFalse(any('http://api:8000/api/health' in a for a in probes))
+
+    def test_data_dirs_are_handed_to_the_app_user_before_the_api(self):
+        result,calls=self.deploy()
+        self.assertEqual(result.returncode,0,result.stderr)
+        init=next(i for i,a in enumerate(calls) if a[:1]==['compose'] and 'data-init' in a)
+        api=next(i for i,a in enumerate(calls) if a[:1]==['compose'] and a[-1:]==['api'] and 'up' in a)
+        self.assertLess(init,api)
+
+    def test_scheduler_without_heartbeat_rolls_back(self):
+        result,calls=self.deploy(QA_WORKERS='maintenance bot')
+        self.assertNotEqual(result.returncode,0)
+        self.assertIn('scheduler запущений, але не подає heartbeat',result.stderr)
+        self.assertIn('Rollback CORE runtime',result.stderr)
+
+    def test_bot_without_heartbeat_only_warns(self):
+        result,calls=self.deploy(QA_WORKERS='scheduler maintenance')
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertIn('бот запущений, але ще не подав heartbeat',result.stderr)
 
     def test_legacy_www_uses_same_domain_as_render_nginx(self):
         result,calls=self.deploy('www.elfar.pp.ua')

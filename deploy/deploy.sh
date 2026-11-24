@@ -230,6 +230,14 @@ if ! "${COMPOSE[@]}" run --rm migrate; then
 fi
 
 echo "==> ФАЗА 3/6: API"
+# Каталоги даних — користувачу застосунку (APP_UID) до старту API і виконавців.
+# Сервіси нижче стартують з --no-deps, тож залежність data-init у compose тут
+# не спрацювала б: запускаємо крок явно. Без нього каталог, створений від root
+# (deploy через sudo), лишав планувальник, бот і maintenance без heartbeat.
+if ! "${COMPOSE[@]}" run --rm --no-deps data-init; then
+    echo "data-init не зміг віддати каталоги даних користувачу застосунку" >&2
+    exit 1
+fi
 # API запускаємо окремо. Якщо він не піднявся — деплой ЗУПИНЯЄТЬСЯ ДО nginx/promo.
 "${COMPOSE[@]}" up -d --no-deps api
 
@@ -269,6 +277,36 @@ for svc in dashboard miniapp bot scheduler maintenance; do
         exit 1
     fi
 done
+
+# «Контейнер running» ще не означає «працює»: планувальник і maintenance мають
+# подати heartbeat (той самий, за яким панель показує «Стан модулів»).
+# Без планувальника не стартують заплановані розсилки й нічні копії.
+echo "    Чекаю heartbeat планувальника, maintenance і бота"
+workers_state() {
+    "${COMPOSE[@]}" exec -T api python -c "from shop.worker_health import states; s=states(); print(' '.join(k for k,v in s.items() if v['running']))" 2>/dev/null || true
+}
+alive=""
+for attempt in $(seq 1 45); do
+    alive="$(workers_state)"
+    [[ " $alive " == *" scheduler "* && " $alive " == *" maintenance "* && " $alive " == *" bot "* ]] && break
+    sleep 2
+done
+for svc in scheduler maintenance; do
+    if [[ " $alive " != *" $svc "* ]]; then
+        echo "$svc запущений, але не подає heartbeat за 90 с" >&2
+        "${COMPOSE[@]}" exec -T api python -c "from shop.services.module_status import heartbeat_problem; print(heartbeat_problem() or '')" >&2 || true
+        "${COMPOSE[@]}" logs --tail=80 "$svc" >&2 || true
+        rollback_core_runtime
+        exit 1
+    fi
+done
+if [[ " $alive " != *" bot "* ]]; then
+    # Бот залежить від Telegram API; його недоступність не має відкочувати магазин.
+    echo "УВАГА: бот запущений, але ще не подав heartbeat (перевірте BOT_TOKEN і доступ до Telegram)" >&2
+    "${COMPOSE[@]}" logs --tail=40 bot >&2 || true
+else
+    echo "    Heartbeat: планувальник, maintenance і бот працюють"
+fi
 
 echo "==> ФАЗА 5/6: nginx основного сайту"
 # ВАЖЛИВО: nginx запускається/пересоздається ПІСЛЯ API. Це гарантує, що
