@@ -9,6 +9,11 @@
 #   • власний планувальник замість зовнішнього cron: відкладені розсилки
 #     й нічні бекапи живуть у тому ж коді, що й магазин
 
+# Ім'я проєкту фіксоване, а не з назви каталогу: контейнери ELFAR завжди
+# deploy-*. На нього спирається ACCORD (deploy-nginx-1), і так ACCORD із
+# COMPOSE_PROJECT_NAME=accord-niche ніколи не змішається з ELFAR.
+name: deploy
+
 # Збірка бекенду. Один і той самий образ для migrate, api, bot і scheduler —
 # різниця лише в команді. UID/GID приходять із .env і мають збігатися
 # з користувачем shop на хості, інакше бекапи в ./backups стануть чужими.
@@ -242,9 +247,12 @@ services:
       - ./nginx/deny.d:/etc/nginx/deny.d:ro
       - certbot-www:/var/www/certbot:ro
       - certbot-conf:/etc/letsencrypt:ro
+      # Сайти ACCORD NICHE на цьому ж сервері (shared-edge.sh). Файл веде
+      # інсталятор ACCORD; без ACCORD тут лише заглушка з його позначкою.
+      - ./nginx/accord-main.conf:/etc/nginx/conf.d/20-accord.conf:ro
     depends_on: [dashboard, miniapp, api]
     logging: *default-logging
-    networks: [internal]
+    networks: [internal, accord_edge]
 
   # Ізольований контролер промо-доменів. Він НЕ має Docker socket,
   # не бачить основну БД і не приймає зовнішні з’єднання. API звертається
@@ -299,6 +307,12 @@ volumes:
   promo-nginx-conf:
 
 networks:
+  # Спільна з ACCORD NICHE мережа: до неї з боку ACCORD підключені лише його
+  # frontend-и (accord-website, accord-miniapp, accord-dashboard), з боку
+  # ELFAR — лише nginx. API, бази й Redis обох проєктів у ній не з'являються.
+  accord_edge:
+    external: true
+    name: accord-shared-edge
   internal:
   promo_control:
     internal: true

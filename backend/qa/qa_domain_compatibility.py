@@ -54,6 +54,8 @@ class Migration(unittest.TestCase):
             p=Path(tmp);(p/'deploy/nginx').mkdir(parents=True);(p/'bin').mkdir()
             for script in ['domain_config.py','render-nginx.sh','certbot-init.sh']:
                 shutil.copy(ROOT/'deploy'/script,p/'deploy'/script)
+            # The shared ACCORD edge has its own suite (qa_shared_edge.py).
+            (p/'deploy/shared-edge.sh').write_text('#!/bin/sh\nexit 0\n')
             shutil.copy(ROOT/'deploy/nginx/app.conf.template',p/'deploy/nginx/app.conf.template')
             (p/'.env').write_text('PUBLIC_URL=https://www.elfar.pp.ua\n')
             docker=p/'bin/docker';docker.write_text('''#!/usr/bin/env python3
