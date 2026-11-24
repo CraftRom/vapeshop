@@ -28,6 +28,24 @@ async def list_customers(
                 has_more=offset + len(items) < total)
 
 
+@router.get("/{customer_id}", response_model=CustomerOut)
+async def get_customer(customer_id: int, repo: Repository = Depends(get_repo)):
+    user = await repo.get_user(customer_id)
+    if not user:
+        raise HTTPException(404, "Клієнта не знайдено")
+    return user
+
+
+@router.get("/{customer_id}/summary")
+async def customer_summary(customer_id: int, repo: Repository = Depends(get_repo)):
+    """Картка клієнта: статистика покупок, категорії, чати."""
+    from shop.services.customer_profile import summary
+    user = await repo.get_user(customer_id)
+    if not user:
+        raise HTTPException(404, "Клієнта не знайдено")
+    return await summary(repo, user)
+
+
 @router.patch("/{customer_id}", response_model=CustomerOut)
 async def patch_customer(
     customer_id: int, data: CustomerPatch, repo: Repository = Depends(get_repo)

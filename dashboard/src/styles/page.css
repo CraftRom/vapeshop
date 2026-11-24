@@ -147,3 +147,11 @@
 /* UI-028: contextual help link next to a page's description. */
 .help-link { color: var(--text-secondary); font-weight: 600; text-decoration: underline; text-underline-offset: 3px; white-space: nowrap; }
 .help-link:hover, .help-link:focus-visible { color: var(--text-primary); }
+/* Customer card: contacts in one line, share bars for categories/products/channels. */
+.customer-identity { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-4); }
+.customer-identity a { overflow-wrap: anywhere; }
+.customer-shares, .customer-chats { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-3); }
+.customer-share-bar { height: 6px; margin-top: var(--space-1); border-radius: 3px; background: var(--line); overflow: hidden; }
+.customer-share-bar > span { display: block; height: 100%; background: var(--mint); border-radius: inherit; }
+.customer-name-link { font-weight: 600; color: inherit; }
+@media (max-width: 900px) { .customer-columns { grid-template-columns: 1fr; } }

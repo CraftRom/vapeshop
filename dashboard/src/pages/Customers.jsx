@@ -1,4 +1,5 @@
-import {customerContact} from '../commerce'
+import { customerName, customerSubtitle } from '../commerce'
+import { Link } from 'react-router-dom'
 import { usePagedResource } from '../components/usePagedResource'
 import { Pagination, PAGE_SIZE, pageNumber } from '../components/Pagination'
 import { useCallback, useEffect, useState } from 'react'
@@ -12,7 +13,7 @@ import { FilterBar, PageHeader } from '../components/page'
 import { StateBadge } from '../components/StateBadge'
 import { EVENTS } from '../storageKeys'
 
-function BonusForm({ customer, onClose, onSaved }) {
+export function BonusForm({ customer, onClose, onSaved }) {
   const notify = useToast()
   const [amount, setAmount] = useState('')
   const [error, setError] = useState('')
@@ -98,15 +99,16 @@ function CustomerOrders({ customer, onClose }) {
   }, [customer.id, loadOrders])
 
   return (
-    <Modal title={`Клієнт: ${customer.first_name || customer.tg_id}`} onClose={onClose}>
+    <Modal title={`Клієнт: ${customerName(customer)}`} onClose={onClose}>
       {/* UI-018: хто це й наскільки активний — до історії замовлень. */}
       <dl className="order-summary customer-summary" aria-label="Підсумок клієнта">
-        <div><dt>Контакт</dt><dd>{customer.username ? `@${customer.username}` : `Telegram ${customer.tg_id}`}{customer.phone ? ` · ${customer.phone}` : ''}</dd></div>
+        <div><dt>Контакт</dt><dd>{customerSubtitle(customer)}</dd></div>
         <div><dt>Замовлень</dt><dd className="num">{customer.orders_count ?? '—'}</dd></div>
         <div><dt>Витрачено</dt><dd className="num">{customer.total_spent != null ? money(customer.total_spent) : '—'}</dd></div>
         <div><dt>Бонуси</dt><dd className="num">{customer.bonus_balance != null ? money(customer.bonus_balance) : '—'}</dd></div>
         {customer.is_blocked && <div><dt>Доступ</dt><dd><StateBadge tone="danger">заблокований</StateBadge></dd></div>}
       </dl>
+      <p className="u-mt-0"><Link to={`/customers/${customer.id}`}>Відкрити повну картку клієнта →</Link></p>
       <ErrorBar error={ordersError} />
       {ordersError && <div className="row"><span className="faint">{orders ? 'Попередні замовлення можуть бути застарілими.' : 'Замовлення не завантажено.'}</span><button className="btn ghost small" disabled={ordersLoading} onClick={loadOrders}>Оновити замовлення</button></div>}
       {orders && <Pagination page={page} total={total} count={orders.length} loading={ordersLoading} onPage={setPage} />}
@@ -205,7 +207,7 @@ export default function Customers() {
 
   const toggleBlock = async (customer) => {
     // Блокування закриває клієнту бота й Mini App, тож без підтвердження його не робимо.
-    if (!customer.is_blocked && !window.confirm(`Заблокувати ${customer.first_name || customerContact(customer)}? Клієнт не зможе користуватися ботом і Mini App, доки доступ не відновлять.`)) return
+    if (!customer.is_blocked && !window.confirm(`Заблокувати ${customerName(customer)}? Клієнт не зможе користуватися ботом і Mini App, доки доступ не відновлять.`)) return
     try {
       const updated = await api.customers.patch(customer.id, { is_blocked: !customer.is_blocked })
       setCustomers((list) => list.map((c) => (c.id === updated.id ? { ...c, ...updated } : c)))
@@ -228,7 +230,7 @@ export default function Customers() {
           className="input"
           type="search"
           aria-label="Пошук клієнта"
-          placeholder="Ім'я, username або телефон"
+          placeholder="Ім'я, email, username або телефон"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
@@ -244,7 +246,7 @@ export default function Customers() {
       ) : customers.length === 0 && error ? null : customers.length === 0 ? (
         search ? (
           <Empty title="Нічого не знайдено">
-            За запитом «{search}» клієнтів немає. Пошук працює за імʼям
+            За запитом «{search}» клієнтів немає. Пошук працює за імʼям, email
             і номером телефону.
             <div className="u-mt-3">
               <button className="btn ghost small" onClick={resetFilters}>
@@ -276,12 +278,9 @@ export default function Customers() {
                 {customers.map((c) => (
                   <tr key={c.id} className={c.is_blocked ? 'customer-blocked' : undefined}>
                     <td>
-                      {c.first_name || '—'}
+                      <Link className="customer-name-link" to={`/customers/${c.id}`}>{customerName(c)}</Link>
                       {c.is_blocked && <StateBadge tone="danger" className="inline-badge">заблокований</StateBadge>}
-                      <div className="faint mono">
-                        {c.username ? `@${c.username}` : `id${c.tg_id}`}
-                        {c.phone ? ` · ${c.phone}` : ''}
-                      </div>
+                      <div className="faint">{customerSubtitle(c)}</div>
                     </td>
                     <td className="mono">{c.referral_code}</td>
                     <td className="num">{c.orders_count}</td>
@@ -290,6 +289,7 @@ export default function Customers() {
                     <td className="faint">{date(c.created_at)}</td>
                     <td>
                       <div className="row">
+                        <Link className="btn small" to={`/customers/${c.id}`}>Картка</Link>
                         <button className="btn ghost small" onClick={() => setOrdersFor(c)}>Замовлення</button>
                         <button className="btn ghost small" onClick={() => setBonusFor(c)}>Бонуси</button>
                         <button

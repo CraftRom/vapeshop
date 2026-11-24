@@ -52,6 +52,7 @@ const SupportChatWindow = page(() => import('./pages/Support').then(mod => ({ de
 const Catalog = page(() => import('./pages/Catalog'))
 const CatalogProduct = page(() => import('./pages/CatalogProduct'))
 const Customers = page(() => import('./pages/Customers'))
+const CustomerPage = page(() => import('./pages/CustomerPage'))
 const Promos = page(() => import('./pages/Promos'))
 const LandingPages = page(() => import('./pages/LandingPages'))
 const Broadcasts = page(() => import('./pages/Broadcasts'))
@@ -293,6 +294,7 @@ export default function App() {
         <Route path="/catalog" element={<Protected><Catalog /></Protected>} />
         <Route path="/catalog/products/:id" element={<Protected><CatalogProduct /></Protected>} />
         <Route path="/customers" element={<Protected><Customers /></Protected>} />
+        <Route path="/customers/:id" element={<Protected><CustomerPage /></Protected>} />
         <Route path="/promos" element={<Protected><Promos /></Protected>} />
         <Route path="/landing-pages" element={<Protected><LandingPages /></Protected>} />
         <Route path="/broadcasts" element={<Protected><Broadcasts /></Protected>} />

@@ -19,6 +19,15 @@ export function recipientName(order) {
   if(patronymic && !name.endsWith(' '+patronymic) && name!==patronymic)name=words(name+' '+patronymic)
   return name || 'Ім’я не вказано'
 }
+/** Name to show: the Telegram name, never a placeholder id. */
+export function customerName(user={}) {
+  return (user?.first_name || '').trim() || 'Без імені'
+}
+/** Second line: @username or Telegram id, phone. */
+export function customerSubtitle(user={}) {
+  const contact=user?.username ? '@'+user.username : user?.tg_id ? `Telegram ${user.tg_id}` : ''
+  return [contact, user?.phone].filter(Boolean).join(' · ')
+}
 export function customerContact(user={}) {
   if(!user?.tg_id)return 'Контакт не вказано'
   return user.username?'@'+user.username:'Telegram підключено'

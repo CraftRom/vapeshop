@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {recipientName,customerContact,paymentMeta,orderChannel,inventoryState,publicationState,navigationFor} from '../src/commerce.js'
+import {recipientName,customerContact,customerName,customerSubtitle,paymentMeta,orderChannel,inventoryState,publicationState,navigationFor} from '../src/commerce.js'
 
 test('recipient names support both normalized full names and older split fields',()=>{
  assert.equal(recipientName({contact_surname:'Покупець',contact_name:'Покупець Дмитро Іванович',contact_patronymic:'Іванович'}),'Покупець Дмитро Іванович')
@@ -11,6 +11,12 @@ test('missing contacts and payment methods never masquerade as Telegram or card 
  assert.equal(customerContact({}),'Контакт не вказано')
  assert.equal(customerContact({tg_id:123,username:'realname'}),'@realname')
  assert.match(paymentMeta(null).title,/не вказано/)
+})
+test('customer names come from Telegram, never a placeholder id',()=>{
+ assert.equal(customerName({tg_id:5,first_name:'Тарас'}),'Тарас')
+ assert.equal(customerName({tg_id:5}),'Без імені')
+ assert.equal(customerSubtitle({id:5,tg_id:55,username:'taras',phone:'+380671234567'}),'@taras · +380671234567')
+ assert.equal(customerSubtitle({id:5,tg_id:55}),'Telegram 55')
 })
 test('campaign source does not override the actual sales channel',()=>{
  assert.equal(orderChannel({attribution:{source:'google',channel:'telegram_bot'}}),'bot')
