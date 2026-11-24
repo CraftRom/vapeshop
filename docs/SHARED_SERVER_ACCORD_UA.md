@@ -52,5 +52,6 @@ curl -I https://elfar.pp.ua/ && curl -I https://accordniche.pp.ua/
 
 - **ELFAR:** `bash deploy/deploy.sh`. Його перевірки описано вище.
 - **ACCORD:** `bash deploy/domains.sh --docker-edge up -d --build` у `/opt/accord-niche`. Сертифікати або домени ACCORD змінює лише `python3 scripts/connect_elfar_edge.py`. Він перестворює тільки `nginx` і `promo-controller` ELFAR з `--no-deps --no-build`.
-- Не запускайте одночасно деплой ELFAR і `connect_elfar_edge.py`: обидва перестворюють один і той самий nginx.
+- Деплой ELFAR і `connect_elfar_edge.py` ACCORD беруть один замок `/run/lock/elfar-accord-edge.lock`. Якщо одночасно запустити обидва, другий чекає до 15 хвилин і не перестворює nginx паралельно.
+- У ACCORD legacy-сценарії `deploy/deploy.sh`, `bootstrap.sh`, `certbot-init.sh` та інші старі сценарії відмовляються працювати на сервері з ELFAR (код 3). `COMPOSE_PROJECT_NAME=deploy` або `elfar` у `.env.domains` теж відхиляється: ці імена належать ELFAR.
 - Не виконуйте `docker system prune`, `docker volume prune` чи `docker network prune` на цьому сервері. Вони зачеплять обидва проєкти.

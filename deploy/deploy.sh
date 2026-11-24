@@ -3,6 +3,15 @@
 set -euo pipefail
 
 cd "$(dirname "$0")"
+# Той самий замок, що й у ACCORD (/opt/accord-niche/scripts/connect_elfar_edge.py):
+# обидва перестворюють один nginx, тож ніколи не працюють одночасно.
+EDGE_LOCK="${ELFAR_ACCORD_EDGE_LOCK:-$([[ -d /run/lock ]] && echo /run/lock || echo /tmp)/elfar-accord-edge.lock}"
+( umask 000; : >> "$EDGE_LOCK" ) 2>/dev/null || true
+exec 9<"$EDGE_LOCK"
+if ! flock -n 9; then
+    echo "==> Спільний nginx зайнятий (ACCORD connect_elfar_edge.py або інший деплой ELFAR); чекаю до 15 хв…"
+    flock -w 900 9 || { echo "ПОМИЛКА: спільний nginx зайнятий понад 15 хвилин" >&2; exit 1; }
+fi
 ENV_FILE="../.env"
 COMPOSE_FILE="docker-compose.prod.yml"
 COMPOSE=(docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE")
