@@ -22,7 +22,7 @@ from shop.services import login_guard
 from shop.repo.factory import get_repo
 from shop.db import check_db
 
-from shop.build import BUILD as _BUILD
+from shop.build import release_id as _release_id
 
 from shop.logging_setup import setup as setup_logging
 
@@ -264,14 +264,14 @@ async def debug_database(_who: Principal = Depends(require_sysadmin)):
             version = (await session.execute(text("SELECT version()"))).scalar_one()
             await session.execute(text("SELECT 1"))
         return {
-            "build": _BUILD,
+            "build": _release_id(),
             "ok": True,
             "server": str(version)[:80],
             "latency_ms": round((time.monotonic() - started) * 1000, 1),
         }
     except Exception as exc:
         return {
-            "build": _BUILD,
+            "build": _release_id(),
             "ok": False,
             "error": f"{type(exc).__name__}: {exc}"[:400],
         }

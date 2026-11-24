@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api, isSysadmin } from '../api'
+import { RELEASE_ID } from '../version'
 
 // A04: "enabled in settings" is not "running". The server derives each state
 // from settings plus worker heartbeats; the panel only renders it.
@@ -55,7 +56,8 @@ export default function ModuleStatus() {
         <button className="btn ghost small" type="button" onClick={checkRelease}>Перевірити готовність релізу</button>
         {readinessError && <p className="bad" role="alert">{readinessError}</p>}
         {readiness && <div role="status">
-          <p><strong>{readiness.ready ? 'Готово до роботи' : 'Є проблеми'}</strong> · збірка <span className="mono">{readiness.build}</span></p>
+          <p><strong>{readiness.ready ? 'Готово до роботи' : 'Є проблеми'}</strong></p>
+          <p className="muted">API: <span className="mono">{readiness.release?.id || readiness.build}</span>{readiness.release?.built_at ? ` · зібрано ${new Date(readiness.release.built_at).toLocaleString('uk-UA')}` : ''} · панель: <span className="mono">{RELEASE_ID}</span></p>
           <p className="muted">Ревізія БД: <span className="mono">{readiness.migrations.database.join(', ') || '—'}</span>, код: <span className="mono">{readiness.migrations.code_heads.join(', ')}</span></p>
           {readiness.problems.length > 0 && <ul>{readiness.problems.map((problem) => <li key={problem}>{problem}</li>)}</ul>}
         </div>}
