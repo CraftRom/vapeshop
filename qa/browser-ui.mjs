@@ -62,6 +62,9 @@ try {
     let failProducts=false
     const errors=[];p.on('pageerror',e=>errors.push(e.message))
     await p.addInitScript(()=>{window.Telegram={WebApp:{initData:'user=%7B%22id%22%3A123%7D&auth_date=1&hash=test',platform:'tdesktop',initDataUnsafe:{user:{id:123}},ready(){},expand(){},disableVerticalSwipes(){},onEvent(){},offEvent(){}}}})
+    // The real SDK from telegram.org would replace the mocked WebApp (no
+    // initData) whenever the runner has internet access, as CI does.
+    await p.route('https://telegram.org/**',r=>r.fulfill({body:''}))
     await p.route('**/api/**', async route=>{
       const path=new URL(route.request().url()).pathname
       if(path.endsWith('/products') && failProducts){await route.fulfill({status:503,json:{detail:'QA unavailable'}});return}
