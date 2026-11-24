@@ -9,7 +9,7 @@
 //   • no runtime errors.
 // Keyboard paths, screen-reader wording and visual review stay manual.
 import { chromium } from 'playwright'
-import { auditPage } from './a11y-audit.mjs'
+import { auditPage, auditAxe } from './a11y-audit.mjs'
 import { readFileSync, mkdirSync } from 'node:fs'
 
 const BASE = process.env.DASHBOARD_URL || 'http://127.0.0.1:5173'
@@ -90,6 +90,7 @@ try {
       await page.waitForLoadState('networkidle')
       await page.waitForTimeout(150)
       await auditPage(page, cdp, label, check, { errors })
+      await auditAxe(page, label, check)
       if (path === '/customers' && width === 1280) {
         check(await page.getByRole('link', { name: 'Олена' }).first().getAttribute('href') === '/customers/5', 'customer name links to the customer card')
       }

@@ -20,9 +20,11 @@
     "test:quantity-sync": "QA_BROWSER_SUITE=quantity-sync bash run-browser.sh",
     "test:financial-periods": "QA_BROWSER_SUITE=financial-periods bash run-browser.sh",
     "test:support-history": "QA_BROWSER_SUITE=support-history bash run-browser.sh",
+    "test:support-mobile": "QA_BROWSER_SUITE=support-mobile bash run-browser.sh",
     "test:a11y": "QA_BROWSER_SUITE=a11y bash run-browser.sh"
   },
   "devDependencies": {
+    "axe-core": "4.10.2",
     "playwright": "1.62.1"
   }
 }

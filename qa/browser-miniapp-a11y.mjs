@@ -4,7 +4,7 @@
 import { chromium } from 'playwright'
 import { mkdirSync } from 'node:fs'
 import { pageFixture } from './paged-fixture.mjs'
-import { auditPage } from './a11y-audit.mjs'
+import { auditPage, auditAxe } from './a11y-audit.mjs'
 
 const BASE = (process.env.MINIAPP_URL || 'http://127.0.0.1:5174') + '/app/'
 const output = process.env.QA_OUTPUT_DIR || 'qa/output'
@@ -58,6 +58,7 @@ try {
     const audit = async (screen) => {
       await page.waitForTimeout(250)
       await auditPage(page, cdp, `${width}px ${scheme} ${screen}`, check, { errors })
+      await auditAxe(page, `${width}px ${scheme} ${screen}`, check)
       errors.length = 0
       if (width === 320) await page.screenshot({ path: `${output}/miniapp-a11y-${screen}-${width}.png` })
     }

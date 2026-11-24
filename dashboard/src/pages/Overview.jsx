@@ -351,7 +351,7 @@ export default function Overview() {
               {data.top.length === 0 ? (
                 <p className="muted">Продажів за період ще немає.</p>
               ) : (
-                <div className="table-wrap u-mt-3">
+                <div className="table-wrap u-mt-3" tabIndex={0} role="region" aria-label="Топ товарів">
                   <table>
                     <thead><tr><th>Товар</th><th className="num">Шт</th><th className="num">Оборот</th></tr></thead>
                     <tbody>
@@ -451,7 +451,7 @@ export default function Overview() {
             {data.operators.length === 0 ? (
               <p className="muted">За цей період продажів немає.</p>
             ) : (
-              <div className="table-wrap u-mt-3">
+              <div className="table-wrap u-mt-3" tabIndex={0} role="region" aria-label="Менеджери за період">
                 <table>
                   <thead>
                     <tr>

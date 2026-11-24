@@ -630,3 +630,16 @@ button.support-stat:hover { border-color: rgba(139, 123, 240, 0.38); }
   .support-closed-meta { font-size: 10.5px; }
 }
 
+/* UI-011: on a phone the list starts on the first screen. The filter buttons
+   carry the counts, so the three tiles that repeat them are hidden and the
+   rest is one quiet line. */
+.support-tab-count { margin-left: 6px; font-variant-numeric: tabular-nums; opacity: .8; }
+@media (max-width: 760px) {
+  .support-stats { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-bottom: 8px; }
+  .support-stats button.support-stat { display: none; }
+  .support-stats .support-stat.passive { min-height: 0; padding: 0; border: 0; background: none; gap: 6px; justify-content: flex-start; }
+  .support-stats .support-stat.passive span { font-size: 13px; }
+  .support-stats .support-stat.passive strong { font-size: 14px; }
+  .support-client-counters > span:not(.badge) { font-size: 12px; }
+  .support-compose-row .btn { min-height: 44px; min-width: 44px; }
+}

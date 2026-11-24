@@ -155,3 +155,8 @@
 .customer-share-bar > span { display: block; height: 100%; background: var(--mint); border-radius: inherit; }
 .customer-name-link { font-weight: 600; color: inherit; }
 @media (max-width: 900px) { .customer-columns { grid-template-columns: 1fr; } }
+
+/* WCAG 1.4.1: a link inside running text is told apart by more than colour. */
+.main p a:not(.btn), .main li a:not(.btn), .main dd a:not(.btn), .notice a:not(.btn) { text-decoration: underline; text-underline-offset: 2px; }
+/* Disabled rows stay readable; the status chip carries the state. */
+.row-inactive td { color: var(--text-secondary); }

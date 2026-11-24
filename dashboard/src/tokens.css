@@ -19,7 +19,7 @@
 
   /* Text on surfaces (contrast on --surface-2 in brackets) */
   --text-primary: #ECE9F5;    /* 13.5:1 */
-  --text-secondary: #948CAD;  /* 5.1:1 */
+  --text-secondary: #9A92B5;  /* 5.5:1; ≥4.5:1 on tinted status badges */
   --text-tertiary: #8F87AA;   /* 4.8:1; ≥4.5:1 even on --border-subtle */
 
   /* Actions */
