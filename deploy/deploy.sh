@@ -9,9 +9,10 @@ COMPOSE=(docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE")
 STAMP="$(date +%Y%m%d-%H%M%S)"
 ROLLBACK_DIR="./data/deploy-rollback/$STAMP"
 mkdir -p "$ROLLBACK_DIR"
-# Durable backup jobs shared by api and maintenance. Created here, by the deploy
-# user, so Docker does not create the bind mount as root-owned.
-mkdir -p ./data/jobs ./data/backups ./data/logs
+# Durable backup jobs and worker heartbeats shared by api and the workers.
+# Created here, by the deploy user, so Docker does not create the bind mounts
+# as root-owned.
+mkdir -p ./data/jobs ./data/heartbeats ./data/backups ./data/logs
 
 fail() { echo "ПОМИЛКА: $*" >&2; exit 1; }
 

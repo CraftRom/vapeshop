@@ -13,6 +13,7 @@ from api.routers import (
     logs as logs_router, media as media_router,
     integrations, orders, promos, support, shop_support, notifications, realtime,
     settings as settings_router, operators, shop as shop_router, stats, telegram, landing_pages,
+    system as system_router,
 )
 from api.schemas import LoginIn, TokenOut
 from shop.config import settings
@@ -306,6 +307,7 @@ app.include_router(landing_pages.router, prefix="/api/landing-pages", tags=["lan
 app.include_router(broadcasts.router, prefix="/api/broadcasts", tags=["broadcasts"])
 app.include_router(operators.router, prefix="/api/operators", tags=["operators"])
 app.include_router(settings_router.router, prefix="/api/settings", tags=["settings"])
+app.include_router(system_router.router, prefix="/api/system", tags=["system"])
 # Вебхук зовнішніх систем — без авторизації панелі (див. модуль), а
 # перевірка звʼязку — лише для системного адміністратора.
 app.include_router(integrations.router, prefix="/api/integrations", tags=["integrations"])

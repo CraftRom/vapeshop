@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import ImageField from '../components/ImageField'
+import { moduleByKey, useModuleStatus } from '../components/ModuleStatus'
 import { api } from '../api'
 import {
   Empty,
@@ -632,6 +633,9 @@ function DeliveryJournal({ broadcast, onClose }) {
 }
 
 export default function Broadcasts() {
+  // A04: warn when nothing would run a scheduled broadcast.
+  const { report: modules } = useModuleStatus()
+  const scheduler = moduleByKey(modules, 'scheduled_broadcasts')
   const notify = useToast()
   const [items, setItems] = useState(null)
   const [segments, setSegments] = useState([])
@@ -732,6 +736,7 @@ export default function Broadcasts() {
         </button>
       </div>
       <ErrorBar error={error} />
+      {scheduler?.status === 'no_worker' && <div className="card warn" role="status"><strong>Заплановані розсилки зараз не запустяться.</strong> {scheduler.detail}</div>}
       {error && (
         <button className="btn ghost small" onClick={load}>
           Оновити список

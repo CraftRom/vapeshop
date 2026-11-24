@@ -16,8 +16,11 @@ async def main():
     for sig in (signal.SIGTERM, signal.SIGINT):
         with suppress(NotImplementedError): loop.add_signal_handler(sig, stop.set)
     async def pulse():
+        from shop.worker_health import beat
         while not stop.is_set():
             await asyncio.to_thread(store.heartbeat)
+            # Shared module-readiness heartbeat (A04); the job-store one stays for its UI.
+            with suppress(Exception): await asyncio.to_thread(beat, 'maintenance')
             with suppress(asyncio.TimeoutError): await asyncio.wait_for(stop.wait(), 5)
     heartbeat = asyncio.create_task(pulse())
     try:

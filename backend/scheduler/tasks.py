@@ -208,8 +208,18 @@ async def run_housekeeping() -> dict:
     except Exception:
         log.exception("Не вдалося виконати DB lifecycle housekeeping")
 
+    # A11: expired bearer tokens can never authenticate; customers, accounts
+    # and proven identity links are untouched.
+    tokens_removed = {}
+    try:
+        async with open_repo() as repo:
+            tokens_removed = await repo.prune_expired_tokens(datetime.now(timezone.utc))
+    except Exception:
+        log.exception("Не вдалося прибрати прострочені токени")
+
     result = {
         "logs_removed": logs_removed,
+        **{f"expired_{key}_removed": value for key, value in tokens_removed.items()},
         "backups_removed": backups_removed,
         "chat_files_removed": chat_files_removed,
         "panel_notifications_removed": panel_notifications_removed,

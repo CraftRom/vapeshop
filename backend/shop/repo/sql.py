@@ -2809,6 +2809,21 @@ class SqlRepository(Repository):
             await self.s.commit()
         return result
 
+    async def prune_expired_tokens(self, now, *, batch=1000, max_batches=20):
+        removed = {}
+        for name, model in (("dashboard_sessions", m.DashboardSession),):
+            total = 0
+            for _ in range(max_batches):
+                ids = select(model.id).where(model.expires_at <= now).limit(batch).scalar_subquery()
+                result = await self.s.execute(delete(model).where(model.id.in_(ids))
+                                              .execution_options(synchronize_session=False))
+                await self.s.commit()
+                total += int(result.rowcount or 0)
+                if (result.rowcount or 0) < batch:
+                    break
+            removed[name] = total
+        return removed
+
     async def prune_panel_notifications(self, older_than_days: int = 90) -> int:
         """Видаляє лише оперативні panel notifications, не бізнес-історію."""
         days = max(7, int(older_than_days or 90))

@@ -55,8 +55,27 @@ async def _controller(method: str, path: str, *, domain: str, extra: dict | None
     return payload
 
 
+CONTROLLER_MISSING = ("Контролер промодоменів не налаштований (PROMO_CONTROLLER_TOKEN). Редактор, "
+                      "перегляд і публікація на основному сайті працюють; власний домен підключити не можна.")
+
+
+def _controller_configured() -> bool:
+    return bool(_PROMO_CONTROLLER_TOKEN)
+
+
+def _without_controller() -> dict:
+    """A09: a known "not configured" state instead of a permanent 503 per page."""
+    return {"controller_configured": False, "routePresent": False, "active": False,
+            "dns": {"ok": False, "addresses": []}, "tls": {"present": False},
+            "dnsRequirements": {"configured": False}, "message": CONTROLLER_MISSING}
+
+
 async def _domain_status(domain: str) -> dict:
-    return await _controller("GET", "/v1/status", domain=domain)
+    if not _controller_configured():
+        return _without_controller()
+    state = await _controller("GET", "/v1/status", domain=domain)
+    state.setdefault("controller_configured", True)
+    return state
 
 
 CF_TOKEN_KEY = "promo_cloudflare_api_token"
@@ -827,6 +846,11 @@ async def domain_status(
         raise HTTPException(404, "Промо-сторінку не знайдено")
     target = row.domain if not domain else _domain(domain)
     state = await _domain_status(target)
+    if not state.get("controller_configured", True):
+        state["live"] = {"ok": False, "status": "not_configured", "label": "Домен не підключається",
+                         "message": CONTROLLER_MISSING}
+        state["page"] = {"published": bool(row.is_published), "version": row.version}
+        return state
     origin = (state.get("dnsRequirements") or {}).get("ipv4")
     state["cloudflare"] = await _cloudflare_domain_info(db, target, origin)
     if state["cloudflare"].get("readyForProxyDeploy"):
@@ -854,6 +878,8 @@ async def domain_connect(
     row = await db.get(PromoLandingPage, page_id)
     if not row:
         raise HTTPException(404, "Промо-сторінку не знайдено")
+    if not _controller_configured():
+        raise HTTPException(409, CONTROLLER_MISSING)
     pre = await _domain_status(row.domain)
     origin = (pre.get("dnsRequirements") or {}).get("ipv4")
     cf = await _cloudflare_domain_info(db, row.domain, origin)
@@ -877,6 +903,9 @@ async def domain_disconnect(
         row.is_published = False
         row.updated_at = datetime.now(timezone.utc)
         await db.commit()
+    if not _controller_configured():
+        # Nothing was ever routed externally; unpublishing above is the whole job.
+        return {**_without_controller(), "page": {"published": False, "version": row.version}}
     state = await _controller("POST", "/v1/disconnect", domain=row.domain)
     security.record("promo.domain.disconnected", actor=who.login, reason=row.domain)
     return state
