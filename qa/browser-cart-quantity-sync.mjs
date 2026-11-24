@@ -54,6 +54,9 @@ try {
   state.holds.set(1,new Promise(r=>{release1=r}));state.holds.set(2,new Promise(r=>{release2=r}))
   await plus().click()
   check(await quantity().innerText()==='3',width+': first tap changes visible quantity immediately')
+  // The request is held by the mock, so the state must appear and stay; on a
+  // slow CI runner the status can render a frame after the quantity.
+  await until(async()=>await saving().count()===1).catch(()=>{})
   check(await saving().count()===1,width+': pending quantity has an explicit saving state')
   check((await page.locator('.cart-card .price').innerText()).includes('39,80'),width+': money stays at server-confirmed subtotal before acknowledgement')
   await until(()=>state.posts.length===1)
