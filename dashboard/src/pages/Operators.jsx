@@ -2,7 +2,7 @@ import { useEffect, useId, useRef, useState } from 'react'
 
 import { api } from '../api'
 import { Empty, ErrorBar, Field, Loading, Modal, confirmPurge, useToast } from '../components/ui'
-import { PageHeader } from '../components/page'
+import { PageHeader, SectionCard } from '../components/page'
 
 // Значення мають збігатися з OperatorRole на бекенді. «admin» історично
 // означає системного адміністратора з .env — його в панелі не створюють,
@@ -171,6 +171,16 @@ function OperatorForm({ operator, onClose, onSaved }) {
           ))}
         </select>
       </Field>
+      {editing && form.role !== operator.role && (() => {
+        const { lost, gained } = roleChange(operator.role, form.role)
+        return (
+          <div className={`card role-change-notice ${lost.length ? 'warn' : ''}`} role="status">
+            <strong>Після збереження зміняться права</strong>
+            {lost.length > 0 && <p>Втратить доступ: {lost.join(', ')}.</p>}
+            {gained.length > 0 && <p>Отримає доступ: {gained.join(', ')}.</p>}
+          </div>
+        )
+      })()}
     </Modal>
   )
 }

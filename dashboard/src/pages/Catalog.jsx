@@ -382,7 +382,7 @@ export default function Catalog() {
         (category || subcategory || feature || inventory || search) ? (
           <Empty title="Нічого не знайдено">
             За цим відбором товарів немає. Можливо, вони в іншій категорії.
-            <div style={{ marginTop: 12 }}>
+            <div className="u-mt-3">
               <button className="btn ghost small" onClick={resetFilters}>
                 Показати всі товари
               </button>

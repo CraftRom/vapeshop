@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../api'
 import { Modal } from '../components/ui'
+import { PageHeader, SectionCard } from '../components/page'
 
 const REQUEST_KEY = 'elfar:backup:request'
 const pending = (job) => job && ['queued', 'running'].includes(job.status)
@@ -156,18 +157,16 @@ export default function Backups() {
 
   return (
     <div>
-      <h1>Резервні копії</h1>
-      <p className="faint" style={{ marginTop: -8 }}>
-        Знімки бази даних. Планувальник робить їх за розкладом із налаштувань,
-        тут можна зняти позаплановий, завантажити копію з комп'ютера або
-        переглянути порядок безпечного відновлення.
-      </p>
+      <PageHeader
+        title="Резервні копії"
+        description="Знімки бази даних. Планувальник робить їх за розкладом із налаштувань, тут можна зняти позаплановий, завантажити копію з комп'ютера або переглянути порядок безпечного відновлення."
+      />
 
-      {error && <div className="card error" style={{ marginBottom: 14 }}>{error}</div>}
-      {notice && <div className="card ok" style={{ marginBottom: 14 }}>{notice}</div>}
+      {error && <div className="card error u-mb-4">{error}</div>}
+      {notice && <div className="card ok u-mb-4">{notice}</div>}
 
-      <div className="card" style={{ marginBottom: 14 }}>
-        <div className="row" style={{ gap: 10, flexWrap: 'wrap' }}>
+      <SectionCard title="Поточний захист" className="u-mb-4">
+        <div className="row backups-actions">
           <button className="btn" onClick={create} disabled={busy === 'create' || checking || Boolean(activeJob)}>
             {busy === 'create' ? 'Надсилаємо…' : activeJob ? 'Копія створюється' : requestRef.current?.key ? 'Перевірити запит' : 'Зробити копію зараз'}
           </button>
@@ -182,20 +181,20 @@ export default function Backups() {
             ref={fileRef}
             type="file"
             accept=".dump"
-            style={{ display: 'none' }}
+            hidden
             onChange={(e) => upload(e.target.files?.[0])}
           />
           <button className="btn ghost" onClick={load}>Оновити</button>
         </div>
 
         {data && (
-          <p className="faint" style={{ marginBottom: 0, marginTop: 12 }}>
+          <p className="faint u-mt-3 u-mb-0">
             {data.total} копій, разом {sizeLabel(data.totalBytes)}.
             Вільно на диску {sizeLabel(data.freeBytes)}.
             Автоматичні зберігаються {data.retentionDays} днів.
           </p>
         )}
-      </div>
+      </SectionCard>
 
       <section className="card" style={{marginBottom: 14}} aria-label="Фонові завдання">
         <h2 style={{marginTop: 0}}>Останні завдання</h2>
@@ -213,14 +212,14 @@ export default function Backups() {
       </section>
 
       {data?.database?.available && (
-        <div className="card" style={{ marginBottom: 14 }}>
-          <h2 style={{ marginTop: 0 }}>Сховище PostgreSQL</h2>
+        <div className="card u-mb-4">
+          <h2 className="u-mt-0">Сховище PostgreSQL</h2>
           <p className="faint" style={{ marginTop: -4 }}>
             Загальний фізичний розмір бази: <b>{sizeLabel(data.database.totalBytes)}</b>.
             Нижче — найбільші таблиці разом з індексами. Dead rows — простір,
             який PostgreSQL може повторно використати після autovacuum; це не втрачені дані.
           </p>
-          <div style={{ overflowX: 'auto' }}>
+          <div className="u-scroll-x">
             <table className="table">
               <thead>
                 <tr>
@@ -247,7 +246,7 @@ export default function Backups() {
             </table>
           </div>
           {(data.database.coldArchives || []).length > 0 && (
-            <p className="faint" style={{ marginBottom: 8 }}>
+            <p className="faint u-mb-2">
               Cold-tier: {(data.database.coldArchives || []).map((item) => {
                 const raw = Number(item.rawBytes || 0)
                 const packed = Number(item.payloadBytes || 0)
@@ -263,7 +262,7 @@ export default function Backups() {
         </div>
       )}
 
-      <div className="card">
+      <SectionCard title="Збережені копії">
         {!data && <p className="faint">Завантаження…</p>}
 
         {data && data.items.length === 0 && (
@@ -274,7 +273,7 @@ export default function Backups() {
         )}
 
         {data && data.items.length > 0 && (
-          <div style={{ overflowX: 'auto' }}>
+          <div className="u-scroll-x">
             <table className="table">
               <thead>
                 <tr>
@@ -287,22 +286,23 @@ export default function Backups() {
               <tbody>
                 {data.items.map((item) => (
                   <tr key={item.name}>
-                    <td style={{ wordBreak: 'break-all' }}>
+                    <td className="u-break-all">
                       {item.name}
                       {item.manual && <div className="faint">знято вручну</div>}
                     </td>
-                    <td className="faint" style={{ whiteSpace: 'nowrap' }}>{when(item.createdAt)}</td>
+                    <td className="faint u-nowrap">{when(item.createdAt)}</td>
                     <td className="faint">{sizeLabel(item.sizeBytes)}</td>
                     <td>
-                      <div className="row" style={{ gap: 6 }}>
+                      <div className="row backups-row-actions">
                         <button className="btn small ghost" onClick={() => download(item)}>
                           Скачати
                         </button>
                         <button className="btn small" onClick={() => setRestoring(item)}>
                           Як відновити
                         </button>
+                        {/* Незворотна дія — окремо від частих, з підтвердженням. */}
                         <button
-                          className="btn small danger"
+                          className="btn small danger backups-remove"
                           disabled={busy === item.name}
                           onClick={() => remove(item)}
                         >
@@ -316,7 +316,7 @@ export default function Backups() {
             </table>
           </div>
         )}
-      </div>
+      </SectionCard>
 
       <div className="card" style={{ marginTop: 14 }}>
         <h2 style={{ marginTop: 0 }}>Про що варто пам'ятати</h2>

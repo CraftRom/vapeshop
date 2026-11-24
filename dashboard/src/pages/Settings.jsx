@@ -427,9 +427,9 @@ function EnvironmentCard() {
   const problems = items.filter((i) => !i.ok && i.level !== 'optional')
 
   return (
-    <div className="card" style={{ marginBottom: 18 }}>
+    <div className="card u-mb-5">
       <div className="row-between">
-        <h2 style={{ margin: 0 }}>Стан оточення</h2>
+        <h2 className="u-m-0">Стан оточення</h2>
         <StateBadge tone={problems.length ? 'warning' : 'success'}>
           {problems.length ? `потребує уваги: ${problems.length}` : 'усе задано'}
         </StateBadge>
@@ -519,7 +519,7 @@ function WebhookToken({ connected, value, onChange }) {
           <br /><code>{url}</code>
         </p>
       ) : (
-        <p className="faint" style={{ margin: '6px 0 0' }}>
+        <p className="faint u-mt-2 u-mb-0">
           {connected
             ? 'Адресу задано. Прочитати її назад не можна; нова адреса робить стару недійсною.'
             : 'Не задано — зміни з SalesDrive у магазин не надходять.'}
@@ -630,9 +630,21 @@ export default function Settings() {
   const groups = visibleGroups()
   const categories = SETTINGS_CATEGORIES.filter((item) => groups.some((group) => categoryFor(group.title) === item.id))
   const needle = query.trim().toLocaleLowerCase('uk-UA')
+  const matchesNeedle = (...values) => values.filter(Boolean).join(' ').toLocaleLowerCase('uk-UA').includes(needle)
   const shownGroups = groups.filter((group) => needle
     ? [group.title, group.hint, ...group.items.flatMap((item) => [item.label, item.hint])].join(' ').toLocaleLowerCase('uk-UA').includes(needle)
     : categoryFor(group.title) === category)
+  // Parameters that match; a group found only by its title lists all of its fields.
+  const searchMatches = needle ? shownGroups.flatMap((group) => {
+    const items = group.items.filter((item) => matchesNeedle(item.label, item.hint))
+    return (items.length ? items : group.items).map((item) => ({ group, item }))
+  }) : []
+  const jumpToSetting = (key) => {
+    const field = document.getElementById(`setting-${key}`)
+    if (!field) return
+    field.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    field.querySelector('input, select, textarea, button')?.focus({ preventScroll: true })
+  }
 
   useEffect(() => {
     if (!dirty) return
@@ -698,7 +710,21 @@ export default function Settings() {
           </button>)}
         </nav>
       </div>
-      {needle && <p className="faint settings-search-result" role="status">Знайдено розділів: {shownGroups.length}</p>}
+      {needle && shownGroups.length > 0 && (
+        <div className="settings-search-result" role="status">
+          <p className="faint">Знайдено параметрів: {searchMatches.length} · розділів: {shownGroups.length}</p>
+          {/* UI-013: результат називає розділ і параметр і веде прямо до поля. */}
+          <ul className="settings-search-matches">
+            {searchMatches.slice(0, 12).map(({ group, item }) => (
+              <li key={item.key}>
+                <button type="button" className="settings-search-match" onClick={() => jumpToSetting(item.key)}>
+                  <span>{group.title}</span> → <strong>{item.label}</strong>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       {!shownGroups.length && <div className="card"><p>Нічого не знайдено. Спробуйте іншу назву.</p></div>}
       <fieldset className="settings-form" disabled={busy}>
       {shownGroups.map((group) => (
@@ -725,7 +751,7 @@ export default function Settings() {
           <div className={group.toggle && !form[group.toggle] ? 'settings-paused' : ''}>
           {group.title === 'Автовідповіді' && !form.auto_replies_enabled && <p className="faint" role="status">Уся FAQ-автоматика вимкнена. Налаштування каналів збережені для наступного ввімкнення.</p>}
           {group.items.map((item) => (
-            <Field key={item.key} label={item.label} hint={item.hint}>
+            <Field key={item.key} id={`setting-${item.key}`} label={item.label} hint={item.hint}>
               {item.map ? (
                 <MapEditor
                   keys={item.map}
@@ -781,7 +807,7 @@ export default function Settings() {
                 {form[item.secret] && <button type="button" className="btn ghost small" onClick={() => setForm((f) => ({ ...f, [item.key]: '' }))} disabled={form[item.key] === ''}>
                   {form[item.key] === '' ? 'Ключ буде видалено після збереження' : 'Відключити інтеграцію'}
                 </button>}
-                <p className="faint" style={{ margin: '6px 0 0' }}>
+                <p className="faint u-mt-2 u-mb-0">
                   {form[item.secret]
                     ? 'Підключено. Прочитати збережений ключ назад не можна: '
                       + 'щоб замінити — впишіть новий, щоб відключити — натисніть '
@@ -836,8 +862,8 @@ export default function Settings() {
       {isSysadmin() && !needle && category === 'system' && <EnvironmentCard />}
 
       {isSysadmin() && !needle && category === 'system' && (
-      <div className="card" style={{ marginBottom: 18 }}>
-        <h2 style={{ marginTop: 0 }}>Що змінюється лише в оточенні</h2>
+      <div className="card u-mb-5">
+        <h2 className="u-mt-0">Що змінюється лише в оточенні</h2>
         <p className="faint" style={{ marginTop: -6 }}>
           Ці значення навмисно не редагуються тут: доступ до панелі не має
           означати повний контроль над ботом і базою.
