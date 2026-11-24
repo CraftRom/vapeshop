@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
+from typing import Literal
+from pydantic import BaseModel
 from fastapi.responses import Response
 
 from api.auth import Principal, require_staff
@@ -105,14 +107,27 @@ async def purge_subcategory(subcategory_id: int, repo: Repository = Depends(get_
     return {"purged_products": await repo.purge_subcategory(subcategory_id)}
 
 
-@router.get("/products", response_model=list[ProductOut])
+class ProductPage(BaseModel):
+    items:list[ProductOut]
+    total:int
+    limit:int
+    offset:int
+
+@router.get("/products", response_model=list[ProductOut] | ProductPage)
 async def list_products(category_id: int | None = None, subcategory_id: int | None = None,
-                        search: str | None = None, only_active: bool = False,
+                        search: str | None = Query(None,max_length=160), only_active: bool = False,
                         is_new: bool | None = None, is_sale: bool | None = None,
-                        uncategorized: bool = False, repo: Repository = Depends(get_repo)):
-    return await repo.list_products(category_id=category_id, subcategory_id=subcategory_id,
-                                    search=search, only_active=only_active,
-                                    is_new=is_new, is_sale=is_sale, uncategorized=uncategorized)
+                        uncategorized: bool = False,paginated:bool=False,
+                        limit:int=Query(500,ge=1,le=1000),offset:int=Query(0,ge=0,le=1000000),
+                        inventory:Literal['','available','low','out','unpriced','hidden','missing_photos']='',
+                        sort:Literal['','name-asc','name-desc','stock-asc','stock-desc','price-asc','price-desc']='',
+                        repo: Repository = Depends(get_repo)):
+    filters=dict(category_id=category_id,subcategory_id=subcategory_id,search=search,only_active=only_active,
+                 is_new=is_new,is_sale=is_sale,uncategorized=uncategorized)
+    if inventory:filters['inventory']=inventory
+    items=await repo.list_products(**filters,limit=limit,offset=offset,**({'sort':sort} if sort else {}))
+    if not paginated:return items
+    return dict(items=items,total=await repo.count_products(**filters),limit=limit,offset=offset)
 
 
 @router.post("/products", response_model=ProductOut, status_code=201)

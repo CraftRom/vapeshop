@@ -1,3 +1,4 @@
+import {recipientName,customerContact,channelLabel,paymentMeta} from '../commerce'
 import { memo, useCallback, useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 
@@ -78,7 +79,7 @@ function TrackingModal({ initial, onCancel, onConfirm }) {
     >
       <Field
         label="Номер накладної"
-        hint="Клієнт отримає його в Telegram одразу після підтвердження"
+        hint="Повідомлення надсилається лише за доступного Telegram-зв’язку"
       >
         <input
           className="input"
@@ -928,7 +929,7 @@ function CrmSnapshotPanel({ order, crmStatuses, refreshing, onRefresh, onUpdate 
                 <div><span>Статус</span><strong>{deliveryStatusLabel || '—'}</strong></div>
                 {deliveryCost !== null && deliveryCost !== undefined && deliveryCost !== '' && <div><span>Вартість доставки</span><strong>{crmAmount(deliveryCost)}</strong></div>}
                 {(np.ref || up.ref || deliveryData.trackingNumberRef) && <div className="crm-detail-wide"><span>Ref ТТН</span><strong className="crm-break">{np.ref || up.ref || deliveryData.trackingNumberRef}</strong></div>}
-                {localDestination && <div className="crm-detail-wide"><span>Адреса з ELFAR</span><strong>{localDestination}</strong></div>}
+                {localDestination && <div className="crm-detail-wide"><span>Адреса замовлення</span><strong>{localDestination}</strong></div>}
                 {crmAddress && <div className="crm-detail-wide"><span>Адреса/Ref у CRM</span><strong className="crm-break">{crmAddress}</strong></div>}
                 {(np.areaName || np.regionName) && <div><span>Область / район</span><strong>{[np.areaName, np.regionName].filter(Boolean).join(' · ')}</strong></div>}
                 {np.cityName && <div><span>Місто</span><strong>{[np.cityType, np.cityName].filter(Boolean).join(' ')}</strong></div>}
@@ -1026,7 +1027,7 @@ function CrmSnapshotPanel({ order, crmStatuses, refreshing, onRefresh, onUpdate 
       )}
 
       <p className="faint crm-live-note">
-        Ці дані надходять із SalesDrive. Їх перегляд не змінює локальний каталог ELFAR і його ціни.
+        Ці дані надходять із SalesDrive. Їх перегляд не змінює локальний каталог магазину і його ціни.
       </p>
     </section>
   )
@@ -1226,8 +1227,7 @@ export default function OrderPage() {
   const client = order.user || {}
   // Прізвище першим: саме в такому порядку його вписують у накладну, і
   // саме так його шукає менеджер у списку відправлень перевізника.
-  const fullName = [order.contact_surname, order.contact_name, order.contact_patronymic]
-    .filter(Boolean).join(' ')
+  const fullName=recipientName(order)
 
   const paymentMethod = order.payment_method === 'cod' ? 'cod' : 'card'
   const crmOutcome = order.crm_id ? crmBusinessOutcome(order, crmStatuses) : 'pending'
@@ -1239,15 +1239,15 @@ export default function OrderPage() {
       ? isShippedOrLaterCrmStatus(order, crmStatuses)
       : ['paid', 'shipped', 'done'].includes(order.status)
   )
-  const paymentTitle = paymentMethod === 'cod' ? 'Накладений платіж' : 'Переказ на картку'
-  const paymentState = paymentIsCancelled
+  const paymentTitle=paymentMeta(order.payment_method).title
+  const paymentState = !['cod','card'].includes(order.payment_method)?'Потрібно уточнити у покупця':paymentIsCancelled
     ? (order.crm_id ? 'Негативний результат CRM' : 'Замовлення скасовано')
     : paymentMethod === 'cod'
       ? 'Оплата при отриманні'
       : paymentIsConfirmed
         ? 'Оплату підтверджено'
         : 'Очікує підтвердження оплати'
-  const paymentHint = paymentIsCancelled
+  const paymentHint = !['cod','card'].includes(order.payment_method)?'Спосіб оплати не вибрано. Уточніть його до відправлення.':paymentIsCancelled
     ? (order.crm_id ? 'CRM має статус відмови, повернення або видалення. Він не підтверджує оплату й не рахується продажем.' : 'Спосіб оплати збережено для історії замовлення. Додаткових дій з оплатою не потрібно.')
     : paymentMethod === 'cod'
       ? 'Клієнт сплачує при отриманні. Етап «Оплачено» для цього замовлення не використовується.'
@@ -1429,7 +1429,7 @@ export default function OrderPage() {
 
           <div className="card">
             <h2 style={{ marginTop: 0 }}>Замовлення</h2>
-            <div className="analytics-order-source"><b>Джерело: </b>{order.attribution?.source || 'Невідомо'}{order.attribution?.medium && ` / ${order.attribution.medium}`}<br /><span className="faint">Кампанія: {order.attribution?.campaign || '—'} · content: {order.attribution?.content || '—'} · term: {order.attribution?.term || '—'}</span></div>
+            <div className="analytics-order-source"><b>Канал: {channelLabel(order)}</b><br/><b>Джерело: </b>{order.attribution?.source || 'Невідомо'}{order.attribution?.medium && ` / ${order.attribution.medium}`}<br /><span className="faint">Кампанія: {order.attribution?.campaign || '—'} · content: {order.attribution?.content || '—'} · term: {order.attribution?.term || '—'}</span></div>
             <div className="table-wrap">
               <table>
                 <tbody>
@@ -1516,23 +1516,18 @@ export default function OrderPage() {
             {client.bot_reachable === false && (
               <Info label="Увага">
                 Бот не може надіслати повідомлення цьому клієнту.
-                Статуси й реквізити не дійдуть; пишіть у стрічку замовлення
-                нижче або телефонуйте.
+                Статуси й реквізити не дійдуть; зв’яжіться телефоном. Покупці сайту переглядають стан покупки у своєму профілі.
               </Info>
             )}
 
-            <Info label="Telegram" copy={client.username ? `@${client.username}` : ''}>
-              {client.username
-                ? `@${client.username}`
-                : <span className="faint">без імені користувача</span>}
-            </Info>
+            <Info label="Профіль покупця" copy={Number(client.tg_id)>0 && client.username?'@'+client.username:''}>{customerContact(client)}</Info>
 
             {order.comment && (
               <Info label="Коментар покупця">{order.comment}</Info>
             )}
           </div>
 
-          <Chat key={id} orderId={id} canChat={order.can_chat} chatUntil={order.chat_until} />
+          {Number(client.tg_id)>0?<Chat key={id} orderId={id} canChat={order.can_chat} chatUntil={order.chat_until}/>:<section className="card commerce-web-contact"><h2>Зв’язок із покупцем сайту</h2><p>Статус замовлення доступний у профілі покупця. Для уточнення адреси, оплати чи складу замовлення використовуйте вказаний телефон.</p></section>}
         </div>
       </div>
 

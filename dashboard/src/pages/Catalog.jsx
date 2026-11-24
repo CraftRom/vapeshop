@@ -1,3 +1,4 @@
+import {inventoryState,INVENTORY} from '../commerce'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useProductImage } from '../components/catalog/useProductImage'
@@ -48,37 +49,9 @@ function ProductThumb({ product }) {
   )
 }
 
-function ProductStatus({ product }) {
-  let tone = 'ok'
-  let label = 'В наявності'
-
-  if (!product.is_active) {
-    tone = 'hidden'
-    label = 'Прихований'
-  } else if (product.stock === 0) {
-    tone = 'bad'
-    label = 'Немає'
-  } else if (product.stock < 5) {
-    tone = 'warn'
-    label = 'Закінчується'
-  }
-
-  return <span className={`catalog-status ${tone}`}>{label}</span>
-}
-
-
-function sortedCatalog(products, sort) {
-  const list = [...products]
-  const byName = (a, b) => a.name.localeCompare(b.name, 'uk', { sensitivity: 'base' })
-
-  switch (sort) {
-    case 'name-desc': return list.sort((a, b) => -byName(a, b))
-    case 'stock-asc': return list.sort((a, b) => a.stock - b.stock || byName(a, b))
-    case 'stock-desc': return list.sort((a, b) => b.stock - a.stock || byName(a, b))
-    case 'price-asc': return list.sort((a, b) => Number(a.price) - Number(b.price) || byName(a, b))
-    case 'price-desc': return list.sort((a, b) => Number(b.price) - Number(a.price) || byName(a, b))
-    default: return list.sort(byName)
-  }
+function ProductStatus({product}) {
+  const state=inventoryState(product)
+  return <span className={'catalog-status '+state.tone}>{state.label}</span>
 }
 
 function paginationNumbers(current, total) {
@@ -104,6 +77,7 @@ function ImportProductsModal({ onClose, onDone }) {
   }
   return <Modal title="Імпорт товарів із SalesDrive" onClose={onClose} footer={<><button className="btn ghost" onClick={onClose}>Закрити</button><button className="btn" disabled={!file||busy} onClick={run}>{busy?'Імпортую…':'Імпортувати'}</button></>}>
     <div className="stack">
+      {(category || subcategory || inventory || feature || search || sort!=='name-asc') && <button className="btn ghost small" onClick={resetFilters}>Скинути всі фільтри</button>}
       <ErrorBar error={error}/>
       <Field label="XLSX файл" hint="Підтримується стандартний експорт товарів SalesDrive."><input className="input" type="file" accept=".xlsx" onChange={e=>setFile(e.target.files?.[0]||null)}/></Field>
       <Field label="Що робити з товарами">
@@ -128,8 +102,8 @@ export default function Catalog() {
   const [products, setProducts] = useState(null)
   // Категорія, пошук і сортування живуть в адресі: менеджер може
   // повернутися зі сторінки товару або надіслати колезі саме цей відбір.
-  const [{ category, subcategory, feature, search, sort }, setQuery, resetFilters] = useFilters(
-    { category: '', subcategory: '', feature: '', search: '', sort: 'name-asc' },
+  const [{ category, subcategory, feature, search, sort, inventory, page:rawPage, pageSize:rawSize }, setQuery, resetFilters] = useFilters(
+    { category: '', subcategory: '', feature: '', search: '', sort: 'name-asc',inventory:'',page:1,pageSize:20 },
   )
   const filter = category
   const setFilter = (value) => setQuery('category', value)
@@ -140,8 +114,17 @@ export default function Catalog() {
   const [editing, setEditing] = useState(null)
   const [managingCategories, setManagingCategories] = useState(false)
   const [importing, setImporting] = useState(false)
-  const [pageSize, setPageSize] = useState(20)
-  const [page, setPage] = useState(1)
+  const pageSize=[10,20,50].includes(Number(rawSize))?Number(rawSize):20
+  const page=Number.isSafeInteger(Number(rawPage))?Math.min(20000,Math.max(1,Number(rawPage))):1
+  const setPage=value=>setQuery('page',typeof value==='function'?value(page):value)
+  const setPageSize=value=>setQuery('pageSize',value)
+  const [total,setTotal]=useState(null)
+  const [loading,setLoading]=useState(true)
+  const [loadedKey,setLoadedKey]=useState('')
+  const [failedKey,setFailedKey]=useState('')
+  const queryKey=JSON.stringify([filter,subcategory,feature,search,inventory,sort,page,pageSize])
+  const currentProducts=loadedKey===queryKey?products:null
+  const currentError=failedKey===queryKey?error:''
   const [selected, setSelected] = useState(() => new Set())
   const [bulkAction, setBulkAction] = useState('')
   const [bulkBusy, setBulkBusy] = useState(false)
@@ -149,19 +132,21 @@ export default function Catalog() {
 
   const load = useCallback(async () => {
     const sequence = ++loadSequence.current
-    setError('')
+    setError('');setFailedKey('');setLoading(true)
     try {
       const [cats, subs, prods] = await Promise.all([
         api.categories.list(), api.subcategories.list(),
-        api.products.list({ category_id: filter || undefined, subcategory_id: subcategory || undefined, search: search || undefined, is_new: feature === 'new' ? true : undefined, is_sale: feature === 'sale' ? true : undefined, uncategorized: feature === 'ungrouped' ? true : undefined }),
+        api.products.list({ category_id: filter || undefined, subcategory_id: subcategory || undefined, search: search || undefined, is_new: feature === 'new' ? true : undefined, is_sale: feature === 'sale' ? true : undefined, uncategorized: feature === 'ungrouped' ? true : undefined, inventory:inventory || undefined,sort,paginated:true,limit:pageSize,offset:(page-1)*pageSize }),
       ])
       if (sequence !== loadSequence.current) return
       setCategories(cats); setSubcategories(subs)
-      setProducts(prods)
+      setProducts(prods.items);setTotal(prods.total);setLoadedKey(queryKey)
+      const lastPage=Math.max(1,Math.ceil(prods.total/pageSize))
+      if(page>lastPage)setQuery('page',lastPage)
     } catch (err) {
-      if (sequence === loadSequence.current) setError(err.message)
-    }
-  }, [filter, subcategory, feature, search])
+      if (sequence === loadSequence.current){setError(err.message);setFailedKey(queryKey)}
+    }finally{if(sequence===loadSequence.current)setLoading(false)}
+  }, [filter, subcategory, feature, search, inventory,sort,page,pageSize])
 
   useEffect(() => {
     const timer = setTimeout(load, search ? 350 : 0)
@@ -169,9 +154,8 @@ export default function Catalog() {
   }, [load, search])
 
   useEffect(() => {
-    setPage(1)
     setSelected(new Set())
-  }, [filter, subcategory, feature, search, sort, pageSize])
+  }, [filter, subcategory, feature, search, inventory, sort, pageSize, page])
 
   const updateStock = (product, delta) => {
     // Кожен товар має власну Promise-чергу. Серверний delta атомарний, а
@@ -183,6 +167,7 @@ export default function Catalog() {
       try {
         const updated = await api.products.adjustStock(product.id, delta)
         setProducts((list) => list.map((p) => (p.id === updated.id ? updated : p)))
+        if(inventory)await load()
       } catch (err) {
         notify(err.message, 'bad')
         await load()
@@ -231,23 +216,19 @@ export default function Catalog() {
     try {
       const updated = await api.products.patch(product.id, { is_active: true })
       setProducts((list) => list.map((p) => (p.id === updated.id ? updated : p)))
+      if(inventory)await load()
       notify('Товар повернуто в каталог')
     } catch (err) {
       notify(err.message, 'bad')
     }
   }
 
-  const ordered = products ? sortedCatalog(products, sort) : []
-  const pageCount = Math.max(1, Math.ceil(ordered.length / pageSize))
-  const safePage = Math.min(page, pageCount)
-  const pageStart = (safePage - 1) * pageSize
-  const visibleProducts = ordered.slice(pageStart, pageStart + pageSize)
+  const pageCount = Math.max(1, Math.ceil((total || 0) / pageSize))
+  const safePage = page
+  const visibleProducts = currentProducts || []
   const visibleIds = visibleProducts.map((p) => p.id)
   const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selected.has(id))
 
-  useEffect(() => {
-    if (page > pageCount) setPage(pageCount)
-  }, [page, pageCount])
 
   const toggleSelected = (id) => {
     setSelected((current) => {
@@ -297,7 +278,7 @@ export default function Catalog() {
       <div className="page-head catalog-page-head">
         <div>
           <h1>Каталог</h1>
-          <p>Товари, категорії й відображення на вітрині та в боті</p>
+          <p>Єдиний каталог Mini App і бота: варіанти, ціни, залишки та публікація</p>
         </div>
         <div className="catalog-head-actions">
           <button className="btn ghost" onClick={() => api.products.exportXlsx().catch(e => notify(e.message, 'bad'))}>Експорт XLSX</button>
@@ -335,7 +316,7 @@ export default function Catalog() {
             <span className="catalog-search-icon" aria-hidden="true">⌕</span>
             <input
               className="input"
-              placeholder="Пошук за назвою або SKU..."
+              maxLength={160} placeholder="Назва або SKU…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
@@ -344,7 +325,7 @@ export default function Catalog() {
 
         <div className="catalog-toolbar-meta">
           <span className="catalog-found">
-            Знайдено товарів: <strong>{products?.length ?? '—'}</strong>
+            Знайдено товарів: <strong>{currentProducts?total:'—'}</strong>
           </span>
           <label className="catalog-sort">
             <span className="catalog-sort-title">Сортування</span>
@@ -357,16 +338,17 @@ export default function Catalog() {
         </div>
       </div>
 
-      <div className="catalog-extra-filters">
+      <div className="catalog-extra-filters"><label><span>Стан товарів</span><select className="input" aria-label="Стан товарів" value={inventory} onChange={event=>setQuery('inventory',event.target.value)}><option value="">Усі стани</option>{INVENTORY.map(([key,label])=><option key={key} value={key}>{label}</option>)}</select></label>
         <label><span>Субкатегорія</span><select className="input" aria-label="Фільтр субкатегорії" value={subcategory} onChange={(e) => setQuery('subcategory', e.target.value)}><option value="">Усі субкатегорії</option>{subcategories.map((s) => <option key={s.id} value={s.id}>{s.name}{s.category_name ? ` · ${s.category_name}` : ''}</option>)}</select></label>
         <label><span>Відображення</span><select className="input" aria-label="Фільтр відображення" value={feature} onChange={(e) => setQuery('feature', e.target.value)}><option value="">Усі товари</option><option value="new">Новинки</option><option value="sale">Акції</option><option value="ungrouped">Без категорій і субкатегорій</option></select></label>
       </div>
-      <ErrorBar error={error} />
+      {(category || subcategory || inventory || feature || search || sort!=='name-asc') && <button className="btn ghost small" onClick={resetFilters}>Скинути всі фільтри</button>}
+      <ErrorBar error={currentError}/>{currentError && <div className="commerce-actions"><span className="faint">{currentProducts?'Показані попередні дані.':'Каталог не завантажено.'}</span><button className="btn ghost small" disabled={loading} onClick={load}>Повторити</button></div>}{loading && currentProducts && <p className="faint" role="status">Оновлюємо товари…</p>}
 
-      {!products ? (
-        <Loading />
-      ) : products.length === 0 ? (
-        (category || subcategory || feature || search) ? (
+      {!currentProducts ? (
+        currentError?null:<Loading />
+      ) : currentProducts.length === 0 ? (
+        (category || subcategory || feature || inventory || search) ? (
           <Empty title="Нічого не знайдено">
             За цим відбором товарів немає. Можливо, вони в іншій категорії.
             <div style={{ marginTop: 12 }}>
@@ -377,7 +359,7 @@ export default function Catalog() {
           </Empty>
         ) : (
           <Empty title="Товарів немає">
-            Додайте перший товар — він одразу зʼявиться в каталозі бота.
+            Додайте товар, ціну, залишок і зображення, щоб опублікувати його на вітрині.
           </Empty>
         )
       ) : (
@@ -520,7 +502,7 @@ export default function Catalog() {
               </label>
               <button
                 className="catalog-page-btn"
-                disabled={safePage <= 1}
+                disabled={safePage <= 1 || loading}
                 onClick={() => setPage((value) => Math.max(1, value - 1))}
                 aria-label="Попередня сторінка"
               >
@@ -538,13 +520,13 @@ export default function Catalog() {
               {pageCount > 3 && <span className="catalog-page-more">…</span>}
               <button
                 className="catalog-page-btn"
-                disabled={safePage >= pageCount}
+                disabled={safePage >= pageCount || loading}
                 onClick={() => setPage((value) => Math.min(pageCount, value + 1))}
                 aria-label="Наступна сторінка"
               >
                 ›
               </button>
-              <span className="catalog-total">з {ordered.length} товарів</span>
+              <span className="catalog-total">з {total} товарів</span>
             </div>
           </footer>
         </section>

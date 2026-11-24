@@ -132,6 +132,19 @@ run_node chat-drafts tests/chat-drafts.mjs dashboard
 run_node chat-drafts-persist tests/chat-drafts-persistence.mjs dashboard
 run_node filters tests/filters.mjs dashboard
 run_node new-markers tests/new-order-message-markers.mjs dashboard
+run_node commerce tests/commerce.mjs dashboard
+run_node commerce-dom tests/commerce.dom.mjs dashboard
+run_node dialog tests/dialog.mjs dashboard
+# styles.mjs reads the production CSS from dashboard/dist. In CI this runner
+# goes before `npm test --prefix dashboard`, so a fresh checkout has no build:
+# build this checkout here instead of trusting a stale or missing dist.
+printf '  %-13s ' "dashboard-build"
+if out=$(cd ../dashboard && npx --no-install vite build 2>&1); then
+  echo "ok"
+else
+  echo "ПРОВАЛ — збірка панелі"; echo "$out" | tail -5 | sed 's/^/      /'; fail=1
+fi
+run_node styles tests/styles.mjs dashboard
 run_node catalog-ux tests/catalog-ux.mjs dashboard
 run_node support-ux tests/support-ux.mjs dashboard
 run_node support-multiwindow tests/support-multiwindow.mjs dashboard

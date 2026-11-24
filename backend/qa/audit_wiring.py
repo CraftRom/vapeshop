@@ -262,7 +262,10 @@ check("require_sysadmin" in _logs_py, "журнал закритий для вс
 check("SERVICES = (" in _logs_py,
       "імʼя сервісу з білого списку — воно підставляється у шлях до файлу")
 check("/logs" in read("dashboard/src/App.jsx"), "сторінка журналу є в маршрутах")
-check("sysadminOnly" in read("dashboard/src/App.jsx"), "пункт меню видно лише системному адміністратору")
+_roles_js = read("dashboard/src/roles.js")
+check("navigationFor" in read("dashboard/src/App.jsx") and "(logs|backups)" in _roles_js
+      and "return role === 'admin'" in _roles_js,
+      "пункт меню видно лише системному адміністратору")
 check("/api/logs" in read("backend/api/request_log.py"),
       "перегляд журналу не засмічує журнал")
 

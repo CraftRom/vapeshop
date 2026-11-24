@@ -1,3 +1,4 @@
+import {navigationFor} from './commerce'
 import { Component, Suspense, lazy, memo, useCallback, useEffect, useMemo, useState } from 'react'
 import { NavLink, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 
@@ -127,21 +128,6 @@ const PageContent = memo(function PageContent({ children }) {
   )
 })
 
-const NAV = [
-  { to: '/', label: 'Огляд', end: true },
-  { to: '/orders', label: 'Замовлення', badge: 'orders' },
-  { to: '/support', label: 'Підтримка', badge: 'support' },
-  { to: '/catalog', label: 'Каталог' },
-  { to: '/customers', label: 'Клієнти' },
-  { to: '/promos', label: 'Промокоди' },
-  { to: '/landing-pages', label: 'Промо-сторінки' },
-  { to: '/broadcasts', label: 'Розсилки' },
-  { to: '/operators', label: 'Менеджери', adminOnly: true },
-  { to: '/logs', label: 'Журнал', sysadminOnly: true },
-  { to: '/backups', label: 'Копії', sysadminOnly: true },
-  { to: '/settings', label: 'Налаштування' },
-  { to: '/instructions', label: 'Інструкції' },
-]
 
 function Shell({ children }) {
   const navigate = useNavigate()
@@ -233,19 +219,8 @@ function Shell({ children }) {
             <span>{mobileNavOpen ? 'Закрити' : 'Меню'}</span>
           </button>
         </div>
-        <nav className="nav" id="main-navigation" aria-label="Основна навігація">
-          {NAV.filter((item) => {
-            if (item.sysadminOnly) return sysadmin
-            return !item.adminOnly || admin
-          }).map((item) => (
-            <NavLink key={item.to} to={item.to} end={item.end}>
-              {item.label}
-              {item.badge === 'orders' && badges.orders > 0 && <span className="badge">{badges.orders}</span>}
-              {item.badge === 'support' && badges.support > 0 && (
-                <span className="badge">{badges.support}</span>
-              )}
-            </NavLink>
-          ))}
+        <nav className="nav commerce-navigation" id="main-navigation" aria-label="Основна навігація">
+          {navigationFor(session.role).map(group=><section className="nav-group" key={group.title} aria-label={group.title}><h2>{group.title}</h2>{group.items.map(item=><NavLink key={item.to} to={item.to} end={item.end}>{item.label}{item.badge && badges[item.badge]>0 && <span className="badge">{badges[item.badge]}</span>}</NavLink>)}</section>)}
         </nav>
         <div className="mobile-session">
           <div>

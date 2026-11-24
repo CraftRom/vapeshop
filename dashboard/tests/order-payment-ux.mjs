@@ -1,4 +1,5 @@
 import fs from 'node:fs'
+import {paymentMeta} from '../src/commerce.js'
 
 const page = fs.readFileSync(new URL('../src/pages/OrderPage.jsx', import.meta.url), 'utf8')
 const orders = fs.readFileSync(new URL('../src/pages/Orders.jsx', import.meta.url), 'utf8')
@@ -7,8 +8,8 @@ const version = fs.readFileSync(new URL('../src/version.js', import.meta.url), '
 
 const checks = [
   ['оплата винесена окремим помітним блоком', page.includes('order-payment-summary')],
-  ['переказ на картку названо прямо', page.includes("'Переказ на картку'")],
-  ['накладений платіж названо прямо', page.includes("'Накладений платіж'")],
+  ['переказ на картку названо прямо', paymentMeta('card').title==='Переказ за реквізитами'],
+  ['накладений платіж названо прямо', paymentMeta('cod').title==='Оплата при отриманні'],
   ['для картки пояснено, коли ставити «Оплачено»', page.includes('переведіть замовлення в статус «Оплачено»')],
   ['для накладеного платежу пояснено оплату при отриманні', page.includes('Клієнт сплачує при отриманні')],
   ['сума показана в блоці оплати', page.includes('money(order.total)') && page.includes('order-payment-amount')],
@@ -17,10 +18,10 @@ const checks = [
   ['є мобільна розкладка блоку оплати', css.includes('@media (max-width: 760px)') && css.includes('.order-payment-summary')],
   ['у списку є окрема колонка «Оплата»', orders.includes('<span>Оплата</span>') && orders.includes('order-payment-cell')],
   ['спосіб оплати більше не захований у заголовку статусу', !orders.includes('className="order-payment"')],
-  ['обидва способи оплати підписані однозначно', orders.includes("title: 'Переказ на картку'") && orders.includes("title: 'Накладений платіж'")],
-  ['накладений платіж прямо пояснює оплату при отриманні', orders.includes("hint: 'Оплата при отриманні'")],
-  ['для картки є явна візуальна ознака', orders.includes("icon: '💳'") && css.includes('.order-payment-method.card')],
-  ['для накладеного платежу є явна візуальна ознака', orders.includes("icon: '📦'") && css.includes('.order-payment-method.cod')],
+  ['обидва способи оплати підписані однозначно', paymentMeta('card').title!==paymentMeta('cod').title && paymentMeta(null).title.includes('не вказано')],
+  ['накладений платіж прямо пояснює оплату при отриманні', paymentMeta('cod').title.includes('при отриманні')],
+  ['для картки є явна візуальна ознака', paymentMeta('card').icon==='💳' && css.includes('.order-payment-method.card')],
+  ['для накладеного платежу є явна візуальна ознака', paymentMeta('cod').icon==='📦' && css.includes('.order-payment-method.cod')],
   ['на вузьких екранах оплата стає окремим блоком картки', css.includes('"payment payment"') && css.includes('.order-payment-cell { grid-area: payment; }')],
   ['швидкий перегляд використовує той самий зрозумілий блок оплати', orders.includes('order-quick-payment') && orders.includes('<OrderPaymentMethod order={order} />')],
   // Тут було «version bumped» із точним 1.32.1: падало на кожному випуску.

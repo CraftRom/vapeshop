@@ -1,3 +1,4 @@
+import {customerContact} from '../commerce'
 import { usePagedResource } from '../components/usePagedResource'
 import { Pagination, PAGE_SIZE, pageNumber } from '../components/Pagination'
 import { useCallback, useEffect, useState } from 'react'

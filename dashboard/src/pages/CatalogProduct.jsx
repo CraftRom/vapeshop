@@ -1,3 +1,4 @@
+import {publicationState} from '../commerce'
 import { useEffect, useState } from 'react'
 import { Link, useLocation, useParams } from 'react-router-dom'
 import { api } from '../api'
@@ -46,10 +47,12 @@ export default function CatalogProduct() {
   if (error) return <><Link className="btn ghost" to={back}>← Каталог</Link><ErrorBar error={error} /><button className="btn" onClick={() => setRetry((n) => n + 1)}>Повторити</button></>
   if (!product) return <Loading />
   const props = { product, onSaved: setProduct }
+  const publication=publicationState(product)
   const sub = subcategories.find((s) => s.id === product.subcategory_id)
   return <div className="catalog-product-page">
     <Link className="btn ghost catalog-back-link" to={back}>← До каталогу</Link>
-    <div className="page-head"><div><h1>{product.name}</h1><p>Зміни блоків одразу застосовуються до вітрини й бота.</p></div><span className={`chip ${product.is_active ? 'ok' : ''}`}>{product.is_active ? 'Видимий у каталозі' : 'Прихований'}</span></div>
+    <div className="page-head"><div><h1>{product.name}</h1><p>Єдині дані для Mini App і бота.</p></div><span className={'chip '+(publication.buyable?'ok':'')}>{publication.label}</span></div>
+    <section className="card commerce-publication"><div><h2>Стан на вітрині</h2><p>{!product.is_active?'Товар приховано.':Number(product.price)<=0?'Активний товар без ціни не публікується в магазині.':publication.buyable?'Покупець може вибрати цей варіант і додати його в кошик.':'Товар можна переглянути, але оформлення недоступне без залишку.'}</p><small className="faint">{!product.photo_url && !product.has_photo?'Зображення не додано. ':''}{!product.description?'Опис не додано.':''}</small></div></section>
     <div className="catalog-sku-panel"><Info label="Артикул (SKU)" copy={product.sku}><strong className="mono">{product.sku}</strong></Info><span className="muted">Автоматично створений · незмінний</span></div>
     <div className="catalog-detail-grid">
       <EditBlock {...props} title="Основне та відображення" payload={(f) => ({ name: f.name.trim(), stock: Number(f.stock), sort_order: Number(f.sort_order), is_active: f.is_active, is_new: f.is_new })} fields={(f, set) => <><Field label="Назва товару"><input className="input" aria-label="Назва товару" required maxLength={255} value={f.name} onChange={changeField(set, 'name')} /></Field><DisplayFields form={f} setForm={set} /></>}><p>{product.is_new ? 'Новинка · показується в розділі «Новинки»' : 'Звичайний товар'}</p><p>Залишок: <strong>{product.stock} шт.</strong> · Порядок: {product.sort_order}</p></EditBlock>

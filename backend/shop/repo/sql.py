@@ -604,7 +604,17 @@ class SqlRepository(Repository):
 
     @staticmethod
     def _filters(query, category_id=None, subcategory_id=None, search=None,
-                 only_active=False, is_new=None, is_sale=None, uncategorized=False):
+                 only_active=False, is_new=None, is_sale=None, uncategorized=False,inventory=None):
+        if inventory:
+            sellable=and_(m.Product.is_active.is_(True),m.Product.price>0,func.trim(m.Product.name)!='')
+            conditions={
+                'available':and_(sellable,m.Product.stock>0),
+                'low':and_(sellable,m.Product.stock>0,m.Product.stock<=3),
+                'out':and_(sellable,m.Product.stock<=0),
+                'unpriced':and_(m.Product.is_active.is_(True),m.Product.price<=0),
+                'hidden':m.Product.is_active.is_(False),
+                'missing_photos':and_(sellable,func.trim(func.coalesce(m.Product.photo_url,''))=='',func.trim(func.coalesce(m.Product.photo_file_id,''))=='')}
+            query=query.where(conditions[inventory])
         if category_id is not None:
             query = query.where(SqlRepository._category_scope(category_id))
         if subcategory_id is not None:
@@ -719,12 +729,17 @@ class SqlRepository(Repository):
         return len(ids)
 
     async def list_products(self, category_id=None, search=None, only_active=False, limit=500, offset=0,
-                            subcategory_id=None, is_new=None, is_sale=None, uncategorized=False):
+                            subcategory_id=None, is_new=None, is_sale=None, uncategorized=False,
+                            inventory=None,sort=None):
         query = (select(m.Product, m.Category.name, m.Subcategory.name)
                  .outerjoin(m.Category, m.Category.id == m.Product.category_id)
                  .outerjoin(m.Subcategory, m.Subcategory.id == m.Product.subcategory_id))
-        query = self._filters(query, category_id, subcategory_id, search, only_active, is_new, is_sale, uncategorized)
-        query = query.order_by(m.Product.sort_order, m.Product.name, m.Product.id).limit(limit).offset(offset)
+        query = self._filters(query, category_id, subcategory_id, search, only_active, is_new, is_sale, uncategorized,inventory)
+        ordering={'name-asc':m.Product.name.asc(),'name-desc':m.Product.name.desc(),
+            'price-asc':m.Product.price.asc(),'price-desc':m.Product.price.desc(),
+            'stock-asc':m.Product.stock.asc(),'stock-desc':m.Product.stock.desc()}
+        columns=[ordering[sort],m.Product.id] if sort else [m.Product.sort_order,m.Product.name,m.Product.id]
+        query=query.order_by(*columns).limit(limit).offset(offset)
         return [_product(row, name, subname) for row, name, subname in await self.s.execute(query.execution_options(populate_existing=True))]
 
     async def products_by_ids(self, ids):
@@ -1200,7 +1215,14 @@ class SqlRepository(Repository):
 
     async def _order_filters(self, query, status=None, search=None, user_id=None,
                              date_from=None, date_to=None, crm_status_id=None,
-                             legacy_only=False, active_only=False):
+                             legacy_only=False, active_only=False, channel=None, queue=None,
+                             payment_method=None, delivery_method=None):
+        from shop.services.commerce_workspace import channel_expression,queue_condition
+        if channel:query=query.where(channel_expression()==channel)
+        if queue:query=query.where(queue_condition(queue))
+        for column,value in [(m.Order.payment_method,payment_method),(m.Order.delivery_method,delivery_method)]:
+            if value=='unknown':query=query.where(or_(column.is_(None),func.trim(column)==''))
+            elif value:query=query.where(column==value)
         if status:
             query = query.where(m.Order.status == status)
         if crm_status_id is not None:
@@ -1213,7 +1235,13 @@ class SqlRepository(Repository):
             from shop.services.order_chat import OPEN_STATUSES
             query = query.where(m.Order.status.in_(OPEN_STATUSES))
         if search:
-            query = query.where(m.Order.search_key.contains(search.lower(), autoescape=True))
+            term=search.strip()
+            matches=[m.Order.search_key.contains(term.casefold(),autoescape=True),m.Order.tracking_number.contains(term,autoescape=True)]
+            digits=''.join(char for char in term if char in '0123456789')
+            if len(digits)>=7:matches.append(m.Order.contact_phone.contains(digits,autoescape=True))
+            number=term.removeprefix('#')
+            if number.isascii() and number.isdigit() and 0<int(number)<=2**31-1:matches.append(m.Order.id==int(number))
+            query=query.where(or_(*matches))
         if date_from or date_to:
             from shop.services.calendar import day_bounds, validate_dates
             from shop.services.shop_settings import get_shop_settings
@@ -1227,10 +1255,11 @@ class SqlRepository(Repository):
 
     async def list_orders(self, status=None, search=None, user_id=None,
                           date_from=None, date_to=None, limit=100, offset=0,
-                          crm_status_id=None, legacy_only=False, active_only=False):
+                          crm_status_id=None, legacy_only=False, active_only=False,
+                          channel=None, queue=None,payment_method=None,delivery_method=None):
         query = await self._order_filters(
             select(m.Order), status, search, user_id, date_from, date_to,
-            crm_status_id, legacy_only, active_only)
+            crm_status_id, legacy_only, active_only,channel,queue,payment_method,delivery_method)
         query = query.options(selectinload(m.Order.items), selectinload(m.Order.user))
         query = query.order_by(m.Order.created_at.desc(), m.Order.id.desc()).limit(limit).offset(offset)
         return [_order(r, with_user=True) for r in await self.s.scalars(query)]

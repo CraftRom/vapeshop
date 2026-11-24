@@ -1,3 +1,4 @@
+import {CHANNELS,channelLabel,orderChannel,recipientName,customerContact,paymentMeta} from '../commerce'
 import { usePagedResource } from '../components/usePagedResource'
 import { Pagination, PAGE_SIZE, pageNumber } from '../components/Pagination'
 import { memo, useCallback, useEffect, useState } from 'react'
@@ -26,22 +27,9 @@ const LEGACY_FILTERS = [
   { value: 'cancelled', label: 'Скасоване' },
 ]
 
-const PAYMENT_METHODS = {
-  card: {
-    title: 'Переказ на картку',
-    hint: 'Клієнт обрав переказ',
-    icon: '💳',
-  },
-  cod: {
-    title: 'Накладений платіж',
-    hint: 'Оплата при отриманні',
-    icon: '📦',
-  },
-}
-
 function OrderPaymentMethod({ order, compact = false }) {
-  const method = order.payment_method === 'cod' ? 'cod' : 'card'
-  const meta = PAYMENT_METHODS[method]
+  const method = ['cod','card'].includes(order.payment_method)?order.payment_method:'unknown'
+  const meta = paymentMeta(method)
 
   return (
     <div
@@ -86,10 +74,9 @@ function OrderDetails({ order, onClose, onSaved, crmStatuses = [] }) {
     }
   }
 
-  const fullName = [order.contact_surname, order.contact_name, order.contact_patronymic]
-    .filter(Boolean).join(' ')
+  const fullName = recipientName(order)
   const customer = order.user
-  const contact = customer?.username ? `@${customer.username}` : `id${customer?.tg_id ?? '—'}`
+  const contact=customerContact(customer)
 
   return (
     <Modal
@@ -181,7 +168,7 @@ function OrderDetails({ order, onClose, onSaved, crmStatuses = [] }) {
               )}
             </Info>
           )}
-          <Info label="Telegram">{contact}</Info>
+          <Info label="Профіль покупця">{contact}</Info><Info label="Канал продажу">{channelLabel(order)}</Info>
           <Info label="Створено">{dateTime(order.created_at)}</Info>
           {order.comment && <Info label="Коментар покупця">{order.comment}</Info>}
         </div>
@@ -247,7 +234,7 @@ const OrderRow = memo(function OrderRow({
       </div>
 
       <div className="order-customer">
-        <strong>{order.contact_name}</strong>
+        <strong>{recipientName(order)}</strong><span className={"commerce-order-channel "+orderChannel(order)}>{channelLabel(order)}</span>
         <a className="faint mono order-phone" href={`tel:${order.contact_phone}`}>
           {order.contact_phone}
         </a>
@@ -282,7 +269,7 @@ const OrderRow = memo(function OrderRow({
             onChange={(option) => onCrmStatusChange(order, option)}
           />
         ) : (
-          <div className="legacy-status-note">Історичне замовлення · статус ведеться локально і не синхронізується з CRM</div>
+          <div className="legacy-status-note">Локальне замовлення · статус ведеться в магазині</div>
         )}
         <div className="orders-actions">
           <Link className="btn small order-open" to={`/orders/${order.id}`} state={{ ordersReturn: returnTo }}>
@@ -326,14 +313,14 @@ export default function Orders() {
   // Фільтри — в адресі сторінки. Менеджер відбирає замовлення, відкриває
   // одне, повертається — і відбір на місці. З useState він щоразу
   // скидався, а за зміну таких повернень десятки.
-  const [{ status, dateFrom, dateTo, search, page: rawPage }, setFilter, resetFilters] = useFilters(
-    { status: '', dateFrom: '', dateTo: '', search: '', page: 1 },
+  const [{ status, dateFrom, dateTo, search, channel, queue, payment, delivery, page: rawPage }, setFilter, resetFilters] = useFilters(
+    { status: '', dateFrom: '', dateTo: '', search: '', channel:'',queue:'',payment:'',delivery:'',page: 1 },
   )
   const setStatus = (v) => setFilter('status', v)
   const setDateFrom = (v) => setFilter('dateFrom', v)
   const setDateTo = (v) => setFilter('dateTo', v)
   const setSearch = (v) => setFilter('search', v)
-  const filtered = Boolean(status || dateFrom || dateTo || search)
+  const filtered = Boolean(status || dateFrom || dateTo || search || channel || queue || payment || delivery)
   const [selected, setSelected] = useState(null)
   // Клієнт відповідає в боті, тож панель має сама помічати нові повідомлення
   const [unread, setUnread] = useState({})
@@ -347,11 +334,12 @@ export default function Orders() {
       : LEGACY_FILTERS.some((item) => item.value === status) ? status : ''
     return api.orders.list({ crm_status_id: crmFilter || undefined,
       status: legacyFilter || undefined, legacy_only: legacyFilter ? true : undefined,
+      channel:channel || undefined,queue:queue || undefined,payment_method:payment || undefined,delivery_method:delivery || undefined,
       search, date_from: dateFrom || undefined, date_to: dateTo || undefined,
       paginated: true, limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE })
-  }, [status, search, dateFrom, dateTo, page])
+  }, [status, search, dateFrom, dateTo, channel, queue, payment, delivery, page])
   const { data: orders, setData: setOrders, total, loading, error, load } = usePagedResource(
-    JSON.stringify([status, search, dateFrom, dateTo, page]), fetchPage, search ? 350 : 0)
+    JSON.stringify([status, search, dateFrom, dateTo, channel, queue, payment, delivery, page]), fetchPage, search ? 350 : 0)
 
   useListPosition(returnTo, orders !== null)
 
@@ -521,7 +509,7 @@ export default function Orders() {
       <div className="page-head">
         <div>
           <h1>Замовлення</h1>
-          <p>CRM-замовлення показують актуальний статус SalesDrive; legacy лишаються окремо</p>
+          <p>Продажі сайту, Mini App і бота: контакти, оплата, доставка та актуальні статуси</p>
         </div>
       </div>
 
@@ -542,7 +530,7 @@ export default function Orders() {
                   ))}
                 </optgroup>
               )}
-              <optgroup label="Legacy (старі замовлення)">
+              <optgroup label="Локальні (старі замовлення)">
                 {LEGACY_FILTERS.map((item) => (
                   <option key={item.value} value={`legacy:${item.value}`}>{item.label}</option>
                 ))}
@@ -555,7 +543,7 @@ export default function Orders() {
             <input
               className="input"
               type="search"
-              placeholder="Ім'я або телефон"
+              maxLength={160} placeholder="№, ПІБ, телефон або ТТН"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
@@ -580,6 +568,13 @@ export default function Orders() {
               onChange={(e) => setDateTo(e.target.value)}
             />
           </label>
+        </div>
+        <div className="commerce-order-filters">
+          <label>Канал продажу<select className="input" value={channel} onChange={event=>setFilter('channel',event.target.value)}><option value="">Усі канали</option>{CHANNELS.map(([key,label])=><option key={key} value={key}>{label}</option>)}</select></label>
+          <label>Робоча черга<select className="input" value={queue} onChange={event=>setFilter('queue',event.target.value)}><option value="">Усі замовлення</option><option value="new">Нові</option><option value="open">Відкриті</option><option value="without_tracking">Без накладної</option></select></label>
+          <label>Оплата<select className="input" value={payment} onChange={event=>setFilter('payment',event.target.value)}><option value="">Усі способи</option><option value="cod">При отриманні</option><option value="card">Переказ за реквізитами</option><option value="unknown">Не вказано</option></select></label>
+          <label>Доставка<select className="input" value={delivery} onChange={event=>setFilter('delivery',event.target.value)}><option value="">Усі способи</option><option value="warehouse">Відділення / поштомат</option><option value="courier">Кур’єр</option><option value="unknown">Не вказано</option></select></label>
+          {filtered && <button className="btn ghost small" onClick={resetFilters}>Скинути всі фільтри</button>}
         </div>
         <div className="orders-toolbar-actions">
           {(dateFrom || dateTo) && (
@@ -623,7 +618,7 @@ export default function Orders() {
           </Empty>
         ) : (
           <Empty title="Замовлень немає">
-            Щойно клієнт оформить замовлення в боті, воно зʼявиться тут.
+            Замовлення із сайту, Mini App і бота з’являються в цьому списку.
           </Empty>
         )
       ) : (
