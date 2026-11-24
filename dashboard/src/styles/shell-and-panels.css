@@ -9,7 +9,7 @@
 .settings-tools > .input { max-width: 460px; }
 .settings-tabs { display: flex; gap: 8px; min-width: 0; overflow-x: auto; padding: 4px 0 8px; scrollbar-width: thin; }
 .settings-tabs > button { flex: 0 0 auto; white-space: nowrap; min-height: 40px; }
-.settings-tabs > button.active { background: var(--action-selected-bg); border-color: var(--action-primary-bg); color: var(--action-selected-fg); }
+.settings-tabs > button.active { background: var(--violet-dim); border-color: var(--violet); color: var(--text); }
 .settings-paused { color: var(--muted); }
 .settings-search-result { margin-bottom: 12px; }
 .settings-save-bar { position: sticky; bottom: 12px; z-index: 12; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px; margin: 18px 0; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); box-shadow: 0 4px 24px rgba(0,0,0,.3); }

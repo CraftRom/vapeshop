@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import {readFileSync,readdirSync} from 'node:fs'
 import {JSDOM,VirtualConsole} from 'jsdom'
 
-test('production CSS keeps navigation text dark after all base styles are applied',()=>{
+test('production CSS keeps the active navigation item white on violet after all base styles',()=>{
  const assets=new URL('../dist/assets/',import.meta.url)
  const file=readdirSync(assets).find(name=>/^index-.*\.css$/.test(name))
  assert.ok(file,'Build dashboard before testing production styles')
@@ -13,6 +13,6 @@ test('production CSS keeps navigation text dark after all base styles are applie
  const dom=new JSDOM('<!doctype html><style>'+css+'</style><nav class="nav commerce-navigation"><section class="nav-group"><a class="active">Огляд магазину</a></section></nav>',{virtualConsole})
  try{
   assert.deepEqual(errors,[])
-  assert.equal(dom.window.getComputedStyle(dom.window.document.querySelector('a')).color,'rgb(16, 14, 24)')
+  assert.equal(dom.window.getComputedStyle(dom.window.document.querySelector('a')).color,'rgb(255, 255, 255)')
  }finally{dom.window.close()}
 })

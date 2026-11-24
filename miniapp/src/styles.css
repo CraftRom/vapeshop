@@ -27,7 +27,7 @@
   --accent: #8b7bf0;
   --mint: #4fd8a5;
   --amber: #f2b347;
-  --accent-soft: rgba(139, 123, 240, 0.09);  /* violet text on it stays ≥4.5:1 */
+  --accent-soft: rgba(139, 123, 240, 0.14);
   --accent-press: rgba(139, 123, 240, 0.24);
   --on-accent: #100e18;
   --warn: #f2607e;
@@ -99,8 +99,8 @@
   --accent-soft: rgba(100, 83, 198, 0.1);
   --accent-press: rgba(100, 83, 198, 0.18);
   --on-accent: #ffffff;
-  --warn: #b02a49;  /* ≥4.5:1 on --warn-soft */
-  --warn-soft: rgba(176, 42, 73, 0.09);
+  --warn: #cc3355;
+  --warn-soft: rgba(204, 51, 85, 0.09);
 
   --line: rgba(0, 0, 0, 0.08);
   --line-strong: rgba(0, 0, 0, 0.14);
