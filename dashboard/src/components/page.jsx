@@ -57,3 +57,30 @@ export function FilterBar({ label, children, activeCount = 0, onReset, className
     </div>
   )
 }
+
+/**
+ * What the list is filtered by, one removable chip per filter, plus the
+ * result count. `items`: [{ key, label, onClear }]. Renders nothing when
+ * nothing is filtered, so an unfiltered list carries no extra row.
+ */
+export function ActiveFilters({ items, count, onResetAll, label = 'Активні фільтри' }) {
+  if (!items.length) return null
+  return (
+    <div className="active-filters" role="region" aria-label={label}>
+      {count !== undefined && count !== null && <span className="active-filters-count" role="status">Знайдено: <strong>{count}</strong></span>}
+      <ul>
+        {items.map((item) => (
+          <li key={item.key}>
+            <button type="button" className="active-filter-chip" onClick={item.onClear} aria-label={`Прибрати фільтр: ${item.label}`}>
+              <span>{item.label}</span>
+              <span aria-hidden="true">✕</span>
+            </button>
+          </li>
+        ))}
+      </ul>
+      {onResetAll && items.length > 1 && (
+        <button type="button" className="btn ghost small" onClick={onResetAll}>Скинути всі</button>
+      )}
+    </div>
+  )
+}

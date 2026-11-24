@@ -116,7 +116,9 @@ try {
    await select.selectOption('crm:1');await page.waitForFunction(()=>new URL(location.href).searchParams.get('status')==='crm:1');await pause(100);await select.selectOption('crm:2')
    await list.getByText('2',{exact:true}).first().waitFor();await pause(1400)
    check(!(await list.textContent()).includes('\n1\n'),'status reverse response uses latest')
-   await select.selectOption('');await page.locator('input[type=date]').first().fill('2026-10-11');await pause(80);await page.locator('input[type=date]').first().fill('2026-10-12')
+   await select.selectOption('')
+   // Dates live under «Додаткові фільтри» since the UI-008 toolbar.
+   await page.getByRole('button',{name:/^Додаткові фільтри/}).click();await page.locator('input[type=date]').first().fill('2026-10-11');await pause(80);await page.locator('input[type=date]').first().fill('2026-10-12')
    await list.getByText('2026-10-12',{exact:true}).waitFor();await pause(1400)
    check(!(await list.textContent()).includes('2026-10-11'),'date reverse response uses latest')
   }else{

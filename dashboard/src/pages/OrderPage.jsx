@@ -1264,7 +1264,15 @@ export default function OrderPage() {
           <button className="btn ghost small" onClick={() => navigate(listReturn)}>
             ← До списку
           </button>
-          <h1 style={{ marginTop: 8 }}>Замовлення №{order.id}</h1>
+          <h1 className="order-title">Замовлення №{order.id}</h1>
+          {/* UI-009: стан, сума й канал — у першому рядку, до будь-якої
+              прокрутки. Деталі нижче лише пояснюють цей підсумок. */}
+          <dl className="order-summary" aria-label="Підсумок замовлення">
+            <div><dt>Статус</dt><dd><OrderStatusBadge order={order} crmStatuses={crmStatuses} compact /></dd></div>
+            <div><dt>Сума</dt><dd className="num">{money(order.total)}</dd></div>
+            <div><dt>Канал</dt><dd>{channelLabel(order)}</dd></div>
+            <div><dt>Відповідальний</dt><dd>{order.operator_name || 'Не призначено'}</dd></div>
+          </dl>
           <div className="order-head-meta">
             <span>{timestamp(order.created_at)}</span>
             {isNewOrder && (
@@ -1276,7 +1284,6 @@ export default function OrderPage() {
             <span className={`order-head-payment ${paymentMethod}`}>
               {paymentMethod === 'cod' ? '📦' : '💳'} {paymentTitle}
             </span>
-            {order.operator_name && <span>веде {order.operator_name}</span>}
           </div>
         </div>
       </div>

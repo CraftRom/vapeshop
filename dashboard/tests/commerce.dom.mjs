@@ -118,3 +118,63 @@ test('new catalog filter never labels an old page as its own results',async()=>{
   await waitFor(()=>app.document.querySelector('.catalog-product-link')?.textContent==='Новий відбір')
  }finally{app.close()}
 })
+test('orders: quick queue in the first row, extra filters folded, every active filter is a removable chip',async()=>{
+ const app=mount({page:'orders',path:'/orders'})
+ try{
+  await waitFor(()=>app.document.querySelector('.order-row'))
+  const doc=app.document
+  const advanced=doc.getElementById('orders-advanced-filters')
+  const toggle=doc.querySelector('[aria-controls="orders-advanced-filters"]')
+  assert.equal(advanced.hidden,true,'extra filters start folded on an unfiltered list')
+  assert.equal(toggle.getAttribute('aria-expanded'),'false')
+  assert.equal(doc.querySelector('.active-filters'),null,'no chip row without filters')
+  const queue=[...doc.querySelectorAll('.filter-queue .segmented button')]
+  assert.deepEqual(queue.map(b=>b.textContent),['Усі','Нові','Відкриті','Без накладної'])
+  assert.equal(queue[0].getAttribute('aria-pressed'),'true')
+  queue[1].click()
+  await waitFor(()=>app.calls.some(call=>call.url.pathname==='/api/orders'&&call.url.searchParams.get('queue')==='new'))
+  await waitFor(()=>doc.querySelector('.active-filter-chip'))
+  assert.equal(doc.querySelector('.filter-queue [aria-pressed="true"]').textContent,'Нові')
+  assert.equal(doc.querySelector('.active-filter-chip').getAttribute('aria-label'),'Прибрати фільтр: Черга: Нові')
+  assert.equal(doc.querySelector('.active-filters-count'),null,'the pagination line already shows the total')
+  toggle.click()
+  await waitFor(()=>!advanced.hidden)
+  assert.equal(toggle.getAttribute('aria-expanded'),'true')
+  const channel=advanced.querySelector('select');channel.value='bot';channel.dispatchEvent(new app.window.Event('change',{bubbles:true}))
+  await waitFor(()=>doc.querySelectorAll('.active-filter-chip').length===2)
+  assert.match(toggle.textContent,/Додаткові фільтри \(1\)/)
+  // Removing one chip keeps the other filter.
+  ;[...doc.querySelectorAll('.active-filter-chip')].find(b=>b.textContent.includes('Черга')).click()
+  await waitFor(()=>doc.querySelectorAll('.active-filter-chip').length===1)
+  assert.match(doc.querySelector('#test-route').textContent,/channel=bot/)
+  assert.doesNotMatch(doc.querySelector('#test-route').textContent,/queue=/)
+ }finally{app.close()}
+})
+test('orders: a link with extra filters opens them unfolded',async()=>{
+ const app=mount({page:'orders',path:'/orders?payment=cod&dateFrom=2026-11-01'})
+ try{
+  await waitFor(()=>app.document.querySelector('.order-row'))
+  assert.equal(app.document.getElementById('orders-advanced-filters').hidden,false)
+  const chips=[...app.document.querySelectorAll('.active-filter-chip')].map(b=>b.textContent.replace('✕',''))
+  assert.deepEqual(chips,['Дати: від 2026-11-01','Оплата: При отриманні'])
+  assert.ok(button(app.document,'Скинути всі'))
+ }finally{app.close()}
+})
+test('catalog: bulk actions appear only after a selection and state their page scope',async()=>{
+ const app=mount({page:'catalog',path:'/catalog'})
+ try{
+  await waitFor(()=>app.document.querySelector('.catalog-product'))
+  const doc=app.document
+  assert.equal(doc.querySelector('.catalog-bulk.has-selection'),null)
+  assert.match(doc.querySelector('.catalog-bulk').textContent,/Позначте товари/)
+  assert.equal([...doc.querySelectorAll('select')].some(s=>s.getAttribute('aria-label')==='Дія з вибраними'),false)
+  doc.querySelector('.catalog-row-check input').click()
+  await waitFor(()=>doc.querySelector('.catalog-bulk.has-selection'))
+  const bar=doc.querySelector('.catalog-bulk.has-selection')
+  assert.match(bar.textContent,/Вибрано 1 з 1 на цій сторінці/)
+  assert.ok(bar.querySelector('select[aria-label="Дія з вибраними"]'))
+  button(doc,'Зняти вибір').click()
+  await waitFor(()=>!doc.querySelector('.catalog-bulk.has-selection'))
+  assert.equal(doc.querySelector('.catalog-row-check input').checked,false)
+ }finally{app.close()}
+})
