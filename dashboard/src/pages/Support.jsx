@@ -621,7 +621,7 @@ export default function Support() {
 
       <div className={`support-layout ${selectedId ? 'has-selection' : ''}`}
         ref={chatSize.containerRef}
-        style={{ '--support-inbox-width': `${chatSize.width}px`, '--support-chat-height': `${chatSize.height}px` }}>
+        style={{ '--support-inbox-width': `${chatSize.width}px`, '--support-chat-height': `${chatSize.appliedHeight}px` }}>
         <aside className="support-inbox card">
           <div className="support-filters">
             <div className="support-tabs" role="group" aria-label="Статус звернень">
