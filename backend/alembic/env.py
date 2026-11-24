@@ -28,6 +28,7 @@ def run_migrations_offline() -> None:
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
+        transaction_per_migration=True,
         compare_type=True,
     )
     with context.begin_transaction():
@@ -38,6 +39,9 @@ def do_run_migrations(connection) -> None:
     context.configure(
         connection=connection,
         target_metadata=target_metadata,
+        # PostgreSQL must commit ADD VALUE before a later revision uses it.
+        # Keep each revision atomic and resume from the last committed revision.
+        transaction_per_migration=True,
         compare_type=True,          # ловить зміну типу колонки
         compare_server_default=True,
     )
