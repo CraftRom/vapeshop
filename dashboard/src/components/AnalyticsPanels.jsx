@@ -130,7 +130,10 @@ export function SpendEditor({ selection, timezone, onSaved }) {
     e.preventDefault(); setBusy(true); setError(''); setNotice('')
     try { await api.stats.saveSpend({ ...form, amount: form.amount }); setNotice('Збережено. Підсумки оновлюються.'); refresh() } catch (e) { setError(e.message) } finally { setBusy(false) }
   }
-  const remove = async (id) => {
+  const remove = async (row) => {
+    // Spend feeds CAC and ROAS for the whole period; a stray click must not erase it.
+    if (!window.confirm(`Стерти витрати ${money(row.amount)} за ${row.day} (${row.source}${row.campaign ? ` / ${row.campaign}` : ''})? CAC і ROAS за період буде перераховано.`)) return
+    const id = row.id
     setBusy(true); setError('')
     try { await api.stats.removeSpend(id); refresh() } catch (e) { setError(e.message) } finally { setBusy(false) }
   }
@@ -143,6 +146,6 @@ export function SpendEditor({ selection, timezone, onSaved }) {
       <button className="btn" disabled={busy}>Зберегти</button>
     </form>}
     {notice && <p role="status">{notice}</p>}
-    <div className="table-wrap"><table><thead><tr><th>Дата</th><th>Джерело</th><th>Кампанія</th><th className="num">Витрати</th>{isAdmin() && <th>Дії</th>}</tr></thead><tbody>{rows.map((r) => <tr key={r.id}><td>{r.day}</td><td>{r.source}</td><td>{r.campaign || '—'}</td><td className="num">{money(r.amount)}</td>{isAdmin() && <td><div className="row"><button className="btn ghost small" disabled={busy} onClick={() => { setForm({ day: r.day, source: r.source, campaign: r.campaign, amount: String(r.amount) }); setNotice('Редагуєте вибраний запис. Збереження замінить суму.') }}>Змінити</button><button className="btn ghost small" disabled={busy} onClick={() => remove(r.id)}>Видалити</button></div></td>}</tr>)}</tbody></table></div>
+    <div className="table-wrap"><table><thead><tr><th>Дата</th><th>Джерело</th><th>Кампанія</th><th className="num">Витрати</th>{isAdmin() && <th>Дії</th>}</tr></thead><tbody>{rows.map((r) => <tr key={r.id}><td>{r.day}</td><td>{r.source}</td><td>{r.campaign || '—'}</td><td className="num">{money(r.amount)}</td>{isAdmin() && <td><div className="row"><button className="btn ghost small" disabled={busy} aria-label={`Змінити витрати ${r.day} ${r.source}`} onClick={() => { setForm({ day: r.day, source: r.source, campaign: r.campaign, amount: String(r.amount) }); setNotice('Редагуєте вибраний запис. Збереження замінить суму.') }}>Змінити</button><button className="btn danger small" disabled={busy} aria-label={`Стерти витрати ${r.day} ${r.source}`} onClick={() => remove(r)}>Стерти</button></div></td>}</tr>)}</tbody></table></div>
   </details>
 }

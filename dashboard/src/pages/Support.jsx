@@ -236,7 +236,7 @@ const Conversation = memo(function Conversation({ threadId, onBack, onStatus, on
   const remove = async () => {
     if (!thread || thread.status !== 'closed' || actionRef.current) return
     const yes = window.confirm(
-      `Видалити звернення #${thread.id} назавжди?\n\nБуде стерто всю історію цього конкретного чату. Інші звернення клієнта залишаться.`
+      `Стерти звернення #${thread.id} назавжди?\n\nБуде стерто всю історію цього конкретного чату. Інші звернення клієнта залишаться.`
     )
     if (!yes) return
     const owner = lifecycle.current
@@ -304,7 +304,7 @@ const Conversation = memo(function Conversation({ threadId, onBack, onStatus, on
           {thread.status === 'open' ? (
             <button className="btn ghost small" onClick={closeSession} disabled={busy}>Закрити звернення</button>
           ) : (
-            <button className="btn danger small" onClick={remove} disabled={busy}>Видалити</button>
+            <button className="btn danger small" onClick={remove} disabled={busy}>Стерти звернення</button>
           )}
         </div>
       </header>
