@@ -21,7 +21,8 @@ checks = {
     "public client-log endpoint": '@router.post("/client-log"' in shop,
     "storefront own log": 'storefront.log' in client,
     "logs UI service allowed": '"storefront"' in logs,
-    "budget includes storefront": 'SERVICES_COUNT = 5' in logging_setup,
+    # api, bot, scheduler, storefront and (since v1.14) maintenance.
+    "budget includes storefront": 'SERVICES_COUNT = 5' in logging_setup and '"storefront"' in logs,
     "raw initData field absent": 'x_telegram_init_data' not in shop[shop.index('class ClientLogIn'):shop.index('# ------------------------------------------------------------------ схеми')],
     "www alias normalized": 'www.elfar.pp.ua' in config and 'elfar.pp.ua' in config,
     "nginx telemetry rate": 'zone=storefront_log' in rate and 'limit_req zone=storefront_log' in nginx,

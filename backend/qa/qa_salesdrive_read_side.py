@@ -7,7 +7,9 @@ checks={
  'read only linked CRM orders': 'if not order.crm_id' in sd and 'Legacy-замовлення не читається' in sd,
  'uses SalesDrive order list': '/api/order/list/' in sd,
  'stores CRM snapshot': 'crm_snapshot' in sd and 'crm_fetched_at' in sd,
- 'does not write catalog from snapshot': 'Локальний каталог ELFAR' in ui and 'не перезаписуються' in ui,
+ # Behavioural guard: the CRM read path never writes products; the UI says so.
+ 'does not write catalog from snapshot': 'update_product' not in sd and 'create_product' not in sd
+     and 'не змінює локальний каталог магазину' in ui,
  'refresh endpoint exists': 'salesdrive-refresh' in r,
  'UI shows live CRM fields': 'paymentMethod' in ui and 'shippingMethod' in ui and 'managerName' in ui and 'novaposhta' in ui,
 }

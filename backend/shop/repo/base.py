@@ -696,6 +696,27 @@ class Repository(ABC):
     async def save_settings_map(self, values: dict[str, str]) -> None:
         """Перезаписує передані ключі, не чіпаючи решту."""
 
+    # ------------------------------------------------ квитанції імпорту
+
+    @abstractmethod
+    async def claim_catalog_import(self, digest: str, actor: str, *, stale_before: datetime,
+                                   forget_before: datetime) -> dict | None:
+        """Атомарно займає квитанцію імпорту.
+
+        None — квитанцію створено, імпорт можна застосовувати. Інакше —
+        наявна квитанція {status, result, created_at}: той самий файл уже
+        застосовано або він застосовується зараз. «running» старіший за
+        stale_before вважається перерваним і замінюється.
+        """
+
+    @abstractmethod
+    async def finish_catalog_import(self, digest: str, result: dict) -> None:
+        """Позначає імпорт застосованим і зберігає його підсумок."""
+
+    @abstractmethod
+    async def forget_catalog_import(self, digest: str, *, only_done: bool = False) -> None:
+        """Прибирає квитанцію: явний повтор (only_done) або імпорт не завершився."""
+
     # ------------------------------------------------------ lifecycle
 
     async def close(self) -> None:

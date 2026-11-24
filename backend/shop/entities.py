@@ -118,10 +118,20 @@ class Product:
     # Нижній регістр назви — Firestore не вміє пошук без урахування регістру,
     # тому зберігаємо готове поле для префіксних запитів.
     name_lower: str = ""
+    # Активність батьківських груп (категорія, субкатегорія та її категорія).
+    # is_active лишається індивідуальним прапорцем товару: приховування групи
+    # не переписує його, і повторне ввімкнення групи не публікує товари,
+    # приховані окремо (A08).
+    parent_active: bool = True
 
     def __post_init__(self) -> None:
         if not self.name_lower:
             self.name_lower = self.name.lower()
+
+    @property
+    def is_published(self) -> bool:
+        """Товар видно покупцям і його можна купити (крім ціни/залишку)."""
+        return bool(self.is_active and self.parent_active)
 
 
 @dataclass

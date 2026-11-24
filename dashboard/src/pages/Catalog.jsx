@@ -67,16 +67,18 @@ function ImportProductsModal({ onClose, onDone }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [result, setResult] = useState(null)
-  const run = async () => {
+  const run = async (force = false) => {
     if (!file) return
     if (file.size > 10 * 1024 * 1024) { setError('Файл завеликий (максимум 10 МіБ)'); return }
     setBusy(true); setError(''); setResult(null)
     try {
       const form=new FormData(); form.append('file',file); form.append('mode',mode); form.append('prices',prices)
+      // Repeating the same request returns the stored receipt; re-applying stock needs an explicit choice.
+      if (force) form.append('force','true')
       const res=await api.products.importXlsx(form); setResult(res); onDone()
     } catch (e) { setError(e.message) } finally { setBusy(false) }
   }
-  return <Modal title="Імпорт товарів із SalesDrive" onClose={onClose} footer={<><button className="btn ghost" onClick={onClose}>Закрити</button><button className="btn" disabled={!file||busy} onClick={run}>{busy?'Імпортую…':'Імпортувати'}</button></>}>
+  return <Modal title="Імпорт товарів із SalesDrive" onClose={onClose} footer={<><button className="btn ghost" onClick={onClose}>Закрити</button><button className="btn" disabled={!file||busy} onClick={() => run(false)}>{busy?'Імпортую…':'Імпортувати'}</button></>}>
     <div className="stack">
       <ErrorBar error={error}/>
       <Field label="XLSX файл" hint="Стандартний експорт товарів SalesDrive, до 10 МіБ."><input className="input" type="file" accept=".xlsx" onChange={e=>setFile(e.target.files?.[0]||null)}/></Field>
@@ -87,6 +89,7 @@ function ImportProductsModal({ onClose, onDone }) {
         <select className="input" value={prices} onChange={e=>setPrices(e.target.value)}><option value="none">Не імпортувати ціни</option><option value="regular">Тільки звичайна ціна</option><option value="discount">Ціна зі знижкою + звичайна в поле «Стара ціна»</option><option value="both">Обидві ціни</option></select>
       </Field>
       <div className="muted">Товари звіряються за системним SKU або зовнішнім артикулом. Кожен новий товар отримує автоматичний SKU ELF-…; при оновленні артикул зберігається. Колонка «Категорія» старого експорту SalesDrive стає субкатегорією. Новий товар без імпорту ціни створюється прихованим з ціною 0, щоб випадково не потрапити у продаж.</div>
+      {result?.replayed && <div className="card warn" role="status"><strong>Цей самий файл уже імпортовано{result.imported_at ? ' ' + new Date(result.imported_at).toLocaleString('uk-UA') : ''}.</strong><div>Повтор не застосовано: залишки з файла перезаписали б продажі, зроблені після імпорту. Нижче — підсумок того імпорту.</div><button className="btn ghost small" disabled={busy} onClick={() => { if (window.confirm('Застосувати файл ще раз? Залишки й дані товарів знову будуть перезаписані значеннями з файла.')) run(true) }}>Застосувати ще раз</button></div>}
       {result && <div className="card"><strong>Готово</strong><div>Рядків: {result.rows} · додано: {result.created} · оновлено: {result.updated} · пропущено: {result.skipped}</div><div>Згенеровано SKU: {result.sku_generated} · змінено цін: {result.prices_changed}</div>{result.errors?.length>0 && <div className="bad">Помилок: {result.errors.length}. Перший рядок: {result.errors[0].row} — {result.errors[0].error}</div>}</div>}
     </div>
   </Modal>

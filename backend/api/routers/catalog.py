@@ -1,4 +1,7 @@
 from __future__ import annotations
+import hashlib
+import json
+from datetime import datetime, timedelta, timezone
 
 from starlette.concurrency import run_in_threadpool
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -228,13 +231,26 @@ from fastapi import File, Form, UploadFile
 from fastapi.responses import Response
 from shop.services.product_io import export_xlsx, parse_salesdrive_xlsx
 
+IMPORT_REPLAY_WINDOW = timedelta(hours=24)
+IMPORT_STALE_AFTER = timedelta(minutes=15)
+
+
 @router.post('/product-transfer/import')
 async def import_products(
     file: UploadFile = File(...),
     mode: str = Form('upsert'),
     prices: str = Form('none'),
+    force: bool = Form(False),
+    who: Principal = Depends(require_staff),
     repo: Repository = Depends(get_repo),
 ):
+    """Застосовує XLSX один раз.
+
+    Файл містить абсолютні залишки. Повтор того самого запиту (загублена
+    відповідь, подвійне натискання) раніше перезаписував продажі, зроблені між
+    двома запусками. Тепер повтор у межах доби повертає збережений підсумок
+    без змін; свідомий повторний імпорт — лише з явним force.
+    """
     if mode not in {'add','update','upsert'}:
         raise HTTPException(400, 'Невідомий режим імпорту')
     if prices not in {'none','regular','discount','both'}:
@@ -245,11 +261,44 @@ async def import_products(
     if len(raw) > 10*1024*1024: raise HTTPException(413, 'Файл завеликий (максимум 10 МБ)')
     try: rows=await run_in_threadpool(parse_salesdrive_xlsx, raw)
     except Exception as exc: raise HTTPException(400, str(exc)) from exc
+    # Digest of the parsed content, not file bytes: XLSX writers embed save
+    # timestamps, so a re-exported identical sheet must count as the same import.
+    canonical=json.dumps({'mode':mode,'prices':prices,'rows':rows}, sort_keys=True, ensure_ascii=False, default=str)
+    digest=hashlib.sha256(canonical.encode()).hexdigest()
+    now=datetime.now(timezone.utc)
+    if force:  # an explicit re-apply never interrupts an import that is still running
+        await repo.forget_catalog_import(digest, only_done=True)
+    receipt=await repo.claim_catalog_import(digest, who.login, stale_before=now-IMPORT_STALE_AFTER,
+                                            forget_before=now-IMPORT_REPLAY_WINDOW)
+    if receipt is not None:
+        if receipt['status']!='done' or not receipt.get('result'):
+            raise HTTPException(409, 'Цей файл уже імпортується. Дочекайтеся завершення й оновіть каталог.')
+        imported_at=receipt['created_at']
+        if imported_at is not None and imported_at.tzinfo is None:
+            imported_at=imported_at.replace(tzinfo=timezone.utc)
+        return {**receipt['result'], 'replayed':True,
+                'imported_at':imported_at.isoformat() if imported_at else None}
+    try:
+        stats=await _apply_import(rows, mode, prices, repo)
+    except BaseException:
+        try: await repo.forget_catalog_import(digest)
+        except Exception: pass
+        raise
+    await repo.finish_catalog_import(digest, stats)
+    return {**stats, 'replayed':False}
+
+
+async def _apply_import(rows, mode, prices, repo):
     cats={c.name.strip().casefold():c for c in await repo.list_categories()}
     subs={(s.category_id, s.name.strip().casefold()):s for s in await repo.list_subcategories()}
     stats={'rows':len(rows),'created':0,'updated':0,'skipped':0,'sku_generated':0,'prices_changed':0,'errors':[]}
     seen=set()
     for n,item in enumerate(rows,2):
+        n=item.get('row',n)
+        if item.get('error'):
+            stats['skipped']+=1
+            stats['errors'].append({'row':n,'name':item.get('name'),'error':item['error'][:200]})
+            continue
         try:
             source_sku = str(item.get('sku') or '').strip()
             if source_sku and source_sku in seen:

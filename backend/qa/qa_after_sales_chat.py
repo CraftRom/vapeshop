@@ -237,6 +237,10 @@ class MigrationTests(unittest.TestCase):
   self.assertIn('CAST(orders.status AS VARCHAR)',out.getvalue())
   backend=Path(__file__).resolve().parents[1]
   cfg=Config(str(backend/'alembic.ini'));cfg.set_main_option('script_location',str(backend/'alembic'))
-  self.assertEqual(ScriptDirectory.from_config(cfg).get_heads(),['f9b6d4e20c83'])
+  # One head, and this feature's revision stays in its ancestry. Pinning the
+  # literal head made every later migration look like a regression.
+  script=ScriptDirectory.from_config(cfg);heads=script.get_heads()
+  self.assertEqual(len(heads),1)
+  self.assertIn('f9b6d4e20c83',{r.revision for r in script.iterate_revisions(heads[0],'base')})
 
 if __name__=='__main__':unittest.main(verbosity=2)

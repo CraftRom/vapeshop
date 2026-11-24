@@ -49,14 +49,21 @@ echo "==> Зупиняю бота, API, планувальник і maintenance,
 $COMPOSE stop bot api scheduler maintenance
 
 if [[ $MODE == custom ]]; then
-    # --clean --if-exists прибирає наявні обʼєкти перед відновленням:
-    # без цього pg_restore сипле помилками «вже існує» і лишає базу
-    # напівстарою-напівновою.
-    $COMPOSE exec -T db pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
-        --clean --if-exists --no-owner < "$1"
+    # Схема public замінюється повністю в одній транзакції. --clean лишав
+    # таблиці новіших ревізій, яких немає в старішій копії, і наступний
+    # upgrade падав. SQL спершу повністю розгортається з архіву: COMMIT
+    # можливий лише після успішного pg_restore, а будь-яка помилка
+    # відкочує все, і поточна база лишається як була.
+    $COMPOSE exec -T db sh -c 'umask 077; pg_restore --no-owner --no-acl -f /tmp/elfar-restore.sql' < "$1"
+    $COMPOSE exec -T db sh -c '{ echo "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"; cat /tmp/elfar-restore.sql; } | psql -v ON_ERROR_STOP=1 --single-transaction -q -U "$1" -d "$2"; code=$?; rm -f /tmp/elfar-restore.sql; exit $code' sh "$POSTGRES_USER" "$POSTGRES_DB"
 else
     gunzip -c "$1" | $COMPOSE exec -T db psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"
 fi
+
+# Older copies may still carry session rows; a restored copy must not revive
+# logins revoked after it was taken.
+$COMPOSE exec -T db psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c \
+    "DO \$\$ BEGIN IF to_regclass('public.dashboard_sessions') IS NOT NULL THEN TRUNCATE dashboard_sessions; END IF; END \$\$;"
 
 echo "==> Накочую міграції: бекап може бути старішим за поточну схему"
 $COMPOSE run --rm migrate

@@ -253,8 +253,9 @@ async def _suite(app, backend: str) -> None:
         check("розсилку заплановано", response.status_code == 200, response.text[:120])
         check("статус став scheduled", response.json()["status"] == "scheduled",
               response.text[:120])
-        check("час округлено до цілої години",
-              response.json()["scheduled_at"][14:16] == "00", response.json()["scheduled_at"])
+        # The schedule keeps the exact chosen moment (no rounding to the hour).
+        check("час збережено без округлення",
+              response.json()["scheduled_at"][:16] == moment.isoformat()[:16], response.json()["scheduled_at"])
 
         past = datetime.now(timezone.utc) - timedelta(days=1)
         response = await client.post(f"/api/broadcasts/{broadcast_id}/schedule",

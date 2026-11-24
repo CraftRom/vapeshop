@@ -50,5 +50,7 @@ c.post("/api/operators", json={"login":"dupop","password":"kvitka-sadok-2026"}, 
 r.check(c.post("/api/operators", json={"login":"dupop","password":"kvitka-sadok-2026"}, headers=A).status_code == 409, "дубль логіна менеджера")
 
 print("\n--- зіпсований JSON ---")
-r.check(c.post("/api/auth/login", content="{зламано", headers={"Content-Type":"application/json"}).status_code == 422, "невалідний JSON")
+# The strict-JSON middleware rejects malformed bodies with 400 before routing.
+_bad = c.post("/api/auth/login", content="{зламано", headers={"Content-Type":"application/json"})
+r.check(_bad.status_code == 400 and "JSON" in _bad.text, "невалідний JSON", _bad.status_code)
 sys.exit(1 if r.done() else 0)

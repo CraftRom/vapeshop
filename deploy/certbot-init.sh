@@ -112,7 +112,7 @@ echo "==> Готую конфігурацію nginx"
 # Робочий конфіг генерується з шаблона щоразу — правити його на місці не
 # можна: наступне розпакування архіву поверне заглушку, і nginx упаде з
 # «cannot load certificate .../example.com/fullchain.pem».
-./render-nginx.sh
+bash ./render-nginx.sh
 
 configured="$CONFIGURED_DOMAIN"
 if [[ "$configured" != "$DOMAIN" ]]; then
@@ -240,7 +240,7 @@ if ! $COMPOSE run --rm --entrypoint certbot certbot \
     --email "$EMAIL" --agree-tos --no-eff-email \
     "${ACME_ARGS[@]}" "${FORCE[@]}"; then
     # Restore bootstrap certificate files if first issuance failed after removing the placeholder.
-    ./render-nginx.sh
+    bash ./render-nginx.sh
     echo "Сертифікат не отримано. Перевірте DNS та ACME для всіх налаштованих доменів." >&2
     exit 1
 fi

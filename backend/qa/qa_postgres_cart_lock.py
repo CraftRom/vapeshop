@@ -4,6 +4,7 @@
 lazy=joined. SQLAlchemy therefore generated LEFT OUTER JOIN products ... FOR
 UPDATE, which PostgreSQL rejects with FeatureNotSupportedError.
 """
+import re
 from pathlib import Path
 
 from sqlalchemy import select
@@ -24,7 +25,7 @@ compiled = str(
 )
 
 checks = [
-    ("lazyload imported", "from sqlalchemy.orm import lazyload, selectinload" in SQL),
+    ("lazyload imported", re.search(r"from sqlalchemy\.orm import [^\n]*\blazyload\b", SQL) is not None),
     ("cart product eager join disabled in lock query", SQL.count(".options(lazyload(m.CartItem.product))") >= 2),
     ("lock targets cart_items only", SQL.count(".with_for_update(of=m.CartItem)") >= 2),
     ("compiled lock has no OUTER JOIN", "OUTER JOIN" not in compiled.upper()),

@@ -19,8 +19,9 @@ def xlsx(rows):
  wb=Workbook(); ws=wb.active
  for row in rows: ws.append(row)
  out=BytesIO(); wb.save(out); return out.getvalue()
-def upload(rows,prices='both'):
- response=c.post('/api/catalog/product-transfer/import',headers=A,files={'file':('goods.xlsx',xlsx(rows),'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')},data={'mode':'upsert','prices':prices})
+def upload(rows,prices='both',force=False):
+ data={'mode':'upsert','prices':prices,**({'force':'true'} if force else {})}
+ response=c.post('/api/catalog/product-transfer/import',headers=A,files={'file':('goods.xlsx',xlsx(rows),'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')},data=data)
  assert response.status_code==200,response.text
  return response.json()
 sheet=[['Товар/Послуга','SKU','Категорія','Ціна','Ціна зі знижкою','Новинка','Активний','Залишок'],['Нейтральний аксесуар','зовнішній артикул','Група імпорту',100,80,'Так','Так',7]]
@@ -28,7 +29,9 @@ result=upload(sheet); item=next(p for p in req('GET','/products') if p['name']==
 r.check(result['created']==1 and not result['errors'] and item['sku'].startswith('ELF-') and item['external_sku']=='зовнішній артикул','імпорт генерує системний SKU та зберігає зовнішній')
 r.check(item['category_id'] is None and item['subcategory_id'] and item['is_new'] and item['is_sale'] and item['stock']==7,'старий імпорт створює субкатегорію та зберігає позначки')
 result=upload(sheet)
-r.check(result['created']==0 and result['updated']==1 and req('GET',f"/products/{item['id']}")['sku']==item['sku'],'повторний імпорт не створює дубль і не змінює SKU')
+r.check(result['replayed'] and len([p for p in req('GET','/products') if p['name']=='Нейтральний аксесуар'])==1,'повтор того самого файла повертає квитанцію без повторного застосування')
+result=upload(sheet,force=True)
+r.check(not result['replayed'] and result['created']==0 and result['updated']==1 and req('GET',f"/products/{item['id']}")['sku']==item['sku'],'повторний імпорт не створює дубль і не змінює SKU')
 result=upload([sheet[0],['Без ціни','NO-PRICE',None,10,None,'Так','Так',1]],prices='none')
 unpriced=next(p for p in req('GET','/products') if p['name']=='Без ціни')
 r.check(result['created']==1 and not unpriced['is_active'],'новий товар без імпорту ціни залишається прихованим')

@@ -11,10 +11,10 @@ import string
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
-from sqlalchemy import and_, case, delete, func, or_, select, update
+from sqlalchemy import and_, case, delete, exists, func, not_, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import lazyload, selectinload
+from sqlalchemy.orm import aliased, lazyload, selectinload
 
 from shop import models as m
 from shop.entities import (
@@ -291,10 +291,28 @@ def _category(row, products_count: int = 0) -> Category:
     )
 
 
-def _product(row, category_name: str | None = None, subcategory_name: str | None = None) -> Product | None:
+def _parents_active():
+    """SQL: всі батьківські групи товару активні (correlated to m.Product)."""
+    category, sub, sub_category = aliased(m.Category), aliased(m.Subcategory), aliased(m.Category)
+    category_ok = or_(m.Product.category_id.is_(None), exists().where(
+        category.id == m.Product.category_id, category.is_active.is_(True)))
+    sub_ok = or_(m.Product.subcategory_id.is_(None), exists().where(
+        sub.id == m.Product.subcategory_id, sub.is_active.is_(True),
+        or_(sub.category_id.is_(None), exists().where(
+            sub_category.id == sub.category_id, sub_category.is_active.is_(True)))))
+    return and_(category_ok, sub_ok)
+
+
+def _published():
+    """Єдине правило публікації для вітрини, Mini App, бота, кошика й quote."""
+    return and_(m.Product.is_active.is_(True), _parents_active())
+
+
+def _product(row, category_name: str | None = None, subcategory_name: str | None = None,
+             parent_active: bool = True) -> Product | None:
     if row is None:
         return None
-    return Product(
+    return Product(parent_active=bool(parent_active), 
         id=row.id, category_id=row.category_id, name=row.name, sku=row.sku,
         subcategory_id=row.subcategory_id, subcategory_name=subcategory_name,
         external_sku=row.external_sku, is_new=row.is_new, is_sale=row.is_sale,
@@ -606,13 +624,14 @@ class SqlRepository(Repository):
     def _filters(query, category_id=None, subcategory_id=None, search=None,
                  only_active=False, is_new=None, is_sale=None, uncategorized=False,inventory=None):
         if inventory:
-            sellable=and_(m.Product.is_active.is_(True),m.Product.price>0,func.trim(m.Product.name)!='')
+            sellable=and_(_published(),m.Product.price>0,func.trim(m.Product.name)!='')
             conditions={
                 'available':and_(sellable,m.Product.stock>0),
                 'low':and_(sellable,m.Product.stock>0,m.Product.stock<=3),
                 'out':and_(sellable,m.Product.stock<=0),
-                'unpriced':and_(m.Product.is_active.is_(True),m.Product.price<=0),
-                'hidden':m.Product.is_active.is_(False),
+                'unpriced':and_(_published(),m.Product.price<=0),
+                # Hidden on the storefront: individually or through a hidden group.
+                'hidden':not_(_published()),
                 'missing_photos':and_(sellable,func.trim(func.coalesce(m.Product.photo_url,''))=='',func.trim(func.coalesce(m.Product.photo_file_id,''))=='')}
             query=query.where(conditions[inventory])
         if category_id is not None:
@@ -626,7 +645,7 @@ class SqlRepository(Repository):
                                    m.Product.sku.icontains(search, autoescape=True),
                                    m.Product.external_sku.icontains(search, autoescape=True)))
         if only_active:
-            query = query.where(m.Product.is_active.is_(True))
+            query = query.where(_published())
         if is_new is not None:
             query = query.where(m.Product.is_new.is_(is_new))
         if is_sale is not None:
@@ -731,7 +750,7 @@ class SqlRepository(Repository):
     async def list_products(self, category_id=None, search=None, only_active=False, limit=500, offset=0,
                             subcategory_id=None, is_new=None, is_sale=None, uncategorized=False,
                             inventory=None,sort=None):
-        query = (select(m.Product, m.Category.name, m.Subcategory.name)
+        query = (select(m.Product, m.Category.name, m.Subcategory.name, _parents_active())
                  .outerjoin(m.Category, m.Category.id == m.Product.category_id)
                  .outerjoin(m.Subcategory, m.Subcategory.id == m.Product.subcategory_id))
         query = self._filters(query, category_id, subcategory_id, search, only_active, is_new, is_sale, uncategorized,inventory)
@@ -740,16 +759,16 @@ class SqlRepository(Repository):
             'stock-asc':m.Product.stock.asc(),'stock-desc':m.Product.stock.desc()}
         columns=[ordering[sort],m.Product.id] if sort else [m.Product.sort_order,m.Product.name,m.Product.id]
         query=query.order_by(*columns).limit(limit).offset(offset)
-        return [_product(row, name, subname) for row, name, subname in await self.s.execute(query.execution_options(populate_existing=True))]
+        return [_product(row, name, subname, active) for row, name, subname, active in await self.s.execute(query.execution_options(populate_existing=True))]
 
     async def products_by_ids(self, ids):
         if not ids:
             return []
-        query = (select(m.Product, m.Category.name, m.Subcategory.name)
+        query = (select(m.Product, m.Category.name, m.Subcategory.name, _parents_active())
                  .outerjoin(m.Category, m.Category.id == m.Product.category_id)
                  .outerjoin(m.Subcategory, m.Subcategory.id == m.Product.subcategory_id)
                  .where(m.Product.id.in_(list(ids))))
-        return [_product(row, name, subname) for row, name, subname in await self.s.execute(query.execution_options(populate_existing=True))]
+        return [_product(row, name, subname, active) for row, name, subname, active in await self.s.execute(query.execution_options(populate_existing=True))]
 
     async def count_products(self, category_id=None, only_active=True, **filters):
         query = self._filters(select(func.count(m.Product.id)), category_id=category_id, only_active=only_active, **filters)
@@ -863,8 +882,23 @@ class SqlRepository(Repository):
             select(m.CartItem).where(m.CartItem.user_id == user_id)
             .options(selectinload(m.CartItem.product)).order_by(m.CartItem.id)
         )
-        return [CartLine(product_id=r.product_id, qty=r.qty, product=_product(r.product))
+        rows = list(rows)
+        active = await self._parents_active_map([r.product_id for r in rows if r.product is not None])
+        return [CartLine(product_id=r.product_id, qty=r.qty,
+                         product=_product(r.product, parent_active=active.get(r.product_id, True)))
                 for r in rows]
+
+    async def _parents_active_map(self, product_ids) -> dict[int, bool]:
+        if not product_ids:
+            return {}
+        rows = await self.s.execute(select(m.Product.id, _parents_active()).where(m.Product.id.in_(list(product_ids))))
+        return {int(pid): bool(ok) for pid, ok in rows}
+
+    async def _row_published(self, product) -> bool:
+        """Locked ORM row: individual flag plus parent groups (A08)."""
+        if product is None or not product.is_active:
+            return False
+        return (await self._parents_active_map([product.id])).get(product.id, False)
 
     async def change_cart_qty_atomic(self, user_id: int, product_id: int, delta: int):
         """Змінює кількість у кошику під row-lock користувача.
@@ -883,7 +917,7 @@ class SqlRepository(Repository):
             product = await self.s.scalar(
                 select(m.Product).where(m.Product.id == product_id).with_for_update()
             )
-            if delta >= 0 and (not product or not product.is_active):
+            if delta >= 0 and not await self._row_published(product):
                 await self.s.rollback()
                 return None
             row = await self.s.scalar(
@@ -900,7 +934,7 @@ class SqlRepository(Repository):
             # Removing an existing line must not depend on catalog activity.
             # Missing/inactive products still have a customer-owned cart row.
             new_qty = max(current + int(delta), 0)
-            if product and product.is_active:
+            if await self._row_published(product):
                 new_qty = min(new_qty, max(int(product.stock or 0), 0))
             if new_qty <= 0:
                 if row:
@@ -942,7 +976,7 @@ class SqlRepository(Repository):
                 .options(lazyload(m.CartItem.product))
                 .with_for_update(of=m.CartItem)
             )
-            capped = min(max(int(qty), 0), int(product.stock or 0)) if product and product.is_active else 0
+            capped = min(max(int(qty), 0), int(product.stock or 0)) if await self._row_published(product) else 0
             if capped <= 0:
                 if row:
                     await self.s.delete(row)
@@ -1115,7 +1149,7 @@ class SqlRepository(Repository):
                     select(m.Product).where(m.Product.id == line.product_id).with_for_update()
                     .execution_options(populate_existing=True)
                 )
-                if not product or not product.is_active or int(product.stock or 0) < int(line.qty):
+                if not await self._row_published(product) or int(product.stock or 0) < int(line.qty):
                     await self.s.rollback()
                     return None, "stock"
                 if Decimal(str(product.price)) != Decimal(str(line.price)):
@@ -2453,6 +2487,39 @@ class SqlRepository(Repository):
                 )
             else:
                 self.s.add(m.Setting(key=key, value=str(value)))
+        await self._commit()
+
+    # ------------------------------------------------ квитанції імпорту
+
+    async def claim_catalog_import(self, digest, actor, *, stale_before, forget_before):
+        await self.s.execute(delete(m.CatalogImport).where(m.CatalogImport.created_at < forget_before))
+        await self.s.execute(delete(m.CatalogImport).where(
+            m.CatalogImport.digest == digest, m.CatalogImport.status == "running",
+            m.CatalogImport.created_at < stale_before))
+        self.s.add(m.CatalogImport(digest=digest, status="running", actor=(actor or "")[:64],
+                                   result="", created_at=datetime.now(timezone.utc)))
+        try:
+            await self._commit()
+            return None
+        except IntegrityError:
+            await self.s.rollback()
+        row = await self.s.get(m.CatalogImport, digest, populate_existing=True)
+        if row is None:  # removed concurrently; the caller may retry
+            return {"status": "running", "result": None, "created_at": None}
+        return {"status": row.status, "created_at": row.created_at,
+                "result": json.loads(row.result) if row.result else None}
+
+    async def finish_catalog_import(self, digest, result):
+        await self.s.execute(update(m.CatalogImport).where(m.CatalogImport.digest == digest).values(
+            status="done", result=json.dumps(result, ensure_ascii=False, default=str),
+            finished_at=datetime.now(timezone.utc)))
+        await self._commit()
+
+    async def forget_catalog_import(self, digest, *, only_done=False):
+        condition = [m.CatalogImport.digest == digest]
+        if only_done:
+            condition.append(m.CatalogImport.status == "done")
+        await self.s.execute(delete(m.CatalogImport).where(*condition))
         await self._commit()
 
     # ------------------------------------------ остаточне видалення

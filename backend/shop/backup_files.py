@@ -12,6 +12,11 @@ import subprocess
 import tempfile
 
 SIGNATURE = b'PGDMP'
+# Bearer-session tables. A copy must never carry them: replaying a dump would
+# otherwise resurrect sessions revoked after the dump (logout, role change,
+# operator removal). Restore additionally empties them in the same transaction.
+SESSION_TABLES = ('dashboard_sessions',)
+DUMP_ARGS = tuple(f'--exclude-table-data={table}' for table in SESSION_TABLES)
 
 
 class BackupError(RuntimeError):
@@ -114,7 +119,7 @@ def create_backup(directory: Path, settings, *, daily: str | None = None, output
                     return candidate
         with staging_file(directory) as temporary:
             try:
-                result = subprocess.run(pg_args(settings) + ['-Fc', '-f', str(temporary)],
+                result = subprocess.run(pg_args(settings) + ['-Fc', *DUMP_ARGS, '-f', str(temporary)],
                     env={**os.environ, 'PGPASSWORD': settings.postgres_password},
                     capture_output=True, timeout=1800, check=False)
             except (OSError, subprocess.TimeoutExpired):
