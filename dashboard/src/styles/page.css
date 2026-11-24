@@ -129,3 +129,17 @@
 .customer-blocked > td { color: var(--text-tertiary); }
 .customer-summary { padding-bottom: var(--space-3); border-bottom: 1px solid var(--border-subtle); }
 .customer-summary dd.num { font-size: 17px; }
+
+/* UI-014: on a phone the catalog actions used to share one non-wrapping row
+   with the title — the title collapsed to zero width and «Додати товар» ran
+   off the screen at 320 px. The actions now wrap below the title. */
+@media (max-width: 560px) {
+  .catalog-page-head { flex-wrap: wrap; }
+  .catalog-page-head > div:first-child { flex: 1 1 100%; }
+  .catalog-head-actions { width: 100%; flex-wrap: wrap; }
+  .catalog-head-actions .catalog-add-btn { flex: 1 1 auto; }
+}
+
+/* Logs: the action row wraps instead of pushing the page sideways at 320 px. */
+.logs-actions { display: flex; align-items: flex-end; flex-wrap: wrap; gap: var(--space-2) var(--space-3); }
+.logs-auto { display: flex; align-items: center; gap: 6px; min-height: 24px; }

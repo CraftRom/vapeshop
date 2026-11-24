@@ -610,7 +610,7 @@ export default function Support() {
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Ім’я, @username, телефон, ID або № чату"
             />
-            <select className="input support-sort" value={sort} onChange={(e) => setSort(e.target.value)}>
+            <select className="input support-sort" aria-label="Порядок звернень" value={sort} onChange={(e) => setSort(e.target.value)}>
               <option value="recent">Спочатку активні</option>
               <option value="unread">Спочатку непрочитані</option>
               <option value="name">За ім’ям клієнта</option>

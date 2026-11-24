@@ -539,7 +539,7 @@ input.input::-webkit-calendar-picker-indicator {
 
 @media (max-width: 1080px) {
   .grid.k4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .grid.k3, .grid.k2 { grid-template-columns: 1fr; }
+  .grid.k3, .grid.k2 { grid-template-columns: minmax(0, 1fr); }
 }
 
 @media (max-width: 760px) {
@@ -553,7 +553,7 @@ input.input::-webkit-calendar-picker-indicator {
   .nav a { white-space: nowrap; }
   .sidebar-foot { display: none; }
   .main { padding: 18px 14px 40px; }
-  .grid.k4 { grid-template-columns: 1fr; }
+  .grid.k4 { grid-template-columns: minmax(0, 1fr); }
 }
 
 

@@ -54,6 +54,8 @@ elif [[ "${QA_BROWSER_SUITE:-all}" == "navigation" ]]; then
   node qa/browser-storefront-navigation.mjs
 elif [[ "${QA_BROWSER_SUITE:-all}" == "storefront" ]]; then
   node qa/browser-storefront.mjs
+elif [[ "${QA_BROWSER_SUITE:-all}" == "a11y" ]]; then
+  node qa/browser-a11y-matrix.mjs
 else
   node qa/browser-external-apis.mjs
   node qa/browser-promo-codes.mjs
@@ -77,4 +79,5 @@ else
   node qa/browser-catalog.mjs
   node qa/browser-storefront-navigation.mjs
   node qa/browser-analytics.mjs
+  node qa/browser-a11y-matrix.mjs
 fi
