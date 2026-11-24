@@ -109,13 +109,26 @@ try {
       check(await bottom(log), label + ': background timer follows appended reply while already at bottom')
 
       await log.evaluate(el => { el.scrollTop = Math.floor(el.scrollHeight / 3) }); await pause(80)
-      const old = await anchor(log)
+      let old = await anchor(log)
       const second = message(list.at(-1).id + 1, 'Нове повідомлення під час читання історії')
       list.push(second); await wake(page)
       await log.locator(`[data-message-id="${second.id}"]`).waitFor()
       await anchorStayed(log, old, label + ': appended message')
       const latest = card.getByRole('button', { name: /Нові повідомлення:/ })
       check(await latest.isVisible(), label + ': explicit new-message jump appears')
+
+      // A reply rendered before the browser delivers the scroll event of the
+      // user's own scroll must not pull them back to the stale position.
+      await page.evaluate(() => { window.__swallowScroll = (event) => { if (event.target?.matches?.('[role="region"]')) event.stopPropagation() }; document.addEventListener('scroll', window.__swallowScroll, true) })
+      await log.evaluate(el => { el.scrollTop = Math.floor(el.scrollHeight / 4) })
+      const unreported = await anchor(log)
+      const third = message(list.at(-1).id + 1, 'Нове повідомлення до події прокрутки')
+      list.push(third); await wake(page)
+      await log.locator(`[data-message-id="${third.id}"]`).waitFor()
+      await anchorStayed(log, unreported, label + ': reply before the scroll event is delivered')
+      await page.evaluate(() => document.removeEventListener('scroll', window.__swallowScroll, true))
+      await log.evaluate(el => el.dispatchEvent(new Event('scroll'))); await pause(50)
+      old = await anchor(log)
 
       data.fail = true; await wake(page)
       await card.getByText('Не вдалося оновити переписку.', { exact: true }).waitFor()

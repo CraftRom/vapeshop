@@ -16,7 +16,7 @@ const checks = [
   ['order polling is fallback-only behind realtime', page.includes('useVisiblePolling(refreshLocalOrder, 15000)') && page.includes('EVENTS.ordersChanged')],
   ['background order refresh protects TTN draft', page.includes('trackingDirtyRef.current')],
   ['background order refresh protects manager note', page.includes('noteDirtyRef.current')],
-  ['chat only follows bottom when manager is already there', viewport.includes('if (layout.current.bottom) node.scrollTop = node.scrollHeight')],
+  ['chat only follows bottom when manager is already there', viewport.includes('if (state.bottom) node.scrollTop = node.scrollHeight')],
   ['CRM dictionary is not falsified into transition history', !status.includes('const passed = index < currentIndex') && status.includes('не означає, що заявка його проходила')],
   ['CRM status list has current and negative outcome states', css.includes('.crm-status-step.current') && css.includes('.crm-status-step.current.negative')],
   ['CRM stages adapt without horizontal scrolling', css.includes('grid-template-columns: repeat(auto-fit, minmax(118px, 1fr))') && !/\.crm-status-progress\s*\{[^}]*overflow-x:\s*auto/s.test(css)],
