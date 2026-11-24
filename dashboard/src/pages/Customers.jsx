@@ -97,7 +97,15 @@ function CustomerOrders({ customer, onClose }) {
   }, [customer.id, loadOrders])
 
   return (
-    <Modal title={`Замовлення: ${customer.first_name || customer.tg_id}`} onClose={onClose}>
+    <Modal title={`Клієнт: ${customer.first_name || customer.tg_id}`} onClose={onClose}>
+      {/* UI-018: хто це й наскільки активний — до історії замовлень. */}
+      <dl className="order-summary customer-summary" aria-label="Підсумок клієнта">
+        <div><dt>Контакт</dt><dd>{customer.username ? `@${customer.username}` : `Telegram ${customer.tg_id}`}{customer.phone ? ` · ${customer.phone}` : ''}</dd></div>
+        <div><dt>Замовлень</dt><dd className="num">{customer.orders_count ?? '—'}</dd></div>
+        <div><dt>Витрачено</dt><dd className="num">{customer.total_spent != null ? money(customer.total_spent) : '—'}</dd></div>
+        <div><dt>Бонуси</dt><dd className="num">{customer.bonus_balance != null ? money(customer.bonus_balance) : '—'}</dd></div>
+        {customer.is_blocked && <div><dt>Доступ</dt><dd><StateBadge tone="danger">заблокований</StateBadge></dd></div>}
+      </dl>
       <ErrorBar error={ordersError} />
       {ordersError && <div className="row"><span className="faint">{orders ? 'Попередні замовлення можуть бути застарілими.' : 'Замовлення не завантажено.'}</span><button className="btn ghost small" disabled={ordersLoading} onClick={loadOrders}>Оновити замовлення</button></div>}
       {orders && <Pagination page={page} total={total} count={orders.length} loading={ordersLoading} onPage={setPage} />}
@@ -195,6 +203,8 @@ export default function Customers() {
   }, [load])
 
   const toggleBlock = async (customer) => {
+    // Блокування закриває клієнту бота й Mini App, тож без підтвердження його не робимо.
+    if (!customer.is_blocked && !window.confirm(`Заблокувати ${customer.first_name || customerContact(customer)}? Клієнт не зможе користуватися ботом і Mini App, доки доступ не відновлять.`)) return
     try {
       const updated = await api.customers.patch(customer.id, { is_blocked: !customer.is_blocked })
       setCustomers((list) => list.map((c) => (c.id === updated.id ? { ...c, ...updated } : c)))
@@ -262,9 +272,10 @@ export default function Customers() {
               </thead>
               <tbody>
                 {customers.map((c) => (
-                  <tr key={c.id} style={c.is_blocked ? { opacity: 0.5 } : undefined}>
+                  <tr key={c.id} className={c.is_blocked ? 'customer-blocked' : undefined}>
                     <td>
                       {c.first_name || '—'}
+                      {c.is_blocked && <StateBadge tone="danger" className="inline-badge">заблокований</StateBadge>}
                       <div className="faint mono">
                         {c.username ? `@${c.username}` : `id${c.tg_id}`}
                         {c.phone ? ` · ${c.phone}` : ''}

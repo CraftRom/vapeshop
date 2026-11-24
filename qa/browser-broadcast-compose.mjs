@@ -141,6 +141,14 @@ try {
   await draft.click();await form.waitFor({state:'hidden'})
   check(creates===2 && lastPayload.photo_url===null && lastPayload.text_format==='plain',`${width}: text-only draft stores no photo`)
   const card=page.getByRole('article',{name:'Текстова чернетка',exact:true})
+  // UI-021: launching from the list names the audience and its size; dismissing sends nothing.
+  const sendsBefore=sends
+  const confirmText=new Promise(resolve=>page.once('dialog',dialog=>{resolve(dialog.message());dialog.dismiss()}))
+  await card.getByRole('button',{name:'Надіслати зараз',exact:true}).click()
+  const message=await confirmText
+  check(message.includes('Аудиторія:') && message.includes('отримувачів: 264') && message.includes('відкликати не можна'),`${width}: launch confirmation states audience, reach and irreversibility`)
+  await page.waitForTimeout(100)
+  check(sends===sendsBefore,`${width}: dismissed launch confirmation sends nothing`)
   await card.getByRole('button',{name:'Редагувати',exact:true}).click()
   const editor=page.getByRole('dialog',{name:'Редагувати розсилку',exact:true})
   await editor.getByRole('radio',{name:'HTML',exact:true}).check()

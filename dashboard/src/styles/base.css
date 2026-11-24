@@ -502,7 +502,19 @@ input.input::-webkit-calendar-picker-indicator {
   animation: rise 0.22s ease-out;
 }
 
-.toast.bad { border-left-color: var(--rose); }
+.toast { display: flex; align-items: flex-start; gap: var(--space-3); max-width: min(440px, calc(100vw - 32px)); padding-right: 8px; }
+.toast.bad { border-left-color: var(--status-danger); }
+.toast.warn { border-left-color: var(--status-warning); }
+.toast.info { border-left-color: var(--status-info); }
+.toast-glyph { display: inline-grid; place-items: center; flex: 0 0 18px; width: 18px; height: 18px; margin-top: 1px; border: 1px solid currentColor; border-radius: var(--radius-pill); font-size: 10px; font-weight: 700; }
+.toast.ok .toast-glyph { color: var(--status-success); }
+.toast.bad .toast-glyph { color: var(--status-danger); }
+.toast.warn .toast-glyph { color: var(--status-warning); }
+.toast.info .toast-glyph { color: var(--status-info); }
+.toast-message { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.toast-close { flex: 0 0 auto; min-width: 28px; min-height: 28px; margin: -4px 0 -4px 4px; border: 0; border-radius: 8px; background: transparent; color: var(--text-tertiary); cursor: pointer; }
+.toast-close:hover, .toast-close:focus-visible { color: var(--text-primary); background: var(--border-subtle); }
+@media (max-width: 560px) { .toast { left: 16px; right: 16px; bottom: 16px; max-width: none; } }
 
 @keyframes rise { from { opacity: 0; transform: translateY(8px); } }
 

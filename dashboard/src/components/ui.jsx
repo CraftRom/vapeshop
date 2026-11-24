@@ -6,25 +6,55 @@ import { mountDialog } from './dialog'
 
 const ToastContext = createContext(() => {})
 
+// UI-025: the kind decides how long a message stays and how it is announced.
+// Errors stay until closed — a failed save must not vanish while the manager
+// looks elsewhere — and interrupt screen readers (role="alert"). The glyph and
+// the hidden prefix repeat the kind, so it is not told by colour alone.
+const TOAST_KINDS = {
+  ok: { className: 'ok', glyph: '✓', prefix: 'Готово', role: 'status', timeout: 3200 },
+  info: { className: 'info', glyph: 'i', prefix: 'До відома', role: 'status', timeout: 4500 },
+  warn: { className: 'warn', glyph: '!', prefix: 'Увага', role: 'status', timeout: 7000 },
+  bad: { className: 'bad', glyph: '✕', prefix: 'Помилка', role: 'alert', timeout: 0 },
+}
+const TOAST_ALIASES = { success: 'ok', warning: 'warn', error: 'bad', danger: 'bad' }
+export const toastKind = (kind) => TOAST_KINDS[TOAST_ALIASES[kind] || kind] ? (TOAST_ALIASES[kind] || kind) : 'ok'
+
 export function ToastProvider({ children }) {
   const [toast, setToast] = useState(null)
+  const [paused, setPaused] = useState(false)
 
   const notify = useCallback((message, kind = 'ok') => {
-    setToast({ message, kind, key: Date.now() })
+    setToast({ message, kind: toastKind(kind), key: Date.now() })
+    setPaused(false)
   }, [])
 
   useEffect(() => {
-    if (!toast) return
-    const timer = setTimeout(() => setToast(null), 3200)
+    if (!toast || paused) return
+    const { timeout } = TOAST_KINDS[toast.kind]
+    if (!timeout) return
+    const timer = setTimeout(() => setToast(null), timeout)
     return () => clearTimeout(timer)
-  }, [toast])
+  }, [toast, paused])
 
+  const meta = toast && TOAST_KINDS[toast.kind]
   return (
     <ToastContext.Provider value={notify}>
       {children}
       {toast && (
-        <div className={`toast ${toast.kind === 'bad' ? 'bad' : ''}`} role="status" key={toast.key}>
-          {toast.message}
+        <div
+          className={`toast ${meta.className}`}
+          role={meta.role}
+          key={toast.key}
+          onMouseEnter={() => setPaused(true)}
+          onMouseLeave={() => setPaused(false)}
+          onFocus={() => setPaused(true)}
+          onBlur={() => setPaused(false)}
+        >
+          <span className="toast-glyph" aria-hidden="true">{meta.glyph}</span>
+          {/* The prefix is a sibling, so the message element keeps exactly the message text. */}
+          <span className="sr-only">{meta.prefix}: </span>
+          <span className="toast-message">{toast.message}</span>
+          <button type="button" className="toast-close" aria-label="Закрити сповіщення" onClick={() => setToast(null)}>✕</button>
         </div>
       )}
     </ToastContext.Provider>

@@ -126,6 +126,8 @@ try {
    await page.getByRole('button',{name:'Замовлення',exact:true}).first().click()
    await page.getByRole('button',{name:'Оновити замовлення'}).waitFor();await page.getByRole('button',{name:'Оновити списки'}).waitFor()
    check(await page.getByText('Клієнт ще нічого не замовляв.').count()===0,'modal errors never say empty')
+   // UI-018: who the customer is comes before the history, even while the history fails.
+   check(await page.getByRole('dialog').locator('dl[aria-label="Підсумок клієнта"] dt').allInnerTexts().then(t=>['Контакт','Замовлень','Витрачено','Бонуси'].every(x=>t.some(v=>v.toLowerCase()===x.toLowerCase()))),'customer card opens with contact and totals')
    state.modalOrdersFail=false;await page.getByRole('button',{name:'Оновити замовлення'}).click()
    await page.getByRole('dialog').getByText('Усього:',{exact:false}).waitFor()
    check(await page.getByRole('button',{name:'Оновити списки'}).isVisible(),'modal orders success independent of lists error')
