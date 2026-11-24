@@ -118,6 +118,28 @@ def test_catalog_import_receipts_upgrade_and_downgrade(postgres):
     assert 'gone = "t"' in result.stdout and 'fb4a8c2d1e70' in result.stdout
 
 
+def test_durable_import_jobs_migration_keeps_applied_receipts(postgres):
+    head_baseline(postgres)
+    postgres(upgrade_sql('fb4a8c2d1e70:d7e3a91c5b20'))
+    postgres("""
+        INSERT INTO catalog_imports (digest,status,result,created_at) VALUES ('applied','running','{"rows":1}',now());
+        INSERT INTO catalog_imports (digest,status,result,created_at) VALUES ('interrupted','running','',now());
+    """)
+    postgres(upgrade_sql('d7e3a91c5b20:head'))
+    result=postgres("SELECT digest,status,rows_done,attempts FROM catalog_imports ORDER BY digest; SELECT version_num FROM alembic_version;")
+    assert 'digest = "applied"' in result.stdout and 'status = "done"' in result.stdout
+    assert 'interrupted' not in result.stdout and 'a3d9b6e14f02' in result.stdout
+    postgres("INSERT INTO catalog_imports (digest,created_at,payload,rows_total) VALUES ('queued-job',now(),'[]',0);")
+    assert 'status = "queued"' in postgres("SELECT status FROM catalog_imports WHERE digest='queued-job';").stdout
+    downgrade=subprocess.run([sys.executable,'-m','alembic','downgrade','a3d9b6e14f02:d7e3a91c5b20','--sql'],
+        cwd=BACKEND,env={**os.environ,'PYTHONPATH':str(BACKEND),'DATABASE_URL':'postgresql+asyncpg://qa:qa@localhost/qa'},
+        text=True,capture_output=True,timeout=30)
+    assert downgrade.returncode==0,downgrade.stderr
+    postgres(downgrade.stdout)
+    result=postgres("SELECT digest FROM catalog_imports; SELECT version_num FROM alembic_version;")
+    assert 'applied' in result.stdout and 'queued-job' not in result.stdout and 'd7e3a91c5b20' in result.stdout
+
+
 def test_commerce_channel_and_queue_expressions_on_real_postgres(postgres):
     from sqlalchemy import select,func
     from sqlalchemy.dialects import postgresql

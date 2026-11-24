@@ -129,13 +129,14 @@ async def test_repeated_import_does_not_overwrite_stock_sold_in_between(db):
     files = {'file': ('audit.xlsx', body, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')}
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='https://dashboard.test') as http:
         first = await http.post('/api/catalog/product-transfer/import', files=files)
-        assert first.status_code == 200, first.text
-        assert first.json()['replayed'] is False and first.json()['updated'] == 1
-        assert [e['row'] for e in first.json()['errors']] == [3]
+        assert first.status_code == 202, first.text  # durable job, applied in the background
+        job = (await http.get('/api/catalog/product-transfer/import/' + first.json()['job_id'])).json()
+        assert job['status'] == 'done' and job['result']['updated'] == 1
+        assert [e['row'] for e in job['result']['errors']] == [3]
         await repo.update_product(1, {'stock': 9})  # a sale after the import
         retry = await http.post('/api/catalog/product-transfer/import', files=files)
         assert retry.status_code == 200 and retry.json()['replayed'] is True
         assert (await repo.get_product(1)).stock == 9
         forced = await http.post('/api/catalog/product-transfer/import', files=files, data={'force': 'true'})
-        assert forced.status_code == 200 and forced.json()['replayed'] is False
+        assert forced.status_code == 202 and forced.json()['replayed'] is False
     assert (await repo.get_product(1)).stock == 10

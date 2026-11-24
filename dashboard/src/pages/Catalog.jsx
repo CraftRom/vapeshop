@@ -60,6 +60,10 @@ function paginationNumbers(current, total) {
   return [start, start + 1, start + 2]
 }
 
+const IMPORT_JOB_KEY = 'accord:catalog-import-job'
+const importJobId = () => { try { return sessionStorage.getItem(IMPORT_JOB_KEY) || '' } catch { return '' } }
+const rememberImportJob = (id) => { try { id ? sessionStorage.setItem(IMPORT_JOB_KEY, id) : sessionStorage.removeItem(IMPORT_JOB_KEY) } catch {} }
+
 function ImportProductsModal({ onClose, onDone }) {
   const [file, setFile] = useState(null)
   const [mode, setMode] = useState('upsert')
@@ -67,18 +71,40 @@ function ImportProductsModal({ onClose, onDone }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [result, setResult] = useState(null)
+  // A02: the server applies rows in a durable background job; the modal
+  // follows its progress and resumes after a reload of the page.
+  const [job, setJob] = useState(null)
+  const running = job && (job.status === 'queued' || job.status === 'running')
+  const done = useRef(onDone)
+  done.current = onDone
+  const settle = useCallback((next) => {
+    setJob(next)
+    if (next.status === 'done') { setResult(next.result); rememberImportJob(''); done.current() }
+    if (next.status === 'failed') { setError('Імпорт не завершено: ' + (next.error || 'невідома помилка') + '. Уже оброблені рядки збережено.'); rememberImportJob('') }
+  }, [])
+  useEffect(() => {
+    const id = importJobId()
+    if (id) api.products.importStatus(id).then(settle).catch(() => rememberImportJob(''))
+  }, [settle])
+  useEffect(() => {
+    if (!running) return undefined
+    const timer = setTimeout(() => { api.products.importStatus(job.job_id).then(settle).catch((e) => setError(e.message)) }, 1500)
+    return () => clearTimeout(timer)
+  }, [job, running, settle])
   const run = async (force = false) => {
     if (!file) return
     if (file.size > 10 * 1024 * 1024) { setError('Файл завеликий (максимум 10 МіБ)'); return }
-    setBusy(true); setError(''); setResult(null)
+    setBusy(true); setError(''); setResult(null); setJob(null)
     try {
       const form=new FormData(); form.append('file',file); form.append('mode',mode); form.append('prices',prices)
       // Repeating the same request returns the stored receipt; re-applying stock needs an explicit choice.
       if (force) form.append('force','true')
-      const res=await api.products.importXlsx(form); setResult(res); onDone()
+      const res=await api.products.importXlsx(form)
+      if (res.replayed) { setResult(res); onDone() }
+      else { rememberImportJob(res.job_id); settle(res) }
     } catch (e) { setError(e.message) } finally { setBusy(false) }
   }
-  return <Modal title="Імпорт товарів із SalesDrive" onClose={onClose} footer={<><button className="btn ghost" onClick={onClose}>Закрити</button><button className="btn" disabled={!file||busy} onClick={() => run(false)}>{busy?'Імпортую…':'Імпортувати'}</button></>}>
+  return <Modal title="Імпорт товарів із SalesDrive" onClose={onClose} footer={<><button className="btn ghost" onClick={onClose}>Закрити</button><button className="btn" disabled={!file||busy||running} onClick={() => run(false)}>{busy?'Надсилаю…':running?'Імпортується…':'Імпортувати'}</button></>}>
     <div className="stack">
       <ErrorBar error={error}/>
       <Field label="XLSX файл" hint="Стандартний експорт товарів SalesDrive, до 10 МіБ."><input className="input" type="file" accept=".xlsx" onChange={e=>setFile(e.target.files?.[0]||null)}/></Field>
@@ -89,6 +115,7 @@ function ImportProductsModal({ onClose, onDone }) {
         <select className="input" value={prices} onChange={e=>setPrices(e.target.value)}><option value="none">Не імпортувати ціни</option><option value="regular">Тільки звичайна ціна</option><option value="discount">Ціна зі знижкою + звичайна в поле «Стара ціна»</option><option value="both">Обидві ціни</option></select>
       </Field>
       <div className="muted">Товари звіряються за системним SKU або зовнішнім артикулом. Кожен новий товар отримує автоматичний SKU ELF-…; при оновленні артикул зберігається. Колонка «Категорія» старого експорту SalesDrive стає субкатегорією. Новий товар без імпорту ціни створюється прихованим з ціною 0, щоб випадково не потрапити у продаж.</div>
+      {running && <div className="card" role="status"><strong>{job.status === 'queued' ? 'Імпорт у черзі' : 'Імпортуємо товари'}</strong><div>Оброблено {job.rows_done} із {job.rows_total} рядків. Вікно можна закрити: імпорт продовжиться на сервері.</div><progress max={job.rows_total || 1} value={job.rows_done}/></div>}
       {result?.replayed && <div className="card warn" role="status"><strong>Цей самий файл уже імпортовано{result.imported_at ? ' ' + new Date(result.imported_at).toLocaleString('uk-UA') : ''}.</strong><div>Повтор не застосовано: залишки з файла перезаписали б продажі, зроблені після імпорту. Нижче — підсумок того імпорту.</div><button className="btn ghost small" disabled={busy} onClick={() => { if (window.confirm('Застосувати файл ще раз? Залишки й дані товарів знову будуть перезаписані значеннями з файла.')) run(true) }}>Застосувати ще раз</button></div>}
       {result && <div className="card"><strong>Готово</strong><div>Рядків: {result.rows} · додано: {result.created} · оновлено: {result.updated} · пропущено: {result.skipped}</div><div>Згенеровано SKU: {result.sku_generated} · змінено цін: {result.prices_changed}</div>{result.errors?.length>0 && <div className="bad">Помилок: {result.errors.length}. Перший рядок: {result.errors[0].row} — {result.errors[0].error}</div>}</div>}
     </div>

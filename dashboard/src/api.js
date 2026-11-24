@@ -288,6 +288,7 @@ export const api = {
     remove: (id) => request(`/catalog/products/${id}`, { method: 'DELETE' }),
     purge: (id) => request(`/catalog/products/${id}/purge`, { method: 'DELETE' }),
     importXlsx: (form) => upload('/catalog/product-transfer/import', form),
+    importStatus: (id) => request(`/catalog/product-transfer/import/${encodeURIComponent(id)}`),
     exportXlsx: () => download('/catalog/product-transfer/export', 'elfar-products.xlsx'),
   },
 
