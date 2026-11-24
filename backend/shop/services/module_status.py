@@ -16,7 +16,7 @@ import os
 
 from shop.config import settings
 from shop.services.shop_settings import get_shop_settings
-from shop.worker_health import states
+from shop.worker_health import heartbeat_dir, states
 
 STATES = ("disabled", "not_configured", "no_worker", "ready")
 
@@ -26,10 +26,26 @@ def _module(key, title, status, detail, worker=None):
     return {"key": key, "title": title, "status": status, "detail": detail, "worker": worker}
 
 
-def _needs(worker_states, worker, key, title, ready_detail, absent_detail):
+def heartbeat_problem(directory=None):
+    """Why no worker can report itself, if the shared directory is the cause.
+
+    The API runs as the same user as the workers; when it cannot write the
+    heartbeat directory, neither can they, and every worker looks stopped
+    although its container runs (owner root after a deploy via sudo).
+    """
+    directory = directory or heartbeat_dir()
+    if not directory.is_dir():
+        return f"Каталог {directory} відсутній"
+    if not os.access(directory, os.W_OK | os.X_OK):
+        return (f"Каталог {directory} недоступний для запису процесам магазину "
+                f"(власник uid {directory.stat().st_uid}). Запустіть deploy.sh: крок data-init поверне права")
+    return None
+
+
+def _needs(worker_states, worker, key, title, ready_detail, absent_detail, cause=None):
     running = worker_states[worker]["running"]
-    return _module(key, title, "ready" if running else "no_worker",
-                   ready_detail if running else absent_detail, worker)
+    detail = ready_detail if running else (f"{cause}. {absent_detail}" if cause else absent_detail)
+    return _module(key, title, "ready" if running else "no_worker", detail, worker)
 
 
 def promo_controller_configured() -> bool:
@@ -39,32 +55,34 @@ def promo_controller_configured() -> bool:
 async def module_report(repo, *, heartbeat_directory=None, now=None) -> dict:
     shop = await get_shop_settings(repo)
     workers = states(directory=heartbeat_directory, now=now)
-    no_scheduler = ("Планувальник не запущений. Запустіть його: cd deploy && "
-                    "docker compose --env-file ../.env -f docker-compose.prod.yml up -d scheduler")
+    cause = heartbeat_problem(heartbeat_directory) if not all(w["running"] for w in workers.values()) else None
+    no_scheduler = ("Планувальник не подає heartbeat. Перевірте: cd deploy && "
+                    "docker compose --env-file ../.env -f docker-compose.prod.yml ps scheduler; "
+                    "запуск — bash deploy.sh або ... up -d scheduler")
     modules = [
         _needs(workers, "scheduler", "scheduled_broadcasts", "Заплановані розсилки",
                "Планувальник запускає розсилки в призначений час.",
-               no_scheduler + ". Ручна «Надіслати зараз» працює, заплановані — ні."),
+               no_scheduler + ". Ручна «Надіслати зараз» працює, заплановані — ні.", cause=cause),
     ]
     if not shop.backup_enabled:
         modules.append(_module("auto_backups", "Щоденні резервні копії", "disabled",
                                "Вимкнено в налаштуваннях.", "scheduler"))
     else:
         modules.append(_needs(workers, "scheduler", "auto_backups", "Щоденні резервні копії",
-                              "Копія створюється раз на добу в заданий час.", no_scheduler + "."))
+                              "Копія створюється раз на добу в заданий час.", no_scheduler + ".", cause=cause))
     modules.append(_needs(workers, "scheduler", "housekeeping", "Обслуговування даних",
                           "Прибирання журналів, старих копій і прострочених токенів раз на добу.",
-                          no_scheduler + "."))
+                          no_scheduler + ".", cause=cause))
     modules.append(_needs(workers, "maintenance", "backup_jobs", "Копії з панелі",
                           "Виконавець приймає запити на копію з панелі.",
-                          "Виконавець maintenance не подає heartbeat: запит копії з панелі чекатиме."))
+                          "Виконавець maintenance не подає heartbeat: запит копії з панелі чекатиме.", cause=cause))
     if not settings.bot_token:
         modules.append(_module("telegram_bot", "Telegram-бот", "not_configured",
                                "BOT_TOKEN не задано: бот і Telegram-оформлення вимкнені.", "bot"))
     else:
         modules.append(_needs(workers, "bot", "telegram_bot", "Telegram-бот",
                               "Бот отримує повідомлення в режимі polling.",
-                              "Процес бота не подає heartbeat. Запустіть сервіс bot."))
+                              "Процес бота не подає heartbeat. Запустіть сервіс bot.", cause=cause))
     if not shop.salesdrive_enabled:
         modules.append(_module("salesdrive", "SalesDrive CRM", "disabled", "Вимкнено в налаштуваннях.", "scheduler"))
     elif not shop.salesdrive_ready:
@@ -74,12 +92,12 @@ async def module_report(repo, *, heartbeat_directory=None, now=None) -> dict:
         modules.append(_needs(workers, "scheduler", "salesdrive", "SalesDrive CRM",
                               "Відправка йде одразу; повтори й фонове читання — у планувальнику.",
                               "Нові заявки відправляються одразу, але повтори після збою й фонове "
-                              "читання не працюватимуть без планувальника."))
+                              "читання не працюватимуть без планувальника.", cause=cause))
     modules.append(_module(
         "promo_domains", "Домени промосторінок",
         "ready" if promo_controller_configured() else "not_configured",
         "Контролер промодоменів налаштований." if promo_controller_configured() else
         "PROMO_CONTROLLER_TOKEN не задано: редактор і перегляд працюють, підключення власного "
         "домену недоступне.", None))
-    return {"modules": modules,
+    return {"modules": modules, "heartbeat_problem": cause,
             "workers": [workers[name] for name in workers]}
