@@ -15,6 +15,13 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 JsonType = JSON().with_variant(JSONB(), "postgresql")
 
 
+
+# Server defaults declared once: a model with a column named `text` shadows
+# sqlalchemy.text inside its class body.
+_SQL_FALSE = text("false")
+_SQL_TRUE = text("true")
+_SQL_EMPTY_JSON = text("'[]'")  # PostgreSQL casts it to jsonb; SQLite stores the text
+
 class Base(DeclarativeBase):
     pass
 
@@ -149,8 +156,8 @@ class Product(Base):
     category_id: Mapped[int | None] = mapped_column(ForeignKey("categories.id", ondelete="SET NULL"))
     subcategory_id: Mapped[int | None] = mapped_column(ForeignKey("subcategories.id", ondelete="SET NULL"))
     external_sku: Mapped[str | None] = mapped_column(String(255), index=True)
-    is_new: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
-    is_sale: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
+    is_new: Mapped[bool] = mapped_column(Boolean, default=False, server_default=_SQL_FALSE)
+    is_sale: Mapped[bool] = mapped_column(Boolean, default=False, server_default=_SQL_FALSE)
     name: Mapped[str] = mapped_column(String(255))
     sku: Mapped[str] = mapped_column(String(32), nullable=False)
     description: Mapped[str | None] = mapped_column(Text)
@@ -188,6 +195,8 @@ class Order(Base):
     __table_args__ = (
         # Список замовлень: фільтр за статусом + сортування за датою
         Index("ix_orders_status_created", "status", "created_at"),
+        # Аналітика продажів читає стан і момент бізнес-події (міграція c2f51b8d9e40).
+        Index("ix_orders_business_state_event", "business_state", "business_state_at"),
         Index("ix_orders_user_created", "user_id", "created_at"),
         Index("ix_orders_search", "search_key"),
         Index("ux_orders_checkout_key", "checkout_key", unique=True),
@@ -256,7 +265,7 @@ class Order(Base):
     business_state_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
     # Хто веде замовлення — показується клієнту після «Прийнято»
     operator_id: Mapped[int | None] = mapped_column(Integer)
-    operator_name: Mapped[str] = mapped_column(String(128), default="")
+    operator_name: Mapped[str] = mapped_column(String(128), default="", server_default="")
 
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
     referral_paid: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -386,11 +395,11 @@ class Operator(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     login: Mapped[str] = mapped_column(String(64), unique=True, index=True)
-    name: Mapped[str] = mapped_column(String(128), default="")
+    name: Mapped[str] = mapped_column(String(128), default="", server_default="")
     password_hash: Mapped[str] = mapped_column(String(255))
     auth_version: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
-    role: Mapped[str] = mapped_column(String(16), default="operator")
-    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    role: Mapped[str] = mapped_column(String(16), default="operator", server_default="operator")
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default=_SQL_TRUE)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
@@ -410,7 +419,7 @@ class OrderMessage(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
     # "out" — від менеджера клієнту, "in" — від клієнта
     direction: Mapped[str] = mapped_column(String(4))
-    author: Mapped[str] = mapped_column(String(128), default="")
+    author: Mapped[str] = mapped_column(String(128), default="", server_default="")
     text: Mapped[str] = mapped_column(Text)
     # id повідомлення в Telegram: за ним відповідь клієнта зіставляється
     # із замовленням, коли їх у нього кілька
@@ -420,7 +429,7 @@ class OrderMessage(Base):
     file_id: Mapped[str | None] = mapped_column(String(255))
     file_kind: Mapped[str | None] = mapped_column(String(16))   # photo, document, video, voice
     file_name: Mapped[str | None] = mapped_column(String(255))
-    is_read: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_read: Mapped[bool] = mapped_column(Boolean, default=False, server_default=_SQL_FALSE)
     # Для вихідних реплік окремо зберігаємо факт доставки. is_read не може
     # виконувати цю роль: недоставлене повідомлення раніше записувалося як
     # прочитане, і після reload панель показувала неправдиве «✓✓ Прочитано».
@@ -456,13 +465,13 @@ class MessageArchive(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     kind: Mapped[str] = mapped_column(String(16))  # order | support
     entity_id: Mapped[int] = mapped_column(Integer)
-    message_count: Mapped[int] = mapped_column(Integer, default=0)
+    message_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     raw_bytes: Mapped[int] = mapped_column(BigInteger, default=0, server_default="0")
     min_message_id: Mapped[int | None] = mapped_column(Integer)
     max_message_id: Mapped[int | None] = mapped_column(Integer)
     first_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    codec: Mapped[str] = mapped_column(String(24), default="gzip-json-v1")
+    codec: Mapped[str] = mapped_column(String(24), default="gzip-json-v1", server_default="gzip-json-v1")
     payload: Mapped[bytes] = mapped_column(LargeBinary)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
@@ -477,6 +486,7 @@ class SupportThread(Base):
 
     __tablename__ = "support_threads"
     __table_args__ = (
+        Index("ix_support_threads_user_status_updated", "user_id", "status", "updated_at"),
         Index(
             "uq_support_threads_one_open_per_user",
             "user_id",
@@ -490,7 +500,7 @@ class SupportThread(Base):
     user_id: Mapped[int] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"), index=True
     )
-    status: Mapped[str] = mapped_column(String(16), default="open", index=True)
+    status: Mapped[str] = mapped_column(String(16), default="open", index=True, server_default="open")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), index=True
@@ -519,16 +529,16 @@ class SupportMessage(Base):
     )
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     direction: Mapped[str] = mapped_column(String(4))
-    author: Mapped[str] = mapped_column(String(128), default="")
+    author: Mapped[str] = mapped_column(String(128), default="", server_default="")
     text: Mapped[str] = mapped_column(Text)
     tg_message_id: Mapped[int | None] = mapped_column(BigInteger, index=True)
     file_id: Mapped[str | None] = mapped_column(String(255))
     file_kind: Mapped[str | None] = mapped_column(String(16))
     file_name: Mapped[str | None] = mapped_column(String(255))
-    is_read: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_read: Mapped[bool] = mapped_column(Boolean, default=False, server_default=_SQL_FALSE)
     # Службова ознака лише для панелі. Клієнту її ніколи не рендеримо: вона
     # потрібна менеджеру, щоб відрізняти відповідь людини від FAQ-автоматики.
-    is_automatic: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_automatic: Mapped[bool] = mapped_column(Boolean, default=False, server_default=_SQL_FALSE)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
 
     thread: Mapped[SupportThread] = relationship(back_populates="messages")
@@ -554,7 +564,7 @@ class PanelNotification(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     kind: Mapped[str] = mapped_column(String(40), index=True)
     title: Mapped[str] = mapped_column(String(180))
-    body: Mapped[str] = mapped_column(Text, default="")
+    body: Mapped[str] = mapped_column(Text, default="", server_default="")
     href: Mapped[str | None] = mapped_column(String(512))
     entity_id: Mapped[int | None] = mapped_column(Integer)
     actor: Mapped[str | None] = mapped_column(String(128))
@@ -603,7 +613,7 @@ class ArchivedMessageRef(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     kind: Mapped[str] = mapped_column(String(16))
     entity_id: Mapped[int] = mapped_column(Integer, index=True)
-    user_id: Mapped[int] = mapped_column(Integer, index=True)
+    user_id: Mapped[int] = mapped_column(Integer)
     tg_message_id: Mapped[int] = mapped_column(BigInteger)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
@@ -631,7 +641,7 @@ class Wishlist(Base):
     name: Mapped[str] = mapped_column(String(64))
     # Масив id товарів. Окрема таблиця звʼязків тут нічого не дала б:
     # список завжди читається й пишеться цілком.
-    product_ids: Mapped[list] = mapped_column(JsonType, default=list)
+    product_ids: Mapped[list] = mapped_column(JsonType, default=list, server_default=_SQL_EMPTY_JSON)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 # --------------------------------------------------------- промо-сторінки
@@ -644,14 +654,15 @@ class PromoLandingPage(Base):
     CSS/JS тут принципово немає: редактор змінює лише дані шаблону.
     """
     __tablename__ = "promo_landing_pages"
+    __table_args__ = (UniqueConstraint("domain", name="uq_promo_landing_pages_domain"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(128))
     domain: Mapped[str] = mapped_column(String(253), unique=True, index=True)
     draft_config: Mapped[dict] = mapped_column(JsonType, default=dict)
     published_config: Mapped[dict | None] = mapped_column(JsonType)
-    is_published: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
-    version: Mapped[int] = mapped_column(Integer, default=0)
+    is_published: Mapped[bool] = mapped_column(Boolean, default=False, index=True, server_default=_SQL_FALSE)
+    version: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -668,8 +679,8 @@ class PromoLandingDailyStat(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     page_id: Mapped[int] = mapped_column(ForeignKey("promo_landing_pages.id", ondelete="CASCADE"))
     day: Mapped[str] = mapped_column(String(10))  # YYYY-MM-DD, UTC; portable SQLite/Postgres
-    views: Mapped[int] = mapped_column(Integer, default=0)
-    clicks: Mapped[int] = mapped_column(Integer, default=0)
+    views: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    clicks: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
 
 
 class DashboardSession(Base):
@@ -697,9 +708,9 @@ class CatalogImport(Base):
     __table_args__ = (Index("ix_catalog_imports_status", "status", "created_at"),)
     digest: Mapped[str] = mapped_column(String(64), primary_key=True)
     # queued -> running -> done | failed. The digest doubles as the job id.
-    status: Mapped[str] = mapped_column(String(16), default="queued")
-    actor: Mapped[str] = mapped_column(String(64), default="")
-    result: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[str] = mapped_column(String(16), default="queued", server_default="queued")
+    actor: Mapped[str] = mapped_column(String(64), default="", server_default="")
+    result: Mapped[str] = mapped_column(Text, default="", server_default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # Durable job (A02): parsed rows survive an API restart; after each row a
