@@ -1,3 +1,17 @@
+# ELFar Shop — 1.86.2: ELFAR і ACCORD NICHE на одному сервері й в одному Docker (24.11.2026)
+
+Зміни лише в деплої. Код застосунків, міграції й кольори без змін. Подробиці й порядок дій на VPS — у [docs/SHARED_SERVER_ACCORD_UA.md](docs/SHARED_SERVER_ACCORD_UA.md).
+
+- **Головна проблема.** Інсталятор ACCORD правив `deploy/docker-compose.prod.yml` прямо на сервері: додавав nginx-у мережу `accord-shared-edge` і конфіг `accord-main.conf`. У репозиторії цих змін не було. Тому наступне оновлення ELFAR або перезавантаження сервера піднімало nginx без них, і сайти ACCORD зникали. Тепер обидва підключення є в репозиторії рівно в тому вигляді, який вписує інсталятор ACCORD, і його патч нічого не змінює.
+- `name: deploy` фіксує Compose project ELFAR незалежно від назви каталогу.
+- Новий `deploy/shared-edge.sh` вбудовано в `deploy.sh`, `elfar.service` і `certbot-init.sh`:
+  - готує мережу й заглушку конфігу;
+  - не дає змішати проєкти й перехопити імена `api`/`dashboard`/`miniapp` у спільній мережі;
+  - запускає `nginx -t` з конфігом ACCORD до перестворення nginx;
+  - після деплою перевіряє домени ACCORD.
+- `docker image prune` прибирає лише образи ELFAR.
+- **Перевірено на справжньому Docker:** nginx ELFAR із трьома frontend-ами ACCORD у спільній мережі віддає всі три домени ACCORD, у тому числі після перестворення й після `down`/`up`. Чужий alias `api`, чужий project `deploy`, чужий `accord-main.conf` і зниклий сертифікат ACCORD зупиняють деплой, а робочий nginx лишається запущеним. Тест `backend/qa/qa_shared_edge.py` фіксує контракт з інсталятором ACCORD.
+
 # ELFar Shop — 1.86.1: власні кольори ELFAR і діагностика модулів (24.11.2026)
 
 Dashboard **1.83.1**, Mini App **2.30.2**. Міграцій БД немає.

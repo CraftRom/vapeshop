@@ -10,3 +10,5 @@ dist/
 qa/output/
 backend/shop/release.json
 .pytest_cache/
+# Server-managed by the ACCORD NICHE edge installer (shared-edge.sh)
+deploy/nginx/accord-main.conf

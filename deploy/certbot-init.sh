@@ -140,6 +140,7 @@ else
     }
 fi
 
+bash ./shared-edge.sh ensure
 echo "==> Застосовую конфігурацію nginx"
 state=$($COMPOSE ps --format '{{.State}}' nginx 2>/dev/null | head -1)
 if [[ "$state" == "running" ]]; then

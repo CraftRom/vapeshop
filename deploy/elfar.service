@@ -24,6 +24,8 @@ WorkingDirectory=__REPO_DIR__/deploy
 
 # Міграції накочуються до старту решти: сервіс migrate у compose
 # позначений як залежність з умовою service_completed_successfully.
+# Спільна з ACCORD NICHE мережа й конфіг: без них nginx не стартує.
+ExecStartPre=/bin/bash __REPO_DIR__/deploy/shared-edge.sh ensure
 ExecStart=/usr/bin/docker compose --env-file ../.env -f docker-compose.prod.yml up -d --remove-orphans
 ExecStop=/usr/bin/docker compose --env-file ../.env -f docker-compose.prod.yml down
 ExecReload=/usr/bin/docker compose --env-file ../.env -f docker-compose.prod.yml up -d --remove-orphans

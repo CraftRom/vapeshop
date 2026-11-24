@@ -32,6 +32,8 @@ class DeploySecurity(unittest.TestCase):
             (root / "backend/shop").mkdir(parents=True)
             (root / "bin").mkdir()
             shutil.copy(ROOT / "deploy/deploy.sh", root / "deploy/deploy.sh")
+            # The shared ACCORD edge has its own suite (qa_shared_edge.py).
+            edge = root / "deploy/shared-edge.sh"; edge.write_text("#!/bin/sh\nexit 0\n"); edge.chmod(0o700)
             shutil.copy(ROOT / "backend/shop/production_security.py", root / "backend/shop/production_security.py")
             (root / ".env").write_text("\n".join(f"{k}={v}" for k, v in {**VALID, **changes}.items()))
             calls = root / "docker-calls"

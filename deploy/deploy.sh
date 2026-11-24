@@ -84,6 +84,13 @@ if errors: raise SystemExit('Некоректний REDIS_URL: ' + '; '.join(err
 print('env preflight: OK')
 PY
 
+# ELFAR і ACCORD NICHE ділять сервер, Docker і публічний nginx (shared-edge.sh).
+# До будь-яких змін: мережа й конфіг ACCORD на місці, чужий проєкт `deploy`
+# або чужі контейнери з іменами сервісів ELFAR зупиняють деплой.
+echo "==> Спільний edge з ACCORD NICHE"
+bash ./shared-edge.sh ensure
+bash ./shared-edge.sh guard
+
 # Compose має повністю розгорнути конфіг із ЦЬОГО env без warning/порожніх required values.
 echo "==> Preflight docker compose"
 "${COMPOSE[@]}" config --quiet
@@ -257,6 +264,12 @@ done
 echo "==> ФАЗА 5/6: nginx основного сайту"
 # ВАЖЛИВО: nginx запускається/пересоздається ПІСЛЯ API. Це гарантує, що
 # proxy_pass api:8000 резолвиться на актуальний контейнер, а не на стару IP.
+# Перевіряємо повний конфіг (ELFAR + промо + ACCORD) у тимчасовому контейнері:
+# битий vhost ACCORD не має покласти nginx, через який працює ELFAR.
+if ! bash ./shared-edge.sh nginx-test; then
+    rollback_core_runtime
+    exit 1
+fi
 "${COMPOSE[@]}" up -d --no-deps --force-recreate nginx
 
 nginx_core_ok=0
@@ -314,6 +327,9 @@ if [[ "$public_routes_ok" != 1 ]]; then
     exit 1
 fi
 
+# ACCORD не відкочує ELFAR, але його недоступність видно в цьому ж виводі.
+bash ./shared-edge.sh verify || echo "    ELFAR здоровий; ACCORD перевірте окремо (див. попередження вище)" >&2
+
 echo "==> ФАЗА 6/6: промо-система"
 # Promo-controller стартує ОСТАННІМ і не є умовою здоров'я основної системи.
 # Він має власний health-check і окремі server_name для кожного промо-домену.
@@ -349,7 +365,9 @@ echo "==> Фінальний API health: OK"
 
 echo "==> API здоровий; rollback images можна прибрати при наступному успішному релізі"
 # Prune лише ПІСЛЯ health gate; rollback-теги не видаляються prune -f.
-docker image prune -f >/dev/null || true
+# Лише «висячі» образи цього проєкту: на сервері є ще ACCORD NICHE, і його
+# образи цей деплой не чіпає.
+docker image prune -f --filter "label=com.docker.compose.project=deploy" >/dev/null || true
 
 echo "Готово. Статус:"
 "${COMPOSE[@]}" ps

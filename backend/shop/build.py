@@ -21,7 +21,7 @@ from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
 
-BUILD = "2026-11-24-diagnostics-1.86.1"
+BUILD = "2026-11-24-shared-edge-1.86.2"
 
 BACKEND = Path(__file__).resolve().parents[1]
 RELEASE_FILE = Path(__file__).with_name("release.json")
