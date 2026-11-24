@@ -10,6 +10,7 @@
   - запускає `nginx -t` з конфігом ACCORD до перестворення nginx;
   - після деплою перевіряє домени ACCORD.
 - `docker image prune` прибирає лише образи ELFAR.
+- Деплой ELFAR і `connect_elfar_edge.py` ACCORD тримають один host-замок, тож не перестворюють nginx одночасно. У ACCORD legacy-сценарії відмовляються працювати поруч з ELFAR, а ім'я проєкту `deploy`/`elfar` заборонене.
 - **Перевірено на справжньому Docker:** nginx ELFAR із трьома frontend-ами ACCORD у спільній мережі віддає всі три домени ACCORD, у тому числі після перестворення й після `down`/`up`. Чужий alias `api`, чужий project `deploy`, чужий `accord-main.conf` і зниклий сертифікат ACCORD зупиняють деплой, а робочий nginx лишається запущеним. Тест `backend/qa/qa_shared_edge.py` фіксує контракт з інсталятором ACCORD.
 
 # ELFar Shop — 1.86.1: власні кольори ELFAR і діагностика модулів (24.11.2026)

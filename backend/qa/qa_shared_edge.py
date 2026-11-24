@@ -49,6 +49,10 @@ check("shared-edge.sh verify" in deploy, "deploy показує стан сай�
 check('image prune -f --filter "label=com.docker.compose.project=deploy"' in deploy and "image prune -f >" not in deploy,
       "prune прибирає лише образи ELFAR, не ACCORD")
 check(not re.search(r"docker (system|volume|network|container) prune", deploy + edge), "жодних глобальних prune")
+lock_at = deploy.find("flock -")
+check("elfar-accord-edge.lock" in deploy and 0 < lock_at < deploy.find("shared-edge.sh ensure"),
+      "deploy тримає той самий замок, що й connect_elfar_edge.py ACCORD, з самого початку")
+check("umask 000" in deploy and "exec 9<" in deploy, "замок відкривається на читання: root (ACCORD) і shop (ELFAR) ділять один файл")
 check("ExecStartPre=/bin/bash __REPO_DIR__/deploy/shared-edge.sh ensure" in unit, "після ребуту nginx стартує з мережею ACCORD")
 check("shared-edge.sh ensure" in read("deploy/certbot-init.sh"), "certbot-init перестворює nginx лише з мережею ACCORD")
 
