@@ -399,7 +399,7 @@ export default function Logs() {
             </select>
           </label>
 
-          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 10 }}>
+          <div className="logs-actions">
             <button className="btn" onClick={load} disabled={busy}>
               {busy ? 'Читаю…' : 'Оновити'}
             </button>
@@ -421,7 +421,7 @@ export default function Logs() {
             >
               Увесь файл
             </button>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <label className="logs-auto">
               <input type="checkbox" checked={auto} onChange={(e) => setAuto(e.target.checked)} />
               <span className="faint">кожні 10 с</span>
             </label>

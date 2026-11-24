@@ -19,7 +19,8 @@
     "test:cart-guard": "QA_BROWSER_SUITE=cart-guard bash run-browser.sh",
     "test:quantity-sync": "QA_BROWSER_SUITE=quantity-sync bash run-browser.sh",
     "test:financial-periods": "QA_BROWSER_SUITE=financial-periods bash run-browser.sh",
-    "test:support-history": "QA_BROWSER_SUITE=support-history bash run-browser.sh"
+    "test:support-history": "QA_BROWSER_SUITE=support-history bash run-browser.sh",
+    "test:a11y": "QA_BROWSER_SUITE=a11y bash run-browser.sh"
   },
   "devDependencies": {
     "playwright": "1.62.1"
