@@ -9,7 +9,7 @@ def unsafe_secrets(jwt_secret: str, dashboard_password: str) -> list[str]:
     invalid = []
     for name, value, minimum in (
         ("JWT_SECRET", jwt_secret, 32),
-        ("DASHBOARD_PASSWORD", dashboard_password, 12),
+        ("DASHBOARD_PASSWORD", dashboard_password, 8),
     ):
         value = value.strip().strip('"').strip("'").strip()
         if len(value) < minimum or value.lower().startswith(("change", "your_")):
@@ -25,7 +25,7 @@ def validate_production_security(public_url: str, jwt_secret: str, dashboard_pas
     if invalid:
         requirements = {
             "JWT_SECRET": "JWT_SECRET: щонайменше 32 символи, без шаблонного значення",
-            "DASHBOARD_PASSWORD": "DASHBOARD_PASSWORD: щонайменше 12 символів, без шаблонного значення",
+            "DASHBOARD_PASSWORD": "DASHBOARD_PASSWORD: щонайменше 8 символів, без шаблонного значення",
         }
         raise RuntimeError(
             "Небезпечна production-конфігурація: " + "; ".join(requirements[name] for name in invalid)
