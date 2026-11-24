@@ -93,6 +93,8 @@ async def readiness(_who: Principal = Depends(require_sysadmin), repo: Repositor
         problems.append("Ревізія БД не збігається з кодом: міграції не застосовані або код старший за БД")
     if redis["configured"] and not redis["ok"]:
         problems.append("Redis недоступний: живі оновлення панелі працюють лише в межах процесу")
+    if report.get("heartbeat_problem"):
+        problems.append(report["heartbeat_problem"])
     problems.extend(f"{m['title']}: {m['detail']}" for m in report["modules"] if m["status"] == "no_worker")
     current = release()
     # A worker that was not restarted after a deploy still runs the old code.
