@@ -12,6 +12,7 @@ import { useFilters } from '../components/useFilters'
 import { useListPosition } from '../components/useListPosition'
 import { useVisiblePolling } from '../components/useVisiblePolling'
 import { ActiveFilters, PageHeader } from '../components/page'
+import { EVENTS } from '../storageKeys'
 
 // Той самий перелік, що й на сторінці замовлення.
 const DELIVERY_METHODS = {
@@ -395,10 +396,10 @@ export default function Orders() {
       if (timer) clearTimeout(timer)
       timer = setTimeout(() => load(), 100)
     }
-    window.addEventListener('elfar:orders:changed', onOrderChanged)
+    window.addEventListener(EVENTS.ordersChanged, onOrderChanged)
     return () => {
       if (timer) clearTimeout(timer)
-      window.removeEventListener('elfar:orders:changed', onOrderChanged)
+      window.removeEventListener(EVENTS.ordersChanged, onOrderChanged)
     }
   }, [load])
 
@@ -411,8 +412,8 @@ export default function Orders() {
       if (items.some((item) => item.kind === 'order.created')) load()
       if (items.some((item) => item.kind === 'order.message')) loadUnread().catch(() => {})
     }
-    window.addEventListener('elfar:notifications:fresh', onFreshNotification)
-    return () => window.removeEventListener('elfar:notifications:fresh', onFreshNotification)
+    window.addEventListener(EVENTS.notificationsFresh, onFreshNotification)
+    return () => window.removeEventListener(EVENTS.notificationsFresh, onFreshNotification)
   }, [load, loadUnread])
 
   const changeStatus = useCallback(async (order, next) => {
@@ -535,6 +536,7 @@ export default function Orders() {
   return (
     <>
       <PageHeader
+        help="orders"
         title="Замовлення"
         description="Продажі Mini App і бота: контакти, оплата, доставка та актуальні статуси"
       />

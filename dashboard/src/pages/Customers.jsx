@@ -10,6 +10,7 @@ import { Empty, ErrorBar, Field, Loading, Modal, date, money, useToast } from '.
 import { useVisiblePolling } from '../components/useVisiblePolling'
 import { FilterBar, PageHeader } from '../components/page'
 import { StateBadge } from '../components/StateBadge'
+import { EVENTS } from '../storageKeys'
 
 function BonusForm({ customer, onClose, onSaved }) {
   const notify = useToast()
@@ -89,10 +90,10 @@ function CustomerOrders({ customer, onClose }) {
       if (timer) clearTimeout(timer)
       timer = setTimeout(loadOrders, 100)
     }
-    window.addEventListener('elfar:orders:changed', onOrderChanged)
+    window.addEventListener(EVENTS.ordersChanged, onOrderChanged)
     return () => {
       if (timer) clearTimeout(timer)
-      window.removeEventListener('elfar:orders:changed', onOrderChanged)
+      window.removeEventListener(EVENTS.ordersChanged, onOrderChanged)
     }
   }, [customer.id, loadOrders])
 
@@ -195,10 +196,10 @@ export default function Customers() {
       if (timer) clearTimeout(timer)
       timer = setTimeout(() => load(), 150)
     }
-    window.addEventListener('elfar:orders:changed', onOrderChanged)
+    window.addEventListener(EVENTS.ordersChanged, onOrderChanged)
     return () => {
       if (timer) clearTimeout(timer)
-      window.removeEventListener('elfar:orders:changed', onOrderChanged)
+      window.removeEventListener(EVENTS.ordersChanged, onOrderChanged)
     }
   }, [load])
 
@@ -217,6 +218,7 @@ export default function Customers() {
   return (
     <>
       <PageHeader
+        help="customers"
         title="Клієнти"
         description="Історія покупок, бонуси та реферальні коди"
       />

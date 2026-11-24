@@ -16,6 +16,7 @@ import { useChatViewport } from '../components/useChatViewport'
 import { useChatDraft } from '../components/useChatDraft'
 import { ChatDraftStatus, ChatLatest, ChatStatus } from '../components/ChatStatus'
 import { StateBadge } from '../components/StateBadge'
+import { EVENTS } from '../storageKeys'
 
 // Спосіб доставки, обраний покупцем. Порожнє значення — замовлення з
 // часів, коли вибору не було: тоді все писалося одним рядком адреси.
@@ -1168,10 +1169,10 @@ export default function OrderPage() {
       if (timer) clearTimeout(timer)
       timer = setTimeout(() => refreshLocalOrder().catch(() => {}), 80)
     }
-    window.addEventListener('elfar:orders:changed', onOrderChanged)
+    window.addEventListener(EVENTS.ordersChanged, onOrderChanged)
     return () => {
       if (timer) clearTimeout(timer)
-      window.removeEventListener('elfar:orders:changed', onOrderChanged)
+      window.removeEventListener(EVENTS.ordersChanged, onOrderChanged)
     }
   }, [id, refreshLocalOrder])
 

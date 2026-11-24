@@ -730,6 +730,7 @@ export default function Broadcasts() {
   return (
     <div className="broadcasts-page">
       <PageHeader
+        help="broadcasts"
         title="Розсилки"
         description="Повідомлення клієнтам: текст, фото, аудиторії та планування"
         actions={<>

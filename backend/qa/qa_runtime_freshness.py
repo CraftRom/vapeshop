@@ -19,7 +19,7 @@ checks = [
     ("badges use display new-order count", '"orders_new": await _display_new_count(repo)' in stats),
     ("summary uses the same display new-order count", "result.orders_new = await _display_new_count(repo)" in stats),
     ("notification polling stops while hidden/offline", "document.hidden || navigator.onLine === false" in center and "setInterval(poll, POLL_MS)" not in center),
-    ("fresh notifications invalidate Orders immediately", "elfar:notifications:fresh" in center and "elfar:notifications:fresh" in orders),
+    ("fresh notifications invalidate Orders immediately", "EVENTS.notificationsFresh" in center and "EVENTS.notificationsFresh" in orders),
     ("miniapp background sync no longer uses permanent interval", "setInterval(sync, 15000)" not in miniapp and "setTimeout(sync, delay)" in miniapp),
     ("chat polling no longer wakes hidden tabs every 5s", "setInterval(poll, 5000)" not in chat and "setTimeout(poll, 5000)" in chat),
     ("log retention is independent of successful backup", "async def run_housekeeping" in tasks and "prune_logs(settings.log_retention_days)" in tasks),

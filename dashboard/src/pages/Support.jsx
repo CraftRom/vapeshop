@@ -14,6 +14,7 @@ import { NotificationCenter } from '../components/NotificationCenter'
 import { RealtimeOrders } from '../components/RealtimeOrders'
 import { useSupportLayoutSize, DEFAULT_INBOX_WIDTH, DEFAULT_CHAT_HEIGHT } from '../components/useSupportLayoutSize'
 import { PageHeader } from '../components/page'
+import { EVENTS } from '../storageKeys'
 
 const FILE_LABEL = {
   photo: 'Фото', document: 'Документ', video: 'Відео', voice: 'Голосове',
@@ -490,8 +491,8 @@ export default function Support() {
   useEffect(() => {
     let timer = null
     const onRead = () => { clearTimeout(timer);timer = setTimeout(pollInbox, 200) }
-    window.addEventListener('elfar:support:read', onRead)
-    return () => { clearTimeout(timer);window.removeEventListener('elfar:support:read', onRead) }
+    window.addEventListener(EVENTS.supportRead, onRead)
+    return () => { clearTimeout(timer);window.removeEventListener(EVENTS.supportRead, onRead) }
   }, [pollInbox])
 
   const groups = useMemo(() => {
@@ -555,6 +556,7 @@ export default function Support() {
   return (
     <>
       <PageHeader
+        help="chat"
         className="support-page-head"
         title="Підтримка"
         description="Окремі звернення з /ask зберігаються в історії та групуються по клієнтах"

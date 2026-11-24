@@ -10,9 +10,10 @@ import { NotificationCenter } from './components/NotificationCenter'
 import { RealtimeOrders } from './components/RealtimeOrders'
 import Login from './pages/Login'
 import { horizontalWheel } from './components/scroll'
+import { EVENTS, STORAGE } from './storageKeys'
 
 // Позначка одноразового перезавантаження після оновлення панелі.
-const RELOAD_MARK = 'elfar:chunk-reload'
+const RELOAD_MARK = STORAGE.chunkReload
 
 /** Сторінка окремим чанком — із поверненням після оновлення панелі.
  *
@@ -172,12 +173,12 @@ function Shell({ children }) {
       if (timer) clearTimeout(timer)
       timer = setTimeout(() => pollBadges().catch(() => {}), 120)
     }
-    window.addEventListener('elfar:orders:changed', onOrderChanged)
-    window.addEventListener('elfar:support:read', onOrderChanged)
+    window.addEventListener(EVENTS.ordersChanged, onOrderChanged)
+    window.addEventListener(EVENTS.supportRead, onOrderChanged)
     return () => {
       if (timer) clearTimeout(timer)
-      window.removeEventListener('elfar:orders:changed', onOrderChanged)
-      window.removeEventListener('elfar:support:read', onOrderChanged)
+      window.removeEventListener(EVENTS.ordersChanged, onOrderChanged)
+      window.removeEventListener(EVENTS.supportRead, onOrderChanged)
     }
   }, [pollBadges])
 

@@ -1,4 +1,5 @@
 import { useId } from 'react'
+import { Link } from 'react-router-dom'
 
 // Page building blocks (UI/UX audit UI-007). Every page reads the same way:
 // title → context → filters/actions → content. The components only fix the
@@ -8,16 +9,22 @@ import { useId } from 'react'
  * Page title, one sentence of context and the page-level actions.
  * `actions` is rendered as is, so a page keeps its own buttons and handlers.
  */
-export function PageHeader({ title, description, actions, className = '' }) {
+export function PageHeader({ title, description, actions, help, className = '' }) {
   return (
     <header className={`page-head ${className}`.trim()}>
       <div>
         <h1>{title}</h1>
-        {description && <p>{description}</p>}
+        {description && <p>{description}{help && <> <HelpLink topic={help} /></>}</p>}
+        {!description && help && <p><HelpLink topic={help} /></p>}
       </div>
       {actions}
     </header>
   )
+}
+
+/** UI-028: a contextual link to the matching section of «Інструкції». */
+export function HelpLink({ topic, children = 'Як це працює' }) {
+  return <Link className="help-link" to={`/instructions?topic=${encodeURIComponent(topic)}`}>{children} →</Link>
 }
 
 /**

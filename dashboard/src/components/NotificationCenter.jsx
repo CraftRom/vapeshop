@@ -4,11 +4,12 @@ import { useNavigate } from 'react-router-dom'
 
 import { api } from '../api'
 import { dateTime, useToast } from './ui'
+import { EVENTS, STORAGE } from '../storageKeys'
 
-const SETTINGS_KEY = 'elfar:notification-settings'
-const DEVICE_VOLUME_KEY = 'elfar:notification-device-volume'
-const NUDGE_KEY = 'elfar:notification-nudge-dismissed'
-const LEADER_KEY = 'elfar:notification-leader'
+const SETTINGS_KEY = STORAGE.notificationSettings
+const DEVICE_VOLUME_KEY = STORAGE.notificationVolume
+const NUDGE_KEY = STORAGE.notificationNudge
+const LEADER_KEY = STORAGE.notificationLeader
 const LEADER_TTL = 16000
 const POLL_MS = 10000
 const TOAST_AUTO_DOCK_MS = 15000
@@ -479,7 +480,7 @@ export function NotificationCenter({ headless = false }) {
   }
 
   // Налаштування гучності глобальне для цього браузерного профілю на ПК:
-  // зміна в одній вкладці одразу підхоплюється іншими вкладками elfar.pp.ua.
+  // зміна в одній вкладці одразу підхоплюється іншими вкладками панелі.
   useEffect(() => {
     const syncLocalSettings = (event) => {
       if (event.key !== DEVICE_VOLUME_KEY && event.key !== SETTINGS_KEY) return
@@ -664,7 +665,7 @@ export function NotificationCenter({ headless = false }) {
         // Сторінки можуть відреагувати відразу, не чекаючи власного poll.
         // Це локальна invalidation-подія, а не друге джерело даних: Orders
         // після неї все одно перечитує канонічні дані через API.
-        window.dispatchEvent(new CustomEvent('elfar:notifications:fresh', {
+        window.dispatchEvent(new CustomEvent(EVENTS.notificationsFresh, {
           detail: { items: fresh },
         }))
         await announce(fresh)
@@ -726,10 +727,10 @@ export function NotificationCenter({ headless = false }) {
       // and still removes the former 10s notification/sound latency.
       timer = setTimeout(() => poll().catch(() => {}), 250)
     }
-    window.addEventListener('elfar:orders:changed', onOrderChanged)
+    window.addEventListener(EVENTS.ordersChanged, onOrderChanged)
     return () => {
       if (timer) clearTimeout(timer)
-      window.removeEventListener('elfar:orders:changed', onOrderChanged)
+      window.removeEventListener(EVENTS.ordersChanged, onOrderChanged)
     }
   }, [poll])
 

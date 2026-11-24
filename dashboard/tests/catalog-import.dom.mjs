@@ -55,12 +55,12 @@ test('accepted import shows durable progress and the final summary from the job'
   await waitFor(()=>!button(dom,'Імпортувати').disabled)
   button(dom,'Імпортувати').click()
   await waitFor(()=>dom.window.document.body.textContent.includes('Імпорт у черзі'))
-  assert.equal(dom.window.sessionStorage.getItem('accord:catalog-import-job'),job.job_id,'job survives a reload')
+  assert.equal(dom.window.sessionStorage.getItem('elfar:catalog-import-job'),job.job_id,'job survives a reload')
   await waitFor(()=>dom.window.document.body.textContent.includes('Оброблено 2 із 3'))
   const until=Date.now()+5000
   while(Date.now()<until&&!dom.window.document.body.textContent.includes('додано: 1'))await new Promise(r=>setTimeout(r,50))
   assert.match(dom.window.document.body.textContent,/Рядків: 3 · додано: 1 · оновлено: 2/)
-  assert.equal(dom.window.sessionStorage.getItem('accord:catalog-import-job'),null)
+  assert.equal(dom.window.sessionStorage.getItem('elfar:catalog-import-job'),null)
   assert.equal(errors.length,0)
  }finally{dom.window.close()}
 })

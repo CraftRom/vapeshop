@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { api } from '../api'
+import { EVENTS } from '../storageKeys.js'
 
 // Fetching a page is not a read receipt: only visible incoming bubbles count.
 export function useSupportRead(threadId, messages, viewport, ready) {
@@ -28,7 +29,7 @@ export function useSupportRead(threadId, messages, viewport, ready) {
           if (stopped) return
         }
         setError('')
-        window.dispatchEvent(new CustomEvent('elfar:support:read'))
+        window.dispatchEvent(new CustomEvent(EVENTS.supportRead))
       } catch (e) {
         if (!stopped) setError(e.message || 'Не вдалося позначити прочитаними')
       } finally {
