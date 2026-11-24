@@ -376,7 +376,8 @@ export const api = {
 
   backups: {
     list: () => request('/backups'),
-    create: () => request('/backups/create', { method: 'POST' }),
+    create: (clientKey) => request('/backups/jobs', { method: 'POST', body: {client_key: clientKey} }),
+    jobs: () => request('/backups/jobs'),
     remove: (name) => request(`/backups/${encodeURIComponent(name)}`, { method: 'DELETE' }),
 
     // Скачування йде через fetch, а не звичайним посиланням: файл віддається
@@ -402,7 +403,7 @@ export const api = {
       const body = new FormData()
       body.append('file', file)
       const response = await authorizedFetch(
-        `${BASE}/backups/upload`, { method: 'POST', body }, 120000,
+        `${BASE}/backups/upload`, { method: 'POST', body }, 300000,
       )
       if (!response.ok) {
         let message = `Помилка ${response.status}`

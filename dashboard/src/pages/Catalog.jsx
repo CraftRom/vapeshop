@@ -69,6 +69,7 @@ function ImportProductsModal({ onClose, onDone }) {
   const [result, setResult] = useState(null)
   const run = async () => {
     if (!file) return
+    if (file.size > 10 * 1024 * 1024) { setError('Файл завеликий (максимум 10 МіБ)'); return }
     setBusy(true); setError(''); setResult(null)
     try {
       const form=new FormData(); form.append('file',file); form.append('mode',mode); form.append('prices',prices)
@@ -77,9 +78,8 @@ function ImportProductsModal({ onClose, onDone }) {
   }
   return <Modal title="Імпорт товарів із SalesDrive" onClose={onClose} footer={<><button className="btn ghost" onClick={onClose}>Закрити</button><button className="btn" disabled={!file||busy} onClick={run}>{busy?'Імпортую…':'Імпортувати'}</button></>}>
     <div className="stack">
-      {(category || subcategory || inventory || feature || search || sort!=='name-asc') && <button className="btn ghost small" onClick={resetFilters}>Скинути всі фільтри</button>}
       <ErrorBar error={error}/>
-      <Field label="XLSX файл" hint="Підтримується стандартний експорт товарів SalesDrive."><input className="input" type="file" accept=".xlsx" onChange={e=>setFile(e.target.files?.[0]||null)}/></Field>
+      <Field label="XLSX файл" hint="Стандартний експорт товарів SalesDrive, до 10 МіБ."><input className="input" type="file" accept=".xlsx" onChange={e=>setFile(e.target.files?.[0]||null)}/></Field>
       <Field label="Що робити з товарами">
         <select className="input" value={mode} onChange={e=>setMode(e.target.value)}><option value="add">Тільки додавати нові</option><option value="update">Тільки оновлювати наявні</option><option value="upsert">Додати нові + перезаписати наявні</option></select>
       </Field>

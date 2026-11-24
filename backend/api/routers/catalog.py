@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from starlette.concurrency import run_in_threadpool
 from fastapi import APIRouter, Depends, HTTPException, Query
 from typing import Literal
 from pydantic import BaseModel
@@ -240,9 +241,9 @@ async def import_products(
         raise HTTPException(400, 'Невідомий режим цін')
     if not (file.filename or '').lower().endswith('.xlsx'):
         raise HTTPException(400, 'Підтримується XLSX (експорт SalesDrive)')
-    raw=await file.read()
+    raw=await file.read(10*1024*1024 + 1)
     if len(raw) > 10*1024*1024: raise HTTPException(413, 'Файл завеликий (максимум 10 МБ)')
-    try: rows=parse_salesdrive_xlsx(raw)
+    try: rows=await run_in_threadpool(parse_salesdrive_xlsx, raw)
     except Exception as exc: raise HTTPException(400, str(exc)) from exc
     cats={c.name.strip().casefold():c for c in await repo.list_categories()}
     subs={(s.category_id, s.name.strip().casefold()):s for s in await repo.list_subcategories()}
@@ -338,5 +339,5 @@ async def import_products(
 @router.get('/product-transfer/export')
 async def export_products_endpoint(repo: Repository = Depends(get_repo)):
     products=await repo.list_products(limit=10000)
-    body=export_xlsx(products, await repo.list_subcategories())
+    body=await run_in_threadpool(export_xlsx, products, await repo.list_subcategories())
     return Response(body, media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', headers={'Content-Disposition':'attachment; filename="elfar-products.xlsx"'})

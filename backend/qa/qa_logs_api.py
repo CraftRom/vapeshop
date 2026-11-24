@@ -165,11 +165,17 @@ async def scenario():
             r.check(resp.status_code == 404,
                     f"відхилено: {evil!r}", resp.status_code)
 
+        write_log("maintenance", [{"time":"2026-11-16T12:00:00+00:00", "service":"maintenance",
+                   "level":"info", "message":"Копія готова", "event":"backup.job.succeeded"}])
+        resp = await client.get('/api/logs?service=maintenance', headers=head(SYSADMIN))
+        r.check(resp.status_code == 200 and any(item.get('event') == 'backup.job.succeeded' for item in resp.json()['records']),
+                'журнал виконавця доступний системному адміністратору', resp.status_code)
+
         print("\n--- довідники ---")
         resp = await client.get("/api/logs/services", headers=head(SYSADMIN))
         body = resp.json()
         r.check({s["service"] for s in body["services"]}
-                == {"security", "storefront", "api", "bot", "scheduler"},
+                == {"security", "storefront", "api", "bot", "scheduler", "maintenance"},
                 "перелік сервісів", [s["service"] for s in body["services"]])
         r.check(body["logDir"] == LOG_DIR, "показано каталог журналу")
 

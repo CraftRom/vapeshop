@@ -9,6 +9,7 @@ const SERVICE_LABEL = {
   api: 'API і панель',
   bot: 'Бот',
   scheduler: 'Планувальник',
+  maintenance: 'Резервне копіювання',
 }
 
 const STOREFRONT_EVENT_LABELS = {
