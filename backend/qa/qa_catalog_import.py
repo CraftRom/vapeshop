@@ -19,11 +19,18 @@ def xlsx(rows):
  wb=Workbook(); ws=wb.active
  for row in rows: ws.append(row)
  out=BytesIO(); wb.save(out); return out.getvalue()
+def finished(response):
+ # A02: a new import is a durable job (202); a repeat returns its receipt (200).
+ assert response.status_code in (200,202),response.text
+ data=response.json()
+ if response.status_code==202:
+  job=c.get('/api/catalog/product-transfer/import/'+data['job_id'],headers=A).json()
+  assert job['status']=='done',job
+  return {**job['result'],'replayed':False}
+ return data
 def upload(rows,prices='both',force=False):
  data={'mode':'upsert','prices':prices,**({'force':'true'} if force else {})}
- response=c.post('/api/catalog/product-transfer/import',headers=A,files={'file':('goods.xlsx',xlsx(rows),'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')},data=data)
- assert response.status_code==200,response.text
- return response.json()
+ return finished(c.post('/api/catalog/product-transfer/import',headers=A,files={'file':('goods.xlsx',xlsx(rows),'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')},data=data))
 sheet=[['Товар/Послуга','SKU','Категорія','Ціна','Ціна зі знижкою','Новинка','Активний','Залишок'],['Нейтральний аксесуар','зовнішній артикул','Група імпорту',100,80,'Так','Так',7]]
 result=upload(sheet); item=next(p for p in req('GET','/products') if p['name']=='Нейтральний аксесуар')
 r.check(result['created']==1 and not result['errors'] and item['sku'].startswith('ELF-') and item['external_sku']=='зовнішній артикул','імпорт генерує системний SKU та зберігає зовнішній')
@@ -39,7 +46,7 @@ root=req('POST','/categories',{'name':'Колекції'}); sub=req('POST','/sub
 only_sub=req('POST','/products',{'name':'Сумка','subcategory_id':sub['id'],'price':'129.90','stock':5})
 inactive_sale=req('POST','/products',{'name':'Без активної акції','price':'200','old_price':'150','is_sale':False})
 export=c.get('/api/catalog/product-transfer/export',headers=A)
-result=c.post('/api/catalog/product-transfer/import',headers=A,files={'file':('own.xlsx',export.content,'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')},data={'mode':'upsert','prices':'both'}).json()
+result=finished(c.post('/api/catalog/product-transfer/import',headers=A,files={'file':('own.xlsx',export.content,'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')},data={'mode':'upsert','prices':'both'}))
 r.check(result['created']==0 and not result['errors'],'власний експорт повертається без дублювання')
 after=req('GET',f"/products/{only_sub['id']}")
 r.check(after['category_id'] is None and after['subcategory_id']==sub['id'] and after['price']=='129.90','XLSX зберігає товар лише із субкатегорією та точну ціну')

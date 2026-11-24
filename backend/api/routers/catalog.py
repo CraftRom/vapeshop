@@ -1,6 +1,7 @@
 from __future__ import annotations
 import hashlib
 import json
+import re
 from datetime import datetime, timedelta, timezone
 
 from starlette.concurrency import run_in_threadpool
@@ -227,16 +228,26 @@ async def delete_product(product_id: int, repo: Repository = Depends(get_repo)):
         raise HTTPException(404, "Товар не знайдено")
 
 # ------------------------------- bulk product import / export
-from fastapi import File, Form, UploadFile
+from fastapi import BackgroundTasks, File, Form, UploadFile
+from fastapi.responses import JSONResponse
 from fastapi.responses import Response
 from shop.services.product_io import export_xlsx, parse_salesdrive_xlsx
 
 IMPORT_REPLAY_WINDOW = timedelta(hours=24)
-IMPORT_STALE_AFTER = timedelta(minutes=15)
+
+
+def _job_out(job: dict) -> dict:
+    """Public job state; the stored rows never leave the server."""
+    return {"job_id": job["id"], "status": job["status"], "rows_total": job["rows_total"],
+            "rows_done": job["rows_done"], "attempts": job["attempts"], "error": job["error"] or None,
+            "created_at": job["created_at"].isoformat() if job.get("created_at") else None,
+            "finished_at": job["finished_at"].isoformat() if job.get("finished_at") else None,
+            "result": job["result"] if job["status"] == "done" else None}
 
 
 @router.post('/product-transfer/import')
 async def import_products(
+    background: BackgroundTasks,
     file: UploadFile = File(...),
     mode: str = Form('upsert'),
     prices: str = Form('none'),
@@ -244,12 +255,16 @@ async def import_products(
     who: Principal = Depends(require_staff),
     repo: Repository = Depends(get_repo),
 ):
-    """Застосовує XLSX один раз.
+    """Приймає XLSX як довговічне завдання (A02).
 
-    Файл містить абсолютні залишки. Повтор того самого запиту (загублена
-    відповідь, подвійне натискання) раніше перезаписував продажі, зроблені між
-    двома запусками. Тепер повтор у межах доби повертає збережений підсумок
-    без змін; свідомий повторний імпорт — лише з явним force.
+    Файл перевіряється й розбирається одразу: зіпсований файл отримує 400 до
+    будь-яких змін. Далі рядки зберігаються в БД, відповідь — 202 з ID, а
+    застосування йде у фоні з контрольною точкою після кожного рядка. Якщо
+    API перезапуститься, виконавець maintenance продовжить з тієї ж точки.
+
+    Той самий вміст із тими самими параметрами протягом доби не застосовується
+    вдруге (залишки з файла перезаписали б продажі): повертається попередній
+    підсумок або вже запущене завдання. Свідомий повтор — лише з force.
     """
     if mode not in {'add','update','upsert'}:
         raise HTTPException(400, 'Невідомий режим імпорту')
@@ -261,129 +276,35 @@ async def import_products(
     if len(raw) > 10*1024*1024: raise HTTPException(413, 'Файл завеликий (максимум 10 МБ)')
     try: rows=await run_in_threadpool(parse_salesdrive_xlsx, raw)
     except Exception as exc: raise HTTPException(400, str(exc)) from exc
+    from shop.services.catalog_import import encode_rows, run_job, same_database
+    payload=encode_rows(rows)
     # Digest of the parsed content, not file bytes: XLSX writers embed save
     # timestamps, so a re-exported identical sheet must count as the same import.
-    canonical=json.dumps({'mode':mode,'prices':prices,'rows':rows}, sort_keys=True, ensure_ascii=False, default=str)
-    digest=hashlib.sha256(canonical.encode()).hexdigest()
+    digest=hashlib.sha256(json.dumps({'mode':mode,'prices':prices,'rows':payload}, ensure_ascii=False).encode()).hexdigest()
     now=datetime.now(timezone.utc)
     if force:  # an explicit re-apply never interrupts an import that is still running
         await repo.forget_catalog_import(digest, only_done=True)
-    receipt=await repo.claim_catalog_import(digest, who.login, stale_before=now-IMPORT_STALE_AFTER,
-                                            forget_before=now-IMPORT_REPLAY_WINDOW)
-    if receipt is not None:
-        if receipt['status']!='done' or not receipt.get('result'):
-            raise HTTPException(409, 'Цей файл уже імпортується. Дочекайтеся завершення й оновіть каталог.')
-        imported_at=receipt['created_at']
-        if imported_at is not None and imported_at.tzinfo is None:
-            imported_at=imported_at.replace(tzinfo=timezone.utc)
-        return {**receipt['result'], 'replayed':True,
+    existing=await repo.claim_catalog_import(digest, who.login, forget_before=now-IMPORT_REPLAY_WINDOW,
+                                             mode=mode, prices=prices, payload=payload, total=len(rows))
+    if existing is not None and existing.get('status') == 'done' and existing.get('result'):
+        imported_at=existing['created_at']
+        return {**existing['result'], 'replayed':True, 'job_id':digest, 'status':'done',
                 'imported_at':imported_at.isoformat() if imported_at else None}
-    try:
-        stats=await _apply_import(rows, mode, prices, repo)
-    except BaseException:
-        try: await repo.forget_catalog_import(digest)
-        except Exception: pass
-        raise
-    await repo.finish_catalog_import(digest, stats)
-    return {**stats, 'replayed':False}
+    if existing is None:
+        background.add_task(run_job, digest, open_repo=same_database(repo))
+    job=await repo.get_import_job(digest)
+    return JSONResponse(status_code=202, content={**_job_out(job), 'replayed': False})
 
 
-async def _apply_import(rows, mode, prices, repo):
-    cats={c.name.strip().casefold():c for c in await repo.list_categories()}
-    subs={(s.category_id, s.name.strip().casefold()):s for s in await repo.list_subcategories()}
-    stats={'rows':len(rows),'created':0,'updated':0,'skipped':0,'sku_generated':0,'prices_changed':0,'errors':[]}
-    seen=set()
-    for n,item in enumerate(rows,2):
-        n=item.get('row',n)
-        if item.get('error'):
-            stats['skipped']+=1
-            stats['errors'].append({'row':n,'name':item.get('name'),'error':item['error'][:200]})
-            continue
-        try:
-            source_sku = str(item.get('sku') or '').strip()
-            if source_sku and source_sku in seen:
-                stats['skipped']+=1
-                continue
-            if source_sku:
-                seen.add(source_sku)
-            existing=None
-            if source_sku:
-                existing=(await repo.get_product_by_sku(source_sku) or await repo.get_product_by_external_sku(source_sku)) if item.get("hierarchy") else (await repo.get_product_by_external_sku(source_sku) or await repo.get_product_by_sku(source_sku))
-            if existing is None:
-                matches=await repo.list_products(search=item['name'], limit=100)
-                exact=[p for p in matches if p.name.strip().casefold()==item['name'].strip().casefold()]
-                if len(exact)==1:
-                    existing=exact[0]
-                elif len(exact)>1:
-                    raise ValueError('Кілька товарів із такою назвою — вкажіть SKU')
-            if mode=='add' and existing or mode=='update' and not existing:
-                stats['skipped']+=1
-                continue
-            cid=sid=None
-            if item.get('hierarchy'):
-                cname=item['category']
-                if cname:
-                    key=cname.casefold(); cat=cats.get(key)
-                    if not cat:
-                        cat=await repo.create_category({'name':cname,'is_active':True}); cats[key]=cat
-                    cid=cat.id
-                sname=item.get('subcategory')
-            else:
-                # SalesDrive's former single category is now a subcategory.
-                sname=item['category']
-            sub_parent=cid
-            if item.get('subcategory_parent') and sub_parent is None:
-                pname=item['subcategory_parent']; pk=pname.casefold(); parent=cats.get(pk)
-                if not parent:
-                    parent=await repo.create_category({'name':pname,'is_active':True}); cats[pk]=parent
-                sub_parent=parent.id
-            if sname:
-                key=(sub_parent,sname.casefold()); sub=subs.get(key)
-                if not sub:
-                    sub=await repo.create_subcategory({'category_id':sub_parent,'name':sname,'is_active':True}); subs[key]=sub
-                sid=sub.id
-            data={'category_id':cid,'subcategory_id':sid,'name':item['name'],
-                  'description':item.get('description') or None,'photo_url':item.get('photo_url') or None}
-            if item.get('hierarchy') and item.get('external_sku') is not None:
-                data['external_sku']=str(item['external_sku']).strip()[:255] or None
-            elif source_sku and (not existing or source_sku != existing.sku):
-                data['external_sku']=source_sku[:255]
-            if existing:
-                data.update({'price':existing.price,'old_price':existing.old_price,'is_sale':existing.is_sale})
-            else:
-                data.update({'stock':item.get('stock') or 0,'sort_order':0,'price':0,'old_price':None,'is_active':False,'is_new':False,'is_sale':False})
-            regular=item.get('regular_price'); discount=item.get('discount_price')
-            changed=False
-            if item.get('hierarchy') and prices!='none' and item.get('current_price') is not None:
-                current=item['current_price']; previous=item.get('old_price') if prices!='regular' else None
-                sale=item.get('is_sale') if item.get('is_sale') is not None else bool(previous is not None and previous>current)
-                data.update(price=current,old_price=previous,is_sale=bool(sale) if prices!='regular' else False); changed=True
-            elif prices=='regular' and regular is not None:
-                data.update(price=regular,old_price=None,is_sale=False); changed=True
-            elif prices in {'discount','both'}:
-                if discount is not None and regular is not None and discount < regular:
-                    data.update(price=discount,old_price=regular,is_sale=True); changed=True
-                elif regular is not None:
-                    data.update(price=regular,old_price=None,is_sale=False); changed=True
-            if changed:
-                stats['prices_changed']+=1
-                if not existing:
-                    data['is_active']=True
-            for flag in ('is_active','is_new','is_sale'):
-                if flag=='is_sale' and prices=='regular':
-                    continue
-                if item.get(flag) is not None and (existing or changed or flag == 'is_new'):
-                    data[flag]=item[flag]
-            if existing:
-                if item.get('stock') is not None: data['stock']=item['stock']
-                await repo.update_product(existing.id,data); stats['updated']+=1
-            else:
-                await repo.create_product(data); stats['created']+=1; stats['sku_generated']+=1
-        except Exception as exc:
-            if hasattr(repo, 's'):
-                await repo.s.rollback()
-            stats['errors'].append({'row':n,'name':item.get('name'),'error':str(exc)[:200]})
-    return stats
+@router.get('/product-transfer/import/{job_id}')
+async def import_status(job_id: str, repo: Repository = Depends(get_repo)):
+    if not re.fullmatch(r'[a-f0-9]{64}', job_id):
+        raise HTTPException(404, 'Завдання імпорту не знайдено')
+    job=await repo.get_import_job(job_id)
+    if not job:
+        raise HTTPException(404, 'Завдання імпорту не знайдено')
+    return _job_out(job)
+
 
 @router.get('/product-transfer/export')
 async def export_products_endpoint(repo: Repository = Depends(get_repo)):

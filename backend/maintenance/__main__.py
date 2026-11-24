@@ -32,6 +32,12 @@ async def main():
                         logging.INFO if result['status'] == 'succeeded' else logging.ERROR,
                         result['message'], extra={'event': 'backup.job.' + result['status'], 'jobId': result['id']})
             except Exception: logging.exception('Не вдалося обробити журнал резервних копій')
+            # A02: catalog imports interrupted by an API restart (expired lease)
+            # or left queued continue here from their last checkpoint.
+            try:
+                from shop.services.catalog_import import run_pending
+                await run_pending()
+            except Exception: logging.exception('Не вдалося продовжити імпорт каталогу')
             with suppress(asyncio.TimeoutError): await asyncio.wait_for(stop.wait(), 2)
     finally:
         stop.set(); await heartbeat

@@ -707,23 +707,48 @@ class Repository(ABC):
     # ------------------------------------------------ квитанції імпорту
 
     @abstractmethod
-    async def claim_catalog_import(self, digest: str, actor: str, *, stale_before: datetime,
-                                   forget_before: datetime) -> dict | None:
-        """Атомарно займає квитанцію імпорту.
+    async def claim_catalog_import(self, digest: str, actor: str, *, forget_before: datetime, mode: str = "",
+                                   prices: str = "", payload: str | None = None, total: int = 0) -> dict | None:
+        """Створює завдання імпорту (queued) з розібраними рядками.
 
-        None — квитанцію створено, імпорт можна застосовувати. Інакше —
-        наявна квитанція {status, result, created_at}: той самий файл уже
-        застосовано або він застосовується зараз. «running» старіший за
-        stale_before вважається перерваним і замінюється.
+        None — нове завдання. Інакше — наявне завдання з тим самим вмістом:
+        уже застосоване (done), у черзі чи виконується. Завершені квитанції,
+        старші за forget_before, прибираються.
         """
 
     @abstractmethod
-    async def finish_catalog_import(self, digest: str, result: dict) -> None:
-        """Позначає імпорт застосованим і зберігає його підсумок."""
+    async def get_import_job(self, digest: str) -> dict | None:
+        """Стан завдання без рядків: статус, прогрес, результат, помилка."""
+
+    @abstractmethod
+    async def import_job_rows(self, digest: str) -> list | None:
+        """Збережені розібрані рядки незавершеного завдання."""
+
+    @abstractmethod
+    async def next_import_job(self, now: datetime, *, max_attempts: int = 3) -> str | None:
+        """Найстаріше завдання в черзі або з простроченою орендою."""
+
+    @abstractmethod
+    async def lease_import_job(self, digest: str, owner: str, *, now: datetime, lease_until: datetime,
+                               max_attempts: int = 3) -> bool:
+        """Атомарно бере завдання у виконання; True лише для одного виконавця."""
+
+    @abstractmethod
+    async def checkpoint_import_job(self, digest: str, owner: str, *, rows_done: int, partial: dict,
+                                    lease_until: datetime) -> bool:
+        """Фіксує прогрес і продовжує оренду; False — оренду перехопили."""
+
+    @abstractmethod
+    async def finish_catalog_import(self, digest: str, result: dict, *, owner: str | None = None) -> bool:
+        """Позначає імпорт застосованим, зберігає підсумок і звільняє рядки."""
+
+    @abstractmethod
+    async def fail_import_job(self, digest: str, owner: str, error: str, *, max_attempts: int = 3) -> str | None:
+        """Повертає завдання в чергу або, після вичерпання спроб, позначає failed."""
 
     @abstractmethod
     async def forget_catalog_import(self, digest: str, *, only_done: bool = False) -> None:
-        """Прибирає квитанцію: явний повтор (only_done) або імпорт не завершився."""
+        """Прибирає квитанцію: явний повтор (only_done) або імпорт не прийнято."""
 
     # ------------------------------------------------------ lifecycle
 

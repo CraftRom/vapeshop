@@ -694,12 +694,25 @@ class CatalogImport(Base):
     silently cancelled sales made in between.
     """
     __tablename__ = "catalog_imports"
+    __table_args__ = (Index("ix_catalog_imports_status", "status", "created_at"),)
     digest: Mapped[str] = mapped_column(String(64), primary_key=True)
-    status: Mapped[str] = mapped_column(String(16), default="running")
+    # queued -> running -> done | failed. The digest doubles as the job id.
+    status: Mapped[str] = mapped_column(String(16), default="queued")
     actor: Mapped[str] = mapped_column(String(64), default="")
     result: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Durable job (A02): parsed rows survive an API restart; after each row a
+    # checkpoint is committed, so recovery continues instead of starting over.
+    mode: Mapped[str] = mapped_column(String(16), default="", server_default="")
+    prices: Mapped[str] = mapped_column(String(16), default="", server_default="")
+    payload: Mapped[str | None] = mapped_column(Text, nullable=True)
+    rows_total: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    rows_done: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    attempts: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    lease_owner: Mapped[str] = mapped_column(String(64), default="", server_default="")
+    lease_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    error: Mapped[str] = mapped_column(Text, default="", server_default="")
 
 
 class AnalyticsSession(Base):
