@@ -27,7 +27,7 @@ export function useModuleStatus() {
 }
 
 export function moduleByKey(report, key) {
-  return report?.modules?.find((item) => item.key === key) || null
+  return (Array.isArray(report?.modules) ? report.modules : []).find((item) => item.key === key) || null
 }
 
 export default function ModuleStatus() {
@@ -47,7 +47,8 @@ export default function ModuleStatus() {
       {error && <p className="bad" role="alert">{error}</p>}
       {!report && !error && <p className="faint" role="status">Перевіряємо модулі…</p>}
       {report && <ul className="module-status-list">
-        {report.modules.map((item) => {
+        {/* An older or partial API answer must never take the settings page down. */}
+        {(Array.isArray(report.modules) ? report.modules : []).map((item) => {
           const state = moduleState(item.status)
           return <li key={item.key}><span className={'chip ' + state.tone}>{state.label}</span><div><strong>{item.title}</strong><small>{item.detail}</small></div></li>
         })}
@@ -58,8 +59,8 @@ export default function ModuleStatus() {
         {readiness && <div role="status">
           <p><strong>{readiness.ready ? 'Готово до роботи' : 'Є проблеми'}</strong></p>
           <p className="muted">API: <span className="mono">{readiness.release?.id || readiness.build}</span>{readiness.release?.built_at ? ` · зібрано ${new Date(readiness.release.built_at).toLocaleString('uk-UA')}` : ''} · панель: <span className="mono">{RELEASE_ID}</span></p>
-          <p className="muted">Ревізія БД: <span className="mono">{readiness.migrations.database.join(', ') || '—'}</span>, код: <span className="mono">{readiness.migrations.code_heads.join(', ')}</span></p>
-          {readiness.problems.length > 0 && <ul>{readiness.problems.map((problem) => <li key={problem}>{problem}</li>)}</ul>}
+          <p className="muted">Ревізія БД: <span className="mono">{(readiness.migrations?.database || []).join(', ') || '—'}</span>, код: <span className="mono">{(readiness.migrations?.code_heads || []).join(', ') || '—'}</span></p>
+          {(readiness.problems || []).length > 0 && <ul>{readiness.problems.map((problem) => <li key={problem}>{problem}</li>)}</ul>}
         </div>}
       </div>}
     </section>
