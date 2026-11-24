@@ -188,7 +188,7 @@ const Chat = memo(function Chat({ orderId, canChat, chatUntil }) {
           </div>
         )}
         {!loading && messages.length === 0 ? (
-          <p className="faint" style={{ margin: 0 }}>
+          <p className="faint u-m-0">
             {canChat === false
               ? 'Повідомлень у цьому замовленні немає.'
               : 'Повідомлень ще немає. Повідомлення надсилаються клієнту через бота; його відповіді з’являться тут.'}
@@ -1292,8 +1292,8 @@ export default function OrderPage() {
 
       <div className="order-grid">
         <div>
-          <div className="card" style={{ marginBottom: 18 }}>
-            <h2 style={{ marginTop: 0 }}>Статус</h2>
+          <div className="card u-mb-5">
+            <h2 className="u-mt-0">Статус</h2>
 
             <section
               className={`order-payment-summary ${paymentMethod} ${paymentIsConfirmed ? 'confirmed' : ''} ${paymentIsCancelled ? 'cancelled' : ''} crm-${crmOutcome}`}
@@ -1367,8 +1367,7 @@ export default function OrderPage() {
 
             {!order.crm_id && allowedFrom(order.status, order.payment_method).includes('cancelled') && (
               <button
-                className="btn danger small"
-                style={{ marginTop: 10 }}
+                className="btn danger small u-mt-3"
                 disabled={busy}
                 onClick={() => {
                   // Скасування необоротне: повертає залишки й бонуси,
@@ -1436,7 +1435,7 @@ export default function OrderPage() {
           </div>
 
           <div className="card">
-            <h2 style={{ marginTop: 0 }}>Замовлення</h2>
+            <h2 className="u-mt-0">Замовлення</h2>
             <div className="analytics-order-source"><b>Канал: {channelLabel(order)}</b><br/><b>Джерело: </b>{order.attribution?.source || 'Невідомо'}{order.attribution?.medium && ` / ${order.attribution.medium}`}<br /><span className="faint">Кампанія: {order.attribution?.campaign || '—'} · content: {order.attribution?.content || '—'} · term: {order.attribution?.term || '—'}</span></div>
             <div className="table-wrap">
               <table>
@@ -1451,7 +1450,7 @@ export default function OrderPage() {
                 </tbody>
               </table>
             </div>
-            <div className="row-between" style={{ marginTop: 10 }}>
+            <div className="row-between u-mt-3">
               <span className="faint">Знижка / бонуси</span>
               <span className="num">{money(order.discount)} / {money(order.bonus_used)}</span>
             </div>
@@ -1463,8 +1462,8 @@ export default function OrderPage() {
         </div>
 
         <div>
-          <div className="card" style={{ marginBottom: 18 }}>
-            <h2 style={{ marginTop: 0 }}>Отримувач</h2>
+          <div className="card u-mb-5">
+            <h2 className="u-mt-0">Отримувач</h2>
 
             <Info label="Прізвище, імʼя, по батькові" copy={fullName}>
               {fullName || <span className="faint">не вказано</span>}

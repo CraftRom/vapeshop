@@ -488,11 +488,11 @@ export default function Instructions() {
         .filter((g) => g.key === open)
         .map((g) => (
           <div className="card" key={g.key}>
-            <h2 style={{ marginTop: 0 }}>{g.title}</h2>
+            <h2 className="u-mt-0">{g.title}</h2>
             <p className="faint" style={{ marginTop: -6 }}>{g.lead}</p>
 
             {g.blocks.map((b) => (
-              <div key={b.h} style={{ marginTop: 16 }}>
+              <div key={b.h} className="u-mt-4">
                 <h3 style={{ margin: '0 0 4px', fontSize: 15 }}>{b.h}</h3>
                 <p style={{ margin: 0, lineHeight: 1.55 }}>{b.p}</p>
               </div>
@@ -500,7 +500,7 @@ export default function Instructions() {
           </div>
         ))}
 
-      <p className="faint" style={{ marginTop: 16 }}>
+      <p className="faint u-mt-4">
         Не знайшли відповіді — запитайте адміністратора. Якщо питання
         повторюється у кількох людей, його варто додати сюди.
       </p>

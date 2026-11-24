@@ -44,8 +44,8 @@ function Bars({ title, hint, labels, values }) {
   const peak = Math.max(1, ...values)
   return (
     <div className="card">
-      <h2 style={{ marginTop: 0 }}>{title}</h2>
-      {hint && <p className="faint" style={{ marginTop: 0 }}>{hint}</p>}
+      <h2 className="u-mt-0">{title}</h2>
+      {hint && <p className="faint u-mt-0">{hint}</p>}
       <div className="bars" tabIndex={0} role="group" aria-label={title}>
         {values.map((value, index) => (
           <div className="bar-slot" key={labels[index]}>
@@ -68,8 +68,8 @@ function Split({ title, hint, rows }) {
   const total = rows.reduce((sum, row) => sum + row.value, 0)
   return (
     <div className="card">
-      <h2 style={{ marginTop: 0 }}>{title}</h2>
-      {hint && <p className="faint" style={{ marginTop: 0 }}>{hint}</p>}
+      <h2 className="u-mt-0">{title}</h2>
+      {hint && <p className="faint u-mt-0">{hint}</p>}
       {total === 0 ? (
         <p className="faint">За цей період даних немає.</p>
       ) : (
@@ -339,7 +339,7 @@ export default function Overview() {
           </div>
 
           <details className="card analytics-details"><summary>Таблиця динаміки · {data.window.granularity === 'month' ? 'місяці' : 'дні'}</summary>
-            <ManagedTable tableId="analytics-series" label="Динаміка"><table><thead><tr><th>Період</th><th className="num">Виручка</th><th className="num">Отримано</th><th className="num">Продажі</th><th className="num">Сер. чек</th><th className="num">Нові покупці</th><th className="num">Витрати</th><th className="num">CAC</th><th className="num">ROAS</th><th className="num">Візити</th><th className="num">Конверсія</th></tr></thead><tbody>{data.series.map((r) => <tr key={r.date}><td>{r.date}</td><td className="num">{money(r.sales)}</td><td className="num">{money(r.revenue)}</td><td className="num">{r.orders}</td><td className="num">{r.avg_check == null ? '—' : money(r.avg_check)}</td><td className="num">{r.new_customers}</td><td className="num">{money(r.spend)}</td><td className="num">{r.cac == null ? '—' : money(r.cac)}</td><td className="num">{r.roas == null ? '—' : `${r.roas}×`}</td><td className="num">{r.sessions}</td><td className="num">{r.conversion == null ? '—' : `${r.conversion}%`}</td></tr>)}</tbody></table></ManagedTable>
+            <ManagedTable tableId="analytics-series" label="Динаміка"><table><thead><tr><th data-column="period">Період</th><th className="num" data-column="revenue">Виручка</th><th className="num" data-column="received">Отримано</th><th className="num" data-column="orders">Продажі</th><th className="num" data-column="avg_check">Сер. чек</th><th className="num" data-column="new_customers">Нові покупці</th><th className="num" data-column="spend">Витрати</th><th className="num" data-column="cac">CAC</th><th className="num" data-column="roas">ROAS</th><th className="num" data-column="sessions">Візити</th><th className="num" data-column="conversion">Конверсія</th></tr></thead><tbody>{data.series.map((r) => <tr key={r.date}><td>{r.date}</td><td className="num">{money(r.sales)}</td><td className="num">{money(r.revenue)}</td><td className="num">{r.orders}</td><td className="num">{r.avg_check == null ? '—' : money(r.avg_check)}</td><td className="num">{r.new_customers}</td><td className="num">{money(r.spend)}</td><td className="num">{r.cac == null ? '—' : money(r.cac)}</td><td className="num">{r.roas == null ? '—' : `${r.roas}×`}</td><td className="num">{r.sessions}</td><td className="num">{r.conversion == null ? '—' : `${r.conversion}%`}</td></tr>)}</tbody></table></ManagedTable>
           </details>
           {!snapshotMonth && <AnalyticsOrders selection={selection} data={data} />}
           <div className="grid k2">
@@ -349,7 +349,7 @@ export default function Overview() {
               {data.top.length === 0 ? (
                 <p className="muted">Продажів за період ще немає.</p>
               ) : (
-                <div className="table-wrap" style={{ marginTop: 12 }}>
+                <div className="table-wrap u-mt-3">
                   <table>
                     <thead><tr><th>Товар</th><th className="num">Шт</th><th className="num">Оборот</th></tr></thead>
                     <tbody>
@@ -368,7 +368,7 @@ export default function Overview() {
               <div className="stack" style={{ marginTop: 14, gap: 10 }}>
                 {data.breakdown.map((row) => (
                   <div className="row status-breakdown-row" key={`${row.source || 'legacy'}:${row.status}`}>
-                    <span style={{ flex: 1 }}>
+                    <span className="u-flex-1">
                       <StatusBadge
                         source={row.source || 'legacy'}
                         id={row.status}
@@ -449,7 +449,7 @@ export default function Overview() {
             {data.operators.length === 0 ? (
               <p className="muted">За цей період продажів немає.</p>
             ) : (
-              <div className="table-wrap" style={{ marginTop: 12 }}>
+              <div className="table-wrap u-mt-3">
                 <table>
                   <thead>
                     <tr>

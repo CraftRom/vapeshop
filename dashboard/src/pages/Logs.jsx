@@ -111,7 +111,7 @@ function Record({ record }) {
         style={{ cursor: 'pointer' }}
         title={fullDate(record.time)}
       >
-        <td className="faint" style={{ whiteSpace: 'nowrap' }}>{shortTime(record.time)}</td>
+        <td className="faint u-nowrap">{shortTime(record.time)}</td>
         <td><StateBadge tone={chip}>{badge}</StateBadge></td>
         <td style={{ maxWidth: 480 }}>
           <div>{record.message}</div>
@@ -123,7 +123,7 @@ function Record({ record }) {
             ? <div className="faint">{record.detail}</div>
             : record.event && <div className="faint">{record.event}</div>}
         </td>
-        <td className="faint" style={{ whiteSpace: 'nowrap' }}>
+        <td className="faint u-nowrap">
           {SUMMARY_FIELDS.filter((f) => record[f] !== undefined)
             .map((f) => `${record[f]}`)
             .join(' · ')}
@@ -293,9 +293,9 @@ export default function Logs() {
         </p>
       )}
 
-      {error && <div className="card error" style={{ marginBottom: 14 }}>{error}</div>}
+      {error && <div className="card error u-mb-4">{error}</div>}
 
-      <div className="card" style={{ marginBottom: 14 }}>
+      <div className="card u-mb-4">
         <div className="grid k3">
           <label>
             <div className="faint">Сервіс</div>
@@ -358,7 +358,7 @@ export default function Logs() {
           </label>
         </div>
 
-        <div className="grid k3" style={{ marginTop: 12 }}>
+        <div className="grid k3 u-mt-3">
           <label>
             <div className="faint">Пошук у будь-якому полі</div>
             <input
@@ -391,7 +391,7 @@ export default function Logs() {
           </label>
         </div>
 
-        <div className="grid k3" style={{ marginTop: 12 }}>
+        <div className="grid k3 u-mt-3">
           <label>
             <div className="faint">Скільки записів</div>
             <select className="input" value={limit} onChange={(e) => setLimit(Number(e.target.value))}>
@@ -431,7 +431,7 @@ export default function Logs() {
 
       <div className="card">
         {data && (
-          <p className="faint" style={{ marginTop: 0 }}>
+          <p className="faint u-mt-0">
             Показано {data.returned} із {data.scanned} переглянутих
             {data.truncated && ' — є ще, звузьте фільтр або підніміть ліміт'}
           </p>
@@ -470,7 +470,7 @@ export default function Logs() {
         )}
 
         {data && data.records.length > 0 && (
-          <div style={{ overflowX: 'auto' }}>
+          <div className="u-scroll-x">
             <table className="table">
               <thead>
                 <tr>
@@ -491,8 +491,8 @@ export default function Logs() {
       </div>
 
       {meta && !meta.logDir && (
-        <div className="card" style={{ marginTop: 14 }}>
-          <p className="faint" style={{ margin: 0 }}>
+        <div className="card u-mt-3">
+          <p className="faint u-m-0">
             Файлове логування вимкнено: не задано <code>LOG_DIR</code>.
             Записи йдуть лише в <code>docker compose logs</code>.
           </p>

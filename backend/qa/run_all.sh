@@ -167,6 +167,8 @@ run_node field-a11y tests/field-a11y.dom.mjs dashboard
 run_node css-structure tests/stylesheet-structure.mjs dashboard
 run_node page-components tests/page-components.dom.mjs dashboard
 run_node state-badge tests/state-badge.dom.mjs dashboard
+run_node managed-table tests/managed-table.dom.mjs dashboard
+run_node jsx-hygiene tests/jsx-hygiene.mjs dashboard
 run_node scroll tests/scroll.mjs
 
 echo

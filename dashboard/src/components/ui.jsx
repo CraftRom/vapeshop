@@ -65,7 +65,7 @@ function withControl(children, control, props) {
 // and points the <label> and the hint at it. Anything else — composite
 // editors, nested fields, a switch wrapped in its own label — becomes a named
 // group, so the caption is still announced for everything inside.
-export function Field({ label, hint, children, htmlFor }) {
+export function Field({ label, hint, children, htmlFor, id }) {
   const baseId = useId()
   const hintId = hint ? `${baseId}-hint` : undefined
   const controls = htmlFor ? [] : nativeControls(children)
@@ -79,6 +79,7 @@ export function Field({ label, hint, children, htmlFor }) {
   return (
     <div
       className="field"
+      id={id}
       role={group ? 'group' : undefined}
       aria-labelledby={group ? `${baseId}-label` : undefined}
       aria-describedby={group ? hintId : undefined}

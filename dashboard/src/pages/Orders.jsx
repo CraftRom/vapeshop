@@ -122,15 +122,15 @@ function OrderDetails({ order, onClose, onSaved, crmStatuses = [] }) {
         </div>
 
         <div className="card" style={{ background: 'var(--panel-2)' }}>
-          <div className="row"><span style={{ flex: 1 }} className="muted">Сума</span><span className="mono">{money(order.subtotal)}</span></div>
+          <div className="row"><span className="u-flex-1 muted">Сума</span><span className="mono">{money(order.subtotal)}</span></div>
           {Number(order.discount) > 0 && (
-            <div className="row"><span style={{ flex: 1 }} className="muted">Промокод</span><span className="mono">−{money(order.discount)}</span></div>
+            <div className="row"><span className="u-flex-1 muted">Промокод</span><span className="mono">−{money(order.discount)}</span></div>
           )}
           {Number(order.bonus_used) > 0 && (
-            <div className="row"><span style={{ flex: 1 }} className="muted">Бонуси</span><span className="mono">−{money(order.bonus_used)}</span></div>
+            <div className="row"><span className="u-flex-1 muted">Бонуси</span><span className="mono">−{money(order.bonus_used)}</span></div>
           )}
           <div className="row" style={{ marginTop: 6 }}>
-            <strong style={{ flex: 1 }}>До сплати</strong>
+            <strong className="u-flex-1">До сплати</strong>
             <strong className="mono">{money(order.total)}</strong>
           </div>
         </div>
@@ -653,7 +653,7 @@ export default function Orders() {
           <Empty title="Нічого не знайдено">
             За цим відбором замовлень немає. Спробуйте розширити діапазон
             дат або очистити пошук.
-            <div style={{ marginTop: 12 }}>
+            <div className="u-mt-3">
               <button className="btn ghost small" onClick={resetFilters}>
                 Скинути відбір
               </button>
