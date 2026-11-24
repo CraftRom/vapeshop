@@ -270,7 +270,7 @@ export default function Operators() {
             </thead>
             <tbody>
               {rows.map((o) => (
-                <tr key={o.id} style={{ opacity: o.is_active ? 1 : 0.55 }}>
+                <tr key={o.id} className={o.is_active ? '' : 'row-inactive'}>
                   <td>{o.login}</td>
                   <td>{o.name || '—'}</td>
                   <td>{ROLE_LABEL[o.role] || o.role}</td>

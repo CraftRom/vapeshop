@@ -145,9 +145,10 @@
   justify-content: center;
 }
 
-.catalog-check input {
-  width: 17px;
-  height: 17px;
+.catalog-panel .catalog-check input {
+  /* WCAG 2.5.8: a selection box is a target, at least 24×24 px. */
+  width: 24px;
+  height: 24px;
   margin: 0;
   accent-color: var(--violet);
   cursor: pointer;

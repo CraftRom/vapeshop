@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useLocation, useNavigate, useParams } from 'react-router-dom'
 
 import { api } from '../api'
 import { ChatAttachment } from '../components/ChatAttachment'
@@ -15,6 +15,9 @@ import { RealtimeOrders } from '../components/RealtimeOrders'
 import { useSupportLayoutSize, DEFAULT_INBOX_WIDTH, DEFAULT_CHAT_HEIGHT } from '../components/useSupportLayoutSize'
 import { PageHeader } from '../components/page'
 import { EVENTS } from '../storageKeys'
+
+/** Touch screen without a hardware keyboard: Enter must not send. */
+const touchKeyboard = () => typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)').matches === true
 
 const FILE_LABEL = {
   photo: 'Фото', document: 'Документ', video: 'Відео', voice: 'Голосове',
@@ -372,12 +375,15 @@ const Conversation = memo(function Conversation({ threadId, onBack, onStatus, on
             <div className="support-compose-row">
               <textarea
                 className="input"
+                aria-label="Відповідь клієнту"
                 rows={2}
                 value={text}
                 onChange={(e) => setText(e.target.value)}
                 placeholder="Напишіть відповідь клієнту…"
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+                  // A phone keyboard has no Shift: there Enter starts a new line
+                  // and the button sends (UI-011).
+                  if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && !touchKeyboard()) {
                     e.preventDefault()
                     send()
                   }
@@ -392,7 +398,7 @@ const Conversation = memo(function Conversation({ threadId, onBack, onStatus, on
               </button>
             </div>
             <ChatDraftStatus text={text} status={draft.status} />
-            <div className="faint support-compose-hint">Enter — надіслати · Shift+Enter — новий рядок</div>
+            <div className="faint support-compose-hint">{touchKeyboard() ? 'Enter — новий рядок · «Надіслати» — відправити' : 'Enter — надіслати · Shift+Enter — новий рядок'}</div>
           </>
         )}
       </div>
@@ -427,8 +433,15 @@ export function SupportChatWindow() {
     </div>
   </div>
 }
+const threadFromSearch = (search) => {
+  const value = Number(new URLSearchParams(search).get('thread') || 0)
+  return Number.isInteger(value) && value > 0 ? value : null
+}
+const isPhone = () => window.matchMedia('(max-width: 760px)').matches
 
 export default function Support() {
+  const navigate = useNavigate()
+  const location = useLocation()
   const initialThreadId = useMemo(() => {
     const value = Number(new URLSearchParams(window.location.search).get('thread') || 0)
     return Number.isInteger(value) && value > 0 ? value : null
@@ -533,10 +546,31 @@ export default function Support() {
     return items
   }, [threads, query, sort])
 
+  // UI-011: the open conversation lives in the address. On a phone opening it
+  // from the list adds a history entry, so the system Back gesture returns to
+  // the list instead of leaving the page.
   const select = (id) => {
     setSelectedId(id)
     setError('')
+    if (threadFromSearch(location.search) === id) return
+    const fromList = isPhone() && !selectedRef.current
+    navigate({ search: `?thread=${id}` }, { replace: !fromList, state: fromList ? { supportList: true } : null })
   }
+  const fromList = Boolean(location.state?.supportList)
+  const back = useCallback(() => {
+    if (fromList) { navigate(-1); return }
+    setSelectedId(null)
+    navigate({ search: '' }, { replace: true })
+  }, [fromList, navigate])
+  useEffect(() => {
+    const id = threadFromSearch(location.search)
+    if (id) setSelectedId(id)
+    else if (isPhone()) setSelectedId(null)
+  }, [location.search])
+  useEffect(() => {
+    // Selection cleared by a filter change or deletion: drop the stale address.
+    if (selectedId === null && threadFromSearch(window.location.search)) navigate({ search: '' }, { replace: true })
+  }, [selectedId, navigate])
 
   const changeFilter = (next) => {
     setStatus(next)
@@ -590,19 +624,20 @@ export default function Support() {
         style={{ '--support-inbox-width': `${chatSize.width}px`, '--support-chat-height': `${chatSize.height}px` }}>
         <aside className="support-inbox card">
           <div className="support-filters">
-            <div className="support-tabs" role="tablist" aria-label="Статус звернень">
+            <div className="support-tabs" role="group" aria-label="Статус звернень">
               {[
-                ['open', 'В роботі'],
-                ['closed', 'Закриті'],
-                ['all', 'Усі'],
-              ].map(([key, label]) => (
+                ['open', 'В роботі', stats.open],
+                ['closed', 'Закриті', stats.closed],
+                ['all', 'Усі', stats.total],
+              ].map(([key, label, count]) => (
                 <button
                   key={key}
                   type="button"
                   className={`btn small ${status === key ? '' : 'ghost'}`}
+                  aria-pressed={status === key}
                   onClick={() => changeFilter(key)}
                 >
-                  {label}
+                  {label}{count != null && <span className="support-tab-count">{count}</span>}
                 </button>
               ))}
             </div>
@@ -649,7 +684,7 @@ export default function Support() {
         {selectedId ? <Conversation
           key={selectedId}
           threadId={selectedId}
-          onBack={() => setSelectedId(null)}
+          onBack={back}
           onStatus={statusChanged}
           onDelete={deleted}
         /> : <div className="support-conversation-empty"><Empty title="Оберіть звернення">
