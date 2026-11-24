@@ -11,13 +11,18 @@ import { Empty, ErrorBar, Field, Info, Loading, Modal, dateTime, money, useToast
 import { useFilters } from '../components/useFilters'
 import { useListPosition } from '../components/useListPosition'
 import { useVisiblePolling } from '../components/useVisiblePolling'
-import { PageHeader } from '../components/page'
+import { ActiveFilters, PageHeader } from '../components/page'
 
 // Той самий перелік, що й на сторінці замовлення.
 const DELIVERY_METHODS = {
   warehouse: 'Відділення НП',
   courier: 'Курʼєр',
 }
+
+// Швидкі робочі черги — у першому рядку, бо з них починається зміна.
+const QUEUES = [['', 'Усі'], ['new', 'Нові'], ['open', 'Відкриті'], ['without_tracking', 'Без накладної']]
+const PAYMENT_FILTERS = { cod: 'При отриманні', card: 'Переказ за реквізитами', unknown: 'Не вказано' }
+const DELIVERY_FILTERS = { warehouse: 'Відділення / поштомат', courier: 'Кур’єр', unknown: 'Не вказано' }
 
 const LEGACY_FILTERS = [
   { value: 'new', label: 'Нове' },
@@ -322,6 +327,9 @@ export default function Orders() {
   const setDateTo = (v) => setFilter('dateTo', v)
   const setSearch = (v) => setFilter('search', v)
   const filtered = Boolean(status || dateFrom || dateTo || search || channel || queue || payment || delivery)
+  const advancedCount = [dateFrom || dateTo, channel, payment, delivery].filter(Boolean).length
+  // Розгорнуто одразу, якщо відбір уже містить додаткові фільтри (посилання, повернення з картки).
+  const [advancedOpen, setAdvancedOpen] = useState(() => advancedCount > 0)
   const [selected, setSelected] = useState(null)
   // Клієнт відповідає в боті, тож панель має сама помічати нові повідомлення
   const [unread, setUnread] = useState({})
@@ -505,6 +513,25 @@ export default function Orders() {
   const newOrders = orders?.filter((order) => isNewOrderStatus(order, crmStatuses)).length || 0
 
 
+  // Кожен активний фільтр — окремий чип: видно, чим звужено список, і
+  // прибрати можна будь-який один, не скидаючи решту.
+  const statusLabel = (() => {
+    if (!status) return ''
+    const [source, id] = status.includes(':') ? status.split(':') : ['legacy', status]
+    if (source === 'crm') return crmStatuses.find((item) => String(item.id) === id)?.name || `CRM #${id}`
+    return LEGACY_FILTERS.find((item) => item.value === id)?.label || id
+  })()
+  const dateLabel = dateFrom && dateTo ? `${dateFrom} — ${dateTo}` : dateFrom ? `від ${dateFrom}` : dateTo ? `до ${dateTo}` : ''
+  const activeFilters = [
+    search && { key: 'search', label: `Пошук: «${search}»`, onClear: () => setFilter('search', '') },
+    status && { key: 'status', label: `Статус: ${statusLabel}`, onClear: () => setFilter('status', '') },
+    queue && { key: 'queue', label: `Черга: ${QUEUES.find(([value]) => value === queue)?.[1] || queue}`, onClear: () => setFilter('queue', '') },
+    dateLabel && { key: 'dates', label: `Дати: ${dateLabel}`, onClear: () => setFilter({ dateFrom: '', dateTo: '' }) },
+    channel && { key: 'channel', label: `Канал: ${CHANNELS.find(([key]) => key === channel)?.[1] || channel}`, onClear: () => setFilter('channel', '') },
+    payment && { key: 'payment', label: `Оплата: ${PAYMENT_FILTERS[payment] || payment}`, onClear: () => setFilter('payment', '') },
+    delivery && { key: 'delivery', label: `Доставка: ${DELIVERY_FILTERS[delivery] || delivery}`, onClear: () => setFilter('delivery', '') },
+  ].filter(Boolean)
+
   return (
     <>
       <PageHeader
@@ -514,6 +541,16 @@ export default function Orders() {
 
       <div className="orders-toolbar">
         <div className="orders-filters">
+          <label className="filter-field filter-search">
+            <span>Пошук</span>
+            <input
+              className="input"
+              type="search"
+              maxLength={160} placeholder="№, ПІБ, телефон або ТТН"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </label>
           <label className="filter-field filter-status">
             <span>Статус</span>
             <select
@@ -537,16 +574,37 @@ export default function Orders() {
             </select>
             {crmStatusesError && <small className="filter-status-warning">CRM недоступна: показуємо останні збережені статуси</small>}
           </label>
-          <label className="filter-field filter-search">
-            <span>Пошук</span>
-            <input
-              className="input"
-              type="search"
-              maxLength={160} placeholder="№, ПІБ, телефон або ТТН"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
-          </label>
+          <div className="filter-field filter-queue">
+            <span id="orders-queue-label">Черга</span>
+            <div className="segmented" role="group" aria-labelledby="orders-queue-label">
+              {QUEUES.map(([value, label]) => (
+                <button key={value || 'all'} type="button" aria-pressed={queue === value} onClick={() => setFilter('queue', value)}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+        <div className="orders-toolbar-actions">
+          <button
+            type="button"
+            className={`btn ghost small orders-more-filters${advancedCount ? ' has-filters' : ''}`}
+            aria-expanded={advancedOpen}
+            aria-controls="orders-advanced-filters"
+            onClick={() => setAdvancedOpen((open) => !open)}
+          >
+            Додаткові фільтри{advancedCount ? ` (${advancedCount})` : ''}
+          </button>
+          <button className="btn ghost small" onClick={() => { load(); loadCrmStatuses() }}>Оновити</button>
+          {isSysadmin() && (
+            <details className="orders-maintenance"><summary>Обслуговування</summary><button className="btn danger small" onClick={purgeAll}>
+              Стерти всі
+            </button></details>
+          )}
+        </div>
+        {/* Згорнута панель лишається в DOM: значення живуть в адресі, і
+            після розгортання видно те саме, що вже відфільтровано. */}
+        <div className="commerce-order-filters" id="orders-advanced-filters" hidden={!advancedOpen}>
           <label className="filter-field filter-date">
             <span>Від</span>
             <input
@@ -567,31 +625,17 @@ export default function Orders() {
               onChange={(e) => setDateTo(e.target.value)}
             />
           </label>
-        </div>
-        <div className="commerce-order-filters">
-          <label>Канал продажу<select className="input" value={channel} onChange={event=>setFilter('channel',event.target.value)}><option value="">Усі канали</option>{CHANNELS.map(([key,label])=><option key={key} value={key}>{label}</option>)}</select></label>
-          <label>Робоча черга<select className="input" value={queue} onChange={event=>setFilter('queue',event.target.value)}><option value="">Усі замовлення</option><option value="new">Нові</option><option value="open">Відкриті</option><option value="without_tracking">Без накладної</option></select></label>
-          <label>Оплата<select className="input" value={payment} onChange={event=>setFilter('payment',event.target.value)}><option value="">Усі способи</option><option value="cod">При отриманні</option><option value="card">Переказ за реквізитами</option><option value="unknown">Не вказано</option></select></label>
-          <label>Доставка<select className="input" value={delivery} onChange={event=>setFilter('delivery',event.target.value)}><option value="">Усі способи</option><option value="warehouse">Відділення / поштомат</option><option value="courier">Кур’єр</option><option value="unknown">Не вказано</option></select></label>
-          {filtered && <button className="btn ghost small" onClick={resetFilters}>Скинути всі фільтри</button>}
-        </div>
-        <div className="orders-toolbar-actions">
-          {(dateFrom || dateTo) && (
-            <button
-              className="btn ghost small"
-              onClick={() => setFilter({ dateFrom: '', dateTo: '' })}
-            >
-              Скинути дати
-            </button>
-          )}
-          <button className="btn ghost small" onClick={() => { load(); loadCrmStatuses() }}>Оновити</button>
-          {isSysadmin() && (
-            <details className="orders-maintenance"><summary>Обслуговування</summary><button className="btn danger small" onClick={purgeAll}>
-              Стерти всі
-            </button></details>
-          )}
+          <label className="filter-field"><span>Канал продажу</span><select className="input" value={channel} onChange={event=>setFilter('channel',event.target.value)}><option value="">Усі канали</option>{CHANNELS.map(([key,label])=><option key={key} value={key}>{label}</option>)}</select></label>
+          <label className="filter-field"><span>Оплата</span><select className="input" value={payment} onChange={event=>setFilter('payment',event.target.value)}><option value="">Усі способи</option>{Object.entries(PAYMENT_FILTERS).map(([key,label])=><option key={key} value={key}>{label}</option>)}</select></label>
+          <label className="filter-field"><span>Доставка</span><select className="input" value={delivery} onChange={event=>setFilter('delivery',event.target.value)}><option value="">Усі способи</option>{Object.entries(DELIVERY_FILTERS).map(([key,label])=><option key={key} value={key}>{label}</option>)}</select></label>
         </div>
       </div>
+
+      <ActiveFilters
+        label="Активні фільтри замовлень"
+        items={activeFilters}
+        onResetAll={resetFilters}
+      />
 
       <ErrorBar error={error} />
       {error && <div className="row"><span className="faint">{orders ? 'Показано попередні дані. Вони можуть бути застарілими.' : 'Дані не завантажено.'}</span><button className="btn ghost small" disabled={loading} onClick={load}>Спробувати ще раз</button></div>}
@@ -622,15 +666,6 @@ export default function Orders() {
         )
       ) : (
         <section className="orders-panel" aria-label="Список замовлень">
-          {filtered && (
-            <div className="orders-result-bar">
-              <span>Знайдено: <strong>{total}</strong></span>
-              <button className="btn ghost small" onClick={resetFilters}>
-                Скинути відбір
-              </button>
-            </div>
-          )}
-
           {(newOrders > 0 || unreadTotal > 0) && (
             <div className="orders-attention-summary" role="status" aria-label="Замовлення, що потребують уваги">
               {newOrders > 0 && (

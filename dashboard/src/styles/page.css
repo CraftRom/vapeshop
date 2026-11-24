@@ -29,3 +29,57 @@
 
 /* StateBadge next to a name in a list row. */
 .state-badge.inline-badge { margin-left: var(--space-2); }
+
+/* ActiveFilters: what the list is filtered by, each chip removable. */
+.active-filters {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  flex-wrap: wrap;
+  margin: 0 0 var(--space-4);
+}
+.active-filters ul { display: flex; flex-wrap: wrap; gap: var(--space-2); list-style: none; margin: 0; padding: 0; }
+.active-filters-count { color: var(--text-secondary); font-size: 13px; }
+.active-filters-count strong { color: var(--text-primary); font-variant-numeric: tabular-nums; }
+.active-filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 32px;
+  padding: 4px 10px 4px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-pill);
+  background: var(--surface-2);
+  color: var(--text-primary);
+  font: 600 12.5px/1.2 var(--body);
+  cursor: pointer;
+}
+.active-filter-chip:hover { border-color: var(--action-selected-bg); }
+.active-filter-chip > span:last-child { color: var(--text-tertiary); font-size: 11px; }
+
+/* Segmented quick choice (orders queue). */
+.segmented { display: inline-flex; flex-wrap: wrap; gap: var(--space-1); padding: 3px; border: 1px solid var(--border-strong); border-radius: var(--radius-control); background: var(--surface-1); }
+.segmented > button { min-height: 34px; padding: 6px 12px; border: 0; border-radius: 8px; background: transparent; color: var(--text-secondary); font: 600 13px/1.2 var(--body); cursor: pointer; }
+.segmented > button:hover { color: var(--text-primary); }
+.segmented > button[aria-pressed='true'] { background: var(--action-selected-bg); color: var(--action-selected-fg); }
+
+/* UI-012: overview zones — what needs attention now, then the period analytics. */
+.overview-analytics { margin-top: var(--space-8); padding-top: var(--space-6); border-top: 1px solid var(--border-subtle); }
+.overview-zone-head { display: flex; align-items: flex-end; justify-content: space-between; gap: var(--space-4); flex-wrap: wrap; margin-bottom: var(--space-4); }
+.overview-zone-head h2 { margin: 0; font-size: 20px; }
+.overview-zone-head p { margin: var(--space-1) 0 0; }
+
+/* UI-009: order summary — status, amount, channel, owner before any scrolling. */
+.order-title { margin: var(--space-2) 0 var(--space-3); }
+.order-summary { display: flex; flex-wrap: wrap; gap: var(--space-3) var(--space-6); margin: 0 0 var(--space-3); }
+.order-summary > div { display: grid; gap: var(--space-1); min-width: 0; }
+.order-summary dt { color: var(--text-tertiary); font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
+.order-summary dd { margin: 0; color: var(--text-primary); font-weight: 600; }
+.order-summary dd.num { font-size: 20px; font-variant-numeric: tabular-nums; }
+@media (max-width: 560px) {
+  .order-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+/* UI-010: once products are selected, the bulk bar stays in view at the bottom. */
+.catalog-footer:has(.catalog-bulk.has-selection) { position: sticky; bottom: var(--space-3); z-index: 6; background: var(--surface-1); border: 1px solid var(--action-selected-bg); border-radius: var(--radius-card); box-shadow: 0 12px 30px rgba(0, 0, 0, .35); }
+.catalog-bulk.has-selection { flex-wrap: wrap; }

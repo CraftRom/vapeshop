@@ -204,9 +204,21 @@ export default function Overview() {
     <>
       <PageHeader
         title="Огляд магазину"
-        description={snapshotMonth ? `Збережений звіт за ${snapshotMonth}` : caption ? (period === 'all' ? 'Статистика за весь час' : `Статистика за ${caption}`) : 'Фінанси, замовлення й активність магазину'}
-        actions={<>
-          {!snapshotMonth && <div className="row stats-periods">
+        description="Спершу — що потребує уваги зараз, нижче — результат магазину за обраний період."
+      />
+
+      {/* Зона 1: оперативна черга. Не залежить від періоду аналітики. */}
+      {!snapshotMonth && <CommerceWorkspace/>}
+
+      {/* Зона 2: аналітика. Перемикач періоду стоїть тут, біля даних, на
+          які він впливає, а не в шапці над оперативною чергою. */}
+      <section className="overview-analytics" aria-labelledby="overview-analytics-title">
+        <div className="overview-zone-head">
+          <div>
+            <h2 id="overview-analytics-title">Аналітика за період</h2>
+            <p className="faint">{snapshotMonth ? `Збережений звіт за ${snapshotMonth}` : caption ? (period === 'all' ? 'Статистика за весь час' : `Статистика за ${caption}`) : 'Фінанси, замовлення й активність магазину'}</p>
+          </div>
+          {!snapshotMonth && <div className="row stats-periods" role="group" aria-label="Період аналітики">
             {PERIODS.map((p) => (
               <button
                 key={p.key}
@@ -218,10 +230,7 @@ export default function Overview() {
               </button>
             ))}
           </div>}
-        </>}
-      />
-
-      {!snapshotMonth && <CommerceWorkspace/>}
+        </div>
       <ClosedPeriods timezone={timezone} selected={snapshotMonth} onOpen={openSnapshot} snapshot={data?.snapshot} />
       {!snapshotMonth && <AnalyticsControls selection={selection} setSelection={setSelection} months={months} timezone={timezone} busy={busy} refresh={() => load()} />}
       <ErrorBar error={error} />
@@ -470,6 +479,7 @@ export default function Overview() {
           </div>
         </div>
       )}
+      </section>
     </>
   )
 }
