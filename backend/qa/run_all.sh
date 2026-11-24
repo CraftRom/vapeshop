@@ -134,6 +134,8 @@ run_node filters tests/filters.mjs dashboard
 run_node new-markers tests/new-order-message-markers.mjs dashboard
 run_node commerce tests/commerce.mjs dashboard
 run_node commerce-dom tests/commerce.dom.mjs dashboard
+run_node catalog-import tests/catalog-import.dom.mjs dashboard
+run_node backups-ui tests/backups.dom.mjs dashboard
 run_node dialog tests/dialog.mjs dashboard
 # styles.mjs reads the production CSS from dashboard/dist. In CI this runner
 # goes before `npm test --prefix dashboard`, so a fresh checkout has no build:

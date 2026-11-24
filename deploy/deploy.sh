@@ -9,6 +9,9 @@ COMPOSE=(docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE")
 STAMP="$(date +%Y%m%d-%H%M%S)"
 ROLLBACK_DIR="./data/deploy-rollback/$STAMP"
 mkdir -p "$ROLLBACK_DIR"
+# Durable backup jobs shared by api and maintenance. Created here, by the deploy
+# user, so Docker does not create the bind mount as root-owned.
+mkdir -p ./data/jobs ./data/backups ./data/logs
 
 fail() { echo "ПОМИЛКА: $*" >&2; exit 1; }
 
@@ -85,7 +88,7 @@ echo "==> Preflight docker compose"
 "${COMPOSE[@]}" config --quiet
 
 # Старі image SHA/refs потрібні для автоматичного rollback, якщо новий API не підніметься.
-for svc in api bot scheduler dashboard miniapp promo-controller; do
+for svc in api bot scheduler maintenance dashboard miniapp promo-controller; do
     cid="$("${COMPOSE[@]}" ps -q "$svc" 2>/dev/null || true)"
     if [[ -n "$cid" ]]; then
         old_sha="$(docker inspect -f '{{.Image}}' "$cid" 2>/dev/null || true)"
@@ -147,7 +150,7 @@ rollback_core_runtime() {
             [[ -n "$sha" && -n "$ref" ]] || continue
             docker tag "$sha" "$ref" >/dev/null 2>&1 || true
         done < "$ROLLBACK_DIR/images.tsv"
-        "${COMPOSE[@]}" up -d --no-deps --force-recreate api bot scheduler dashboard miniapp || true
+        "${COMPOSE[@]}" up -d --no-deps --force-recreate api bot scheduler maintenance dashboard miniapp || true
         # nginx завжди пересоздаємо ПІСЛЯ повернення API, щоб він резолвив актуальну IP.
         "${COMPOSE[@]}" up -d --no-deps --force-recreate nginx || true
     fi
@@ -236,11 +239,11 @@ echo "    API health: OK"
 
 echo "==> ФАЗА 4/6: основні застосунки"
 # Ці сервіси запускаємо лише після здорового API.
-"${COMPOSE[@]}" up -d --no-deps dashboard miniapp bot scheduler certbot
+"${COMPOSE[@]}" up -d --no-deps dashboard miniapp bot scheduler maintenance certbot
 
 # Bot/scheduler не мають HTTP health endpoint, тому тут перевіряємо, що вони не
 # завершилися одразу після старту. Dashboard/miniapp мають просто бути running.
-for svc in dashboard miniapp bot scheduler; do
+for svc in dashboard miniapp bot scheduler maintenance; do
     cid="$("${COMPOSE[@]}" ps -q "$svc" 2>/dev/null || true)"
     if [[ -z "$cid" ]] || ! docker inspect -f '{{.State.Running}}' "$cid" 2>/dev/null | grep -q true; then
         echo "$svc не запущений після оновлення" >&2

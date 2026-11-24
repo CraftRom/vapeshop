@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import os
-import subprocess
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -60,26 +60,6 @@ def _backup_dir() -> Path:
     return backups_dir()
 
 
-def _pg_dump(target: Path) -> None:
-    """Знімок бази через pg_dump у стиснутому власному форматі.
-
-    Формат `custom` (-Fc), а не звичайний SQL: він стискається вдвічі й
-    дозволяє відновлювати окремі таблиці через pg_restore.
-    """
-    env = dict(os.environ, PGPASSWORD=settings.postgres_password)
-    subprocess.run(
-        [
-            "pg_dump",
-            "-h", settings.postgres_host,
-            "-p", str(settings.postgres_port),
-            "-U", settings.postgres_user,
-            "-d", settings.postgres_db,
-            "-Fc", "-f", str(target),
-        ],
-        check=True, env=env, capture_output=True, timeout=1800,
-    )
-
-
 async def run_backup_if_due(state: dict) -> bool:
     """Один бекап на добу о заданій годині за часом магазину.
 
@@ -87,11 +67,11 @@ async def run_backup_if_due(state: dict) -> bool:
     Перезапуск контейнера скидає її, тому додатково перевіряємо, чи файл
     за сьогодні вже не лежить на диску.
     """
-    if not settings.backup_enabled:
-        return False
-
     async with open_repo() as repo:
         shop = await get_shop_settings(repo)
+
+    if not shop.backup_enabled:
+        return False
 
     local = datetime.now(timezone.utc).astimezone(shop.tz)
     if local.hour != shop.backup_hour:
@@ -99,23 +79,15 @@ async def run_backup_if_due(state: dict) -> bool:
     if state.get("last_backup_date") == local.date():
         return False
 
-    target = _backup_dir() / f"elfar-{local:%Y-%m-%d}.dump"
-    if target.exists():
-        state["last_backup_date"] = local.date()
-        return False
-
+    from shop.backup_files import BackupError, create_backup
+    from starlette.concurrency import run_in_threadpool
     started = time.monotonic()
     try:
-        _pg_dump(target)
-    except subprocess.CalledProcessError as exc:
-        log.error("Бекап не вдався: %s", (exc.stderr or b"").decode()[:300])
-        target.unlink(missing_ok=True)
+        target = await run_in_threadpool(create_backup, _backup_dir(), settings, daily=f'{local:%Y-%m-%d}')
+    except BackupError as exc:
+        log.error('Бекап не завершено: %s', exc)
         return False
-    except FileNotFoundError:
-        log.error("pg_dump не знайдено в образі — бекап пропущено")
-        return False
-
-    state["last_backup_date"] = local.date()
+    state['last_backup_date'] = local.date()
     size_mb = target.stat().st_size / 1024 / 1024
     log.info("Бекап %s готовий: %.1f МБ за %.0f с", target.name, size_mb, time.monotonic() - started)
 
@@ -152,12 +124,14 @@ def prune_logs(retention_days: int) -> int:
 
 
 def prune_backups(retention_days: int) -> int:
-    """Прибирає бекапи, старші за ретенцію. Повертає кількість видалених."""
+    """Retain manual/upload/safety files; prune completed scheduled copies only."""
     if retention_days < 1:
         return 0
     cutoff = datetime.now(timezone.utc) - timedelta(days=retention_days)
     removed = 0
     for item in _backup_dir().glob("elfar-*.dump"):
+        if item.is_symlink() or not re.fullmatch(r'(?:elfar-\d{4}-\d{2}-\d{2}|elfar-auto-\d{4}-\d{2}-\d{2}-.+)\.dump', item.name):
+            continue
         if datetime.fromtimestamp(item.stat().st_mtime, timezone.utc) < cutoff:
             item.unlink(missing_ok=True)
             removed += 1

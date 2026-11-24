@@ -299,7 +299,8 @@ check("require_sysadmin" in _backups_py, "копії бази закриті д�
 check("PGDUMP_SIGNATURE" in _backups_py, "формат дампа перевіряється за підписом, а не за розширенням")
 check("confirm.strip() != name" in _backups_py,
       "відновлення вимагає переписати назву — кнопка «так» натискається рефлекторно")
-check("elfar-before-restore" in _backups_py,
+# Browser restore is refused; the server script takes the safety copy.
+check("security.backup.restore.blocked" in _backups_py and "elfar-before-restore" in read("deploy/restore.sh"),
       "перед відновленням знімається запобіжна копія")
 check("/backups" in read("dashboard/src/App.jsx"), "сторінка копій є в маршрутах")
 check("since" in read("backend/api/routers/logs.py"), "журнал фільтрується по днях")

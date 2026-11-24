@@ -37,8 +37,16 @@ esac
 read -rp "Це перезапише поточну базу. Продовжити? (yes/no) " ANSWER
 [[ $ANSWER == "yes" ]] || { echo "Скасовано"; exit 0; }
 
-echo "==> Зупиняю бота, API і планувальник, щоб ніхто не писав у базу"
-$COMPOSE stop bot api scheduler
+# The browser no longer restores (backups.py refuses it); this script owns the
+# safety copy, so a wrong file can always be rolled back.
+SAFETY="backups/elfar-before-restore-$(date +%Y%m%d-%H%M%S).dump"
+mkdir -p backups
+echo "==> Запобіжна копія поточної бази: $SAFETY"
+( umask 077; $COMPOSE exec -T db pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc > "$SAFETY" )
+[[ $(stat -c%s "$SAFETY") -ge 1000 ]] || { echo "Запобіжна копія підозріло мала — відновлення скасовано" >&2; exit 1; }
+
+echo "==> Зупиняю бота, API, планувальник і maintenance, щоб ніхто не писав у базу"
+$COMPOSE stop bot api scheduler maintenance
 
 if [[ $MODE == custom ]]; then
     # --clean --if-exists прибирає наявні обʼєкти перед відновленням:
@@ -54,5 +62,5 @@ echo "==> Накочую міграції: бекап може бути стар
 $COMPOSE run --rm migrate
 
 echo "==> Запускаю назад"
-$COMPOSE start bot api scheduler
+$COMPOSE start bot api scheduler maintenance
 echo "Готово."

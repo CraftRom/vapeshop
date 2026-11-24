@@ -87,6 +87,25 @@ async def scenario():
         r.check(resp.status_code == 403, "відновлення закрите для адміністратора",
                 resp.status_code)
 
+        print("\n--- довговічні завдання ---")
+        for label, token in [("адміністратор", ADMIN), ("менеджер", MANAGER)]:
+            for method, url, kwargs in [("GET", "/api/backups/jobs", {}),
+                                        ("POST", "/api/backups/jobs", {"json": {"client_key": "x"*32}})]:
+                resp = await client.request(method, url, headers=head(token), **kwargs)
+                r.check(resp.status_code == 403, f"завдання: {label} {method} → 403", resp.status_code)
+        resp = await client.post('/api/backups/jobs', json={'client_key': 'x'*32}, headers=head(SYSADMIN))
+        r.check(resp.status_code == 202, 'завдання прийнято без очікування pg_dump', resp.status_code)
+        job = resp.json()
+        retry = await client.post('/api/backups/jobs', json={'client_key': 'x'*32}, headers=head(SYSADMIN))
+        r.check(retry.json()['id'] == job['id'], 'повтор після втрати відповіді повертає той самий ID')
+        resp = await client.get('/api/backups/jobs/' + job['id'], headers=head(SYSADMIN))
+        r.check(resp.status_code == 200 and resp.json()['status'] == 'queued', 'стан доступний після нового запиту')
+        resp = await client.get('/api/backups/jobs', headers=head(SYSADMIN))
+        r.check(resp.status_code == 200 and len(resp.json()['jobs']) == 1, 'журнал завдань читається')
+        r.check(resp.json()['worker']['available'] is False, 'відсутність виконавця відображена чесно')
+        resp = await client.post('/api/backups/create', headers=head(SYSADMIN))
+        r.check(resp.status_code == 409, 'старий синхронний маршрут не запускає pg_dump')
+
         print("\n--- перелік ---")
         resp = await client.get("/api/backups", headers=head(SYSADMIN))
         body = resp.json()

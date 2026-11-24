@@ -1,6 +1,19 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../api'
 import { Modal } from '../components/ui'
+
+const REQUEST_KEY = 'elfar:backup:request'
+const pending = (job) => job && ['queued', 'running'].includes(job.status)
+const jobLabel = {queued: 'У черзі', running: 'Виконується', succeeded: 'Готово', failed: 'Помилка'}
+function savedRequest() {
+  try {
+    const value = JSON.parse(sessionStorage.getItem(REQUEST_KEY) || 'null')
+    return typeof value?.key === 'string' && /^[A-Za-z0-9_-]{16,80}$/.test(value.key) ? value : null
+  } catch { return null }
+}
+function saveRequest(value) {
+  try { value ? sessionStorage.setItem(REQUEST_KEY, JSON.stringify(value)) : sessionStorage.removeItem(REQUEST_KEY) } catch { /* server deduplicates active jobs even without browser storage */ }
+}
 
 function sizeLabel(bytes) {
   if (!bytes) return '0'
@@ -15,71 +28,14 @@ function when(value) {
   return Number.isNaN(d.getTime()) ? value : d.toLocaleString('uk-UA')
 }
 
-/** Підтвердження відновлення.
- *
- *  Просимо переписати назву файлу вручну. Кнопка «так» у діалозі
- *  натискається рефлекторно, а операція незворотна й затирає поточні дані.
- *  Переписування змушує подивитись, що саме відновлюється.
- */
-function RestoreDialog({ item, onClose, onDone }) {
-  const [typed, setTyped] = useState('')
-  const running = useRef(false)
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState('')
-
-  const run = async () => {
-    if (running.current) return
-    running.current = true
-    setBusy(true)
-    setError('')
-    try {
-      const result = await api.backups.restore(item.name, typed)
-      onDone(result)
-    } catch (e) {
-      setError(e.message)
-      running.current = false
-      setBusy(false)
-    }
-  }
-
-  return (
-    <Modal title="Відновити базу" onClose={() => { if (!running.current) onClose() }}>
-
-
-        <p>
-          Поточні дані буде замінено вмістом <b>{item.name}</b> від {when(item.createdAt)}.
-          Усе, що з'явилося після цієї копії — замовлення, клієнти, повідомлення —
-          зникне.
-        </p>
-        <p className="faint">
-          Перед відновленням система сама зробить запобіжний знімок поточного
-          стану, тож повернутись буде куди.
-        </p>
-
-        <label>
-          <div className="faint">Введіть назву файлу для підтвердження</div>
-          <input
-            className="input"
-            value={typed}
-            placeholder={item.name}
-            onChange={(e) => setTyped(e.target.value)}
-          />
-        </label>
-
-        {error && <p className="error" role="alert">{error}</p>}
-
-        <footer>
-          <button className="btn ghost" onClick={onClose} disabled={busy}>Скасувати</button>
-          <button
-            className="btn danger"
-            disabled={busy || typed.trim() !== item.name}
-            onClick={run}
-          >
-            {busy ? 'Відновлюю…' : 'Відновити'}
-          </button>
-        </footer>
-    </Modal>
-  )
+/** Restoration stops API/bot/scheduler and therefore runs on the server. */
+function RestoreDialog({item,onClose}) {
+  return <Modal title="Відновлення на сервері" onClose={onClose}>
+    <p>Копія <b>{item.name}</b> від {when(item.createdAt)} замінить поточні дані магазину.</p>
+    <p className="faint">Завантажте її та передайте системному адміністратору. На сервері адміністратор запускає <code>deploy/restore.sh</code>: скрипт зупиняє бот, API і планувальник, відновлює базу й накочує міграції.</p>
+    <p className="faint">Кнопка у браузері не змінює базу. Цей дамп містить лише БД; зображення й ключ шифрування налаштувань зберігайте окремо.</p>
+    <footer><button className="btn" onClick={onClose}>Зрозуміло</button></footer>
+  </Modal>
 }
 
 export default function Backups() {
@@ -89,37 +45,87 @@ export default function Backups() {
   const [busy, setBusy] = useState('')
   const [restoring, setRestoring] = useState(null)
   const fileRef = useRef(null)
+  const requestRef = useRef(savedRequest())
+  const [jobData, setJobData] = useState({jobs: [], worker: null})
+  const [jobError, setJobError] = useState('')
+  const [checking, setChecking] = useState(true)
+  const completed = useRef(new Set())
+  const revision = useRef(0)
 
-  const load = () => {
+  const load = useCallback(() => {
     setError('')
     api.backups.list().then(setData).catch((e) => setError(e.message))
-  }
+  }, [])
 
-  useEffect(load, [])
+  useEffect(() => { load() }, [load])
 
-  const create = async () => {
-    setBusy('create')
-    setError('')
-    setNotice('')
-    try {
-      const item = await api.backups.create()
-      setNotice(`Створено ${item.name} — ${sizeLabel(item.sizeBytes)}`)
-      load()
-    } catch (e) {
-      setError(e.message)
-    } finally {
-      setBusy('')
+  useEffect(() => {
+    let disposed = false, timer, inFlight = false
+    const refresh = async () => {
+      if (document.hidden || inFlight) return
+      inFlight = true
+      const version = revision.current
+      try {
+        const value = await api.backups.jobs()
+        if (disposed || version !== revision.current) return
+        setJobData({jobs: value.jobs || [], worker: value.worker})
+        setJobError('')
+        for (const job of value.jobs || []) {
+          if (!pending(job) && !completed.current.has(job.id)) {
+            completed.current.add(job.id)
+            if (requestRef.current?.id === job.id) {
+              requestRef.current = null; saveRequest(null)
+            }
+            if (job.status === 'succeeded') load()
+          }
+        }
+      } catch (e) { if (!disposed) setJobError(e.message) }
+      finally { inFlight = false; if (!disposed) setChecking(false) }
     }
+    const tick = async () => {
+      await refresh()
+      if (!disposed) timer = setTimeout(tick, 2500)
+    }
+    tick()
+    const visible = () => { if (!document.hidden) refresh() }
+    document.addEventListener('visibilitychange', visible)
+    return () => { disposed = true; clearTimeout(timer); document.removeEventListener('visibilitychange', visible) }
+  }, [load])
+
+  const activeJob = jobData.jobs.find(pending)
+  const create = async () => {
+    setBusy('create'); setError(''); setNotice(''); setJobError('')
+    if (!requestRef.current?.key) {
+      requestRef.current = {key: crypto.randomUUID().replaceAll('-', '')}
+      saveRequest(requestRef.current)
+    }
+    try {
+      const job = await api.backups.create(requestRef.current.key)
+      revision.current++
+      if (pending(job)) {
+        requestRef.current = {...requestRef.current, id: job.id}
+        saveRequest(requestRef.current)
+      } else { requestRef.current = null; saveRequest(null) }
+      setJobData(value => ({...value, jobs: [job, ...value.jobs.filter(item => item.id !== job.id)]}))
+      if (job.status === 'succeeded') load()
+    } catch (e) {
+      setError(`${e.message}. Повторіть перевірку запиту: його ключ збережено, нова копія повторно не створиться.`)
+    } finally { setBusy('') }
   }
 
   const upload = async (file) => {
     if (!file) return
+    if (file.size > 200 * 1024 * 1024) {
+      setError('Максимум 200 МіБ через браузер. Більші копії передавайте на сервер через SSH.');
+      if (fileRef.current) fileRef.current.value = ''
+      return
+    }
     setBusy('upload')
     setError('')
     setNotice('')
     try {
       const item = await api.backups.upload(file)
-      setNotice(`Завантажено ${item.name}. Щоб застосувати — натисніть «Відновити».`)
+      setNotice(`Завантажено ${item.name}. Відновлення виконує системний адміністратор на сервері.`)
       load()
     } catch (e) {
       setError(e.message)
@@ -154,7 +160,7 @@ export default function Backups() {
       <p className="faint" style={{ marginTop: -8 }}>
         Знімки бази даних. Планувальник робить їх за розкладом із налаштувань,
         тут можна зняти позаплановий, завантажити копію з комп'ютера або
-        відновитись.
+        переглянути порядок безпечного відновлення.
       </p>
 
       {error && <div className="card error" style={{ marginBottom: 14 }}>{error}</div>}
@@ -162,8 +168,8 @@ export default function Backups() {
 
       <div className="card" style={{ marginBottom: 14 }}>
         <div className="row" style={{ gap: 10, flexWrap: 'wrap' }}>
-          <button className="btn" onClick={create} disabled={busy === 'create'}>
-            {busy === 'create' ? 'Знімаю…' : 'Зробити копію зараз'}
+          <button className="btn" onClick={create} disabled={busy === 'create' || checking || Boolean(activeJob)}>
+            {busy === 'create' ? 'Надсилаємо…' : activeJob ? 'Копія створюється' : requestRef.current?.key ? 'Перевірити запит' : 'Зробити копію зараз'}
           </button>
           <button
             className="btn ghost"
@@ -190,6 +196,21 @@ export default function Backups() {
           </p>
         )}
       </div>
+
+      <section className="card" style={{marginBottom: 14}} aria-label="Фонові завдання">
+        <h2 style={{marginTop: 0}}>Останні завдання</h2>
+        <p className="faint">Завдання зберігається після закриття вкладки та перезапуску сервера. Завантаження копії з комп’ютера — до 200 МіБ.</p>
+        {jobError && <p role="alert" className="bad">Не вдалося перевірити завдання: {jobError}</p>}
+        {jobData.worker?.available === false && <p role="status">Виконавець не відповідає. {activeJob ? 'Запит збережено. ' : ''}Перевірте службу maintenance на сервері.</p>}
+        {checking && <p className="faint">Перевіряємо стан…</p>}
+        {!checking && !jobError && !jobData.jobs.length && <p className="faint">Фонових завдань ще немає.</p>}
+        <div aria-live="polite" aria-atomic="false">
+          {jobData.jobs.slice(0, 5).map(job => <p key={job.id}>
+            <b>{jobLabel[job.status] || job.status}</b> · {when(job.created_at * 1000)}<br/>
+            <span className="faint">{job.message}{job.result?.name ? ` — ${job.result.name}` : ''}</span>
+          </p>)}
+        </div>
+      </section>
 
       {data?.database?.available && (
         <div className="card" style={{ marginBottom: 14 }}>
@@ -278,7 +299,7 @@ export default function Backups() {
                           Скачати
                         </button>
                         <button className="btn small" onClick={() => setRestoring(item)}>
-                          Відновити
+                          Як відновити
                         </button>
                         <button
                           className="btn small danger"
@@ -300,12 +321,12 @@ export default function Backups() {
       <div className="card" style={{ marginTop: 14 }}>
         <h2 style={{ marginTop: 0 }}>Про що варто пам'ятати</h2>
         <p className="faint" style={{ marginBottom: 8 }}>
-          Копії лежать на тому самому диску, що й база. Якщо помре диск —
+          Ці копії містять лише БД: зображення та ключ шифрування налаштувань потрібно зберігати окремо. Копії лежать на тому самому диску, що й база. Якщо помре диск —
           помруть разом із нею. Тримайте хоча б одну копію за межами сервера:
           скачайте її сюди або налаштуйте перенесення на інший хост.
         </p>
         <p className="faint" style={{ margin: 0 }}>
-          Після відновлення перезапустіть API і бота, щоб вони перечитали дані.
+          Відновлення виконується лише на сервері через <code>deploy/restore.sh</code>; браузер базу не змінює.
         </p>
       </div>
 
@@ -313,14 +334,7 @@ export default function Backups() {
         <RestoreDialog
           item={restoring}
           onClose={() => setRestoring(null)}
-          onDone={(result) => {
-            setRestoring(null)
-            setNotice(
-              `База відновлена з ${result.restored}. ` +
-              `Стан до відновлення збережено як ${result.safetyCopy}. ${result.note}`,
-            )
-            load()
-          }}
+
         />
       )}
     </div>
