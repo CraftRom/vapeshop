@@ -60,14 +60,14 @@ try {
   check(await p.evaluate(()=>scrollY>500),`${width}: list position restored after asynchronous load`)
   await p.screenshot({path:`${output}/orders-stage6-${width}.png`})
   await p.goto('http://127.0.0.1:5173/backups')
-  const restore=p.getByRole('button',{name:'Відновити',exact:true}).first();await restore.waitFor();await restore.click()
-  dialog=p.getByRole('dialog',{name:'Відновити базу',exact:true});await dialog.waitFor()
+  // Restore runs only on the server since v1.13 (writers must be stopped
+  // first). The browser offers instructions, never a restore request.
+  const restore=p.getByRole('button',{name:'Як відновити',exact:true}).first();await restore.waitFor()
+  check(await p.getByRole('button',{name:'Відновити',exact:true}).count()===0,`${width}: no browser restore button`)
+  await restore.click()
+  dialog=p.getByRole('dialog',{name:'Відновлення на сервері',exact:true});await dialog.waitFor()
   check(await p.evaluate(()=>document.body.style.overflow==='hidden'),`${width}: backup uses shared scroll lock`)
-  check(await dialog.getByRole('button',{name:'Відновити',exact:true}).isDisabled(),`${width}: restore still requires exact filename`)
-  await dialog.getByRole('textbox').fill('qa-backup.dump')
-  check(await dialog.getByRole('button',{name:'Відновити',exact:true}).isEnabled(),`${width}: correct filename enables confirmation`)
-  const buttons=dialog.getByRole('button');await buttons.last().focus();await p.keyboard.press('Tab')
-  check(await buttons.first().evaluate(e=>e===document.activeElement),`${width}: backup traps keyboard focus`)
+  check(await dialog.getByRole('textbox').count()===0,`${width}: instructions ask for no confirmation input`)
   await p.keyboard.press('Escape');check(await dialog.count()===0&&restores===0,`${width}: Escape closes without restore request`)
   staffRole='operator';closedOrders=true
   await p.goto('http://127.0.0.1:5173/orders');await p.locator('.order-row').nth(49).waitFor()

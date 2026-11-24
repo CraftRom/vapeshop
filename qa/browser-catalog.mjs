@@ -109,7 +109,9 @@ try {
   check((await display.textContent()).includes('Новинка ·') && (await description.textContent()).includes('Колір: м’ятний.'), `${width}: out-of-order block responses retain both saved changes`)
   const image = p.getByRole('region', { name: 'Зображення', exact: true })
   await image.getByRole('button', { name: 'Редагувати', exact: true }).click()
-  await image.getByPlaceholder('або вставте пряме посилання').fill(photo)
+  // The link input is behind an explicit "За посиланням" toggle in ImageField.
+  await image.getByRole('button', { name: 'За посиланням', exact: true }).click()
+  await image.getByLabel('Пряме посилання на зображення', { exact: true }).fill(photo)
   await image.getByRole('button', { name: 'Зберегти блок' }).click()
   await image.getByRole('button', { name: 'Редагувати', exact: true }).waitFor()
   check(Object.keys(writes.at(-1)).join() === 'photo_url' && goods[1].is_new && goods[1].is_sale && goods[1].sku === 'ELF-GEN-TEST0002', `${width}: photo block preserves flags and article`)

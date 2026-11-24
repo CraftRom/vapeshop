@@ -8,6 +8,11 @@ import {useVisiblePolling} from './useVisiblePolling'
 function Tile({title,value,to,hint,tone=''}) {
   return <Link className={'commerce-tile '+tone} to={to}><span>{title}</span><strong>{value}</strong><small>{hint} →</small></Link>
 }
+const isObject=value=>Boolean(value)&&typeof value==='object'&&!Array.isArray(value)
+export function isOperations(data) {
+  return isObject(data)&&isObject(data.orders)&&isObject(data.stock)&&isObject(data.channels)
+    &&Array.isArray(data.queue)&&Array.isArray(data.products)
+}
 export default function CommerceWorkspace() {
   const [data,setData]=useState(null),[error,setError]=useState(''),[busy,setBusy]=useState(false)
   const alive=useRef(true),running=useRef(false)
@@ -15,7 +20,13 @@ export default function CommerceWorkspace() {
   const load=useCallback(async()=>{
     if(running.current)return
     running.current=true;setBusy(true)
-    try{const next=await api.orders.operations();if(alive.current){setData(next);setError('')}}
+    try{
+      const next=await api.orders.operations()
+      // A partial answer (older API, proxy error page) must not take the whole
+      // overview down, and missing counters must not be shown as zeros.
+      if(!isOperations(next))throw new Error('Сервер повернув неповний стан магазину')
+      if(alive.current){setData(next);setError('')}
+    }
     catch(error){if(alive.current)setError(error.message)}
     finally{running.current=false;if(alive.current)setBusy(false)}
   },[])
