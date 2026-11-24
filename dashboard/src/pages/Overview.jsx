@@ -11,6 +11,7 @@ import { StatusBadge } from '../components/OrderStatus'
 import { ErrorBar, Loading, money } from '../components/ui'
 import { useVisiblePolling } from '../components/useVisiblePolling'
 import { PageHeader } from '../components/page'
+import { EVENTS } from '../storageKeys'
 
 const RevenueChart = lazy(() => import('../components/RevenueChart'))
 
@@ -190,10 +191,10 @@ export default function Overview() {
       if (timer) clearTimeout(timer)
       timer = setTimeout(() => load(), 150)
     }
-    window.addEventListener('elfar:orders:changed', onOrderChanged)
+    window.addEventListener(EVENTS.ordersChanged, onOrderChanged)
     return () => {
       if (timer) clearTimeout(timer)
-      window.removeEventListener('elfar:orders:changed', onOrderChanged)
+      window.removeEventListener(EVENTS.ordersChanged, onOrderChanged)
     }
   }, [load, snapshotMonth])
 
@@ -203,6 +204,7 @@ export default function Overview() {
   return (
     <>
       <PageHeader
+        help="overview"
         title="Огляд магазину"
         description="Спершу — що потребує уваги зараз, нижче — результат магазину за обраний період."
       />

@@ -232,6 +232,7 @@ export default function Operators() {
   return (
     <>
       <PageHeader
+        help="operators"
         title="Менеджери"
         description="Хто має доступ до панелі й на якому рівні"
         actions={<>

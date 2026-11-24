@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 
 import { consumeOrderEvents, getToken } from '../api'
+import { EVENTS } from '../storageKeys'
 
 const MAX_RETRY_MS = 15000
 
@@ -35,7 +36,7 @@ export function RealtimeOrders() {
       controller = new AbortController()
       try {
         await consumeOrderEvents((payload) => {
-          window.dispatchEvent(new CustomEvent('elfar:orders:changed', { detail: payload }))
+          window.dispatchEvent(new CustomEvent(EVENTS.ordersChanged, { detail: payload }))
         }, controller.signal, (payload) => {
           window.dispatchEvent(new CustomEvent('elfar:support:changed', { detail: payload }))
         })

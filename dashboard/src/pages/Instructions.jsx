@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 
 import { isAdmin, isSysadmin } from '../api'
 import { APP_VERSION } from '../version'
@@ -461,7 +462,12 @@ export default function Instructions() {
     if (g.sysadminOnly) return sysadmin
     return !g.adminOnly || admin
   })
-  const [open, setOpen] = useState(visible[0]?.key)
+  // UI-028: pages link here with ?topic=<key>; a topic this role cannot see
+  // falls back to the first available one.
+  const [params, setParams] = useSearchParams()
+  const requested = params.get('topic')
+  const [open, setOpenState] = useState(visible.some((g) => g.key === requested) ? requested : visible[0]?.key)
+  const setOpen = (key) => { setOpenState(key); setParams({ topic: key }, { replace: true }) }
 
   return (
     <>

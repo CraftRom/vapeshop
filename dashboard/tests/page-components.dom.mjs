@@ -7,12 +7,13 @@ import {JSDOM} from 'jsdom'
 
 const root=fileURLToPath(new URL('../',import.meta.url))
 const app=`
-import React,{useState} from 'react';import {createRoot} from 'react-dom/client';import {FilterBar,PageHeader,SectionCard} from './src/components/page';
+import React,{useState} from 'react';import {createRoot} from 'react-dom/client';import {MemoryRouter} from 'react-router-dom';import {FilterBar,PageHeader,SectionCard} from './src/components/page';
 function Page(){
   const [search,setSearch]=useState('')
   return <>
     <PageHeader title="Клієнти" description="Історія покупок" actions={<button>Новий</button>}/>
     <PageHeader title="Без опису" className="extra"/>
+    <PageHeader title="З довідкою" description="Опис" help="orders"/>
     <SectionCard title="Telegram" description="Бот і групи" actions={<label><input type="checkbox" role="switch" aria-label="Telegram"/>Увімкнено</label>}><p data-body="1">Поля</p></SectionCard>
     <SectionCard title="Підсекція" level={3}><p>Текст</p></SectionCard>
     <FilterBar label="Пошук клієнтів" activeCount={search?1:0} onReset={()=>setSearch('')}>
@@ -21,7 +22,7 @@ function Page(){
     <button data-fill="1" onClick={()=>setSearch('Олена')}>fill</button>
   </>
 }
-createRoot(document.getElementById('root')).render(<Page/>)`
+createRoot(document.getElementById('root')).render(<MemoryRouter><Page/></MemoryRouter>)`
 const bundle=(await build({stdin:{contents:app,resolveDir:root,loader:'jsx'},bundle:true,write:false,format:'iife',jsx:'automatic',loader:{'.css':'empty'},define:{'process.env.NODE_ENV':'"test"'}})).outputFiles[0].text
 
 async function render(){
@@ -42,6 +43,9 @@ test('PageHeader renders one h1 with its context and actions inside the page-hea
     assert.equal(first.querySelector('button').textContent,'Новий')
     assert.equal(second.className,'page-head extra')
     assert.equal(second.querySelector('p'),null,'no empty description paragraph')
+    const help=dom.window.document.querySelectorAll('header.page-head')[2].querySelector('a.help-link')
+    assert.equal(help.getAttribute('href'),'/instructions?topic=orders')
+    assert.equal(help.textContent,'Як це працює →')
   }finally{dom.window.close()}
 })
 

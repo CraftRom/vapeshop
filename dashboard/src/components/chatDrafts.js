@@ -1,6 +1,7 @@
+import { STORAGE } from '../storageKeys.js'
 // Local drafts are opened only after /auth/session confirms their account scope.
 // The opaque scope is an identifier, never an authentication or CSRF token.
-export const CHAT_DRAFT_PREFIX = 'elfar:chat-draft:v1:'
+export const CHAT_DRAFT_PREFIX = STORAGE.chatDraftPrefix
 const CONTROL = CHAT_DRAFT_PREFIX + 'active'
 const TTL = 7 * 24 * 60 * 60 * 1000
 const LIMIT = 50

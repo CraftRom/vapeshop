@@ -13,7 +13,7 @@ const checks = [
   ['голоси звуків ідуть через спільну шину', center.includes('envelope.connect(audioToneBus)')],
   ['гучність масштабує сигнал після компресора', center.includes('SOUND_BASE_OUTPUT * (normalized / 100)')],
   ['діапазон 0–200 збережено', center.includes('SOUND_VOLUME_MIN = 0') && center.includes('SOUND_VOLUME_MAX = 200')],
-  ['налаштування пристрою збережено', center.includes("DEVICE_VOLUME_KEY = 'elfar:notification-device-volume'")],
+  ['налаштування пристрою збережено', center.includes('DEVICE_VOLUME_KEY = STORAGE.notificationVolume')],
   ['системні сповіщення без власного звуку', center.includes('silent: true')],
 ]
 

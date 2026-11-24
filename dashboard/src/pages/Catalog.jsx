@@ -61,7 +61,7 @@ function paginationNumbers(current, total) {
   return [start, start + 1, start + 2]
 }
 
-const IMPORT_JOB_KEY = 'accord:catalog-import-job'
+const IMPORT_JOB_KEY = 'elfar:catalog-import-job'
 const importJobId = () => { try { return sessionStorage.getItem(IMPORT_JOB_KEY) || '' } catch { return '' } }
 const rememberImportJob = (id) => { try { id ? sessionStorage.setItem(IMPORT_JOB_KEY, id) : sessionStorage.removeItem(IMPORT_JOB_KEY) } catch {} }
 

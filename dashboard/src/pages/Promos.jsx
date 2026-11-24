@@ -713,6 +713,7 @@ export default function Promos() {
   return (
     <div className="promos-page">
       <PageHeader
+        help="promos"
         title="Промокоди"
         description="Керуйте знижками, категоріями та умовами використання"
         actions={<>

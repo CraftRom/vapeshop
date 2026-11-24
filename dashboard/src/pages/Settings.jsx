@@ -683,6 +683,7 @@ export default function Settings() {
   return (
     <>
       <PageHeader
+        help="settings"
         title="Налаштування"
         description="Магазин, автоматизація та інтеграції — за розділами"
         actions={<>
