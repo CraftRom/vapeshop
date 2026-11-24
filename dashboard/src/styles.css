@@ -5355,3 +5355,15 @@ button.support-stat:hover { border-color: rgba(139, 123, 240, 0.38); }
 
 /* Repeated XLSX import: receipt returned, nothing re-applied. */
 .card.warn { border-color: rgba(242, 179, 71, 0.45); }
+
+/* A04: module readiness card (settings). */
+.module-status { margin: 0 0 18px; }
+.module-status-head { display: flex; gap: 12px; align-items: flex-start; justify-content: space-between; }
+.module-status-head h2 { margin: 0 0 4px; font-size: 16px; }
+.module-status-list { list-style: none; padding: 0; margin: 12px 0 0; display: grid; gap: 10px; }
+.module-status-list li { display: flex; gap: 12px; align-items: flex-start; }
+.module-status-list li > div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.module-status-list small { color: var(--muted); overflow-wrap: anywhere; }
+.module-status-list .chip { flex: none; min-width: 120px; text-align: center; }
+.module-status-release { margin-top: 14px; border-top: 1px solid var(--line-soft); padding-top: 12px; }
+@media (max-width: 540px) { .module-status-list li { flex-direction: column; gap: 6px; } }

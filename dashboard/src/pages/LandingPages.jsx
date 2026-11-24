@@ -740,6 +740,7 @@ export default function LandingPages() {
           </div>
 
           {domainState?.error && <div className="error-bar" style={{ marginTop: 14 }}>{domainState.error}</div>}
+          {domainState?.controller_configured === false && <div className="card warn" role="status">{domainState.message}</div>}
 
           <div className="row" style={{ gap: 8, flexWrap: 'wrap', marginTop: 16 }}>
             {!domainState?.routePresent && <button className="btn" onClick={connectDomain} disabled={domainBusy || !form.domain.trim() || domainState?.dns?.pointsHere === false || !domainState?.dnsRequirements?.configured}>

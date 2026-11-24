@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { api, isAdmin, isSysadmin } from '../api'
 import { ErrorBar, Field, Loading, useToast } from '../components/ui'
 import { SETTINGS_CATEGORIES, categoryFor, changedSettings } from '../settingsModel'
+import ModuleStatus from '../components/ModuleStatus'
 
 // Менеджер бачить лише реферальну програму: решта параметрів — реквізити,
 // адреси, список менеджерів — за адміністратором. Бекенд це теж перевіряє,
@@ -683,6 +684,8 @@ export default function Settings() {
       </div>
 
       <ErrorBar error={error} />
+
+      <ModuleStatus />
 
       <div className="settings-tools">
         <input className="input" type="search" aria-label="Пошук налаштувань" placeholder="Знайти налаштування…" value={query} onChange={(event) => setQuery(event.target.value)} />

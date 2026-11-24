@@ -540,6 +540,10 @@ export const api = {
     purge: (id) => request(`/operators/${id}/purge`, { method: 'DELETE' }),
   },
 
+  system: {
+    modules: () => request('/system/modules'),
+    readiness: () => request('/system/readiness'),
+  },
   settings: {
     environment: () => request('/settings/environment'),
     salesdriveCheck: () => request('/integrations/salesdrive/check', { method: 'POST' }),

@@ -211,8 +211,9 @@ _mounts = {
 }
 check(all(m.startswith("./data/") for ms in _mounts.values() for m in ms),
       "дані монтуються з одного кореня ./data", _mounts)
-check(_mounts["bot"] == ["./data/logs"],
-      "бот бачить лише журнал — ні медіа, ні копій бази", _mounts["bot"])
+# Heartbeats hold only name, build, pid and time (module readiness).
+check(sorted(_mounts["bot"]) == ["./data/heartbeats", "./data/logs"],
+      "бот бачить лише журнал і heartbeat — ні медіа, ні копій бази", _mounts["bot"])
 check("./data/media" not in _mounts["scheduler"],
       "планувальнику не потрібні медіа", _mounts["scheduler"])
 check(all(v.endswith(":ro") for v in _compose["services"]["nginx"]["volumes"] if v.startswith("./data")),
@@ -522,7 +523,7 @@ import re as _re
 # Усі модулі застосунку, а не ручний перелік файлів: перелік забували
 # доповнювати, і подія нового роутера (вебхук SalesDrive) оголошувалась
 # «ніде не записаною», хоча записувалась.
-_called = set(_re.findall(r'"(security\.[a-z_.]+)"', "\n".join(
+_called = set(_re.findall(r'["\'](security\.[a-z_.]+)["\']', "\n".join(
     _f.read_text() for _dir in ("api", "shop", "bot", "scheduler")
     for _f in (root / "backend" / _dir).rglob("*.py")
     if _f.name != "security_log.py" and "__pycache__" not in _f.parts

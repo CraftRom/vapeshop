@@ -83,12 +83,20 @@ async def main() -> None:
         )
         dp = build_dispatcher()
         log.info("Бот @%s запущено в режимі polling", me.username)
-        await dp.start_polling(
-            bot,
-            close_bot_session=False,  # Сесію закриває зовнішній finally.
-            polling_timeout=30,
-            backoff_config=polling_backoff,
-        )
+        # A04: heartbeat only while polling is actually running.
+        from shop.worker_health import pulse
+        stop_heartbeat = asyncio.Event()
+        heartbeat = asyncio.create_task(pulse("bot", stop_heartbeat))
+        try:
+            await dp.start_polling(
+                bot,
+                close_bot_session=False,  # Сесію закриває зовнішній finally.
+                polling_timeout=30,
+                backoff_config=polling_backoff,
+            )
+        finally:
+            stop_heartbeat.set()
+            await heartbeat
     except Exception:
         log.exception("Робота бота завершилася помилкою",
                       extra={"event": "bot.run.failed"})

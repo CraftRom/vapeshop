@@ -526,6 +526,14 @@ class Repository(ABC):
         ...
 
     @abstractmethod
+    async def prune_expired_tokens(self, now: datetime, *, batch: int = 1000, max_batches: int = 20) -> dict[str, int]:
+        """Видаляє лише прострочені bearer-токени (A11).
+
+        Прострочені сесії панелі. Операторів, клієнтів та історію не чіпає. Обмежені пачки,
+        щоб одна прибиральна операція не тримала довгу транзакцію.
+        """
+
+    @abstractmethod
     async def prune_panel_notifications(self, older_than_days: int = 90) -> int:
         """Прибирає старі оперативні сповіщення панелі."""
         ...

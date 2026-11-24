@@ -135,11 +135,18 @@ async def main() -> None:
         with contextlib.suppress(NotImplementedError):
             loop.add_signal_handler(sig, stopping.set)
 
+    # A04: the panel distinguishes "enabled" from "a scheduler is running".
+    from shop.worker_health import pulse
+    heartbeat = asyncio.create_task(pulse("scheduler", stopping))
     state: dict = {}
-    while not stopping.is_set():
-        await tick(state)
-        with contextlib.suppress(asyncio.TimeoutError):
-            await asyncio.wait_for(stopping.wait(), timeout=TICK_SECONDS)
+    try:
+        while not stopping.is_set():
+            await tick(state)
+            with contextlib.suppress(asyncio.TimeoutError):
+                await asyncio.wait_for(stopping.wait(), timeout=TICK_SECONDS)
+    finally:
+        stopping.set()
+        await heartbeat
 
     log.info("Планувальник зупинено")
 
