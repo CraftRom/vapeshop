@@ -1,0 +1,39 @@
+/*
+ * Dashboard design tokens — the single source of colour truth.
+ *
+ * Name tokens by role, not by hue: a component asks for "the text on a
+ * primary action", never for "white". Every foreground/background pair
+ * used by the panel is checked for WCAG 2.2 AA (4.5:1 for normal text) in
+ * tests/contrast.mjs against the production build.
+ *
+ * Legacy names (--violet, --mint, --faint, ...) live in styles.css as
+ * aliases of these tokens until the remaining rules are migrated.
+ */
+:root {
+  /* Surfaces */
+  --bg-app: #100E18;
+  --surface-1: #1A1725;       /* cards, panels */
+  --surface-2: #221E31;       /* controls, nested cards */
+  --border-strong: #2E2840;
+  --border-subtle: #262034;
+
+  /* Text on surfaces (contrast on --surface-2 in brackets) */
+  --text-primary: #ECE9F5;    /* 13.5:1 */
+  --text-secondary: #948CAD;  /* 5.1:1 */
+  --text-tertiary: #8F87AA;   /* 4.8:1; ≥4.5:1 even on --border-subtle */
+
+  /* Actions */
+  --action-primary-bg: #8B7BF0;  /* ELFAR violet */
+  --action-primary-fg: #100E18;  /* 5.6:1 on the violet — white is only 3.4:1 */
+  --action-selected-bg: #5F51B8; /* active tab / current navigation */
+  --action-selected-fg: #FFFFFF; /* 6.3:1 */
+  --focus-ring: #8B7BF0;
+
+  /* Status: text, icon and border colour on dark surfaces */
+  --status-success: #4FD8A5;
+  --status-warning: #F2B347;
+  --status-danger: #F2607E;
+  --status-info: #7CB7F0;
+  /* Text placed on a filled status/brand badge */
+  --on-status-fg: #100E18;
+}

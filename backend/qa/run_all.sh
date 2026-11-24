@@ -162,6 +162,8 @@ run_node deep-actions-ui tests/deep-actions.mjs dashboard
 run_node promo-domain-ux tests/promo-domain-ux.mjs dashboard
 run_node promo-form tests/promo-form.mjs dashboard
 run_node settings-model tests/settings-model.mjs dashboard
+run_node contrast tests/contrast.mjs dashboard
+run_node field-a11y tests/field-a11y.dom.mjs dashboard
 run_node scroll tests/scroll.mjs
 
 echo
