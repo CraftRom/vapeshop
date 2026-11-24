@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
 
 import App from './App'
+import './tokens.css'
 import './styles.css'
 import './catalog.css'
 import './commerce.css'

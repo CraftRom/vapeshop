@@ -1,19 +1,20 @@
 :root {
-  --ink: #100e18;
-  --panel: #1a1725;
-  --panel-2: #221e31;
-  --line: #2e2840;
-  --line-soft: #262034;
+  /* Legacy aliases of tokens.css; new rules use the semantic tokens. */
+  --ink: var(--bg-app);
+  --panel: var(--surface-1);
+  --panel-2: var(--surface-2);
+  --line: var(--border-strong);
+  --line-soft: var(--border-subtle);
 
-  --violet: #8b7bf0;
-  --violet-dim: #5f51b8;
-  --mint: #4fd8a5;
-  --amber: #f2b347;
-  --rose: #f2607e;
+  --violet: var(--action-primary-bg);
+  --violet-dim: var(--action-selected-bg);
+  --mint: var(--status-success);
+  --amber: var(--status-warning);
+  --rose: var(--status-danger);
 
-  --text: #ece9f5;
-  --muted: #948cad;
-  --faint: #635b7d;
+  --text: var(--text-primary);
+  --muted: var(--text-secondary);
+  --faint: var(--text-tertiary);
 
   /* Системні шрифти: нуль зовнішніх font-запитів і без блокування першого paint. */
   --display: ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
@@ -101,7 +102,7 @@ a { color: var(--violet); text-decoration: none; }
 
 .nav a:hover { background: var(--panel-2); color: var(--text); }
 
-.nav a.active { background: var(--violet-dim); color: #fff; }
+.nav a.active { background: var(--action-selected-bg); color: var(--action-selected-fg); }
 
 .nav .badge {
   font-family: var(--mono);
@@ -227,7 +228,7 @@ td.num, th.num { text-align: right; font-family: var(--mono); }
 .rail button:disabled { cursor: default; }
 
 .rail button.passed { background: rgba(139, 123, 240, 0.16); color: var(--violet); border-color: transparent; }
-.rail button.current { background: var(--violet); color: #fff; border-color: var(--violet); }
+.rail button.current { background: var(--action-primary-bg); color: var(--action-primary-fg); border-color: var(--violet); }
 .rail button.cancelled { background: rgba(242, 96, 126, 0.16); color: var(--rose); border-color: transparent; }
 
 /* ------------------------------------------------------- вкладки розділів */
@@ -258,7 +259,7 @@ td.num, th.num { text-align: right; font-family: var(--mono); }
 }
 
 .tabs button:hover { color: var(--text); border-color: var(--violet-dim); }
-.tabs button.active { background: var(--violet); color: #fff; border-color: var(--violet); }
+.tabs button.active { background: var(--action-primary-bg); color: var(--action-primary-fg); border-color: var(--violet); }
 
 @media (max-width: 760px) {
   /* На вузькому екрані прокрутка має бути помітною: інакше здається, що
@@ -300,8 +301,8 @@ button, input, select, textarea { font-family: inherit; font-size: 14px; }
 }
 
 .btn {
-  background: var(--violet);
-  color: #fff;
+  background: var(--action-primary-bg);
+  color: var(--action-primary-fg);
   border: none;
   border-radius: var(--r);
   padding: 9px 16px;
@@ -2095,7 +2096,7 @@ a.info-strong:hover { color: var(--violet); }
 }
 
 .catalog-page-btn:hover:not(:disabled) { border-color: var(--violet-dim); }
-.catalog-page-btn.active { background: var(--violet); border-color: var(--violet); color: #fff; }
+.catalog-page-btn.active { background: var(--action-primary-bg); border-color: var(--action-primary-bg); color: var(--action-primary-fg); }
 .catalog-page-btn:disabled { opacity: .35; cursor: not-allowed; }
 .catalog-page-more { color: var(--muted); }
 
@@ -2494,8 +2495,8 @@ a.info-strong:hover { color: var(--violet); }
   height: 22px;
   padding: 0 6px;
   border-radius: 999px;
-  color: #fff;
-  background: var(--violet);
+  color: var(--on-status-fg);
+  background: var(--action-primary-bg);
   font-size: 11px;
   font-weight: 700;
 }
@@ -2855,8 +2856,8 @@ button.support-stat:hover { border-color: rgba(139, 123, 240, 0.38); }
   height: 21px;
   padding: 0 5px;
   border-radius: 999px;
-  color: #fff;
-  background: var(--violet);
+  color: var(--on-status-fg);
+  background: var(--action-primary-bg);
   font-size: 10px;
   font-weight: 700;
 }
@@ -2906,8 +2907,8 @@ button.support-stat:hover { border-color: rgba(139, 123, 240, 0.38); }
   height: 20px;
   padding: 0 5px;
   border-radius: 999px;
-  color: #fff;
-  background: var(--violet);
+  color: var(--on-status-fg);
+  background: var(--action-primary-bg);
   font-size: 10px;
   font-weight: 700;
 }
@@ -3055,7 +3056,7 @@ button.support-stat:hover { border-color: rgba(139, 123, 240, 0.38); }
   transition: border-color .15s, background .15s, transform .15s;
 }
 
-.notification-bell:hover { border-color: var(--violet-dim); background: #29243a; }
+.notification-bell:hover { border-color: var(--action-selected-bg); background: var(--border-subtle); }
 .notification-bell:active { transform: translateY(1px); }
 .notification-bell.has-unread { border-color: rgba(139, 123, 240, .65); }
 
@@ -3072,7 +3073,7 @@ button.support-stat:hover { border-color: rgba(139, 123, 240, 0.38); }
   border: 2px solid var(--panel);
   border-radius: 20px;
   background: var(--rose);
-  color: #fff;
+  color: var(--on-status-fg);
   font: 700 10px/1 var(--body);
 }
 
@@ -3341,7 +3342,7 @@ button.support-stat:hover { border-color: rgba(139, 123, 240, 0.38); }
   width: 40px;
   height: 40px;
   border-radius: 12px;
-  background: linear-gradient(180deg, rgba(42, 37, 59, .98), rgba(31, 27, 45, .98));
+  background: var(--surface-2);
   box-shadow: inset 0 1px rgba(255,255,255,.025), 0 5px 18px rgba(0,0,0,.16);
 }
 
@@ -3356,7 +3357,7 @@ button.support-stat:hover { border-color: rgba(139, 123, 240, 0.38); }
 
 .notification-bell.has-unread {
   border-color: rgba(139, 123, 240, .72);
-  box-shadow: inset 0 1px rgba(255,255,255,.03), 0 0 0 3px rgba(139,123,240,.08);
+  box-shadow: inset 0 1px rgba(255,255,255,.03), 0 0 0 3px rgba(139, 123, 240, .08);
 }
 
 .notification-count {
@@ -3950,7 +3951,7 @@ button.support-stat:hover { border-color: rgba(139, 123, 240, 0.38); }
     border: 2px solid var(--ink);
     border-radius: 999px;
     background: var(--rose);
-    color: #fff;
+    color: var(--on-status-fg);
     box-shadow: 0 3px 10px rgba(0,0,0,.28);
   }
 
@@ -4005,7 +4006,7 @@ button.support-stat:hover { border-color: rgba(139, 123, 240, 0.38); }
     border: 2px solid var(--ink);
     border-radius: 999px;
     background: var(--rose);
-    color: #fff;
+    color: var(--on-status-fg);
   }
 
   .notification-toast-dock-copy strong { font-size: 10px; line-height: 1; }
@@ -5056,7 +5057,7 @@ button.support-stat:hover { border-color: rgba(139, 123, 240, 0.38); }
 .settings-tools > .input { max-width: 460px; }
 .settings-tabs { display: flex; gap: 8px; min-width: 0; overflow-x: auto; padding: 4px 0 8px; scrollbar-width: thin; }
 .settings-tabs > button { flex: 0 0 auto; white-space: nowrap; min-height: 40px; }
-.settings-tabs > button.active { background: var(--violet-dim); border-color: var(--violet); color: var(--text); }
+.settings-tabs > button.active { background: var(--action-selected-bg); border-color: var(--action-primary-bg); color: var(--action-selected-fg); }
 .settings-paused { color: var(--muted); }
 .settings-search-result { margin-bottom: 12px; }
 .settings-save-bar { position: sticky; bottom: 12px; z-index: 12; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px; margin: 18px 0; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); box-shadow: 0 4px 24px rgba(0,0,0,.3); }

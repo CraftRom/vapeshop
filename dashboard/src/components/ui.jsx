@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
+import { Children, cloneElement, createContext, isValidElement, useCallback, useContext, useEffect, useId, useRef, useState } from 'react'
 
 import { mountDialog } from './dialog'
 
@@ -35,12 +35,57 @@ export const useToast = () => useContext(ToastContext)
 
 // ---------------------------------------------------------------------- поля
 
+const NATIVE_CONTROLS = new Set(['input', 'select', 'textarea'])
+
+// Native controls reachable through plain HTML wrappers (a <div> holding the
+// input and a helper button). Components and <label> wrappers are opaque:
+// their own markup decides how the control is named.
+// Children.forEach/map hand over the original elements (toArray would re-key
+// copies), so the found control can be matched by identity in withControl.
+function nativeControls(children, found = []) {
+  Children.forEach(children, (child) => {
+    if (!isValidElement(child) || typeof child.type !== 'string') return
+    if (NATIVE_CONTROLS.has(child.type)) found.push(child)
+    else if (child.type !== 'label') nativeControls(child.props.children, found)
+  })
+  return found
+}
+
+function withControl(children, control, props) {
+  return Children.map(children, (child) => {
+    if (child === control) return cloneElement(child, props)
+    if (!isValidElement(child) || typeof child.type !== 'string' || !child.props.children) return child
+    return cloneElement(child, undefined, withControl(child.props.children, control, props))
+  })
+}
+
+// The caption must name its control for screen readers and clicking it must
+// focus the control. When the field holds exactly one native control (directly
+// or inside plain wrappers), Field gives it an id (keeping one the caller set)
+// and points the <label> and the hint at it. Anything else — composite
+// editors, nested fields, a switch wrapped in its own label — becomes a named
+// group, so the caption is still announced for everything inside.
 export function Field({ label, hint, children, htmlFor }) {
+  const baseId = useId()
+  const hintId = hint ? `${baseId}-hint` : undefined
+  const controls = htmlFor ? [] : nativeControls(children)
+  const control = controls.length === 1 ? controls[0] : null
+  const controlId = htmlFor || control?.props.id || (control ? `${baseId}-control` : undefined)
+  const describe = (current) => [current, hintId].filter(Boolean).join(' ') || undefined
+  const content = control
+    ? withControl(children, control, { id: controlId, 'aria-describedby': describe(control.props['aria-describedby']) })
+    : children
+  const group = label && !controlId
   return (
-    <div className="field">
-      {label && <label htmlFor={htmlFor}>{label}</label>}
-      {children}
-      {hint && <span className="hint">{hint}</span>}
+    <div
+      className="field"
+      role={group ? 'group' : undefined}
+      aria-labelledby={group ? `${baseId}-label` : undefined}
+      aria-describedby={group ? hintId : undefined}
+    >
+      {label && <label id={`${baseId}-label`} htmlFor={controlId}>{label}</label>}
+      {content}
+      {hint && <span className="hint" id={hintId}>{hint}</span>}
     </div>
   )
 }
