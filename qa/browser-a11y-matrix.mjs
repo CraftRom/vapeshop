@@ -42,6 +42,13 @@ function data(path) {
   if (path.endsWith('/catalog/products')) return { items: [product(1), product(2), product(3)], total: 3, limit: 20, offset: 0 }
   if (path.endsWith('/catalog/categories')) return [{ id: 1, name: 'Рідини', is_active: true, products_count: 3 }]
   if (path.endsWith('/catalog/subcategories')) return []
+  if (path === '/api/customers/5') return { id: 5, first_name: 'Олена', username: 'olena', tg_id: 123, phone: '+380671234567', referral_code: 'OLENA1', orders_count: 3, total_spent: '3200', bonus_balance: '45', created_at: '2026-01-02T00:00:00Z', is_blocked: false }
+  if (path === '/api/customers/5/summary') return { user_ids: [5], telegram_connected: true,
+    stats: { orders: 3, sales: 2, lost: 1, revenue: '3200.00', average_check: '1600.00', ordered_sum: '3200.00', average_order: '1600.00', first_order_at: '2026-05-01T00:00:00Z', last_order_at: '2026-11-10T00:00:00Z', bonus_balance: '45.00' },
+    channels: [{ key: 'bot', label: 'Бот', orders: 2 }, { key: 'miniapp', label: 'Mini App', orders: 1 }], categories: [{ name: 'Рідини', qty: 3, amount: '2400.00' }], products: [{ name: 'Рідина 30 мл', qty: 3 }],
+    order_chats: [{ order_id: 41, messages: 2, unread: 1, last_message_at: '2026-11-10T10:00:00Z' }], support_threads: [{ id: 7, status: 'open', created_at: '2026-11-01T00:00:00Z', last_message_at: '2026-11-02T00:00:00Z', closed_at: null }] }
+  if (/\/api\/customers\/5\/orders$/.test(path)) return { items: [order(41)], total: 1, limit: 20, offset: 0, has_more: false }
+  if (path === '/api/customers/5/wishlists') return []
   if (path === '/api/customers') return { items: [{ id: 5, first_name: 'Олена', username: 'olena', tg_id: 123, phone: '+380671234567', referral_code: 'OLENA1', orders_count: 3, total_spent: '3200', bonus_balance: '45', created_at: '2026-01-02T00:00:00Z', is_blocked: false }], total: 1 }
   if (path === '/api/operators') return [{ id: 1, login: 'qa', name: 'QA', role: 'admin', created_at: '2026-01-01T00:00:00Z' }, { id: 2, login: 'manager', name: 'Менеджер', role: 'operator', created_at: '2026-01-01T00:00:00Z' }]
   if (path === '/api/backups') return { items: [], total: 0, totalBytes: 0, freeBytes: 10 ** 9, retentionDays: 14, restoreMode: 'server' }
@@ -61,7 +68,7 @@ function data(path) {
   return {}
 }
 
-const PAGES = ['/', '/orders', '/orders/41', '/catalog', '/customers', '/support', '/promos', '/broadcasts', '/landing-pages', '/logs', '/settings', '/operators', '/backups', '/instructions']
+const PAGES = ['/', '/orders', '/orders/41', '/catalog', '/customers', '/customers/5', '/support', '/promos', '/broadcasts', '/landing-pages', '/logs', '/settings', '/operators', '/backups', '/instructions']
 const WIDTHS = [320, 768, 1280]
 
 const browser = await chromium.launch()
@@ -83,6 +90,17 @@ try {
       await page.waitForLoadState('networkidle')
       await page.waitForTimeout(150)
       await auditPage(page, cdp, label, check, { errors })
+      if (path === '/customers' && width === 1280) {
+        check(await page.getByRole('link', { name: 'Олена' }).first().getAttribute('href') === '/customers/5', 'customer name links to the customer card')
+      }
+      if (path === '/customers/5') {
+        check(await page.locator('h1').first().innerText() === 'Олена', `${label}: Telegram name is the card title`)
+        const stats = await page.getByRole('region', { name: 'Статистика покупок' }).innerText()
+        check(/середній чек\s+1\s600,00/i.test(stats) && /сума покупок\s+3\s200,00/i.test(stats), `${label}: revenue and average check`)
+        check(await page.getByRole('link', { name: 'Чат замовлення #41' }).getAttribute('href') === '/orders/41', `${label}: order chat opens the order`)
+        check(await page.getByRole('link', { name: 'Звернення в підтримку #7' }).getAttribute('href') === '/support?thread=7', `${label}: support thread link`)
+        check(await page.getByText('Рідини').first().isVisible(), `${label}: favourite category`)
+      }
       if (width === 320) await page.screenshot({ path: `${output}/a11y-${path.replace(/\W+/g, '-') || 'home'}-${width}.png` })
     }
     await page.close()

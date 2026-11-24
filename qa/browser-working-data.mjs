@@ -81,7 +81,7 @@ try {
  for(const path of ['orders','customers']){
   const {page,state,errors}=await staff(path)
   const list=page.locator(path==='orders'?'.orders-list':'.table-wrap')
-  const input=path==='orders'?page.getByRole('searchbox'):page.getByPlaceholder("Ім'я, username або телефон")
+  const input=path==='orders'?page.getByRole('searchbox'):page.getByPlaceholder("Ім'я, email, username або телефон")
   check((await page.getByRole('navigation',{name:'Сторінки списку'}).innerText()).includes('135'),'точний total '+path)
   await page.getByRole('button',{name:'Наступна',exact:true}).click()
   await page.waitForFunction(()=>new URL(location.href).searchParams.get('page')==='2')
