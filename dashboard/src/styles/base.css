@@ -287,6 +287,8 @@ td.num, th.num { text-align: right; font-family: var(--mono); }
 .chip.warn { color: var(--amber); border-color: rgba(242, 179, 71, 0.3); }
 .chip.bad { color: var(--rose); border-color: rgba(242, 96, 126, 0.3); }
 .chip.info { color: var(--violet); border-color: rgba(139, 123, 240, 0.3); }
+/* StateBadge: the glyph repeats the tone as a shape for colour-blind users. */
+.state-badge-glyph { display: inline-grid; place-items: center; width: 14px; height: 14px; border-radius: var(--radius-pill); border: 1px solid currentColor; font-size: 9px; font-weight: 700; line-height: 1; }
 
 /* ------------------------------------------------------------------ керування */
 

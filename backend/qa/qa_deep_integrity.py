@@ -58,9 +58,10 @@ check('upload фото не бреше про успіх без Telegram file_id
       'Бот тимчасово недоступний — фото не збережено' in shop
       and 'Telegram не повернув ідентифікатор фото' in shop)
 check('Content-Disposition filename не інтерполюється сирим',
-      "filename*=UTF-8''" in orders and "filename*=UTF-8''" in support)
+      "filename*=UTF-8''" in orders and "from api.chat_media import" in support
+      and "filename*=UTF-8''" in (ROOT / 'backend/api/chat_media.py').read_text())
 check('product photo використовує timed API transport',
-      'api.productPhoto(product.id)' in photo and 'productPhoto: async' in mini_api
+      ('api.productPhoto(product.id)' in photo or 'api.productPhoto(id)' in photo) and 'productPhoto: async' in mini_api
       and 'fetchTimed(`${BASE}${endpoint}`' in mini_api)
 
 failed = [label for label, ok in checks if not ok]

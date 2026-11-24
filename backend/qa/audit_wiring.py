@@ -854,7 +854,13 @@ for pack, css_path, srcs_glob in [("вітрина","miniapp/src/styles.css","mi
     entry = read(f"{srcs_glob}/main.jsx")
     imports = re.findall(r"import\s+['\"](\./[^'\"]+\.css)['\"]", entry)
     css_files = [str(pathlib.Path(css_path).parent / name) for name in imports]
-    css = "\n".join(read(path) for path in css_files) if css_files else read(css_path)
+    # Pages and components import their own stylesheets (broadcasts.css, ...).
+    for source in (root / srcs_glob).rglob('*'):
+        if source.suffix not in ('.jsx', '.js'):
+            continue
+        for name in re.findall(r"import\s+['\"]((?:\./|\.\./)[^'\"]+\.css)['\"]", source.read_text()):
+            css_files.append(str((source.parent / name).resolve().relative_to(root.resolve())))
+    css = "\n".join(read(path) for path in dict.fromkeys(css_files)) if css_files else read(css_path)
     used = set()
     for f in (root/srcs_glob).rglob("*.jsx"):
         for m in re.findall(r'className="([^"{}]+)"', f.read_text()):
