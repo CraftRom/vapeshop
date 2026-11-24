@@ -670,13 +670,19 @@ export default function Broadcasts() {
   useVisiblePolling(load, 4000, { enabled: active })
   const action = async (broadcast, kind) => {
     if (actionLock.current) return
-    if (
-      kind === 'send' &&
-      !confirm(
-        `${broadcast.status === 'failed' ? 'Продовжити' : 'Надіслати'} «${broadcast.title}»? Збережені результати не надсилатимуться повторно.`,
-      )
-    )
-      return
+    if (kind === 'send') {
+      // UI-021: the last step names who receives the message and how many,
+      // so a wide audience is never a surprise. The count is advisory: if
+      // the preview fails the confirmation still names the audience.
+      let reach = null
+      try { reach = (await api.broadcasts.preview(broadcast.segment))?.count ?? null } catch { reach = null }
+      const audience = `${segmentLabel(broadcast.segment)}${reach != null ? ` — отримувачів: ${reach}` : ''}`
+      if (!confirm(
+        `${broadcast.status === 'failed' ? 'Продовжити' : 'Надіслати'} «${broadcast.title}»?\n`
+        + `Аудиторія: ${audience}.\n`
+        + 'Повідомлення піде одразу; надіслане відкликати не можна. Збережені результати не надсилатимуться повторно.',
+      )) return
+    }
     if (kind === 'remove' && !confirm(`Видалити «${broadcast.title}»?`)) return
     actionLock.current = true
     setPending(broadcast.id)

@@ -120,3 +120,12 @@
 .backups-row-actions { gap: var(--space-2); flex-wrap: wrap; }
 .backups-remove { margin-left: var(--space-4); }
 @media (max-width: 560px) { .backups-remove { margin-left: 0; } }
+
+/* Text for assistive technology only (e.g. the kind of a toast). */
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+
+/* UI-018: a blocked customer is named as such; the row is muted without
+   halving the contrast of its text the way opacity did. */
+.customer-blocked > td { color: var(--text-tertiary); }
+.customer-summary { padding-bottom: var(--space-3); border-bottom: 1px solid var(--border-subtle); }
+.customer-summary dd.num { font-size: 17px; }
