@@ -17,7 +17,7 @@ import os
 import time
 from pathlib import Path
 
-from shop.build import BUILD
+from shop.build import release_id
 
 # Максимальний вік heartbeat, після якого виконавець вважається зупиненим.
 # Запас ~6-8 інтервалів: короткий GC чи перевантажений диск не дає хибної тривоги.
@@ -38,7 +38,7 @@ def beat(service: str, *, directory: Path | None = None, now: float | None = Non
         raise ValueError("Невідомий виконавець")
     directory = directory or heartbeat_dir()
     directory.mkdir(parents=True, exist_ok=True)
-    payload = {"service": service, "build": BUILD, "pid": os.getpid(),
+    payload = {"service": service, "build": release_id(), "pid": os.getpid(),
                "at": time.time() if now is None else now}
     temporary = directory / f".{service}.{os.getpid()}.tmp"
     fd = os.open(temporary, os.O_CREAT | os.O_WRONLY | os.O_TRUNC | os.O_NOFOLLOW, 0o640)

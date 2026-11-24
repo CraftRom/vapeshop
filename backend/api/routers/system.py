@@ -14,7 +14,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends
 
 from api.auth import Principal, require_admin, require_sysadmin
-from shop.build import BUILD
+from shop.build import release
 from shop.repo.base import Repository
 from shop.repo.factory import get_repo
 from shop.services.module_status import module_report
@@ -94,7 +94,12 @@ async def readiness(_who: Principal = Depends(require_sysadmin), repo: Repositor
     if redis["configured"] and not redis["ok"]:
         problems.append("Redis недоступний: живі оновлення панелі працюють лише в межах процесу")
     problems.extend(f"{m['title']}: {m['detail']}" for m in report["modules"] if m["status"] == "no_worker")
-    return {"build": BUILD, "ready": not problems, "problems": problems,
+    current = release()
+    # A worker that was not restarted after a deploy still runs the old code.
+    for worker in report["workers"]:
+        if worker["running"] and worker.get("build") and worker["build"] != current["id"]:
+            problems.append(f"{worker['title']} працює на іншій збірці ({worker['build']}); перезапустіть його")
+    return {"build": current["id"], "release": current, "ready": not problems, "problems": problems,
             "migrations": {"code_heads": heads, "database": database["revisions"], "current": migrations_current},
             "database": {k: v for k, v in database.items() if k != "revisions"},
             "redis": redis, **report}

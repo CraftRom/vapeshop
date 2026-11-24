@@ -17,6 +17,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends postgresql-clie
     && useradd -u "$APP_UID" -g "$APP_GID" -m -s /usr/sbin/nologin shop
 COPY --from=build /venv /venv
 COPY . .
-RUN chown -R shop:shop /app
+# A13: content digest of the shipped code, so the running release is unambiguous.
+RUN python -m shop.build --write && chown -R shop:shop /app
 USER shop
 CMD ["python", "-m", "bot"]

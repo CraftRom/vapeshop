@@ -196,3 +196,70 @@ async def test_promo_domain_without_controller_is_a_known_state_not_503(db, monk
         assert connect.status_code == 409 and 'PROMO_CONTROLLER_TOKEN' in connect.json()['detail']
         disconnect = await http.post('/api/landing-pages/1/domain-disconnect', headers=root)
         assert disconnect.status_code == 200 and disconnect.json()['page']['published'] is False
+
+
+# ------------------------------------------------------- A13 release id
+
+def test_release_id_follows_code_content_not_only_the_manual_label(tmp_path):
+    from shop import build
+    for name in ('shop', 'alembic/versions'):
+        (tmp_path / name).mkdir(parents=True)
+    (tmp_path / 'shop/a.py').write_text('x = 1\n')
+    (tmp_path / 'alembic/versions/r.py').write_text("revision = 'r'\n")
+    (tmp_path / 'shop/__pycache__').mkdir()
+    (tmp_path / 'shop/__pycache__/a.pyc').write_bytes(b'cache')
+    first = build.source_digest(tmp_path)
+    (tmp_path / 'shop/__pycache__/a.pyc').write_bytes(b'other cache')
+    (tmp_path / 'shop/notes.txt').write_text('not code')
+    assert build.source_digest(tmp_path) == first, 'caches and non-code files do not change the release'
+    (tmp_path / 'shop/a.py').write_text('x = 2\n')
+    assert build.source_digest(tmp_path) != first, 'a code change always changes the release'
+    rid = build.release_id()
+    assert rid.startswith(build.BUILD + '+') and len(rid.split('+')[1]) == 12
+
+
+def test_release_file_from_the_image_is_used_only_for_the_same_label(tmp_path, monkeypatch):
+    from shop import build
+    target = tmp_path / 'release.json'
+    monkeypatch.setattr(build, 'RELEASE_FILE', target)
+    build.release.cache_clear()
+    try:
+        target.write_text(json.dumps({'label': build.BUILD, 'digest': 'a' * 64, 'built_at': '2026-11-18T00:00:00+00:00'}))
+        assert build.release()['id'] == build.BUILD + '+aaaaaaaaaaaa'
+        assert build.release()['built_at'].startswith('2026-11-18')
+        build.release.cache_clear()
+        target.write_text(json.dumps({'label': 'older-label', 'digest': 'b' * 64}))
+        assert 'bbbb' not in build.release()['id'], 'a stale file from another label is ignored'
+    finally:
+        build.release.cache_clear()
+
+
+@pytest.mark.asyncio
+async def test_readiness_flags_a_worker_still_running_an_older_release(db, monkeypatch, tmp_path):
+    session, _ = db
+    repo = SqlRepository(session)
+    monkeypatch.setattr(settings, 'jwt_secret', 'readiness-signing-secret-' * 3)
+    monkeypatch.setattr(settings, 'dashboard_login', 'root')
+    monkeypatch.setattr(worker_health, 'heartbeat_dir', lambda: tmp_path)
+    worker_health.beat('maintenance', directory=tmp_path)
+    data = json.loads((tmp_path / 'maintenance.json').read_text())
+    data['build'] = 'previous-release+000000000000'
+    (tmp_path / 'maintenance.json').write_text(json.dumps(data))
+    worker_health.beat('scheduler', directory=tmp_path)
+
+    async def database():
+        return {'ok': True, 'revisions': system.code_heads(), 'latency_ms': 1.0}
+
+    async def redis():
+        return {'configured': False, 'ok': None}
+    monkeypatch.setattr(system, '_database', database)
+    monkeypatch.setattr(system, '_redis', redis)
+    app = FastAPI()
+    app.include_router(system.router, prefix='/api/system')
+    app.dependency_overrides[get_repo] = lambda: repo
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='https://dashboard.test') as http:
+        data = (await http.get('/api/system/readiness', headers={'Authorization': 'Bearer ' + create_token('root', Role.SYSADMIN, 0)})).json()
+    from shop.build import release_id
+    assert data['release']['id'] == release_id() == data['build']
+    stale = [p for p in data['problems'] if 'іншій збірці' in p]
+    assert len(stale) == 1 and 'previous-release' in stale[0] and 'резервних копій' in stale[0]
