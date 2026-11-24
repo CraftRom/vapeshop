@@ -29,7 +29,7 @@ jobs:
       - name: Migration transactions
         run: |
           export QA_POSTGRES_BIN="$(python -c 'from pathlib import Path; import pgserver; print(Path(pgserver.__file__).parent / "pginstall" / "bin")')"
-          PYTHONPATH=backend python -m pytest backend/tests_accord -q
+          PYTHONPATH=backend python -m pytest backend/tests_pytest -q
       - name: JavaScript dependencies
         run: |
           npm ci --prefix dashboard

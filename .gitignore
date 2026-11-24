@@ -9,3 +9,4 @@ dist/
 *.log
 qa/output/
 backend/shop/release.json
+.pytest_cache/
