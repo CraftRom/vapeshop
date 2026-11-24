@@ -1646,6 +1646,7 @@ input, textarea, select {
 .wl-name {
   display: flex;
   flex: 1;
+  min-height: 24px;
   align-items: center;
   gap: var(--s2);
   min-width: 0;
