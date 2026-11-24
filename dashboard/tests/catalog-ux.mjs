@@ -1,7 +1,8 @@
+import {readSourceCss} from './helpers/source-css.mjs'
 import { readFileSync } from 'node:fs'
 
 const catalog = readFileSync('src/pages/Catalog.jsx', 'utf8')
-const css = readFileSync('src/styles.css', 'utf8')
+const css = readSourceCss()
 const version = readFileSync('src/version.js', 'utf8')
 
 /** Версія панелі не нижча за ту, де функцію випущено.

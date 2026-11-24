@@ -2,6 +2,7 @@ import { useState } from 'react'
 
 import { isAdmin, isSysadmin } from '../api'
 import { APP_VERSION } from '../version'
+import { PageHeader } from '../components/page'
 
 /* Інструкції для менеджерів.
  *
@@ -464,15 +465,10 @@ export default function Instructions() {
 
   return (
     <>
-      <div className="page-head">
-        <div>
-          <h1>Інструкції</h1>
-          <p>
-            Як користуватися панеллю. Версія {APP_VERSION}
-            {admin ? ' · показано всі розділи' : ' · показано доступні вам розділи'}
-          </p>
-        </div>
-      </div>
+      <PageHeader
+        title="Інструкції"
+        description={<>Як користуватися панеллю. Версія {APP_VERSION}{admin ? ' · показано всі розділи' : ' · показано доступні вам розділи'}</>}
+      />
 
       <div className="tabs" role="tablist">
         {visible.map((g) => (

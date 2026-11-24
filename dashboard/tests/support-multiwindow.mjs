@@ -1,3 +1,4 @@
+import {readSourceCss} from './helpers/source-css.mjs'
 import fs from 'node:fs'
 import assert from 'node:assert/strict'
 
@@ -5,7 +6,7 @@ const read = path => fs.readFileSync(path, 'utf8')
 const page = read('src/pages/Support.jsx')
 const app = read('src/App.jsx')
 const api = read('src/api.js')
-const css = read('src/styles.css')
+const css = readSourceCss()
 const live = read('src/components/RealtimeOrders.jsx')
 const notification = read('src/components/NotificationCenter.jsx')
 const messages = read('src/components/useChatMessages.js')

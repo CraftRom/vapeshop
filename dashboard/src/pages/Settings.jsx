@@ -4,6 +4,8 @@ import { api, isAdmin, isSysadmin } from '../api'
 import { ErrorBar, Field, Loading, useToast } from '../components/ui'
 import { SETTINGS_CATEGORIES, categoryFor, changedSettings } from '../settingsModel'
 import ModuleStatus from '../components/ModuleStatus'
+import { PageHeader, SectionCard } from '../components/page'
+import { StateBadge } from '../components/StateBadge'
 
 // Менеджер бачить лише реферальну програму: решта параметрів — реквізити,
 // адреси, список менеджерів — за адміністратором. Бекенд це теж перевіряє,
@@ -428,9 +430,9 @@ function EnvironmentCard() {
     <div className="card" style={{ marginBottom: 18 }}>
       <div className="row-between">
         <h2 style={{ margin: 0 }}>Стан оточення</h2>
-        <span className={`chip ${problems.length ? '' : 'ok'}`}>
+        <StateBadge tone={problems.length ? 'warning' : 'success'}>
           {problems.length ? `потребує уваги: ${problems.length}` : 'усе задано'}
-        </span>
+        </StateBadge>
       </div>
       <p className="faint">
         Значення не показуються — лише те, задана змінна чи ні. Змінюються
@@ -546,9 +548,9 @@ function SalesDriveCheck() {
         {busy ? 'Перевірка…' : 'Перевірити звʼязок'}
       </button>
       {state && (
-        <span className={`chip ${state.ok ? 'ok' : 'bad'}`}>
+        <StateBadge tone={state.ok ? 'success' : 'danger'}>
           {state.ok ? 'SalesDrive відповідає' : state.problem}
-        </span>
+        </StateBadge>
       )}
       <span className="faint">Перевіряє субдомен і API-ключ збереженими значеннями</span>
     </div>
@@ -668,20 +670,20 @@ export default function Settings() {
 
   return (
     <>
-      <div className="page-head">
-        <div>
-          <h1>Налаштування</h1>
-          <p>Магазин, автоматизація та інтеграції — за розділами</p>
-        </div>
-        <div className="row">
-          <button className="btn ghost" onClick={reset} disabled={!dirty || busy}>
-            Скасувати
-          </button>
-          <button className="btn" onClick={save} disabled={!dirty || busy}>
-            {busy ? 'Збереження…' : 'Зберегти'}
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        title="Налаштування"
+        description="Магазин, автоматизація та інтеграції — за розділами"
+        actions={<>
+          <div className="row">
+            <button className="btn ghost" onClick={reset} disabled={!dirty || busy}>
+              Скасувати
+            </button>
+            <button className="btn" onClick={save} disabled={!dirty || busy}>
+              {busy ? 'Збереження…' : 'Зберегти'}
+            </button>
+          </div>
+        </>}
+      />
 
       <ErrorBar error={error} />
 
@@ -700,24 +702,24 @@ export default function Settings() {
       {!shownGroups.length && <div className="card"><p>Нічого не знайдено. Спробуйте іншу назву.</p></div>}
       <fieldset className="settings-form" disabled={busy}>
       {shownGroups.map((group) => (
-        <div className="card" key={group.title} style={{ marginBottom: 18 }}>
-          <div className="row-between">
-            <h2 style={{ margin: 0 }}>{group.title}</h2>
-            {group.toggle && (
-              <label className="row" style={{ gap: 8, cursor: 'pointer' }}>
-                <input
-                  type="checkbox"
-                  role="switch" aria-label={group.title}
-                  checked={Boolean(form[group.toggle])}
-                  onChange={(e) =>
-                    setForm((f) => ({ ...f, [group.toggle]: e.target.checked }))
-                  }
-                />
-                {form[group.toggle] ? 'Увімкнено' : 'Вимкнено'}
-              </label>
-            )}
-          </div>
-          {group.hint && <p className="faint">{group.hint}</p>}
+        <SectionCard
+          key={group.title}
+          title={group.title}
+          description={group.hint}
+          actions={group.toggle && (
+            <label className="row" style={{ gap: 8, cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                role="switch" aria-label={group.title}
+                checked={Boolean(form[group.toggle])}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, [group.toggle]: e.target.checked }))
+                }
+              />
+              {form[group.toggle] ? 'Увімкнено' : 'Вимкнено'}
+            </label>
+          )}
+        >
           {/* Поля вимкненого модуля лишаються видимими, лише приглушеними:
               їх треба налаштувати ДО того, як вмикати */}
           <div className={group.toggle && !form[group.toggle] ? 'settings-paused' : ''}>
@@ -801,13 +803,13 @@ export default function Settings() {
               <button type="button" className="btn ghost small" onClick={autoMapSalesDrive} disabled={!sdDicts.statuses.length}>
                 Автозіставити
               </button>
-              <span className={`chip ${sdDictError ? 'bad' : (sdDicts.statuses.length ? 'ok' : '')}`}>
+              <StateBadge tone={sdDictError ? 'danger' : (sdDicts.statuses.length ? 'success' : 'neutral')}>
                 {sdDictError || (sdDicts.statuses.length ? `Завантажено: ${sdDicts.statuses.length} статусів, ${sdDicts.payments.length} оплат, ${sdDicts.deliveries.length} доставок` : 'Довідники ще не завантажено')}
-              </span>
+              </StateBadge>
             </div>
             <SalesDriveCheck />
           </>}
-        </div>
+        </SectionCard>
       ))}
       </fieldset>
       <div className="settings-save-bar" role="region" aria-label="Збереження налаштувань">

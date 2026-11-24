@@ -11,6 +11,7 @@ import { Empty, ErrorBar, Field, Info, Loading, Modal, dateTime, money, useToast
 import { useFilters } from '../components/useFilters'
 import { useListPosition } from '../components/useListPosition'
 import { useVisiblePolling } from '../components/useVisiblePolling'
+import { PageHeader } from '../components/page'
 
 // Той самий перелік, що й на сторінці замовлення.
 const DELIVERY_METHODS = {
@@ -506,12 +507,10 @@ export default function Orders() {
 
   return (
     <>
-      <div className="page-head">
-        <div>
-          <h1>Замовлення</h1>
-          <p>Продажі сайту, Mini App і бота: контакти, оплата, доставка та актуальні статуси</p>
-        </div>
-      </div>
+      <PageHeader
+        title="Замовлення"
+        description="Продажі Mini App і бота: контакти, оплата, доставка та актуальні статуси"
+      />
 
       <div className="orders-toolbar">
         <div className="orders-filters">

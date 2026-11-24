@@ -4,6 +4,13 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 
 
+
+def _dashboard_css(path):
+    """The dashboard stylesheet is an ordered list of @import files."""
+    import re as _re
+    text = path.read_text(encoding="utf-8")
+    return _re.sub(r"@import\s+['\"]([^'\"]+)['\"]\s*;", lambda m: _dashboard_css(path.parent / m.group(1)), text)
+
 def main() -> None:
     router = (ROOT / "backend/api/routers/landing_pages.py").read_text(encoding="utf-8")
     model = (ROOT / "backend/shop/models.py").read_text(encoding="utf-8")
@@ -34,7 +41,7 @@ def main() -> None:
     assert 'Що потрібно налаштувати в домені' in page
     ui = page
     api = (ROOT / "dashboard/src/api.js").read_text(encoding="utf-8")
-    css = (ROOT / "dashboard/src/styles.css").read_text(encoding="utf-8")
+    css = _dashboard_css(ROOT / "dashboard/src/styles.css")
     assert "domainStatus: (id, domain)" in api and "form.domain || selected.domain" in ui
     assert "wrongAddresses" in ui and "successfulResolvers" in ui
     page = router

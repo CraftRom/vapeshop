@@ -1,3 +1,4 @@
+import {readSourceCss} from './helpers/source-css.mjs'
 import fs from 'node:fs'
 import {
   crmBusinessOutcomeName,
@@ -6,7 +7,7 @@ import {
 
 const page = fs.readFileSync('src/pages/OrderPage.jsx', 'utf8')
 const status = fs.readFileSync('src/components/OrderStatus.jsx', 'utf8')
-const css = fs.readFileSync('src/styles.css', 'utf8')
+const css = readSourceCss()
 
 const negative = ['Відмова', 'Повернення', 'Повернено', 'Видалений', 'Видалено', 'returned', 'deleted']
 

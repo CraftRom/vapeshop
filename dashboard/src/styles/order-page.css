@@ -1,0 +1,228 @@
+/* ------------------------------------------------ сторінка замовлення */
+
+.order-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+
+@media (max-width: 1100px) {
+  .order-grid { grid-template-columns: 1fr; }
+}
+
+.chat-log {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 420px;
+  overflow-y: auto;
+  margin-bottom: 12px;
+  padding-right: 4px;
+}
+
+.bubble {
+  max-width: 82%;
+  padding: 9px 12px;
+  border-radius: 12px;
+  background: var(--panel-2, rgba(255, 255, 255, 0.04));
+}
+
+.chat-message-group {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+
+/* Репліки оператора притиснуті праворуч — щоб стрічку читали як діалог,
+   а не як журнал подій */
+.bubble.mine {
+  align-self: flex-end;
+  background: rgba(124, 106, 247, 0.16);
+}
+
+.bubble-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 3px;
+  font-size: 11.5px;
+}
+
+.bubble.is-new {
+  border: 1px solid rgba(101,168,255,.30);
+  background: rgba(101,168,255,.075);
+  box-shadow: inset 3px 0 0 rgba(101,168,255,.82);
+}
+
+.bubble-new-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 20px;
+  padding: 2px 6px;
+  border: 1px solid rgba(101,168,255,.28);
+  border-radius: 999px;
+  background: rgba(101,168,255,.12);
+  color: #b9d9ff;
+  font-size: 9.5px;
+  font-weight: 800;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.bubble-new-badge > span,
+.chat-new-counter-dot {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 6px;
+  border-radius: 50%;
+  background: #65a8ff;
+}
+
+.new-messages-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  margin: 4px 0 8px;
+  color: #9dc9ff;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .055em;
+  text-transform: uppercase;
+}
+
+.new-messages-divider::before,
+.new-messages-divider::after {
+  content: '';
+  height: 1px;
+  flex: 1 1 auto;
+  background: rgba(101,168,255,.25);
+}
+
+.order-chat-card.has-new-messages {
+  border-color: rgba(101,168,255,.30);
+}
+
+.order-chat-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.order-chat-head h2 { margin: 0 0 2px; }
+
+.chat-new-counter {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 4px 9px;
+  border: 1px solid rgba(101,168,255,.30);
+  border-radius: 999px;
+  background: rgba(101,168,255,.09);
+  color: #b9d9ff;
+  font-size: 10.5px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.bubble-text { white-space: pre-wrap; word-break: break-word; font-size: 14px; }
+
+.bubble-photo {
+  display: block;
+  max-width: 100%;
+  max-height: 260px;
+  margin-top: 6px;
+  border-radius: 8px;
+}
+
+
+/* Рядок «підпис ліворуч, значення праворуч».
+ *
+ * Використовується в підсумках замовлення й у шапках блоків налаштувань.
+ * Без цього правила елементи ставали одне під одним, і перемикач модуля
+ * з'їжджав під заголовок.
+ */
+.row-between {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+/* Підвал бічної панелі: версія й автор. Ведеться окремо від вітрини —
+   це різні застосунки з різним циклом випусків. */
+.app-footer {
+  margin-top: 10px;
+  color: var(--muted, #6b6880);
+  font-size: 11.5px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+/* --------------------------------------------------- довідка про замовлення
+ *
+ * Підпис зверху, значення знизу. Раніше картка отримувача була
+ * суцільним сірим текстом: імʼя, телефон і адреса виглядали однаково,
+ * і щоб знайти телефон, доводилось прочитати весь блок. Тепер око
+ * чіпляється за підпис, а не перебирає рядки.
+ */
+.info-row {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.info-row:last-child { border-bottom: 0; padding-bottom: 0; }
+
+.info-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 26px;
+}
+
+.info-label {
+  color: var(--faint);
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.info-value {
+  margin-top: 3px;
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.45;
+  /* Значення виділяються мишею окремо від підпису: скопіювати телефон,
+     не зачепивши слово «Номер телефону», інакше не вийде. */
+  user-select: text;
+  word-break: break-word;
+}
+
+/* Те, що переписують у накладну або читають уголос. Більший кегль і
+   моноширинні цифри: у пропорційному шрифті 1 і 7 на швидку руку
+   плутаються, а помилка в цифрі — це посилка не туди. */
+.info-strong {
+  display: inline-block;
+  color: var(--text);
+  font-size: 16px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-decoration: none;
+}
+
+a.info-strong:hover { color: var(--violet); }
+
+.info-codes {
+  margin-top: 4px;
+  color: var(--faint);
+  font-size: 11.5px;
+}
+

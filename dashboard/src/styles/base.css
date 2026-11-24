@@ -1,0 +1,547 @@
+:root {
+  /* Legacy aliases of tokens.css; new rules use the semantic tokens. */
+  --ink: var(--bg-app);
+  --panel: var(--surface-1);
+  --panel-2: var(--surface-2);
+  --line: var(--border-strong);
+  --line-soft: var(--border-subtle);
+
+  --violet: var(--action-primary-bg);
+  --violet-dim: var(--action-selected-bg);
+  --mint: var(--status-success);
+  --amber: var(--status-warning);
+  --rose: var(--status-danger);
+
+  --text: var(--text-primary);
+  --muted: var(--text-secondary);
+  --faint: var(--text-tertiary);
+
+  /* Системні шрифти: нуль зовнішніх font-запитів і без блокування першого paint. */
+  --display: ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --body: ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --mono: 'SFMono-Regular', Consolas, 'Liberation Mono', ui-monospace, monospace;
+
+  --r: 10px;
+  --sidebar: 232px;
+}
+
+* { box-sizing: border-box; }
+
+html, body, #root { height: 100%; }
+
+body {
+  margin: 0;
+  background: var(--ink);
+  color: var(--text);
+  font-family: var(--body);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3 { font-family: var(--display); font-weight: 600; margin: 0; letter-spacing: -0.01em; }
+h1 { font-size: 26px; }
+h2 { font-size: 18px; }
+h3 { font-size: 15px; }
+
+a { color: var(--violet); text-decoration: none; }
+
+:focus-visible { outline: 2px solid var(--violet); outline-offset: 2px; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
+
+/* ------------------------------------------------------------------ layout */
+
+.shell { display: flex; min-height: 100vh; }
+
+.sidebar {
+  width: var(--sidebar);
+  flex-shrink: 0;
+  background: var(--panel);
+  border-right: 1px solid var(--line);
+  padding: 22px 14px;
+  display: flex;
+  flex-direction: column;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  height: 100dvh;
+}
+
+.brand {
+  font-family: var(--display);
+  font-size: 16px;
+  font-weight: 700;
+  padding: 0 10px 20px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.brand .dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--mint);
+  box-shadow: 0 0 0 3px rgba(79, 216, 165, 0.16);
+}
+
+.nav { display: flex; flex-direction: column; gap: 2px; flex: 1; }
+
+.nav a {
+  color: var(--muted);
+  padding: 9px 11px;
+  border-radius: var(--r);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-weight: 500;
+  transition: background 0.15s, color 0.15s;
+}
+
+.nav a:hover { background: var(--panel-2); color: var(--text); }
+
+.nav a.active { background: var(--action-selected-bg); color: var(--action-selected-fg); }
+
+.nav .badge {
+  font-family: var(--mono);
+  font-size: 11px;
+  background: var(--amber);
+  color: #241a04;
+  border-radius: 20px;
+  padding: 1px 7px;
+  font-weight: 600;
+}
+
+.nav a.active .badge { background: rgba(255, 255, 255, 0.9); color: #2a2255; }
+
+.sidebar-foot { border-top: 1px solid var(--line); padding-top: 14px; }
+
+.main { flex: 1; padding: 26px 30px 60px; min-width: 0; }
+
+.page-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+
+.page-head p { margin: 4px 0 0; color: var(--muted); }
+
+/* ------------------------------------------------------------------ панелі */
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 18px;
+}
+
+.grid { display: grid; gap: 14px; }
+.grid.k4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.grid.k3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.grid.k2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.grid > .field { min-width: 0; align-self: start; }
+.grid > .field > .input, .grid > .field > select.input { width: 100%; }
+
+.metric .label {
+  color: var(--muted);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  font-weight: 600;
+}
+
+.metric .value {
+  font-family: var(--display);
+  font-size: 27px;
+  font-weight: 600;
+  margin-top: 7px;
+  letter-spacing: -0.02em;
+}
+
+.metric .sub { color: var(--faint); font-size: 12px; margin-top: 3px; }
+.metric.accent .value { color: var(--mint); }
+.metric.warn .value { color: var(--amber); }
+
+/* ------------------------------------------------------------------ таблиці */
+
+.table-wrap { overflow-x: auto; }
+
+table { width: 100%; border-collapse: collapse; }
+
+th {
+  text-align: left;
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  font-weight: 600;
+  padding: 0 12px 10px;
+  white-space: nowrap;
+}
+
+td { padding: 12px; border-top: 1px solid var(--line-soft); vertical-align: middle; }
+
+tbody tr:hover { background: var(--panel-2); }
+
+td.num, th.num { text-align: right; font-family: var(--mono); }
+
+.mono { font-family: var(--mono); font-size: 13px; }
+
+.id-tag {
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--violet);
+}
+
+.muted { color: var(--muted); }
+.faint { color: var(--faint); font-size: 12px; }
+
+/* ------------------------------------------------------------- рейка статусу
+   Замовлення проходить фіксовану послідовність — тому статус показано як
+   доріжку етапів, а не як випадний список. Клік по етапу переводить туди. */
+
+.rail { display: flex; gap: 3px; align-items: stretch; }
+
+.rail button {
+  flex: 1;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  color: var(--faint);
+  font-family: var(--body);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 6px 4px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  white-space: nowrap;
+}
+
+.rail button:first-child { border-radius: 8px 0 0 8px; }
+.rail button:last-child { border-radius: 0 8px 8px 0; }
+.rail button:hover:not(:disabled) { color: var(--text); border-color: var(--violet-dim); }
+.rail button:disabled { cursor: default; }
+
+.rail button.passed { background: rgba(139, 123, 240, 0.16); color: var(--violet); border-color: transparent; }
+.rail button.current { background: var(--action-primary-bg); color: var(--action-primary-fg); border-color: var(--violet); }
+.rail button.cancelled { background: rgba(242, 96, 126, 0.16); color: var(--rose); border-color: transparent; }
+
+/* ------------------------------------------------------- вкладки розділів */
+
+/* Окремо від .rail: там кнопки ділять ширину порівну, бо статусів рівно
+   п'ять. Розділів інструкції дюжина, і порівну вони перетворюються на
+   смужки по два символи. Тут — природна ширина й горизонтальна прокрутка. */
+.tabs {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding-bottom: 6px;
+  margin-bottom: 16px;
+  scrollbar-width: thin;
+  -webkit-overflow-scrolling: touch;
+}
+
+.tabs button {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  color: var(--faint);
+  padding: 8px 14px;
+  border-radius: 999px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.tabs button:hover { color: var(--text); border-color: var(--violet-dim); }
+.tabs button.active { background: var(--action-primary-bg); color: var(--action-primary-fg); border-color: var(--violet); }
+
+@media (max-width: 760px) {
+  /* На вузькому екрані прокрутка має бути помітною: інакше здається, що
+     розділів рівно стільки, скільки влізло. */
+  .tabs { margin: 0 -14px 14px; padding: 0 14px 8px; }
+  .tabs button { font-size: 13px; padding: 7px 12px; }
+}
+
+/* --------------------------------------------------------------------- чіпи */
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 3px 9px;
+  border-radius: 20px;
+  background: var(--panel-2);
+  color: var(--muted);
+  border: 1px solid var(--line);
+}
+
+.chip.ok { color: var(--mint); border-color: rgba(79, 216, 165, 0.3); }
+.chip.warn { color: var(--amber); border-color: rgba(242, 179, 71, 0.3); }
+.chip.bad { color: var(--rose); border-color: rgba(242, 96, 126, 0.3); }
+.chip.info { color: var(--violet); border-color: rgba(139, 123, 240, 0.3); }
+
+/* ------------------------------------------------------------------ керування */
+
+button, input, select, textarea { font-family: inherit; font-size: 14px; }
+
+:root {
+  --control-height: 44px;
+  --control-height-compact: 40px;
+  --control-padding-x: 12px;
+  --control-radius: var(--r);
+  --field-label-min-height: 16px;
+}
+
+.btn {
+  background: var(--action-primary-bg);
+  color: var(--action-primary-fg);
+  border: none;
+  border-radius: var(--r);
+  padding: 9px 16px;
+  min-height: var(--control-height);
+  font-weight: 600;
+  cursor: pointer;
+  transition: filter 0.15s;
+}
+
+.btn:hover { filter: brightness(1.1); }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; filter: none; }
+
+.btn.ghost { background: var(--panel-2); color: var(--text); border: 1px solid var(--line); }
+.btn.ghost:hover { border-color: var(--violet-dim); filter: none; }
+.btn.danger { background: transparent; color: var(--rose); border: 1px solid rgba(242, 96, 126, 0.35); }
+.btn.small { min-height: 34px; padding: 6px 11px; font-size: 13px; }
+
+.input, select.input, textarea.input {
+  width: 100%;
+  display: block;
+  background: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: var(--control-radius);
+  color: var(--text);
+  min-height: var(--control-height);
+  height: var(--control-height);
+  padding: 0 var(--control-padding-x);
+  line-height: 1.25;
+  transition: border-color 0.15s, background .15s;
+  box-sizing: border-box;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.input:focus { border-color: var(--violet); outline: none; }
+
+input.input[type='date'],
+input.input[type='datetime-local'],
+input.input[type='time'],
+input.input[type='number'],
+input.input[type='email'],
+input.input[type='tel'],
+input.input[type='url'],
+input.input[type='password'],
+input.input[type='search'],
+input.input[type='text'] {
+  line-height: normal;
+}
+
+select.input {
+  padding-right: 38px;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--muted) 50%),
+    linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+  background-position:
+    calc(100% - 18px) calc(50% - 2px),
+    calc(100% - 12px) calc(50% - 2px);
+  background-size: 6px 6px, 6px 6px;
+  background-repeat: no-repeat;
+}
+
+textarea.input {
+  resize: vertical;
+  min-height: 96px;
+  height: auto;
+  padding: 10px var(--control-padding-x);
+  line-height: 1.45;
+}
+
+input.input[type='file'] {
+  height: var(--control-height);
+  min-height: var(--control-height);
+  padding: 5px 7px;
+  line-height: 32px;
+}
+
+input.input[type='file']::file-selector-button {
+  height: 32px;
+  margin: 0 10px 0 0;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: calc(var(--control-radius) - 3px);
+  background: var(--panel-2);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+input.input::-webkit-calendar-picker-indicator {
+  opacity: .72;
+  cursor: pointer;
+}
+
+.field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+/* Сусідні поля поза .stack: підказка під одним полем налягала на підпис
+   наступного, і було неясно, до якого поля вона стосується. Так виглядали
+   всі групи налаштувань і поля накладної й нотатки в замовленні. */
+.field + .field { margin-top: 14px; }
+.stack > .field + .field,
+.grid > .field + .field,
+.row > .field + .field,
+.toolbar > .field + .field,
+.crm-editor-grid > .field + .field { margin-top: 0; }
+.field > label {
+  display: flex;
+  align-items: flex-end;
+  min-height: var(--field-label-min-height);
+  font-size: 12px;
+  line-height: 1.25;
+  font-weight: 600;
+  color: var(--muted);
+}
+.field .hint {
+  display: block;
+  min-height: 16px;
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--faint);
+}
+
+.toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 16px; }
+.toolbar .input { width: auto; min-width: 200px; }
+.spacer { flex: 1; }
+
+.row { display: flex; gap: 10px; align-items: center; }
+.stack { display: flex; flex-direction: column; gap: 14px; }
+
+/* ------------------------------------------------------------------ модалка */
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(8, 6, 14, 0.72);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 40px 16px;
+  overflow-y: auto;
+  z-index: 1000;
+}
+
+.modal {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  width: 100%;
+  max-width: 540px;
+  padding: 22px;
+}
+
+.modal header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; }
+.modal footer { display: flex; gap: 10px; justify-content: flex-end; margin-top: 22px; }
+
+.promo-form-fields { margin: 0; padding: 0; border: 0; min-width: 0; }
+.promo-field-error { color: var(--rose); font-size: 12px; line-height: 1.4; }
+.promo-editor [aria-invalid='true'] { border-color: var(--rose); }
+.promo-editor input[type='date'] { color-scheme: dark; }
+
+.icon-btn {
+  background: none;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 20px;
+  line-height: 1;
+  padding: 4px 8px;
+  border-radius: 8px;
+}
+
+.icon-btn:hover { background: var(--panel-2); color: var(--text); }
+
+/* ------------------------------------------------------------------- стани */
+
+.empty { text-align: center; padding: 48px 20px; color: var(--muted); }
+.empty h3 { margin-bottom: 6px; color: var(--text); }
+
+.error-bar {
+  background: rgba(242, 96, 126, 0.1);
+  border: 1px solid rgba(242, 96, 126, 0.3);
+  color: var(--rose);
+  border-radius: var(--r);
+  padding: 10px 14px;
+  margin-bottom: 16px;
+}
+
+.toast {
+  position: fixed;
+  bottom: 22px;
+  right: 22px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--mint);
+  border-radius: var(--r);
+  padding: 12px 18px;
+  z-index: 60;
+  animation: rise 0.22s ease-out;
+}
+
+.toast.bad { border-left-color: var(--rose); }
+
+@keyframes rise { from { opacity: 0; transform: translateY(8px); } }
+
+.skeleton {
+  height: 14px;
+  border-radius: 6px;
+  background: linear-gradient(90deg, var(--panel-2) 25%, var(--line) 50%, var(--panel-2) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.3s infinite;
+}
+
+@keyframes shimmer { to { background-position: -200% 0; } }
+
+/* -------------------------------------------------------------------- login */
+
+.login-screen { display: grid; place-items: center; min-height: 100vh; padding: 20px; }
+.login-card { width: 100%; max-width: 340px; }
+.login-card h1 { margin-bottom: 4px; }
+.login-card .stack { margin-top: 22px; }
+
+/* ------------------------------------------------------------------ адаптив */
+
+@media (max-width: 1080px) {
+  .grid.k4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .grid.k3, .grid.k2 { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 760px) {
+  .shell { flex-direction: column; }
+  .sidebar {
+    width: 100%; height: auto; position: static;
+    border-right: none; border-bottom: 1px solid var(--line);
+    padding: 14px;
+  }
+  .nav { flex-direction: row; overflow-x: auto; gap: 6px; }
+  .nav a { white-space: nowrap; }
+  .sidebar-foot { display: none; }
+  .main { padding: 18px 14px 40px; }
+  .grid.k4 { grid-template-columns: 1fr; }
+}
+
+

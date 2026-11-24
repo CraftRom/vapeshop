@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api, isSysadmin } from '../api'
 import { RELEASE_ID } from '../version'
+import { StateBadge } from './StateBadge'
 
 // A04: "enabled in settings" is not "running". The server derives each state
 // from settings plus worker heartbeats; the panel only renders it.
@@ -50,7 +51,7 @@ export default function ModuleStatus() {
         {/* An older or partial API answer must never take the settings page down. */}
         {(Array.isArray(report.modules) ? report.modules : []).map((item) => {
           const state = moduleState(item.status)
-          return <li key={item.key}><span className={'chip ' + state.tone}>{state.label}</span><div><strong>{item.title}</strong><small>{item.detail}</small></div></li>
+          return <li key={item.key}><StateBadge tone={state.tone}>{state.label}</StateBadge><div><strong>{item.title}</strong><small>{item.detail}</small></div></li>
         })}
       </ul>}
       {isSysadmin() && <div className="module-status-release">

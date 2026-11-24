@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../api'
 import { useFilters } from '../components/useFilters'
 import { useVisiblePolling } from '../components/useVisiblePolling'
+import { StateBadge } from '../components/StateBadge'
 
 const SERVICE_LABEL = {
   security: 'Безпека',
@@ -84,7 +85,8 @@ const FIELD_LABELS = {
   errorName: 'Тип помилки',
 }
 
-const SEVERITY_CHIP = { alarm: 'error', notice: 'warn', info: '' }
+// «error» had no style, so security alarms looked neutral.
+const SEVERITY_CHIP = { alarm: 'bad', notice: 'warn', info: '' }
 
 function Record({ record }) {
   const [open, setOpen] = useState(false)
@@ -110,7 +112,7 @@ function Record({ record }) {
         title={fullDate(record.time)}
       >
         <td className="faint" style={{ whiteSpace: 'nowrap' }}>{shortTime(record.time)}</td>
-        <td><span className={`chip ${chip}`}>{badge}</span></td>
+        <td><StateBadge tone={chip}>{badge}</StateBadge></td>
         <td style={{ maxWidth: 480 }}>
           <div>{record.message}</div>
           {/* Для подій безпеки другим рядком іде пояснення, а не код:

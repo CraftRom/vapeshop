@@ -1,6 +1,7 @@
+import {readSourceCss} from './helpers/source-css.mjs'
 import fs from 'node:fs'
 
-const css = fs.readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
+const css = readSourceCss()
 const chart = fs.readFileSync(new URL('../src/components/RevenueChart.jsx', import.meta.url), 'utf8')
 
 const checks = [

@@ -1,3 +1,4 @@
+import {readSourceCss} from './helpers/source-css.mjs'
 // Нові замовлення й непрочитані повідомлення мають різні, сталі маркери.
 import { readFileSync } from 'node:fs'
 
@@ -6,7 +7,7 @@ const status = read('src/components/OrderStatus.jsx')
 const orders = read('src/pages/Orders.jsx')
 const page = read('src/pages/OrderPage.jsx')
 const chat = read('src/components/useChatMessages.js')
-const css = read('src/styles.css')
+const css = readSourceCss()
 const version = read('src/version.js')
 
 let bad = 0

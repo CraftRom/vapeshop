@@ -1,9 +1,10 @@
+import {readSourceCss} from './helpers/source-css.mjs'
 import fs from 'node:fs'
 import {paymentMeta} from '../src/commerce.js'
 
 const page = fs.readFileSync(new URL('../src/pages/OrderPage.jsx', import.meta.url), 'utf8')
 const orders = fs.readFileSync(new URL('../src/pages/Orders.jsx', import.meta.url), 'utf8')
-const css = fs.readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8')
+const css = readSourceCss()
 const version = fs.readFileSync(new URL('../src/version.js', import.meta.url), 'utf8')
 
 const checks = [

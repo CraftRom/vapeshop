@@ -36,4 +36,18 @@
   --status-info: #7CB7F0;
   /* Text placed on a filled status/brand badge */
   --on-status-fg: #100E18;
+
+  /* Spacing scale (audit §3.2): use these instead of one-off pixel values. */
+  --space-1: 4px;   /* icon ↔ caption */
+  --space-2: 8px;   /* related details */
+  --space-3: 12px;  /* small groups, dense tables */
+  --space-4: 16px;  /* base inner padding */
+  --space-5: 20px;  /* vertical group of fields */
+  --space-6: 24px;  /* card / section */
+  --space-8: 32px;  /* between major sections */
+
+  /* Radii by role */
+  --radius-control: 10px; /* inputs, buttons */
+  --radius-card: 14px;    /* cards, dialogs */
+  --radius-pill: 999px;   /* badges, chips */
 }

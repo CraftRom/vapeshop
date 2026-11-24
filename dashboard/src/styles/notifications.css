@@ -1,0 +1,1129 @@
+/* ================================================================
+   Центр сповіщень — 1.30
+   Події зберігаються на сервері, але звук і системний popup — локальні
+   налаштування конкретного браузера. Дзвіночок живе в глобальній шапці,
+   тому нове повідомлення видно з будь-якого розділу панелі.
+   ================================================================ */
+
+.sidebar-head { position: relative; }
+
+.notification-center {
+  position: absolute;
+  top: -7px;
+  right: 4px;
+  z-index: 95;
+}
+
+.notification-bell {
+  position: relative;
+  width: 38px;
+  height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel-2);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 17px;
+  transition: border-color .15s, background .15s, transform .15s;
+}
+
+.notification-bell:hover { border-color: var(--action-selected-bg); background: var(--border-subtle); }
+.notification-bell:active { transform: translateY(1px); }
+.notification-bell.has-unread { border-color: rgba(139, 123, 240, .65); }
+
+.notification-count {
+  position: absolute;
+  top: -7px;
+  right: -7px;
+  min-width: 19px;
+  height: 19px;
+  padding: 0 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid var(--panel);
+  border-radius: 20px;
+  background: var(--rose);
+  color: var(--on-status-fg);
+  font: 700 10px/1 var(--body);
+}
+
+.notification-popover {
+  position: absolute;
+  top: 46px;
+  left: 0;
+  width: min(410px, calc(100vw - 28px));
+  max-height: min(680px, calc(100vh - 72px));
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 15px;
+  background: #171420;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, .46);
+}
+
+.notification-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.notification-head > div:first-child { display: flex; flex-direction: column; gap: 1px; }
+.notification-head-actions { display: flex; align-items: center; gap: 5px; }
+
+.notification-settings {
+  display: grid;
+  gap: 10px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line-soft);
+  background: rgba(34, 30, 49, .72);
+}
+
+.notification-permission-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.notification-permission-row > div {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.notification-help { color: var(--amber); }
+
+.notification-toggle,
+.notification-kind-toggle {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.notification-toggle > span { flex: 1; }
+.notification-toggle input,
+.notification-kind-toggle input { accent-color: var(--violet); }
+
+.notification-kind-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 7px 12px;
+  padding-top: 4px;
+  border-top: 1px solid var(--line-soft);
+}
+
+.notification-kind-toggle { font-size: 12px; }
+
+.notification-permission-banner {
+  width: calc(100% - 20px);
+  margin: 10px;
+  padding: 10px 11px;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid rgba(139, 123, 240, .4);
+  border-radius: 11px;
+  background: rgba(139, 123, 240, .09);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.notification-permission-banner > span:nth-child(2) { display: flex; flex-direction: column; }
+.notification-permission-banner small { color: var(--muted); font-size: 11px; }
+
+.notification-list {
+  min-height: 110px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.notification-item {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 36px 1fr;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 0;
+  border-bottom: 1px solid var(--line-soft);
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.notification-item:hover { background: var(--panel-2); }
+.notification-item.unread { background: rgba(139, 123, 240, .055); }
+.notification-icon {
+  width: 34px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel-2);
+  font-size: 16px;
+}
+.notification-copy { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.notification-copy > span:not(.notification-title-row) {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.notification-copy small { color: var(--faint); font-size: 10.5px; }
+.notification-title-row { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.notification-title-row strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+.notification-dot {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 7px;
+  border-radius: 50%;
+  background: var(--violet);
+  box-shadow: 0 0 0 3px rgba(139, 123, 240, .12);
+}
+.notification-empty { padding: 28px 14px; color: var(--faint); text-align: center; }
+
+@media (max-width: 760px) {
+  .sidebar-head { padding-right: 90px; }
+
+  .notification-center {
+    position: absolute;
+    top: 0;
+    right: 46px;
+  }
+
+  .notification-bell {
+    width: 40px;
+    height: 40px;
+  }
+
+  .notification-popover {
+    position: fixed;
+    top: 61px;
+    left: 8px;
+    right: 8px;
+    width: auto;
+    max-height: calc(100dvh - 70px);
+    border-radius: 14px;
+  }
+
+  .notification-head { padding: 12px; }
+  .notification-settings { padding: 11px 12px; }
+  .notification-kind-grid { grid-template-columns: 1fr; }
+  .notification-permission-row { align-items: flex-start; flex-direction: column; }
+  .notification-permission-row .btn { width: 100%; }
+  .notification-item { min-height: 68px; padding: 11px 12px; }
+}
+
+.notification-nudge {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 94;
+  display: flex;
+  align-items: stretch;
+  overflow: hidden;
+  border: 1px solid rgba(139, 123, 240, .48);
+  border-radius: 13px;
+  background: #1d1929;
+  box-shadow: 0 16px 45px rgba(0, 0, 0, .38);
+}
+.notification-nudge-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 13px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+.notification-nudge-main > span:last-child { display: flex; flex-direction: column; }
+.notification-nudge-main small { color: var(--muted); font-size: 11px; }
+.notification-nudge-close {
+  width: 36px;
+  border: 0;
+  border-left: 1px solid var(--line-soft);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 20px;
+}
+.notification-nudge-close:hover { color: var(--text); background: var(--panel-2); }
+
+@media (max-width: 760px) {
+  .notification-nudge {
+    left: 10px;
+    right: 10px;
+    bottom: 10px;
+  }
+  .notification-nudge-main { flex: 1; min-width: 0; }
+}
+
+/* ================================================================
+   Сповіщення 1.31 — компактна кнопка + toast-стек
+   Три нові події видно шарами. Довший хвіст лишається одним стеком;
+   hover/focus або натискання розкриває прокручуваний список угору.
+   Через 15 секунд стек згортається в плаваючу кнопку, але не губиться.
+   ================================================================ */
+
+/* Дзвіночок більше не висить absolute поверх назви магазину. */
+.sidebar-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  position: relative;
+}
+
+.brand {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding-right: 0;
+}
+
+.notification-center {
+  position: relative;
+  inset: auto;
+  flex: 0 0 auto;
+  margin-left: auto;
+  z-index: 95;
+}
+
+.notification-bell {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  background: var(--surface-2);
+  box-shadow: inset 0 1px rgba(255,255,255,.025), 0 5px 18px rgba(0,0,0,.16);
+}
+
+.notification-bell > span:first-child {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 8px;
+  background: rgba(139, 123, 240, .1);
+}
+
+.notification-bell.has-unread {
+  border-color: rgba(139, 123, 240, .72);
+  box-shadow: inset 0 1px rgba(255,255,255,.03), 0 0 0 3px rgba(139, 123, 240, .08);
+}
+
+.notification-count {
+  top: -6px;
+  right: -6px;
+  min-width: 20px;
+  height: 20px;
+  border-color: var(--panel);
+  font-size: 10px;
+}
+
+.notification-popover {
+  top: 48px;
+  left: 0;
+  width: min(420px, calc(100vw - 24px));
+  border-radius: 16px;
+  background: rgba(23, 20, 32, .985);
+  box-shadow: 0 28px 80px rgba(0, 0, 0, .52), 0 0 0 1px rgba(255,255,255,.015);
+}
+
+.notification-head {
+  min-height: 58px;
+  padding: 12px 13px 12px 15px;
+}
+
+.notification-head-actions .btn {
+  min-height: 32px;
+}
+
+.notification-list { scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
+.notification-list::-webkit-scrollbar,
+.notification-toast-scroll::-webkit-scrollbar { width: 8px; }
+.notification-list::-webkit-scrollbar-thumb,
+.notification-toast-scroll::-webkit-scrollbar-thumb { background: var(--line); border-radius: 99px; }
+.notification-list::-webkit-scrollbar-track,
+.notification-toast-scroll::-webkit-scrollbar-track { background: transparent; }
+
+/* ------------------------------ живі toast-події */
+.notification-toast-stage,
+.notification-toast-dock {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 140;
+}
+
+.notification-toast-stage {
+  width: min(390px, calc(100vw - 28px));
+  transform-origin: right bottom;
+}
+
+.notification-toast-stage.is-compact {
+  height: 126px;
+}
+
+.notification-toast-compact-stack {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.notification-toast-card {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) 18px;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 12px 12px 13px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--violet);
+  border-radius: 14px;
+  background: rgba(29, 25, 41, .985);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  box-shadow: 0 18px 55px rgba(0, 0, 0, .42), inset 0 1px rgba(255,255,255,.02);
+  transition: border-color .16s ease, background .16s ease, transform .18s ease, opacity .18s ease;
+}
+
+.notification-toast-card:hover {
+  border-color: rgba(139,123,240,.55);
+  background: rgba(35, 31, 49, .995);
+}
+
+.notification-toast-card.tone-product { border-left-color: #66d8a8; }
+.notification-toast-card.tone-order { border-left-color: #8b7bf0; }
+.notification-toast-card.tone-orderMessage { border-left-color: #65a8ff; }
+.notification-toast-card.tone-support { border-left-color: #f2607e; }
+.notification-toast-card.tone-system { border-left-color: #f2b347; }
+
+.notification-toast-card.is-stacked {
+  position: absolute;
+  right: 0;
+  bottom: var(--toast-stack-offset);
+  transform: scale(var(--toast-stack-scale));
+  transform-origin: right bottom;
+  min-height: 92px;
+}
+
+.notification-toast-icon {
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel-2);
+  font-size: 18px;
+}
+
+.notification-toast-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.notification-toast-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.notification-toast-title strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 13.5px;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.notification-toast-body {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.35;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.notification-toast-copy small {
+  overflow: hidden;
+  color: var(--faint);
+  font-size: 10.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.notification-toast-arrow {
+  color: var(--faint);
+  font-size: 24px;
+  line-height: 1;
+}
+
+.notification-toast-expand,
+.notification-toast-overflow {
+  position: absolute;
+  z-index: 35;
+  min-height: 28px;
+  border: 1px solid rgba(139,123,240,.38);
+  border-radius: 999px;
+  background: rgba(23, 20, 32, .96);
+  color: #c7bfff;
+  font: 700 10.5px/1 var(--body);
+  cursor: pointer;
+  box-shadow: 0 8px 22px rgba(0,0,0,.3);
+}
+
+.notification-toast-expand {
+  right: 10px;
+  bottom: -5px;
+  padding: 0 10px;
+}
+
+.notification-toast-overflow {
+  left: 10px;
+  bottom: -5px;
+  padding: 0 9px;
+  color: var(--muted);
+}
+
+.notification-toast-panel {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: rgba(23, 20, 32, .99);
+  box-shadow: 0 28px 80px rgba(0,0,0,.52);
+  animation: notification-toast-expand-in .18s ease-out both;
+}
+
+.notification-toast-panel-head {
+  min-height: 54px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 10px 10px 14px;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.notification-toast-panel-head > span {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.notification-toast-panel-head strong { font-size: 13px; }
+.notification-toast-panel-head small { color: var(--faint); font-size: 10.5px; }
+
+.notification-toast-minimize {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel-2);
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 20px;
+}
+
+.notification-toast-minimize:hover { color: var(--text); border-color: var(--violet-dim); }
+
+.notification-toast-scroll {
+  max-height: min(460px, calc(100dvh - 120px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 8px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) transparent;
+}
+
+.notification-toast-scroll .notification-toast-card {
+  margin-bottom: 7px;
+  box-shadow: none;
+  border-radius: 12px;
+}
+
+.notification-toast-scroll .notification-toast-card:last-child { margin-bottom: 0; }
+
+.notification-toast-dock {
+  min-width: 84px;
+  height: 54px;
+  display: grid;
+  grid-template-columns: 34px auto;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px 7px 9px;
+  border: 1px solid rgba(139,123,240,.52);
+  border-radius: 16px;
+  background: rgba(29, 25, 41, .985);
+  color: var(--text);
+  cursor: pointer;
+  box-shadow: 0 18px 55px rgba(0,0,0,.44);
+  animation: notification-toast-dock-in .24s ease-out both, notification-toast-attention 2.8s ease-in-out 1.1s infinite;
+}
+
+.notification-toast-dock.tone-support { border-color: rgba(242,96,126,.58); }
+.notification-toast-dock.tone-orderMessage { border-color: rgba(101,168,255,.55); }
+.notification-toast-dock.tone-product { border-color: rgba(79,216,165,.55); }
+.notification-toast-dock.tone-system { border-color: rgba(242,179,71,.55); }
+
+.notification-toast-dock-icon {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 11px;
+  background: var(--panel-2);
+  font-size: 17px;
+}
+
+.notification-toast-dock-copy {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+}
+
+.notification-toast-dock-copy strong { font-size: 15px; }
+.notification-toast-dock-copy small { color: var(--muted); font-size: 10.5px; }
+
+.notification-toast-dock-pulse {
+  position: absolute;
+  inset: -1px;
+  pointer-events: none;
+  border: 1px solid currentColor;
+  border-radius: inherit;
+  opacity: 0;
+  animation: notification-toast-ring 2.8s ease-out 1.1s infinite;
+}
+
+@keyframes notification-toast-expand-in {
+  from { opacity: 0; transform: translateY(10px) scale(.985); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes notification-toast-dock-in {
+  from { opacity: 0; transform: translateY(10px) scale(.92); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes notification-toast-attention {
+  0%, 78%, 100% { transform: translateY(0); }
+  84% { transform: translateY(-4px); }
+  90% { transform: translateY(0); }
+  94% { transform: translateY(-2px); }
+}
+
+@keyframes notification-toast-ring {
+  0%, 72% { opacity: 0; transform: scale(1); }
+  78% { opacity: .38; }
+  100% { opacity: 0; transform: scale(1.16); }
+}
+
+/* Permission-підказка не перекриває живі toast-и. */
+.notification-nudge.has-live-toasts { bottom: 86px; }
+
+@media (max-width: 760px) {
+  .sidebar-head {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 40px auto;
+    align-items: center;
+    gap: 8px;
+    padding-right: 0;
+  }
+
+  .notification-center {
+    position: relative;
+    inset: auto;
+    margin-left: 0;
+  }
+
+  .notification-bell {
+    width: 40px;
+    height: 40px;
+  }
+
+  .notification-popover {
+    position: fixed;
+    top: 62px;
+    left: 8px;
+    right: 8px;
+    width: auto;
+    max-height: calc(100dvh - 70px);
+  }
+
+  .notification-head {
+    align-items: flex-start;
+    padding: 11px 10px 11px 12px;
+  }
+
+  .notification-head-actions {
+    align-items: stretch;
+  }
+
+  .notification-head-actions .btn:last-child {
+    padding-inline: 9px;
+  }
+
+  .notification-toast-stage,
+  .notification-toast-dock {
+    right: 10px;
+    bottom: 10px;
+  }
+
+  .notification-toast-stage {
+    width: calc(100vw - 20px);
+  }
+
+  .notification-toast-stage.is-compact { height: 120px; }
+  .notification-toast-card { grid-template-columns: 38px minmax(0, 1fr) 14px; padding: 11px; }
+  .notification-toast-icon { width: 38px; height: 38px; }
+  .notification-toast-body { -webkit-line-clamp: 1; }
+  .notification-toast-scroll { max-height: min(58dvh, 430px); }
+
+  .notification-toast-dock {
+    min-width: 76px;
+    height: 50px;
+    border-radius: 15px;
+  }
+
+  .notification-nudge {
+    left: 10px;
+    right: 10px;
+    bottom: 10px;
+  }
+  .notification-nudge.has-live-toasts { bottom: 72px; }
+}
+
+@media (max-width: 420px) {
+  .brand { font-size: 14px; }
+  .nav-toggle > span:last-child { display: none; }
+  .nav-toggle { width: 40px; padding: 0; }
+  .notification-toast-title strong { font-size: 13px; }
+  .notification-toast-copy small { font-size: 10px; }
+}
+
+/* Фінальне вирівнювання шапки sidebar: відступ належить контейнеру,
+   а не тексту бренду, тому дзвіночок і назва стоять на одній осі. */
+.sidebar-head { margin-bottom: 10px; }
+.brand { padding: 0 8px; }
+
+@media (max-width: 760px) {
+  .sidebar-head { margin-bottom: 0; }
+  .brand { padding: 0; }
+}
+
+
+/* ================================================================
+   Сповіщення 1.31.3 — чиста робоча черга + стабільна шапка sidebar
+   ================================================================ */
+
+/* Назва магазину не переноситься через дзвіночок. */
+.sidebar { --sidebar-head-gap: 10px; }
+.sidebar-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 38px;
+  align-items: center;
+  column-gap: var(--sidebar-head-gap);
+  min-height: 42px;
+}
+.brand {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 2px;
+  font-size: 15px;
+  line-height: 1.15;
+}
+.brand .dot { flex: 0 0 8px; }
+.brand-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.notification-center {
+  justify-self: end;
+  align-self: center;
+  margin: 0;
+}
+.notification-bell {
+  width: 38px;
+  height: 38px;
+  border-radius: 11px;
+}
+
+/* Popover — власна вертикальна геометрія. Налаштування більше не
+   наїжджають на список подій на невисокому екрані. */
+.notification-popover {
+  top: 48px;
+  display: flex;
+  flex-direction: column;
+  width: min(430px, calc(100vw - 24px));
+  max-height: min(700px, calc(100dvh - 72px));
+}
+.notification-head { min-width: 0; }
+.notification-settings {
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: min(420px, 55dvh);
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+.notification-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
+  overflow-y: auto;
+}
+.notification-empty {
+  min-height: 92px;
+  display: grid;
+  place-items: center;
+}
+
+@media (min-width: 761px) {
+  /* 232px було впритул: довга назва + status-dot + bell змушували бренд
+     ламатися на два рядки. 12px дають стабільний запас без втрати площі. */
+  :root { --sidebar: 244px; }
+}
+
+@media (max-width: 760px) {
+  .sidebar-head {
+    grid-template-columns: minmax(0, 1fr) 40px auto;
+    column-gap: 8px;
+    min-height: 40px;
+  }
+  .brand { padding: 0; font-size: 14.5px; }
+  .notification-bell { width: 40px; height: 40px; }
+  .notification-popover {
+    top: 60px;
+    left: 8px;
+    right: 8px;
+    width: auto;
+    max-height: calc(100dvh - 68px);
+  }
+  .notification-settings { max-height: 52dvh; }
+}
+
+/* ================================================================
+   Сповіщення 1.31.4 — без перекриття таблиці та провалювання popover
+   ----------------------------------------------------------------
+   1) sticky sidebar сам є stacking-context. Без явного z-index main,
+      який іде пізніше в DOM, міг малювати рядки замовлень поверх popover.
+   2) згорнутий toast більше не лежить на status/actions: на desktop для
+      нього є вузький safe-rail праворуч, а сама кнопка стала компактною.
+   ================================================================ */
+
+/* Уся шапка/Popover sidebar гарантовано вище робочої області. */
+.sidebar {
+  z-index: 200;
+  isolation: isolate;
+}
+
+.notification-center {
+  z-index: 220;
+}
+
+.notification-popover {
+  z-index: 230;
+  background: #171420;
+  border-color: #332d46;
+  box-shadow: 0 28px 90px rgba(0, 0, 0, .64), 0 0 0 1px rgba(255,255,255,.015);
+}
+
+/* Жодного просвічування рядків Orders крізь список сповіщень. */
+.notification-head,
+.notification-list,
+.notification-item {
+  background: #171420;
+}
+
+.notification-settings {
+  background: #1d192a;
+}
+
+.notification-item.unread {
+  background: #1d192a;
+}
+
+.notification-item:hover {
+  background: #242033;
+}
+
+/* На ПК залишаємо праворуч вузьку смугу під компактний dock.
+   Це всього +46px до старого padding і не стискає таблицю помітно,
+   зате кнопка більше не лягає на rail статусів/дій. */
+@media (min-width: 761px) {
+  .main {
+    padding-right: 76px;
+  }
+
+  .notification-toast-dock {
+    right: 10px;
+    bottom: 18px;
+    width: 48px;
+    min-width: 48px;
+    height: 56px;
+    grid-template-columns: 1fr;
+    place-items: center;
+    gap: 0;
+    padding: 6px;
+    border-radius: 14px;
+  }
+
+  .notification-toast-dock-icon {
+    width: 34px;
+    height: 34px;
+  }
+
+  .notification-toast-dock-copy {
+    position: absolute;
+    top: -7px;
+    right: -3px;
+    min-width: 20px;
+    height: 20px;
+    display: grid;
+    place-items: center;
+    padding: 0 5px;
+    border: 2px solid var(--ink);
+    border-radius: 999px;
+    background: var(--rose);
+    color: var(--on-status-fg);
+    box-shadow: 0 3px 10px rgba(0,0,0,.28);
+  }
+
+  .notification-toast-dock-copy strong {
+    font-size: 10px;
+    line-height: 1;
+  }
+
+  .notification-toast-dock-copy small {
+    display: none;
+  }
+}
+
+/* На телефоні теж не тримаємо широку плашку поверх кнопок картки.
+   Маленький dock займає лише кут і враховує safe-area. */
+@media (max-width: 760px) {
+  .sidebar {
+    z-index: 200;
+  }
+
+  .main {
+    padding-bottom: calc(88px + env(safe-area-inset-bottom));
+  }
+
+  .notification-popover {
+    z-index: 230;
+    background: #171420;
+  }
+
+  .notification-toast-dock {
+    right: 8px;
+    bottom: calc(10px + env(safe-area-inset-bottom));
+    width: 50px;
+    min-width: 50px;
+    height: 50px;
+    grid-template-columns: 1fr;
+    place-items: center;
+    gap: 0;
+    padding: 6px;
+    border-radius: 14px;
+  }
+
+  .notification-toast-dock-copy {
+    position: absolute;
+    top: -6px;
+    right: -2px;
+    min-width: 20px;
+    height: 20px;
+    display: grid;
+    place-items: center;
+    padding: 0 5px;
+    border: 2px solid var(--ink);
+    border-radius: 999px;
+    background: var(--rose);
+    color: var(--on-status-fg);
+  }
+
+  .notification-toast-dock-copy strong { font-size: 10px; line-height: 1; }
+  .notification-toast-dock-copy small { display: none; }
+}
+
+/* ================================================================
+   Сповіщення 1.31.5 — повернення нижнього toast/dock без clipping
+   ----------------------------------------------------------------
+   Toast рендериться portal-ом у document.body, тому більше не залежить
+   від sticky/sidebar stacking-context. Це повертає нижній значок і живий
+   toast на всіх сторінках, але залишає popover у sidebar над контентом.
+   ================================================================ */
+.notification-toast-stage,
+.notification-toast-dock {
+  z-index: 1200;
+}
+
+.notification-toast-stage {
+  right: 18px;
+  bottom: 18px;
+}
+
+.notification-toast-dock {
+  right: 18px;
+  bottom: 18px;
+  opacity: 1;
+  visibility: visible;
+}
+
+/* Dock знову має чіткий візуальний значок. Лічильник залишається окремим
+   badge і не зливається з іконкою навіть при 2-3 цифрах. */
+.notification-toast-dock-icon {
+  position: relative;
+  z-index: 2;
+  opacity: 1;
+}
+
+.notification-toast-dock-copy {
+  z-index: 3;
+}
+
+/* Живий toast повністю непрозорий: він може лежати поверх робочої області,
+   але контент таблиці не просвічує і не виглядає як зламана розмітка. */
+.notification-toast-card,
+.notification-toast-panel,
+.notification-toast-dock {
+  background: #1d1929;
+}
+
+@media (max-width: 760px) {
+  .notification-toast-stage,
+  .notification-toast-dock {
+    right: 10px;
+    bottom: calc(12px + env(safe-area-inset-bottom));
+  }
+}
+
+/* ================================================================
+   Сповіщення 1.31.7 — локальна глобальна гучність цього ПК
+   ================================================================ */
+.notification-volume {
+  display: grid;
+  gap: 8px;
+  padding: 10px 11px;
+  border: 1px solid var(--line-soft);
+  border-radius: 11px;
+  background: #1b1726;
+  transition: opacity .15s, border-color .15s;
+}
+
+.notification-volume.is-disabled { opacity: .55; }
+
+.notification-volume-head,
+.notification-volume-row,
+.notification-volume-presets {
+  display: flex;
+  align-items: center;
+}
+
+.notification-volume-head {
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.notification-volume-head strong {
+  min-width: 48px;
+  padding: 4px 7px;
+  border: 1px solid rgba(139,123,240,.32);
+  border-radius: 8px;
+  background: rgba(139,123,240,.10);
+  color: var(--text);
+  text-align: center;
+  font: 700 11px/1 var(--body);
+}
+
+.notification-volume-row { gap: 10px; }
+
+.notification-volume-slider {
+  flex: 1;
+  min-width: 0;
+  height: 22px;
+  accent-color: var(--violet);
+  cursor: pointer;
+}
+
+.notification-volume-slider:disabled { cursor: not-allowed; }
+
+.notification-volume-presets {
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.notification-volume-preset {
+  min-width: 48px;
+  min-height: 28px;
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-2);
+  color: var(--muted);
+  font: 700 10px/1 var(--body);
+  cursor: pointer;
+}
+
+.notification-volume-preset:hover:not(:disabled) {
+  border-color: var(--violet-dim);
+  color: var(--text);
+}
+
+.notification-volume-preset.active {
+  border-color: rgba(139,123,240,.65);
+  background: rgba(139,123,240,.16);
+  color: #dcd7ff;
+}
+
+.notification-volume-preset:disabled { cursor: not-allowed; opacity: .55; }
+
+@media (max-width: 760px) {
+  .notification-volume { padding: 10px; }
+  .notification-volume-row { align-items: stretch; }
+  .notification-volume-preset { flex: 1; min-width: 58px; min-height: 34px; }
+}
+
