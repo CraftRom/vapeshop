@@ -160,7 +160,7 @@ checks = {
     ),
     "order page sends messages without broad page reload": "appendSentMessage: onSent" in page and "onSent(result.message)" in page,
     "messages and order data poll independently": (
-        "useVisiblePolling(refresh, 5000)" in chat
+        ("useVisiblePolling(refresh, 5000)" in chat or "useVisiblePolling(refresh, kind === 'support' ? 3000 : 5000)" in chat)
         and "useVisiblePolling(refreshLocalOrder, 15000)" in page
     ),
     "message polling has an after_id delta API": (

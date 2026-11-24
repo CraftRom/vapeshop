@@ -179,7 +179,7 @@ class SQLTests(unittest.IsolatedAsyncioTestCase):
   o=await self.create();first=await self.message(o,file_kind='photo',file_id='old-file')
   async with open_repo() as r:
    r.s.add_all([m.OrderMessage(order_id=o.id,user_id=o.user_id,direction='out',author='QA',text='later',is_read=False) for _ in range(201)])
-   await r.s.commit();bot=AsyncMock();bot.get_file.return_value.file_path='fake'
+   await r.s.commit();bot=AsyncMock();bot.get_file.return_value.file_path='fake';bot.get_file.return_value.file_size=5
    import io
    bot.download_file.return_value=io.BytesIO(b'photo')
    with patch('api.routers.telegram._instances',return_value=(bot,None)):

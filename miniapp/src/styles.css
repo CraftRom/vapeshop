@@ -2212,6 +2212,7 @@ input, textarea, select {
 .combo-more:disabled{opacity:.65;cursor:wait}
 .combo-list{max-height:min(44dvh,350px);scrollbar-gutter:stable;touch-action:pan-y}
 .text-action{display:inline;padding:0;border:0;background:transparent;color:var(--accent);font:inherit;text-decoration:underline;cursor:pointer}
+.courier-fields{display:block;min-width:0}
 .courier-row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .courier-row .field{min-width:0}
 @media(max-width:360px){.courier-row{grid-template-columns:1fr}}

@@ -2,6 +2,7 @@ from __future__ import annotations
 from api.schemas import MessageReadIn
 
 import logging
+from urllib.parse import quote
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, File, UploadFile
@@ -268,7 +269,8 @@ async def waybill_label(order_id: int, repo: Repository = Depends(get_repo)):
     except waybill.WaybillError as exc:
         raise HTTPException(422, str(exc)) from exc
     return Response(pdf, media_type="application/pdf", headers={
-        "Content-Disposition": f'inline; filename="ttn-{order.tracking_number}.pdf"',
+        # RFC 6266/5987: the tracking number comes from Nova Poshta; never put it raw into a header.
+        "Content-Disposition": "inline; filename=\"ttn.pdf\"; filename*=UTF-8''" + quote(f"ttn-{order.tracking_number or order.id}.pdf", safe=""),
         "Cache-Control": "no-store",
     })
 
