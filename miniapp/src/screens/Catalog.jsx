@@ -172,7 +172,10 @@ export function Catalog({ config, cart, onCartChange, onOpenProduct, wishlists, 
   const refinementActive = inStock || Boolean(search.trim())
 
   return (
-    <section className="store-catalog" aria-label="Каталог товарів">
+    <section className="store-catalog" aria-labelledby="store-catalog-title">
+      {/* The storefront shows no visible page title; screen readers still
+          need one to land on the catalog by heading navigation. */}
+      <h1 id="store-catalog-title" className="sr-only">Каталог товарів</h1>
       <div className="field search catalog-search" ref={searchRef}>
         <Field value={search} onChange={(event) => update({ search: event.target.value })} placeholder="Назва або артикул (SKU)" aria-label="Пошук товарів" inputMode="search" />
         {search && <button className="search-clear" onClick={() => update({ search: '' })} aria-label="Очистити">✕</button>}
