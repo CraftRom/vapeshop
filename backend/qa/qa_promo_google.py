@@ -4,10 +4,17 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 
 
+
+def _dashboard_css(path):
+    """The dashboard stylesheet is an ordered list of @import files."""
+    import re as _re
+    text = path.read_text(encoding="utf-8")
+    return _re.sub(r"@import\s+['\"]([^'\"]+)['\"]\s*;", lambda m: _dashboard_css(path.parent / m.group(1)), text)
+
 def main() -> None:
     router = (ROOT / "backend/api/routers/landing_pages.py").read_text(encoding="utf-8")
     ui = (ROOT / "dashboard/src/pages/LandingPages.jsx").read_text(encoding="utf-8")
-    css = (ROOT / "dashboard/src/styles.css").read_text(encoding="utf-8")
+    css = _dashboard_css(ROOT / "dashboard/src/styles.css")
     controller = (ROOT / "deploy/promo-controller/controller.py").read_text(encoding="utf-8")
 
     # Config is embedded in the page JSON snapshot: no global schema/database change.

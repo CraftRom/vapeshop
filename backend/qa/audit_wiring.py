@@ -10,7 +10,15 @@ def check(cond, label, detail=""):
 
 def read(p):
     f = root / p
-    return f.read_text() if f.exists() else ""
+    if not f.exists():
+        return ""
+    text = f.read_text()
+    if f.suffix == ".css":
+        # The dashboard stylesheet is an ordered list of @import files.
+        text = re.sub(r"@import\s+['\"]([^'\"]+)['\"]\s*;",
+                      lambda m: read(str((f.parent / m.group(1)).resolve().relative_to(root.resolve()))),
+                      text)
+    return text
 
 def before(text, first, second, label):
     """Перевіряє, що перший фрагмент іде раніше за другий.

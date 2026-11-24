@@ -10,6 +10,7 @@ import { STATUS_LABELS } from '../components/StatusRail'
 import { StatusBadge } from '../components/OrderStatus'
 import { ErrorBar, Loading, money } from '../components/ui'
 import { useVisiblePolling } from '../components/useVisiblePolling'
+import { PageHeader } from '../components/page'
 
 const RevenueChart = lazy(() => import('../components/RevenueChart'))
 
@@ -201,24 +202,24 @@ export default function Overview() {
 
   return (
     <>
-      <div className="page-head">
-        <div>
-          <h1>Огляд магазину</h1>
-          <p>{snapshotMonth ? `Збережений звіт за ${snapshotMonth}` : caption ? (period === 'all' ? 'Статистика за весь час' : `Статистика за ${caption}`) : 'Фінанси, замовлення й активність магазину'}</p>
-        </div>
-        {!snapshotMonth && <div className="row stats-periods">
-          {PERIODS.map((p) => (
-            <button
-              key={p.key}
-              className={`btn small ${period === p.key && !selection.month ? '' : 'ghost'}`}
-              aria-pressed={period === p.key && !selection.month}
-              onClick={() => setPeriod(p.key)}
-            >
-              {p.label}
-            </button>
-          ))}
-        </div>}
-      </div>
+      <PageHeader
+        title="Огляд магазину"
+        description={snapshotMonth ? `Збережений звіт за ${snapshotMonth}` : caption ? (period === 'all' ? 'Статистика за весь час' : `Статистика за ${caption}`) : 'Фінанси, замовлення й активність магазину'}
+        actions={<>
+          {!snapshotMonth && <div className="row stats-periods">
+            {PERIODS.map((p) => (
+              <button
+                key={p.key}
+                className={`btn small ${period === p.key && !selection.month ? '' : 'ghost'}`}
+                aria-pressed={period === p.key && !selection.month}
+                onClick={() => setPeriod(p.key)}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>}
+        </>}
+      />
 
       {!snapshotMonth && <CommerceWorkspace/>}
       <ClosedPeriods timezone={timezone} selected={snapshotMonth} onOpen={openSnapshot} snapshot={data?.snapshot} />

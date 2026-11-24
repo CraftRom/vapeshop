@@ -1,8 +1,9 @@
+import {readSourceCss} from './helpers/source-css.mjs'
 import fs from 'node:fs'
 
 const page = fs.readFileSync('src/pages/LandingPages.jsx', 'utf8')
 const api = fs.readFileSync('src/api.js', 'utf8')
-const css = fs.readFileSync('src/styles.css', 'utf8')
+const css = readSourceCss()
 const version = fs.readFileSync('src/version.js', 'utf8')
 
 const checks = [

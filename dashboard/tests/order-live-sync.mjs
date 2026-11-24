@@ -1,10 +1,11 @@
+import {readSourceCss} from './helpers/source-css.mjs'
 import fs from 'node:fs'
 
 const page = fs.readFileSync('src/pages/OrderPage.jsx', 'utf8')
 const chat = fs.readFileSync('src/components/useChatMessages.js', 'utf8')
 const viewport = fs.readFileSync('src/components/useChatViewport.js', 'utf8')
 const status = fs.readFileSync('src/components/OrderStatus.jsx', 'utf8')
-const css = fs.readFileSync('src/styles.css', 'utf8')
+const css = readSourceCss()
 
 const checks = [
   ['message send appends locally', page.includes('appendSentMessage: onSent') && page.includes('onSent(result.message)')],

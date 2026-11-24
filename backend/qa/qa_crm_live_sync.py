@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from dataclasses import replace
 from decimal import Decimal
 from pathlib import Path
@@ -122,7 +123,13 @@ source = Path("shop/services/salesdrive.py").read_text()
 repo_source = Path("shop/repo/sql.py").read_text()
 orders_api = Path("api/routers/orders.py").read_text()
 page = Path("../dashboard/src/pages/OrderPage.jsx").read_text()
-styles = Path("../dashboard/src/styles.css").read_text()
+def _css(path):
+    # The dashboard stylesheet is an ordered list of @import files.
+    return re.sub(r"@import\s+['\"]([^'\"]+)['\"]\s*;",
+                  lambda m: _css(path.parent / m.group(1)), path.read_text())
+
+
+styles = _css(Path("../dashboard/src/styles.css"))
 chat = Path("../dashboard/src/components/useChatMessages.js").read_text()
 
 checks = {

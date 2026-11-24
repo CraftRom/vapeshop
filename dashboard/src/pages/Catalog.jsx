@@ -8,6 +8,7 @@ import TaxonomyManager from '../components/catalog/TaxonomyManager'
 import { api } from '../api'
 import { useFilters } from '../components/useFilters'
 import { Empty, ErrorBar, Field, Loading, Modal, confirmPurge, money, useToast } from '../components/ui'
+import { PageHeader } from '../components/page'
 
 const SORT_OPTIONS = [
   ['name-asc', 'За назвою (А → Я)'],

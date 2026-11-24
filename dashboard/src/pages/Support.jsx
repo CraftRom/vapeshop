@@ -13,6 +13,11 @@ import { ChatDraftStatus, ChatLatest, ChatStatus } from '../components/ChatStatu
 import { NotificationCenter } from '../components/NotificationCenter'
 import { RealtimeOrders } from '../components/RealtimeOrders'
 import { useSupportLayoutSize, DEFAULT_INBOX_WIDTH, DEFAULT_CHAT_HEIGHT } from '../components/useSupportLayoutSize'
+import { PageHeader } from '../components/page'
+
+const FILE_LABEL = {
+  photo: 'Фото', document: 'Документ', video: 'Відео', voice: 'Голосове',
+}
 
 const EMPTY_STATS = { open: 0, closed: 0, total: 0, clients: 0, unread: 0 }
 
@@ -549,15 +554,16 @@ export default function Support() {
 
   return (
     <>
-      <div className="page-head support-page-head">
-        <div>
-          <h1>Підтримка</h1>
-          <p>Окремі звернення з /ask зберігаються в історії та групуються по клієнтах</p>
-        </div>
-        <button className="btn ghost support-refresh" onClick={() => loadThreads()} disabled={loading}>
-          Оновити
-        </button>
-      </div>
+      <PageHeader
+        className="support-page-head"
+        title="Підтримка"
+        description="Окремі звернення з /ask зберігаються в історії та групуються по клієнтах"
+        actions={<>
+          <button className="btn ghost support-refresh" onClick={() => loadThreads()} disabled={loading}>
+            Оновити
+          </button>
+        </>}
+      />
 
       <div className="support-stats" aria-label="Статистика підтримки">
         <button className={`support-stat ${status === 'open' ? 'active' : ''}`} onClick={() => changeFilter('open')}>

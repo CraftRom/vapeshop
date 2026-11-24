@@ -1,3 +1,4 @@
+import {readSourceCss} from './helpers/source-css.mjs'
 import fs from 'node:fs'
 
 function check(condition, message) {
@@ -7,7 +8,7 @@ function check(condition, message) {
 
 const page = fs.readFileSync('src/pages/OrderPage.jsx', 'utf8')
 const api = fs.readFileSync('src/api.js', 'utf8')
-const css = fs.readFileSync('src/styles.css', 'utf8')
+const css = readSourceCss()
 
 check(api.includes('before_id: beforeId'), 'staff chat API supports loading older history')
 check(page.includes('loadOlderMessages') && page.includes('Показати попередні повідомлення'), 'order page can load older conversation history')

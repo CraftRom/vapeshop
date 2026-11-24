@@ -12,6 +12,8 @@ import {
   money,
   useToast,
 } from '../components/ui'
+import { PageHeader } from '../components/page'
+import { StateBadge } from '../components/StateBadge'
 import './promos.css'
 
 const EMPTY = {
@@ -595,9 +597,9 @@ function PromoForm({
                 </strong>
               </p>
             </div>
-            <span className={`chip ${form.is_active ? 'ok' : ''}`}>
+            <StateBadge tone={form.is_active ? 'success' : 'neutral'}>
               {form.is_active ? 'Увімкнений' : 'Вимкнений'}
-            </span>
+            </StateBadge>
             <p className="promo-preview-hint">
               {scope === 'categories'
                 ? 'Знижка розраховується лише від вартості товарів обраних категорій. Мінімальна сума перевіряється за всім кошиком.'
@@ -710,15 +712,15 @@ export default function Promos() {
 
   return (
     <div className="promos-page">
-      <div className="page-head">
-        <div>
-          <h1>Промокоди</h1>
-          <p>Керуйте знижками, категоріями та умовами використання</p>
-        </div>
-        <button className="btn" onClick={() => setEditing({})}>
-          <PromoIcon kind="plus" /> Створити промокод
-        </button>
-      </div>
+      <PageHeader
+        title="Промокоди"
+        description="Керуйте знижками, категоріями та умовами використання"
+        actions={<>
+          <button className="btn" onClick={() => setEditing({})}>
+            <PromoIcon kind="plus" /> Створити промокод
+          </button>
+        </>}
+      />
       <ErrorBar error={error} />
       {error && (
         <button className="btn ghost small" onClick={load}>
@@ -795,7 +797,7 @@ export default function Promos() {
             return (
               <article key={p.id} className="promo-card">
                 <div className="promo-card-top">
-                  <span className={`chip ${tone}`}>{label}</span>
+                  <StateBadge tone={tone}>{label}</StateBadge>
                   <span className="promo-card-discount">
                     −{discountLabel(p)}
                   </span>

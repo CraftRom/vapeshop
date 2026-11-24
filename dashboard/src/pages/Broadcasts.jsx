@@ -19,6 +19,7 @@ import {
   broadcastValidation,
   plainBroadcastText,
 } from './broadcastContent'
+import { PageHeader } from '../components/page'
 import './broadcasts.css'
 
 const STATUS_CHIP = {
@@ -722,19 +723,19 @@ export default function Broadcasts() {
   )
   return (
     <div className="broadcasts-page">
-      <div className="page-head">
-        <div>
-          <h1>Розсилки</h1>
-          <p>Повідомлення клієнтам: текст, фото, аудиторії та планування</p>
-        </div>
-        <button
-          className="btn"
-          disabled={!segments.length}
-          onClick={() => setEditing({})}
-        >
-          Створити розсилку
-        </button>
-      </div>
+      <PageHeader
+        title="Розсилки"
+        description="Повідомлення клієнтам: текст, фото, аудиторії та планування"
+        actions={<>
+          <button
+            className="btn"
+            disabled={!segments.length}
+            onClick={() => setEditing({})}
+          >
+            Створити розсилку
+          </button>
+        </>}
+      />
       <ErrorBar error={error} />
       {scheduler?.status === 'no_worker' && <div className="card warn" role="status"><strong>Заплановані розсилки зараз не запустяться.</strong> {scheduler.detail}</div>}
       {error && (

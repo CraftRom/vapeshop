@@ -8,6 +8,8 @@ import { useFilters } from '../components/useFilters'
 import { OrderStatusBadge } from '../components/OrderStatus'
 import { Empty, ErrorBar, Field, Loading, Modal, date, money, useToast } from '../components/ui'
 import { useVisiblePolling } from '../components/useVisiblePolling'
+import { FilterBar, PageHeader } from '../components/page'
+import { StateBadge } from '../components/StateBadge'
 
 function BonusForm({ customer, onClose, onSaved }) {
   const notify = useToast()
@@ -149,9 +151,9 @@ function CustomerOrders({ customer, onClose }) {
                 {list.products.map((p) => (
                   <li key={p.id}>
                     {p.name} — {money(p.price)}
-                    {!p.is_active && <span className="chip bad" style={{ marginLeft: 6 }}>прихований</span>}
+                    {!p.is_active && <StateBadge tone="danger" className="inline-badge">прихований</StateBadge>}
                     {p.is_active && p.stock === 0 && (
-                      <span className="chip warn" style={{ marginLeft: 6 }}>немає в наявності</span>
+                      <StateBadge tone="warning" className="inline-badge">немає в наявності</StateBadge>
                     )}
                   </li>
                 ))}
@@ -204,21 +206,21 @@ export default function Customers() {
 
   return (
     <>
-      <div className="page-head">
-        <div>
-          <h1>Клієнти</h1>
-          <p>Історія покупок, бонуси та реферальні коди</p>
-        </div>
-      </div>
+      <PageHeader
+        title="Клієнти"
+        description="Історія покупок, бонуси та реферальні коди"
+      />
 
-      <div className="toolbar">
+      <FilterBar label="Пошук клієнтів" activeCount={search ? 1 : 0} onReset={resetFilters}>
         <input
           className="input"
+          type="search"
+          aria-label="Пошук клієнта"
           placeholder="Ім'я, username або телефон"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
-      </div>
+      </FilterBar>
 
       <ErrorBar error={error} />
       {error && <div className="row"><span className="faint">{customers ? 'Показано попередні дані. Вони можуть бути застарілими.' : 'Дані не завантажено.'}</span><button className="btn ghost small" disabled={loading} onClick={load}>Спробувати ще раз</button></div>}

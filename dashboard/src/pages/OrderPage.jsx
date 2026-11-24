@@ -15,6 +15,7 @@ import { useChatMessages } from '../components/useChatMessages'
 import { useChatViewport } from '../components/useChatViewport'
 import { useChatDraft } from '../components/useChatDraft'
 import { ChatDraftStatus, ChatLatest, ChatStatus } from '../components/ChatStatus'
+import { StateBadge } from '../components/StateBadge'
 
 // Спосіб доставки, обраний покупцем. Порожнє значення — замовлення з
 // часів, коли вибору не було: тоді все писалося одним рядком адреси.
@@ -402,7 +403,7 @@ function WaybillPanel({ order, busy, onChanged }) {
             </div>
             <div className="waybill-meta-row">
               <span className={`chip${crmWaybill ? ' crm-waybill-chip' : ''}`}>ТТН {sourceLabel}</span>
-              {order.waybill_ref && <span className="chip ok">Ref отримано</span>}
+              {order.waybill_ref && <StateBadge tone="success">Ref отримано</StateBadge>}
               {order.waybill_cost ? <span className="chip">Доставка {Number(order.waybill_cost).toLocaleString('uk-UA', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} грн</span> : null}
             </div>
             {crmDeliveryStatus && (
@@ -461,7 +462,7 @@ function WaybillPanel({ order, busy, onChanged }) {
       {crm && (
         <div className="row-between waybill-row">
           <span className="faint">
-            SalesDrive: <span className={`chip ${crm.tone}`}>{crm.label}</span>
+            SalesDrive: <StateBadge tone={crm.tone}>{crm.label}</StateBadge>
             {order.crm_id ? <span className="num"> · заявка {order.crm_id}</span> : null}
           </span>
           {['failed', 'uncertain'].includes(order.crm_state) && (

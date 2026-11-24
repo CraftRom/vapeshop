@@ -1,9 +1,10 @@
+import {readSourceCss} from './helpers/source-css.mjs'
 import { existsSync, readFileSync } from 'node:fs'
 
 const app = readFileSync('src/App.jsx', 'utf8')
 const orders = readFileSync('src/pages/Orders.jsx', 'utf8')
 const polling = readFileSync('src/components/useVisiblePolling.js', 'utf8')
-const css = readFileSync('src/styles.css', 'utf8')
+const css = readSourceCss()
 const html = readFileSync('index.html', 'utf8')
 const nginx = readFileSync('nginx.conf', 'utf8')
 const api = readFileSync('src/api.js', 'utf8')
