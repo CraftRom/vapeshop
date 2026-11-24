@@ -215,9 +215,10 @@ async def run_job(digest: str, *, open_repo=None, owner: str | None = None, now=
                                 extra={"event": "catalog.import.lease_lost"})
                     return "lost"
             await repo.finish_catalog_import(digest, applier.stats, owner=owner)
+            # `created` is a LogRecord attribute: logging raises on it in `extra`.
             log.info("Імпорт каталогу завершено", extra={"event": "catalog.import.done", "jobId": digest[:12],
-                     "created": applier.stats["created"], "updated": applier.stats["updated"],
-                     "errors": len(applier.stats["errors"])})
+                     "productsCreated": applier.stats["created"], "productsUpdated": applier.stats["updated"],
+                     "rowErrors": len(applier.stats["errors"])})
             return "done"
         except Exception as exc:
             log.exception("Імпорт каталогу перервано", extra={"event": "catalog.import.failed", "jobId": digest[:12]})
