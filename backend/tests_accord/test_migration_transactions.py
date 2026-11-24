@@ -102,7 +102,7 @@ def blog_baseline(postgres):
 
 def test_blog_migration_on_postgres_and_versioned_updates(postgres):
     blog_baseline(postgres)
-    postgres(upgrade_sql('bc1a8f723f9d:head'))
+    postgres(upgrade_sql('bc1a8f723f9d:c04b19a7e230'))
     result=postgres("""
         INSERT INTO blog_posts (slug,title,body,search_text,status,published_at,created_by,updated_by)
         VALUES ('journal','Журнал','Повний текст статті','журнал','published',now(),'owner','owner');
@@ -129,7 +129,7 @@ def test_blog_upgrade_and_downgrade_leave_existing_customers_untouched(postgres)
         INSERT INTO users (id,bonus_balance,orders_count,total_spent)
         VALUES (987,37,3,1500);
     """)
-    postgres(upgrade_sql('bc1a8f723f9d:head'))
+    postgres(upgrade_sql('bc1a8f723f9d:c04b19a7e230'))
     result=postgres('SELECT id,bonus_balance,orders_count,total_spent FROM users WHERE id=987;')
     assert 'bonus_balance = "37.00"' in result.stdout
     assert 'orders_count = "3"' in result.stdout
@@ -142,6 +142,26 @@ def test_blog_upgrade_and_downgrade_leave_existing_customers_untouched(postgres)
     result=postgres('SELECT id,bonus_balance FROM users WHERE id=987; SELECT version_num FROM alembic_version;')
     assert 'id = "987"' in result.stdout
     assert 'bc1a8f723f9d' in result.stdout
+
+
+def test_catalog_import_receipts_upgrade_and_downgrade(postgres):
+    blog_baseline(postgres)
+    postgres(upgrade_sql('bc1a8f723f9d:head'))
+    result=postgres("""
+        INSERT INTO catalog_imports (digest,created_at) VALUES ('a',now());
+        SELECT version_num FROM alembic_version;
+        SELECT status FROM catalog_imports;
+    """)
+    assert 'd7e3a91c5b20' in result.stdout and 'status = "running"' in result.stdout
+    duplicate=postgres("INSERT INTO catalog_imports (digest,created_at) VALUES ('a',now());",expect_error=True)
+    assert 'catalog_imports_pkey' in duplicate.stderr
+    downgrade=subprocess.run([sys.executable,'-m','alembic','downgrade','d7e3a91c5b20:c04b19a7e230','--sql'],
+        cwd=BACKEND,env={**os.environ,'PYTHONPATH':str(BACKEND),'DATABASE_URL':'postgresql+asyncpg://qa:qa@localhost/qa'},
+        text=True,capture_output=True,timeout=30)
+    assert downgrade.returncode==0,downgrade.stderr
+    postgres(downgrade.stdout)
+    result=postgres("SELECT to_regclass('public.catalog_imports') IS NULL AS gone; SELECT version_num FROM alembic_version;")
+    assert 'gone = "t"' in result.stdout and 'c04b19a7e230' in result.stdout
 
 
 def test_commerce_channel_and_queue_expressions_on_real_postgres(postgres):

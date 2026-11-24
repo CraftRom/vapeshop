@@ -8,3 +8,4 @@
 @media(max-width:540px){.commerce-workspace{padding:14px}.commerce-tiles{gap:8px}.commerce-tile{padding:13px}.commerce-tile>strong{font-size:27px}.commerce-tile>span{font-size:11px}.commerce-section-head{align-items:flex-start}.commerce-section-head h2{font-size:18px}.commerce-order-filters label{min-width:calc(50% - 10px)}.commerce-actions .btn{font-size:11px}.sidebar.nav-open .commerce-navigation{grid-template-columns:1fr}.commerce-channel-links{gap:8px}.commerce-columns .card{padding:14px}}
 
 .commerce-publication{display:flex;justify-content:space-between;align-items:center;gap:18px;flex-wrap:wrap;margin-bottom:20px}.commerce-publication p{color:var(--muted);margin:7px 0;font-size:13px}
+.commerce-queue{min-width:0}

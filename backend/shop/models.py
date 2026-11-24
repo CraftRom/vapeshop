@@ -686,6 +686,22 @@ class DashboardSession(Base):
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
 
 
+class CatalogImport(Base):
+    """Receipt of one applied XLSX import (A02).
+
+    A lost response or a double click repeats the same request. Without the
+    receipt the second run re-applied absolute stock values from the file and
+    silently cancelled sales made in between.
+    """
+    __tablename__ = "catalog_imports"
+    digest: Mapped[str] = mapped_column(String(64), primary_key=True)
+    status: Mapped[str] = mapped_column(String(16), default="running")
+    actor: Mapped[str] = mapped_column(String(64), default="")
+    result: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
 class AnalyticsSession(Base):
     __tablename__ = "analytics_sessions"
     __table_args__ = (UniqueConstraint("user_id", "session_id", name="uq_analytics_user_session"),

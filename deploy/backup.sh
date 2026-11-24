@@ -34,7 +34,8 @@ umask 077
 #
 # Пишемо через stdout на хост, а не в примонтований том: файл одразу
 # належить тому, хто запустив скрипт, без возні з UID контейнера.
-$COMPOSE exec -T db pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc > "$TARGET"
+# Session rows never go into a copy: replaying them would revive revoked logins.
+$COMPOSE exec -T db pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc --exclude-table-data=dashboard_sessions > "$TARGET"
 chmod 600 "$TARGET"
 
 SIZE_BYTES=$(stat -c%s "$TARGET")

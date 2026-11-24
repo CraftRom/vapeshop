@@ -26,6 +26,55 @@ def dec(v):
     try: return Decimal(str(v)) if v not in (None,'') else None
     except (InvalidOperation, ValueError): return None
 
+
+class RowError(ValueError):
+    """One spreadsheet cell is unusable; only its row is rejected."""
+
+
+def _blank(v):
+    return v is None or (isinstance(v, str) and not v.strip())
+
+
+def price_cell(v, column):
+    """Money: finite, non-negative, at most 2 decimals. Never silently dropped."""
+    if _blank(v):
+        return None
+    if isinstance(v, bool):
+        raise RowError(f'{column}: очікується число')
+    text = str(v).strip().replace(' ', '').replace('\u00a0', '').replace(',', '.')
+    try:
+        value = Decimal(text)
+    except (InvalidOperation, ValueError):
+        raise RowError(f'{column}: «{str(v)[:40]}» не є числом') from None
+    if not value.is_finite():
+        raise RowError(f'{column}: значення має бути скінченним числом')
+    if value < 0:
+        raise RowError(f'{column}: від’ємна ціна')
+    if value != value.quantize(Decimal('0.01')):
+        raise RowError(f'{column}: більше двох знаків після коми')
+    if value >= Decimal('100000000'):
+        raise RowError(f'{column}: завелике значення')
+    return value.quantize(Decimal('0.01'))
+
+
+def stock_cell(v):
+    """Stock is a whole non-negative count: 1.9 is an error, not 1."""
+    if _blank(v):
+        return None
+    if isinstance(v, bool):
+        raise RowError('Залишок: очікується ціле число')
+    try:
+        value = Decimal(str(v).strip().replace(' ', '').replace('\u00a0', '').replace(',', '.'))
+    except (InvalidOperation, ValueError):
+        raise RowError(f'Залишок: «{str(v)[:40]}» не є цілим числом') from None
+    if not value.is_finite() or value != value.to_integral_value():
+        raise RowError('Залишок: потрібне ціле число без дробової частини')
+    if value < 0:
+        raise RowError('Залишок не може бути від’ємним')
+    if value > 1_000_000:
+        raise RowError('Залишок: завелике значення')
+    return int(value)
+
 def parse_salesdrive_xlsx(raw: bytes):
     if len(raw) > 10 * 1024 * 1024:
         raise ValueError('XLSX більший за 10 МБ')
@@ -55,16 +104,24 @@ def parse_salesdrive_xlsx(raw: bytes):
                 return str(value).strip().lower() in {'так','true','1','yes'}
             name=str(get(name_key) or '').strip()
             if not name: continue
-            current=dec(get('Ціна')); old=dec(get('Стара ціна'))
+            row_number=number+1
+            try:
+                current=price_cell(get('Ціна'),'Ціна'); old=price_cell(get('Стара ціна'),'Стара ціна')
+                discount=price_cell(get('Ціна зі знижкою'),'Ціна зі знижкою')
+                stock=stock_cell(get('Залишок'))
+            except RowError as exc:
+                # One bad cell must not abort the whole file or be guessed.
+                out.append({'row':row_number,'name':name,'error':str(exc)})
+                continue
             own='Субкатегорія' in idx
-            out.append({'name':name,'sku':get('SKU'),'external_sku':get('Зовнішній артикул'),'category':str(get('Категорія') or '').strip(),
+            out.append({'row':row_number,'name':name,'sku':get('SKU'),'external_sku':get('Зовнішній артикул'),'category':str(get('Категорія') or '').strip(),
                         'subcategory':str(get('Субкатегорія') or '').strip(), 'hierarchy':own,
                         'subcategory_parent':str(get('Батьківська категорія субкатегорії') or '').strip(),
                         'description':get('Опис'),'photo_url':get('Зображення'),
                         'current_price':current,'old_price':old,
                         'regular_price':old if own and old is not None else current,
-                        'discount_price':current if own and old is not None else dec(get('Ціна зі знижкою')),
-                        'stock':int(get('Залишок')) if get('Залишок') is not None else None,
+                        'discount_price':current if own and old is not None else discount,
+                        'stock':stock,
                         'is_active':flag('Активний'),'is_new':flag('Новинка'),'is_sale':flag('Акція')})
         return out
     finally:

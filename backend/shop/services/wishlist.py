@@ -75,7 +75,7 @@ async def toggle(
         added = False
     else:
         product = await repo.get_product(product_id)
-        if not product or not product.is_active:
+        if not product or not product.is_published:
             raise WishlistError("Товар недоступний")
         if len(target.product_ids) >= MAX_ITEMS:
             raise WishlistError(f"У списку вже {MAX_ITEMS} товарів")

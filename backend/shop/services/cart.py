@@ -9,6 +9,14 @@ from sqlalchemy.orm import selectinload
 from shop.models import CartItem, Product
 
 
+async def _published(session: AsyncSession, product) -> bool:
+    """Same rule as the repository: own flag plus active parent groups (A08)."""
+    if product is None or not product.is_active:
+        return False
+    from shop.repo.sql import _parents_active
+    return bool(await session.scalar(select(_parents_active()).where(Product.id == product.id)))
+
+
 async def get_items(session: AsyncSession, user_id: int) -> list[CartItem]:
     result = await session.scalars(
         select(CartItem)
@@ -21,7 +29,7 @@ async def get_items(session: AsyncSession, user_id: int) -> list[CartItem]:
 
 async def add(session: AsyncSession, user_id: int, product_id: int, qty: int = 1) -> CartItem | None:
     product = await session.get(Product, product_id)
-    if not product or not product.is_active:
+    if not await _published(session, product):
         return None
 
     item = await session.scalar(
@@ -77,7 +85,7 @@ async def validate_stock(session: AsyncSession, user_id: int) -> list[str]:
     problems = []
     for item in await get_items(session, user_id):
         p = item.product
-        if not p or not p.is_active:
+        if not await _published(session, p):
             problems.append(f"«{p.name if p else 'товар'}» більше недоступний")
         elif p.stock < item.qty:
             problems.append(f"«{p.name}»: в наявності {p.stock} шт, у кошику {item.qty}")

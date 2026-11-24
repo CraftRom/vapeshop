@@ -460,7 +460,7 @@ async def product(
     """Один товар — для сторінки з повним описом."""
     _require_age(user)
     found = await repo.get_product(product_id)
-    if not found or not found.is_active:
+    if not found or not found.is_published:
         raise HTTPException(404, "Товар не знайдено")
     return found
 
@@ -518,7 +518,7 @@ async def _cart_payload(repo: Repository, user_id: int) -> CartOut:
                 qty=l.qty,
                 line_total=l.line_total,
                 stock=l.product.stock if l.product else 0,
-                is_available=bool(l.product and l.product.is_active and l.product.stock > 0),
+                is_available=bool(l.product and l.product.is_published and l.product.stock > 0),
             )
             for l in lines
         ],

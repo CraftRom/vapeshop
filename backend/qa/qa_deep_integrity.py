@@ -27,7 +27,7 @@ check('atomic checkout блокує товари у стабільному по�
 check('atomic checkout повторно звіряє актуальну ціну',
       'Decimal(str(product.price)) != Decimal(str(line.price))' in sql)
 check('промокод повторно рахується під row-lock',
-      'live_discount' in sql and 'promo.min_order' in sql)
+      'promo_discount(promo, base) != Decimal(str(order.discount or 0))' in sql and 'promo.min_order' in sql)
 check('CRM pending зберігається в тому самому commit, що order',
       'crm_state="pending" if shop.salesdrive_ready else ""' in svc
       and 'crm_state=order.crm_state' in sql)

@@ -115,14 +115,14 @@ fi
 
 echo "==> Бекап бази перед оновленням"
 BACKUP_CREATED=0
-if ./backup.sh; then
+if bash ./backup.sh; then
     BACKUP_CREATED=1
 else
     echo "    Бекап не створено; для першого запуску це очікувано"
 fi
 
 echo "==> Конфігурація nginx"
-./render-nginx.sh
+bash ./render-nginx.sh
 
 echo "==> Збірка образів (поточні сервіси ще працюють)"
 "${COMPOSE[@]}" build

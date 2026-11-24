@@ -5352,3 +5352,6 @@ button.support-stat:hover { border-color: rgba(139, 123, 240, 0.38); }
   .support-session-side { max-width: 96px; }
   .support-popout-audio-hint { font-size: 10px; }
 }
+
+/* Repeated XLSX import: receipt returned, nothing re-applied. */
+.card.warn { border-color: rgba(242, 179, 71, 0.45); }

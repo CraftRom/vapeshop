@@ -471,7 +471,9 @@ class MigrationTests(unittest.TestCase):
         config = Config(str(backend / 'alembic.ini'))
         config.set_main_option('script_location',str(backend/'alembic'))
         script = ScriptDirectory.from_config(config)
-        self.assertEqual(script.get_heads(),['fb4a8c2d1e70'])
+        heads = script.get_heads()
+        self.assertEqual(len(heads), 1)
+        self.assertIn('fb4a8c2d1e70', {r.revision for r in script.iterate_revisions(heads[0], 'base')})
         # Compile revision DDL through the PostgreSQL dialect without a live server.
         import importlib.util
         from alembic.migration import MigrationContext

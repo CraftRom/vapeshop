@@ -7,7 +7,7 @@ backup=$(mktemp)
 trap 'rm -f "$backup"' EXIT
 [[ -f nginx/generated/app.conf ]] || { echo 'Спочатку bootstrap/deploy.' >&2; exit 1; }
 cp nginx/generated/app.conf "$backup"
-./render-nginx.sh
+bash ./render-nginx.sh
 if ! "${COMPOSE[@]}" exec -T nginx nginx -t; then
     cat "$backup" > nginx/generated/app.conf
     echo 'Конфігурацію відновлено; робочий nginx не перезапускався.' >&2

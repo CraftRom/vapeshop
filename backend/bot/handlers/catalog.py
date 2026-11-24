@@ -96,7 +96,7 @@ async def page_category(callback: CallbackQuery, repo: Repository):
 async def open_product(callback: CallbackQuery, repo: Repository, user: User) -> None:
     product_id = int(callback.data.split(":")[1])
     product = await repo.get_product(product_id)
-    if not product or not product.is_active:
+    if not product or not product.is_published:
         await callback.answer("Товар більше недоступний", show_alert=True)
         return
 
@@ -151,7 +151,7 @@ async def product_details(callback: CallbackQuery, repo: Repository):
         await callback.answer("Кнопка застаріла", show_alert=True)
         return
     product = await repo.get_product(product_id)
-    if not product or not product.is_active:
+    if not product or not product.is_published:
         await callback.answer("Товар більше недоступний", show_alert=True)
         return
     _, text = product_text(product)
