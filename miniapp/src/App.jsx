@@ -996,7 +996,9 @@ initData: ${getInitData() ? `${getInitData().length} символів` : 'пор
           <strong className="num">
             {money(subtotal)} {config.currency}
           </strong>
-          <span className="num" role="status" aria-live="polite">
+          {/* On the cart tab every line announces its own saving state; a
+              second live region here made screen readers repeat it. */}
+          <span className="num" role={tab === 'cart' ? undefined : 'status'} aria-live={tab === 'cart' ? undefined : 'polite'}>
             {cartSaving ? 'Зберігаємо кількість · сума уточнюється' : `${count} ${count % 10 === 1 && count % 100 !== 11 ? 'товар' : [2, 3, 4].includes(count % 10) && ![12, 13, 14].includes(count % 100) ? 'товари' : 'товарів'} у кошику`}
           </span>
         </div>
