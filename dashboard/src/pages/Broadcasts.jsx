@@ -683,7 +683,7 @@ export default function Broadcasts() {
         + 'Повідомлення піде одразу; надіслане відкликати не можна. Збережені результати не надсилатимуться повторно.',
       )) return
     }
-    if (kind === 'remove' && !confirm(`Видалити «${broadcast.title}»?`)) return
+    if (kind === 'remove' && !confirm(`Стерти розсилку «${broadcast.title}» разом з історією доставки? Повернути її не вийде.`)) return
     actionLock.current = true
     setPending(broadcast.id)
     try {
@@ -949,7 +949,7 @@ export default function Broadcasts() {
                         disabled={pending !== null}
                         onClick={() => action(b, 'remove')}
                       >
-                        Видалити
+                        Стерти
                       </button>
                     )}
                   </div>

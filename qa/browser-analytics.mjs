@@ -9,7 +9,7 @@ mkdirSync('qa/output',{recursive:true})
 try {
   const page=await browser.newPage({viewport:{width:1440,height:1000}})
   const errors=[]; page.on('pageerror',e=>errors.push(e.message))
-  const queries=[]; const spendUpdates=[]; const orderQueries=[]
+  const queries=[]; const spendUpdates=[]; const orderQueries=[]; const spendDeletes=[]
   await page.route('**/api/**', async route=>{
     const url=new URL(route.request().url()); const path=url.pathname
     let data={}
@@ -17,8 +17,9 @@ try {
     else if(path.endsWith('/stats/report')) {queries.push(Object.fromEntries(url.searchParams)); data=structuredClone(fixture)}
     else if(path.endsWith('/stats/months')) data={months:['2026-10','2024-02','2024-01'],timezone:'Europe/Kyiv'}
     else if(path.endsWith('/stats/order-sources')) { orderQueries.push(Object.fromEntries(url.searchParams)); data={total:30,items:[{id:2,created_at:'2024-02-10T10:00:00Z',contact_name:'Довге ім’я тестового покупця',business_state:'sale',total:'100',revenue:'100',attribution:{source:'google',medium:'cpc',campaign:'winter',content:'creative1',term:'gift'}}]} }
+    else if(/\/stats\/spend\/\d+$/.test(path) && route.request().method()==='DELETE') {spendDeletes.push(path);data={ok:true}}
     else if(path.endsWith('/stats/spend')) {
-      if(route.request().method()==='PUT') {spendUpdates.push(route.request().postDataJSON());data={ok:true}} else data=[]
+      if(route.request().method()==='PUT') {spendUpdates.push(route.request().postDataJSON());data={ok:true}} else data=[{id:9,day:'2024-02-10',source:'google',campaign:'winter',amount:'50'}]
     } else if(path.includes('notifications')) data={items:[],unread:0}
     else if(path.includes('badges')) data={orders_new:0,support_unread:0}
     else if(path.includes('statuses')) data={statuses:[]}
@@ -57,6 +58,12 @@ try {
   await page.getByRole('button',{name:'Зберегти',exact:true}).click()
   await page.getByRole('status').filter({hasText:'Збережено'}).waitFor()
   check(spendUpdates.at(-1).source==='google' && spendUpdates.at(-1).amount==='125.50','spend form saves actual entered amount')
+  // UI-027: erasing a spend row changes CAC/ROAS, so it asks first and a refusal erases nothing.
+  const spendDialog=new Promise(resolve=>page.once('dialog',dialog=>{resolve(dialog.message());dialog.dismiss()}))
+  await page.getByRole('button',{name:'Стерти витрати 2024-02-10 google',exact:true}).click()
+  check((await spendDialog).includes('CAC і ROAS'),'erasing spend asks for confirmation and names the effect')
+  await page.waitForTimeout(100)
+  check(spendDeletes.length===0,'refused confirmation erases no spend')
   const download=page.waitForEvent('download'); await page.getByRole('button',{name:'CSV статистики'}).click()
   check((await download).suggestedFilename()==='elfar-analytics.csv','CSV export downloadable')
   await page.setViewportSize({width:360,height:780})
