@@ -155,7 +155,7 @@
 .support-layout {
   position: relative;
   height: var(--support-chat-height, 620px);
-  min-height: 440px;
+  min-height: min(440px, var(--support-chat-height, 620px));
   display: grid;
   grid-template-columns: clamp(240px, var(--support-inbox-width, 360px), 48%) 9px minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr);

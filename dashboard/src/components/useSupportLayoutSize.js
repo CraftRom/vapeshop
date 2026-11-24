@@ -6,6 +6,9 @@ export const DEFAULT_INBOX_WIDTH = 360
 export const DEFAULT_CHAT_HEIGHT = 620
 const MIN_WIDTH = 240, MAX_WIDTH = 650
 const MIN_HEIGHT = 440, MAX_HEIGHT = 1100
+// The saved height is a preference; on a short screen the workspace shrinks
+// to what is visible below its top so the composer is never off-screen.
+const MIN_FIT_HEIGHT = 320, FIT_MARGIN = 12
 
 export function clampSupportSize(value, min, max, fallback) {
   const parsed = Number(value)
@@ -23,6 +26,16 @@ export function useSupportLayoutSize() {
   const [width, setWidthValue] = useState(() => readSize(WIDTH_KEY, DEFAULT_INBOX_WIDTH, MIN_WIDTH, MAX_WIDTH))
   const [height, setHeightValue] = useState(() => readSize(HEIGHT_KEY, DEFAULT_CHAT_HEIGHT, MIN_HEIGHT, MAX_HEIGHT))
   const [maxWidth, setMaxWidth] = useState(MAX_WIDTH)
+  const [fitHeight, setFitHeight] = useState(Infinity)
+  useEffect(() => {
+    const measure = () => {
+      const top = containerRef.current ? containerRef.current.getBoundingClientRect().top + window.scrollY : 0
+      setFitHeight(Math.max(MIN_FIT_HEIGHT, Math.floor(window.innerHeight - top - FIT_MARGIN)))
+    }
+    measure()
+    window.addEventListener('resize', measure)
+    return () => window.removeEventListener('resize', measure)
+  }, [])
   const calcMaxWidth = useCallback(() => {
     const bounds = containerRef.current?.getBoundingClientRect()
     // Leave space for the composer even if the inbox becomes wide.
@@ -72,6 +85,8 @@ export function useSupportLayoutSize() {
       axis === 'width' ? setWidth(width + delta) : setHeight(height + delta)
     }
   }, [width, height, setWidth, setHeight])
-  return { containerRef, width, height, maxWidth, setWidth, setHeight,
+  // On phones the layout stacks and scrolls with the page: no fitting there.
+  const appliedHeight = Math.min(height, fitHeight)
+  return { containerRef, width, height, appliedHeight, maxWidth, setWidth, setHeight,
     beginResize, moveResize, endResize, onKeyDown }
 }
