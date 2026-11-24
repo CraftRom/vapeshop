@@ -1,8 +1,16 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 
+/** First reply whose bottom is below the top edge, and its offset from it. */
+function anchorOf(node) {
+  const top = node.getBoundingClientRect().top
+  const anchor = [...node.querySelectorAll('[data-message-id]')]
+    .find(item => item.getBoundingClientRect().bottom > top)
+  return anchor ? { id: anchor.dataset.messageId, offset: anchor.getBoundingClientRect().top - top } : null
+}
+
 export function useChatViewport(messages, ready = true) {
   const logRef = useRef(null)
-  const layout = useRef({ initialized: false, bottom: true, anchor: null, lastId: 0 })
+  const layout = useRef({ initialized: false, bottom: true, anchor: null, lastId: 0, scrollTop: null, scrollHeight: 0 })
   const [away, setAway] = useState(false)
   const [unseen, setUnseen] = useState(0)
 
@@ -11,10 +19,9 @@ export function useChatViewport(messages, ready = true) {
     if (!node) return
     const bottom = node.scrollHeight - node.scrollTop - node.clientHeight < 60
     layout.current.bottom = bottom
-    const top = node.getBoundingClientRect().top
-    const anchor = [...node.querySelectorAll('[data-message-id]')]
-      .find(item => item.getBoundingClientRect().bottom > top)
-    layout.current.anchor = anchor ? { id: anchor.dataset.messageId, offset: anchor.getBoundingClientRect().top - top } : null
+    layout.current.anchor = anchorOf(node)
+    layout.current.scrollTop = node.scrollTop
+    layout.current.scrollHeight = node.scrollHeight
     setAway(!bottom)
     if (bottom) setUnseen(0)
   }, [])
@@ -22,12 +29,23 @@ export function useChatViewport(messages, ready = true) {
   const restore = useCallback(() => {
     const node = logRef.current
     if (!node) return
-    if (layout.current.bottom) node.scrollTop = node.scrollHeight
+    const state = layout.current
+    // The scroll event of the user's own scroll arrives a frame later. If the
+    // list re-renders first, the remembered position is stale: measure it
+    // from the scroll offset we last saw and the height content had then
+    // (appended replies do not move what is already on screen).
+    if (state.scrollTop !== null && Math.abs(node.scrollTop - state.scrollTop) > 1) {
+      state.bottom = state.scrollHeight - node.scrollTop - node.clientHeight < 60
+      state.anchor = anchorOf(node)
+    }
+    if (state.bottom) node.scrollTop = node.scrollHeight
     else if (layout.current.anchor) {
       const { id, offset } = layout.current.anchor
       const anchor = node.querySelector(`[data-message-id="${id}"]`)
       if (anchor) node.scrollTop += anchor.getBoundingClientRect().top - node.getBoundingClientRect().top - offset
     }
+    state.scrollTop = node.scrollTop
+    state.scrollHeight = node.scrollHeight
   }, [])
 
   useLayoutEffect(() => {
