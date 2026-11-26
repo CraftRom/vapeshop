@@ -95,6 +95,7 @@ async def fake_post(payload):
 
 original_post = np._post
 np._post = fake_post
+np.RETRY_DELAY_SECONDS = 0
 
 
 def reset():
@@ -230,13 +231,48 @@ async def scenario():
                 "вимагають різних дій", str(exc))
 
     reset()
-    response_queue.append(httpx.ConnectError("мережа лягла"))
+    response_queue.extend([httpx.ConnectError("мережа лягла"), httpx.ConnectError("мережа лягла")])
     try:
         await np.warehouses(KEY, "city-dnipro")
         r.check(False, "мережева помилка стає зрозумілою")
-    except np.NovaPoshtaError as exc:
+    except np.NovaPoshtaUnavailable as exc:
         r.check("недоступний" in str(exc), "мережева помилка не витікає трейсбеком",
                 str(exc))
+        r.check(exc.retry_after >= 1, "недоступність несе Retry-After", exc.retry_after)
+    r.check(len(calls) == 2, "після обриву — рівно один повтор, без безкінечних спроб", len(calls))
+
+    reset()
+    response_queue.append(httpx.ConnectError("разовий обрив"))
+    items = await np.warehouses(KEY, "city-dnipro")
+    r.check(len(items) == len(WAREHOUSE_ROWS) and len(calls) == 2,
+            "разовий обрив перевізника покупець не помічає — повтор віддає відділення",
+            (len(items), len(calls)))
+    r.check(not np._provider_unavailable_until,
+            "успішний повтор не ставить довідник на паузу для інших покупців")
+
+    reset()
+    response_queue.append(httpx.ReadTimeout("повільно"))
+    try:
+        await np.warehouses(KEY, "city-dnipro")
+        r.check(False, "тайм-аут стає помилкою")
+    except np.NovaPoshtaUnavailable:
+        r.check(len(calls) == 1, "тайм-аут не повторюється — покупець не чекає вдвічі довше",
+                len(calls))
+
+    reset()
+    response_queue.append({"success": False, "errors": ["CityRef is invalid"]})
+    items = await np.warehouses(KEY, "city-village", "settlement-village")
+    r.check(len(items) == len(WAREHOUSE_ROWS),
+            "відмова за CityRef не зупиняє пошук: SettlementRef знаходить відділення",
+            len(items))
+    r.check([c["methodProperties"].get("SettlementRef") for c in calls][-1] == "settlement-village",
+            "другий запит іде за SettlementRef", calls[-1]["methodProperties"])
+
+    reset()
+    response_queue.extend([{"success": False, "errors": ["CityRef is invalid"]},
+                           {"success": True, "data": []}])
+    items = await np.warehouses(KEY, "city-village", "settlement-village")
+    r.check(items == [], "відповів хоч один варіант — «нічого не знайдено», а не помилка", items)
 
     reset()
     try:
@@ -422,6 +458,17 @@ async def scenario():
         broken = await client.get("/api/shop/delivery/cities?q=Одеса", headers=head)
         r.check(broken.status_code == 502,
                 "відмова перевізника не виглядає як наша поломка", broken.status_code)
+
+        np.reset_cache()
+        response_queue.extend([httpx.ConnectError("лягла"), httpx.ConnectError("лягла")])
+        down = await client.get("/api/shop/delivery/warehouses?city_ref=city-kyiv", headers=head)
+        r.check(down.status_code == 503 and int(down.headers.get("retry-after", 0)) >= 1,
+                "недоступний перевізник — 503 з Retry-After: вітрина одразу дає ручне введення",
+                (down.status_code, dict(down.headers)))
+        paused = await client.get("/api/shop/delivery/cities?q=Київ", headers=head)
+        r.check(paused.status_code == 503 and paused.headers.get("retry-after"),
+                "пауза після збою теж 503, а не 502", paused.status_code)
+        np.reset_cache()
 
 
 asyncio.run(scenario())

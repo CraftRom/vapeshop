@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import time
 import hashlib
 from urllib.parse import urljoin, urlsplit
@@ -34,6 +35,8 @@ CACHE_TTL_SECONDS = 12 * 3600
 # якщо свіжий запит до провайдера справді впав.
 STALE_CACHE_SECONDS = 72 * 3600
 OUTAGE_COOLDOWN_SECONDS = 20
+# Пауза перед єдиним повтором після обриву з'єднання або 5xx перевізника.
+RETRY_DELAY_SECONDS = 0.3
 # Скільки різних запитів тримаємо. Кожен набраний рядок — окремий ключ,
 # тож без межі кеш ріс би разом із фантазією покупців.
 CACHE_MAX_ENTRIES = 512
@@ -45,6 +48,24 @@ REQUEST_TIMEOUT = 8.0
 
 class NovaPoshtaError(RuntimeError):
     """Довідник не відповів або відмовив."""
+
+
+class NovaPoshtaUnavailable(NovaPoshtaError):
+    """Перевізник не відповів: мережа, 5xx, 429 або пауза після такого збою.
+
+    Відрізняємо від відмови (success=false): відмову спричиняє конкретний
+    запит, і інший варіант (SettlementRef замість CityRef) може пройти.
+    Недоступність стосується всіх запитів, і вітрина має одразу
+    запропонувати ручне введення, а не повторювати те саме.
+    """
+
+    def __init__(self, message: str, retry_after: int = 0):
+        super().__init__(message)
+        self.retry_after = max(1, int(retry_after or 0)) if retry_after else 0
+
+
+class NovaPoshtaRejected(NovaPoshtaError):
+    """Перевізник відповів, але відмовив саме цьому запиту."""
 
 
 @dataclass
@@ -180,8 +201,10 @@ async def _call(api_key: str, model: str, method: str, properties: dict) -> list
     if not api_key:
         raise NovaPoshtaError("Ключ API Нової пошти не заданий у налаштуваннях")
     scope = _scope(api_key)
-    if time.monotonic() < _provider_unavailable_until.get(scope, 0):
-        raise NovaPoshtaError("Довідник Нової пошти тимчасово недоступний")
+    remaining = _provider_unavailable_until.get(scope, 0) - time.monotonic()
+    if remaining > 0:
+        raise NovaPoshtaUnavailable("Довідник Нової пошти тимчасово недоступний",
+                                    retry_after=math.ceil(remaining))
 
     payload = {
         "apiKey": api_key,
@@ -189,20 +212,35 @@ async def _call(api_key: str, model: str, method: str, properties: dict) -> list
         "calledMethod": method,
         "methodProperties": properties,
     }
-    try:
-        data = await _post(payload)
-        _provider_unavailable_until.pop(scope, None)
-    except (httpx.HTTPError, NovaPoshtaError) as exc:
-        delay = OUTAGE_COOLDOWN_SECONDS
-        if isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code == 429:
-            from shop.http_utils import retry_after_seconds
-            delay = max(delay, retry_after_seconds(exc.response.headers.get('Retry-After'), default=60))
-        _provider_unavailable_until[scope] = time.monotonic() + delay
-        # Мережа лягла або перевізник віддав 5xx. Для покупця це не
-        # відрізняється від «нічого не знайшлося», але в журналі має
-        # лишитися саме причина, інакше шукатимемо помилку в себе.
-        log.warning("novaposhta.unreachable %s.%s: %s", model, method, type(exc).__name__)
-        raise NovaPoshtaError("Довідник Нової пошти зараз недоступний") from exc
+    for attempt in (1, 2):
+        try:
+            data = await _post(payload)
+            _provider_unavailable_until.pop(scope, None)
+            break
+        except (httpx.HTTPError, NovaPoshtaError) as exc:
+            # Одиничний обрив з'єднання або 502/503 перевізника трапляється
+            # кілька разів на день. Раніше перший же збій ставив довідник на
+            # паузу, і всі покупці наступні 20 секунд отримували 502, а
+            # повтори вітрини гарантовано падали. Один швидкий повтор
+            # прибирає більшість таких випадків. Тайм-аут і 429 не
+            # повторюємо: це лише подовжило б очікування покупця.
+            retryable = attempt == 1 and not isinstance(exc, httpx.TimeoutException) and not (
+                isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code == 429)
+            if retryable:
+                log.info("novaposhta.retry %s.%s: %s", model, method, type(exc).__name__)
+                await asyncio.sleep(RETRY_DELAY_SECONDS)
+                continue
+            delay = OUTAGE_COOLDOWN_SECONDS
+            if isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code == 429:
+                from shop.http_utils import retry_after_seconds
+                delay = max(delay, retry_after_seconds(exc.response.headers.get('Retry-After'), default=60))
+            _provider_unavailable_until[scope] = time.monotonic() + delay
+            # Мережа лягла або перевізник віддав 5xx. Для покупця це не
+            # відрізняється від «нічого не знайшлося», але в журналі має
+            # лишитися саме причина, інакше шукатимемо помилку в себе.
+            log.warning("novaposhta.unreachable %s.%s: %s", model, method, type(exc).__name__)
+            raise NovaPoshtaUnavailable("Довідник Нової пошти зараз недоступний",
+                                        retry_after=delay) from exc
 
     if not isinstance(data, dict):
         raise NovaPoshtaError('Нова пошта повернула некоректну структуру відповіді')
@@ -219,7 +257,7 @@ async def _call(api_key: str, model: str, method: str, properties: dict) -> list
         # текст перевізника: він відрізняє «ключ недійсний» від
         # «перевищено ліміт», а це різні дії адміністратора.
         log.warning("novaposhta.rejected %s.%s: %s", model, method, detail)
-        raise NovaPoshtaError(f"Нова пошта відмовила: {detail}")
+        raise NovaPoshtaRejected(f"Нова пошта відмовила: {detail}")
 
     result = data.get('data')
     if not isinstance(result, list):
@@ -346,6 +384,7 @@ async def warehouses(api_key: str, city_ref: str, settlement_ref: str = "",
                 # A full provider page may contain fewer locally matched items.
                 provider_has_more = False
                 last_error = None
+                answered = False
                 for ref_props in base_refs:
                     variants = [{"FindByString": query}] if query else [{}]
                     if query.isdecimal():
@@ -354,11 +393,19 @@ async def warehouses(api_key: str, city_ref: str, settlement_ref: str = "",
                         props = {**ref_props, **variant, "Page": str(page), "Limit": str(limit)}
                         try:
                             rows = await _call(api_key, "Address", "getWarehouses", props)
+                        except NovaPoshtaRejected as exc:
+                            # Відмова стосується саме цього запиту: для сіл
+                            # CityRef часто «невалідний», а SettlementRef
+                            # працює. Раніше відмова зупиняла пошук, і
+                            # покупець бачив 502 замість відділень.
+                            last_error = exc
+                            continue
                         except NovaPoshtaError as exc:
                             last_error = exc
                             # Do not try another query kind after transport failure;
                             # keep the provider failure visible to the buyer.
                             break
+                        answered = True
                         provider_has_more = provider_has_more or len(rows) >= limit
                         if query:
                             needle = query.casefold()
@@ -370,8 +417,12 @@ async def warehouses(api_key: str, city_ref: str, settlement_ref: str = "",
                         if rows:
                             best_rows = rows
                             break
-                    if best_rows or last_error:
+                    if best_rows or isinstance(last_error, NovaPoshtaUnavailable):
                         break
+                if best_rows or (answered and isinstance(last_error, NovaPoshtaRejected)):
+                    # Хоч один варіант відповів: «нічого не знайдено» чесніше
+                    # за помилку з іншого варіанта.
+                    last_error = None
                 if last_error is not None:
                     result = _cached(cache_key, allow_stale=True)
                     if result is None:

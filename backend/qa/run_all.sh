@@ -111,6 +111,7 @@ run_node miniapp-ux tests/miniapp-ux.mjs
 run_node chat-pdf tests/chat-pdf.mjs
 run_node chat-video tests/chat-video.mjs
 run_node postomat-cod-ui tests/checkout-postomat-cod.mjs
+run_node directory-outage tests/checkout-directory-outage.mjs
 run_node legacy-bridge tests/legacy-bridge.mjs
 run_node bridge-runtime tests/legacy-bridge-runtime.mjs
 # Набори полів і дизайну. field-guard і text-input стерегли поля, але не

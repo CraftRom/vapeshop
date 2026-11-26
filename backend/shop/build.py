@@ -21,7 +21,7 @@ from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
 
-BUILD = "2026-11-26-bot-logging-1.86.4"
+BUILD = "2026-11-26-miniapp-delivery-1.86.5"
 
 BACKEND = Path(__file__).resolve().parents[1]
 RELEASE_FILE = Path(__file__).with_name("release.json")
