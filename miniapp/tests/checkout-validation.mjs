@@ -93,7 +93,7 @@ check(pickMethod.includes("address: ''"),
 // Без ключа або при недоступному довіднику форма мусить лишатися
 // придатною: краще прийняти замовлення й уточнити в чаті, ніж
 // втратити покупця через чужу недоступність.
-check(src.includes('directoryDown') && src.includes('err.status === 503'),
+check(src.includes('directoryDown') && src.includes('err?.status === 503') && src.includes('if (directoryUnavailable(err)) setDirectoryDown(true)'),
       'недоступний довідник повертає ручний ввід, а не блокує оформлення')
 check(!/disabled=\{[^}]*directory/.test(src),
       'кнопка підтвердження не залежить від довідника')

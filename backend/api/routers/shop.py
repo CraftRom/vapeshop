@@ -1213,6 +1213,19 @@ async def _novaposhta_key(repo: Repository) -> str:
     return key
 
 
+def _directory_error(exc: "np.NovaPoshtaError") -> HTTPException:
+    """Помилка довідника для вітрини.
+
+    Недоступність перевізника — 503 з Retry-After: вітрина за цим кодом
+    одразу пропонує ручне введення, а не повторює запит у паузу, коли він
+    гарантовано впаде. Відмова на конкретний запит лишається 502.
+    """
+    if isinstance(exc, np.NovaPoshtaUnavailable):
+        headers = {"Retry-After": str(exc.retry_after)} if exc.retry_after else None
+        return HTTPException(503, str(exc), headers=headers)
+    return HTTPException(502, str(exc))
+
+
 @router.get("/delivery/cities")
 async def delivery_cities(
     q: str = "", page: int = Query(1, ge=1, le=1000),
@@ -1229,7 +1242,7 @@ async def delivery_cities(
     try:
         result = await np.search_settlements(key, q, page=page, return_meta=True)
     except np.NovaPoshtaError as exc:
-        raise HTTPException(502, str(exc)) from exc
+        raise _directory_error(exc) from exc
     return {"items": [
         {"ref": s.ref, "settlement_ref": s.settlement_ref, "name": s.name,
          "area": s.area, "label": s.label, "warehouses": s.warehouses}
@@ -1250,7 +1263,7 @@ async def delivery_warehouses(
     try:
         result = await np.warehouses(key, city_ref, settlement_ref, q, page=page, return_meta=True)
     except np.NovaPoshtaError as exc:
-        raise HTTPException(502, str(exc)) from exc
+        raise _directory_error(exc) from exc
     return {"items": [
         {"ref": w.ref, "number": w.number, "label": w.label,
          "short": w.short, "is_postomat": w.is_postomat}
@@ -1270,7 +1283,7 @@ async def delivery_streets(
     try:
         return await np.search_streets(key, settlement_ref, q, page=page)
     except np.NovaPoshtaError as exc:
-        raise HTTPException(502, str(exc)) from exc
+        raise _directory_error(exc) from exc
 
 
 @router.get("/delivery/price")

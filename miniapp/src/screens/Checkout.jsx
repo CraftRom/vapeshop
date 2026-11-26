@@ -211,6 +211,14 @@ const EMPTY_FORM = {
   use_bonus: false,
 }
 
+// Довідник Нової пошти не відповідає взагалі (не налаштований, на паузі
+// після збою перевізника або сервер не встиг відповісти). Тоді немає сенсу
+// повторювати пошук: покупець одразу переходить до ручного введення.
+// 502 — відмова на конкретний запит, її можна повторити з іншим текстом.
+function directoryUnavailable(err) {
+  return err?.status === 503 || err?.status === 504 || err?.name === 'TimeoutError'
+}
+
 function Requirement({ optional = false }) {
   return optional
     ? <span className="field-requirement optional">Необовʼязково</span>
@@ -348,10 +356,12 @@ export function Checkout({ config, cart, profile, onDone, onLegal, onBack, initi
         setCityMore(Boolean(data.has_more) && additions.length > 0)
       } catch (err) {
         if (!alive) return
-        setCityError(err.status === 503
-          ? 'Довідник не підключено. Введіть населений пункт вручну.'
+        setCityError(directoryUnavailable(err)
+          ? (err.retryAfter || err.name === 'TimeoutError'
+            ? 'Довідник Нової пошти тимчасово не відповідає. Введіть населений пункт вручну.'
+            : 'Довідник не підключено. Введіть населений пункт вручну.')
           : 'Не вдалося завантажити населені пункти. Повторіть пошук або введіть вручну.')
-        if (err.status === 503) setDirectoryDown(true)
+        if (directoryUnavailable(err)) setDirectoryDown(true)
       } finally {
         if (alive) setCityBusy(false)
       }
@@ -385,10 +395,12 @@ export function Checkout({ config, cart, profile, onDone, onLegal, onBack, initi
         setPointMore(Boolean(data.has_more) && additions.length > 0)
       } catch (err) {
         if (!alive) return
-        setPointError(err.status === 503
-          ? 'Довідник не налаштовано. Можна вказати відділення вручну.'
+        setPointError(directoryUnavailable(err)
+          ? (err.retryAfter || err.name === 'TimeoutError'
+            ? 'Довідник Нової пошти тимчасово не відповідає. Вкажіть відділення вручну.'
+            : 'Довідник не налаштовано. Можна вказати відділення вручну.')
           : 'Не вдалося завантажити відділення. Спробуйте ще раз або введіть вручну.')
-        if (err.status === 503) setDirectoryDown(true)
+        if (directoryUnavailable(err)) setDirectoryDown(true)
       } finally {
         if (alive) setPointsBusy(false)
       }
