@@ -69,16 +69,54 @@ def states(*, directory: Path | None = None, now: float | None = None) -> dict[s
     return {name: state(name, directory=directory, now=now) for name in WORKERS}
 
 
-async def pulse(service: str, stop: asyncio.Event, *, directory: Path | None = None) -> None:
+# A failed heartbeat is logged with its cause once, then at most every
+# FAILURE_LOG_INTERVAL seconds: on the VPS a root-owned directory produced 539
+# identical warnings without saying why.
+FAILURE_LOG_INTERVAL = 600
+
+
+async def pulse(service: str, stop: asyncio.Event, *, directory: Path | None = None,
+                clock=time.monotonic) -> None:
     """Фонове завдання: heartbeat до сигналу зупинки. Збій диска не валить процес."""
+    import logging
+    log = logging.getLogger("worker_health")
     interval = WORKERS[service]["interval"]
+    failing_since = last_logged = None
+    suppressed = 0
     while not stop.is_set():
         try:
             await asyncio.to_thread(beat, service, directory=directory)
-        except Exception:
-            import logging
-            logging.getLogger("worker_health").warning(
-                "Не вдалося оновити heartbeat %s", service,
-                extra={"event": "worker.heartbeat.failed", "worker": service})
+            if failing_since is not None:
+                log.info("Heartbeat %s відновлено", service,
+                         extra={"event": "worker.heartbeat.recovered", "worker": service,
+                                "failedSeconds": round(clock() - failing_since)})
+                failing_since = last_logged = None
+                suppressed = 0
+        except Exception as exc:
+            now = clock()
+            if failing_since is None:
+                failing_since = now
+            if last_logged is None or now - last_logged >= FAILURE_LOG_INTERVAL:
+                target = directory or heartbeat_dir()
+                log.warning("Не вдалося оновити heartbeat %s: %s", service, _describe(exc, target),
+                            extra={"event": "worker.heartbeat.failed", "worker": service,
+                                   "errorType": type(exc).__name__,
+                                   "errno": getattr(exc, "errno", None), "path": str(target),
+                                   "suppressed": suppressed})
+                last_logged = now
+                suppressed = 0
+            else:
+                suppressed += 1
         with contextlib.suppress(asyncio.TimeoutError):
             await asyncio.wait_for(stop.wait(), interval)
+
+
+def _describe(exc: Exception, target: Path) -> str:
+    if isinstance(exc, PermissionError):
+        try:
+            owner = target.stat().st_uid
+        except OSError:
+            owner = "?"
+        return (f"немає права запису в {target} (власник uid {owner}, процес uid {os.getuid()}). "
+                "Запустіть deploy.sh: крок data-init поверне права")
+    return f"{type(exc).__name__}: {exc}"
