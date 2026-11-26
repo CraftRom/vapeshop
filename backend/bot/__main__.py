@@ -19,6 +19,8 @@ from shop.services.shop_settings import get_shop_settings
 
 setup_logging("bot")
 log = logging.getLogger("bot")
+from bot.polling_log import install as install_polling_log  # noqa: E402
+install_polling_log()
 
 
 async def main() -> None:
