@@ -41,6 +41,39 @@ def _redis_url() -> str:
     return ""
 
 
+# While Redis is down the API watchdog asks every ~20 s. Log the first failure
+# with its cause, then at most every 10 minutes with the number of repeats,
+# and once when Redis answers again (production log 26.11: 6 identical
+# warnings in two minutes).
+LEASE_LOG_INTERVAL_SECONDS = 600
+_lease_outage = {"since": 0.0, "logged": 0.0, "suppressed": 0}
+
+
+def _lease_failed(exc: Exception) -> None:
+    import time
+    now = time.monotonic()
+    if not _lease_outage["since"]:
+        _lease_outage["since"] = now
+    elif now - _lease_outage["logged"] < LEASE_LOG_INTERVAL_SECONDS:
+        _lease_outage["suppressed"] += 1
+        return
+    log.warning(
+        "Redis lease для SalesDrive reconcile недоступний: %s%s", exc,
+        f" (ще {_lease_outage['suppressed']} таких спроб пропущено в журналі)" if _lease_outage["suppressed"] else "",
+        extra={"event": "salesdrive.reconcile.lease_failed"},
+    )
+    _lease_outage.update(logged=now, suppressed=0)
+
+
+def _lease_recovered() -> None:
+    import time
+    if _lease_outage["since"]:
+        log.info("Redis lease для SalesDrive reconcile знову доступний через %d с",
+                 int(time.monotonic() - _lease_outage["since"]),
+                 extra={"event": "salesdrive.reconcile.lease_recovered"})
+        _lease_outage.update(since=0.0, logged=0.0, suppressed=0)
+
+
 async def _claim_lease() -> tuple[object | None, str, str | None]:
     """Try to reserve one cross-process refresh window.
 
@@ -53,6 +86,8 @@ async def _claim_lease() -> tuple[object | None, str, str | None]:
         return None, "", "redis_unconfigured"
 
     try:
+        from shop.redis_dns import ensure_resolvable
+        await ensure_resolvable(url, 0.5)
         import redis.asyncio as redis
 
         client = redis.from_url(
@@ -65,16 +100,13 @@ async def _claim_lease() -> tuple[object | None, str, str | None]:
         )
         token = uuid.uuid4().hex
         claimed = await client.set(LEASE_KEY, token, nx=True, ex=LEASE_SECONDS)
+        _lease_recovered()
         if not claimed:
             await client.aclose()
             return None, "", "lease_busy"
         return client, token, None
     except Exception as exc:
-        log.warning(
-            "Redis lease для SalesDrive reconcile недоступний: %s",
-            exc,
-            extra={"event": "salesdrive.reconcile.lease_failed"},
-        )
+        _lease_failed(exc)
         try:
             await client.aclose()  # type: ignore[name-defined]
         except Exception:

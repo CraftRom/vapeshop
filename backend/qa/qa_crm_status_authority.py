@@ -1,11 +1,12 @@
 """Статус замовлення в робочому UI має походити з SalesDrive, не з local mirror."""
+from qa_common import sql_repository_source
 from pathlib import Path
 
 root = Path(__file__).resolve().parents[2]
 sd = (root / 'backend/shop/services/salesdrive.py').read_text()
 orders_api = (root / 'backend/api/routers/orders.py').read_text()
 stats_api = (root / 'backend/api/routers/stats.py').read_text()
-repo = (root / 'backend/shop/repo/sql.py').read_text()
+repo = sql_repository_source()
 client = (root / 'dashboard/src/api.js').read_text()
 orders_ui = (root / 'dashboard/src/pages/Orders.jsx').read_text()
 order_ui = (root / 'dashboard/src/pages/OrderPage.jsx').read_text()

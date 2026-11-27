@@ -3,6 +3,7 @@
 Не піднімає FastAPI/aiogram: набір має ловити розриви wiring навіть у
 мінімальному CI-середовищі, де Telegram runtime не встановлений.
 """
+from qa_common import sql_repository_source
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -20,7 +21,7 @@ def check(ok: bool, label: str) -> None:
 
 models = text("shop/models.py")
 base = text("shop/repo/base.py")
-sql = text("shop/repo/sql.py")
+sql = sql_repository_source()
 router = text("api/routers/notifications.py")
 main = text("api/main.py")
 catalog = text("api/routers/catalog.py")

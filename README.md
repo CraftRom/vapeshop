@@ -598,7 +598,7 @@ backend/
 │   ├── telegram.py          Bot API клієнт (сповіщення, розсилки)
 │   ├── repo/
 │   │   ├── base.py          контракт Repository — ~50 операцій
-│   │   ├── sql.py           реалізація на SQLAlchemy
+│   │   ├── sql/             реалізація на SQLAlchemy за модулями
 │   │   └── factory.py       відкриття сесії та залежність для FastAPI
 │   ├── services/
 │   │   ├── shop_service.py  уся бізнес-логіка: кошик, промокоди, бонуси, статуси

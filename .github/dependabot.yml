@@ -1,0 +1,32 @@
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: /backend
+    schedule: {interval: weekly}
+    open-pull-requests-limit: 5
+    groups:
+      # aiogram pins a pydantic range and pydantic pins one pydantic-core:
+      # updated one by one they never install (pydantic 2.14 needs
+      # pydantic-core 2.50 and aiogram 3.32+), so they move together.
+      telegram-pydantic:
+        patterns: ["aiogram", "pydantic", "pydantic-core", "pydantic-settings"]
+  - package-ecosystem: npm
+    directory: /miniapp
+    schedule: {interval: weekly}
+    open-pull-requests-limit: 5
+    ignore:
+      - dependency-name: react
+        update-types: [version-update:semver-major]
+      - dependency-name: react-dom
+        update-types: [version-update:semver-major]
+  - package-ecosystem: npm
+    directory: /dashboard
+    schedule: {interval: weekly}
+    open-pull-requests-limit: 5
+  - package-ecosystem: npm
+    directory: /qa
+    schedule: {interval: weekly}
+    open-pull-requests-limit: 3
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: {interval: weekly}

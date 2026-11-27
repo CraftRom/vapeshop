@@ -1,3 +1,4 @@
+from qa_common import sql_repository_source
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -6,7 +7,7 @@ def read(rel): return (ROOT / rel).read_text(encoding='utf-8')
 main = read('backend/api/main.py')
 rt = read('backend/shop/services/realtime.py')
 rt_router = read('backend/api/routers/realtime.py')
-repo = read('backend/shop/repo/sql.py')
+repo = sql_repository_source()
 base = read('backend/shop/repo/base.py')
 sales = read('backend/shop/services/salesdrive.py')
 shop = read('backend/api/routers/shop.py')

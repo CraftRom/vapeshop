@@ -5,6 +5,7 @@
 відсутній rollback після unique conflict.
 """
 from __future__ import annotations
+from qa_common import sql_repository_source
 
 import asyncio
 from dataclasses import replace
@@ -143,7 +144,7 @@ async def runtime_checks():
 asyncio.run(runtime_checks())
 
 print("\n--- статичні гарантії SQL/API/UI ---")
-sql = (ROOT / "backend/shop/repo/sql.py").read_text()
+sql = sql_repository_source()
 service = (ROOT / "backend/shop/services/shop_service.py").read_text()
 router = (ROOT / "backend/api/routers/shop.py").read_text()
 bot = (ROOT / "backend/bot/handlers/checkout.py").read_text()

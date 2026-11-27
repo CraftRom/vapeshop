@@ -45,6 +45,14 @@ function palette(window){
     }
     const fn=value.match(/^rgba?\(([^)]+)\)$/)
     if(fn){const p=fn[1].split(/[\s,/]+/).filter(Boolean).map(Number);return [p[0],p[1],p[2],p.length>3?p[3]:1]}
+    // A `background` shorthand with positions only, e.g. Lightning CSS writes
+    // `background: transparent` as `0 0`, which jsdom reports as
+    // "0px 0px rgba(0, 0, 0, 0)": the colour is the one colour token in it.
+    if(!/(gradient|url)\(/.test(value)){
+      const tokens=value.match(/rgba?\([^)]+\)|#[0-9a-f]{3,8}\b|\btransparent\b/g)
+      const rest=value.replace(/rgba?\([^)]+\)|#[0-9a-f]{3,8}\b|\btransparent\b/g,'').trim()
+      if(tokens?.length===1 && /^(?:-?[\d.]+(?:px|%)?\s*)*$/.test(rest))return rgba(tokens[0])
+    }
     return undefined // gradients, images: not a solid colour
   }
   return {resolve,rgba}
@@ -109,9 +117,10 @@ const ELFAR={'--bg-app':'#100e18','--surface-1':'#1a1725','--surface-2':'#221e31
 test('tokens keep the ELFAR palette unchanged',()=>{
   const dom=load('')
   try{
-    const root=dom.window.getComputedStyle(dom.window.document.documentElement)
-    const actual=Object.fromEntries(Object.keys(ELFAR).map(name=>[name,root.getPropertyValue(name).trim().toLowerCase()]))
-    assert.deepEqual(actual,ELFAR)
+    const {rgba}=palette(dom.window)
+    for(const [name,expected] of Object.entries(ELFAR)){
+      assert.deepEqual(rgba(`var(${name})`),rgba(expected),name)
+    }
   }finally{dom.window.close()}
 })
 

@@ -1,11 +1,12 @@
 """Static guards for live updates, new-order detection and global status truth."""
+from qa_common import sql_repository_source
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 notifications = (ROOT / "backend/shop/services/notifications.py").read_text(encoding="utf-8")
 shop_router = (ROOT / "backend/api/routers/shop.py").read_text(encoding="utf-8")
 stats = (ROOT / "backend/api/routers/stats.py").read_text(encoding="utf-8")
-repo = (ROOT / "backend/shop/repo/sql.py").read_text(encoding="utf-8")
+repo = sql_repository_source()
 center = (ROOT / "dashboard/src/components/NotificationCenter.jsx").read_text(encoding="utf-8")
 orders = (ROOT / "dashboard/src/pages/Orders.jsx").read_text(encoding="utf-8")
 miniapp = (ROOT / "miniapp/src/App.jsx").read_text(encoding="utf-8")

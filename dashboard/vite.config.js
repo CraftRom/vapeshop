@@ -36,15 +36,48 @@ function releasePlugin(component) {
   }
 }
 
+// Chunks that import each other run in an undefined order: in v1.99.0 the
+// charts chunk read clsx/use-sync-external-store from RevenueChart before
+// that chunk had run, and «Огляд» failed with «o is not a function» in
+// production only (the dev server does not split chunks). Fail the build
+// instead of shipping such a cycle.
+function noChunkCycles() {
+  return {
+    name: 'no-chunk-cycles',
+    generateBundle(_, bundle) {
+      const chunks = Object.values(bundle).filter((item) => item.type === 'chunk')
+      const imports = new Map(chunks.map((chunk) => [chunk.fileName, chunk.imports]))
+      const state = new Map()
+      const visit = (name, path) => {
+        if (state.get(name) === 'done') return
+        if (state.get(name) === 'open') throw new Error('Circular chunk imports: ' + [...path, name].join(' -> '))
+        state.set(name, 'open')
+        for (const next of imports.get(name) || []) visit(next, [...path, name])
+        state.set(name, 'done')
+      }
+      for (const chunk of chunks) visit(chunk.fileName, [])
+    },
+  }
+}
+
 export default defineConfig({
-  plugins: [react(), releasePlugin('dashboard')],
+  plugins: [react(), releasePlugin('dashboard'), noChunkCycles()],
   build: {
-    rollupOptions: {
+    // Vite 8 (Rolldown): групи модулів задаються через codeSplitting. Графіки
+    // (recharts тягне d3 і redux) потрібні лише на «Огляді» й вантажаться
+    // окремо; React і роутер — спільний модуль. До charts входять УСІ залежності
+    // recharts (див. package-lock), інакше частина з них опиняється в чанку
+    // сторінки й чанки імпортують один одного. Залежності не захоплюються
+    // рекурсивно, інакше React потрапляв би в модуль графіків і той
+    // вантажився б на кожній сторінці.
+    rolldownOptions: {
       output: {
-        manualChunks: {
-          // recharts тягне d3 — виносимо окремо, щоб не роздувати основний бандл
-          charts: ['recharts'],
-          vendor: ['react', 'react-dom', 'react-router-dom'],
+        codeSplitting: {
+          includeDependenciesRecursively: false,
+          groups: [
+            { name: 'vendor', test: /[\\/]node_modules[\\/](react|react-dom|scheduler|react-router|react-router-dom)[\\/]/, priority: 20 },
+            { name: 'charts', test: /[\\/]node_modules[\\/](recharts|d3-[^\\/]+|victory-vendor|internmap|@reduxjs|redux|redux-thunk|react-redux|reselect|immer|es-toolkit|decimal\.js-light|eventemitter3|use-sync-external-store|tiny-invariant|clsx|@standard-schema)[\\/]/, priority: 10 },
+          ],
         },
       },
     },

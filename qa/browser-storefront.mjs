@@ -179,7 +179,7 @@ try {
     await p.getByRole('navigation').getByRole('button', { name: 'Каталог', exact: true }).click()
     await p.locator('.store-card').first().waitFor()
     failProducts = true
-    await p.getByRole('group', { name: 'Категорії', exact: true }).getByRole('button', { name: 'Аксесуари', exact: true }).click()
+    await p.getByRole('group', { name: 'Категорії', exact: true }).getByRole('button', { name: /^Аксесуари(?:\s|$)/ }).click()
     await p.getByRole('heading', { name: 'Не вдалося завантажити каталог' }).waitFor()
     check(await p.locator('.skeleton').count() === 0, `${label}: failed request ends loading`)
     failProducts = false
@@ -188,7 +188,7 @@ try {
     check(await p.getByRole('heading', { name: 'Не вдалося завантажити каталог' }).count() === 0, `${label}: retry recovers`)
     await p.locator('.store-card-title').first().click()
     await p.getByRole('button', { name: 'Назад до каталогу' }).click()
-    check(await p.getByRole('group', { name: 'Категорії', exact: true }).getByRole('button', { name: 'Аксесуари', exact: true }).getAttribute('aria-pressed') === 'true', `${label}: product back keeps catalog category`)
+    check(await p.getByRole('group', { name: 'Категорії', exact: true }).getByRole('button', { name: /^Аксесуари(?:\s|$)/ }).getAttribute('aria-pressed') === 'true', `${label}: product back keeps catalog category`)
     await p.locator('.store-card-title').first().click()
     failCart = true
     await p.getByRole('button', { name: 'Менше', exact: true }).click()

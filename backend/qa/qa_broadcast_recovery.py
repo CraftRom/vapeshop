@@ -81,7 +81,7 @@ class QueueTests(unittest.IsolatedAsyncioTestCase):
         async with open_repo() as r:
             await schedule_broadcast(b.id, ScheduleIn(scheduled_at=moment), r)
         from scheduler import tasks
-        from shop.repo import sql
+        from shop.repo.sql import broadcasts as sql
         class Clock(datetime):
             current = moment - timedelta(microseconds=1)
             @classmethod

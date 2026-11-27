@@ -64,6 +64,8 @@ async def _redis() -> dict:
     if not url:
         return {"configured": False, "ok": None}
     try:
+        from shop.redis_dns import ensure_resolvable
+        await ensure_resolvable(url, 0.5)
         import redis.asyncio as redis
         client = redis.from_url(url, socket_connect_timeout=0.5, socket_timeout=0.8)
         try:
