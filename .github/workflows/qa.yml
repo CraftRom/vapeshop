@@ -6,6 +6,29 @@ on:
 permissions:
   contents: read
 jobs:
+  # Known vulnerabilities in the pinned dependencies. A separate job: it names
+  # the package and advisory without hiding regression results.
+  dependency-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      - name: Python runtime dependencies (requirements-lock.txt)
+        run: |
+          python -m pip install pip-audit==2.10.1
+          pip-audit -r backend/requirements-lock.txt --progress-spinner off
+      - name: Dashboard, Mini App and QA dependencies
+        run: |
+          for app in dashboard miniapp qa; do
+            echo "== $app"
+            (cd "$app" && npm audit --audit-level=high)
+          done
   regression:
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -21,11 +44,11 @@ jobs:
           --health-cmd "pg_isready -U qa -d migrations"
           --health-interval 5s --health-timeout 5s --health-retries 20
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: '22'
           cache: npm
@@ -58,12 +81,6 @@ jobs:
           npm ci --prefix qa
           cd qa
           npx playwright install --with-deps chromium
-      - name: Dependency vulnerabilities
-        run: |
-          python -m pip install pip-audit
-          pip-audit -r backend/requirements-lock.txt
-          npm audit --prefix dashboard --audit-level=high
-          npm audit --prefix miniapp --audit-level=high
       - name: Python and Node regression suites
         env:
           QA_LOG_DIR: ${{ github.workspace }}/qa/output/python
@@ -79,7 +96,7 @@ jobs:
         run: bash qa/run-browser.sh
       - name: QA logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: shop-qa-logs
           path: qa/output/

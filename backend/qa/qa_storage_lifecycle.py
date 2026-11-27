@@ -1,3 +1,4 @@
+from qa_common import sql_repository_source
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -11,7 +12,7 @@ def check(ok, label):
     print('✓', label)
 
 models = text('shop/models.py')
-sql = text('shop/repo/sql.py')
+sql = sql_repository_source()
 base = text('shop/repo/base.py')
 tasks = text('scheduler/tasks.py')
 db = text('shop/db.py')

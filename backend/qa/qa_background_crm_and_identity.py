@@ -1,4 +1,5 @@
 """Regression: global CRM pull + safe Telegram names."""
+from qa_common import sql_repository_source
 from pathlib import Path
 
 from shop.services.identity import contains_telegram_handle, safe_telegram_first_name
@@ -7,7 +8,7 @@ ROOT = Path(__file__).resolve().parents[2]
 tasks = (ROOT / "backend/scheduler/tasks.py").read_text(encoding="utf-8")
 reconciler = (ROOT / "backend/shop/services/salesdrive_reconciler.py").read_text(encoding="utf-8")
 main = (ROOT / "backend/scheduler/__main__.py").read_text(encoding="utf-8")
-repo = (ROOT / "backend/shop/repo/sql.py").read_text(encoding="utf-8")
+repo = sql_repository_source()
 sales = (ROOT / "backend/shop/services/salesdrive.py").read_text(encoding="utf-8")
 np_status = (ROOT / "backend/shop/services/nova_poshta_statuses.py").read_text(encoding="utf-8")
 api = (ROOT / "backend/api/routers/shop.py").read_text(encoding="utf-8")

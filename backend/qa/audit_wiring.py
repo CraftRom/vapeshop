@@ -1,4 +1,5 @@
 """Ревізія комплектності: чи кожна можливість підключена на всіх рівнях."""
+from qa_common import sql_repository_source
 import json, pathlib, re, sys
 
 # Корінь проєкту — на два рівні вище цього файлу (backend/qa/…)
@@ -56,7 +57,7 @@ must = [
  "deploy/docker-compose.prod.yml","deploy/deploy.sh","deploy/backup.sh","deploy/restore.sh",
  "backend/Dockerfile","backend/scheduler/__main__.py","backend/scheduler/tasks.py",
  "backend/shop/entities.py","backend/shop/models.py","backend/shop/config.py","backend/shop/links.py",
- "backend/shop/repo/base.py","backend/shop/repo/sql.py",
+ "backend/shop/repo/base.py","backend/shop/repo/sql/__init__.py",
  "backend/shop/services/shop_service.py","backend/shop/services/shop_settings.py",
  "backend/shop/services/order_chat.py","backend/shop/services/notifications.py",
  "backend/shop/services/wishlist.py","backend/shop/services/passwords.py","backend/shop/services/broadcast.py",
@@ -374,7 +375,7 @@ check(not _loops, "немає читань бази в циклі", _loops[:2])
 check("DEFAULT_WISHLIST_NAME" in read("backend/shop/services/wishlist.py"),
       "останній список скидається до типової назви")
 
-check("_not_below_zero" in read("backend/shop/repo/sql.py"),
+check("_not_below_zero" in sql_repository_source(),
       "нижня межа нуля через CASE — func.max(0, x) валить Postgres")
 
 _orders_py = read("backend/api/routers/orders.py")

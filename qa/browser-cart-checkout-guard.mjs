@@ -35,7 +35,7 @@ try {
    }
    await route.fulfill({json})
   })
-  const open=async()=>{await page.goto((process.env.MINIAPP_URL||'http://127.0.0.1:5174')+'/app/');try{await page.getByRole('navigation').getByRole('button',{name:'Кошик',exact:true}).click()}catch(e){console.log('OPEN DIAGNOSTIC',width,errors,diagnostic,await page.locator('body').innerText());throw e};await page.getByRole('heading',{name:'Кошик',exact:true}).waitFor()}
+  const open=async()=>{await page.goto((process.env.MINIAPP_URL||'http://127.0.0.1:5174')+'/app/');try{await page.getByRole('navigation').getByRole('button', { name: /^Кошик(?:\s|$)/ }).click()}catch(e){console.log('OPEN DIAGNOSTIC',width,errors,diagnostic,await page.locator('body').innerText());throw e};await page.getByRole('heading',{name:'Кошик',exact:true}).waitFor()}
   const checkout=()=>page.getByRole('button',{name:'Оформити',exact:true})
   const form=()=>page.getByRole('heading',{name:'Оформлення',exact:true})
   // Failed quantity write must require review instead of silently opening checkout.

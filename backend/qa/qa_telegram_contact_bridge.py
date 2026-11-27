@@ -3,13 +3,14 @@
 Runs without aiogram so production checkout regressions remain testable in the
 minimal QA container as well.
 """
+from qa_common import sql_repository_source
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 shop = (ROOT / "backend/api/routers/shop.py").read_text()
 mid = (ROOT / "backend/bot/middlewares.py").read_text()
 base = (ROOT / "backend/shop/repo/base.py").read_text()
-sql = (ROOT / "backend/shop/repo/sql.py").read_text()
+sql = sql_repository_source()
 svc = (ROOT / "backend/shop/services/shop_service.py").read_text()
 factory = (ROOT / "backend/bot/factory.py").read_text()
 

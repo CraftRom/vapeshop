@@ -61,6 +61,7 @@ try {
     const box = await composer.boundingBox()
     const view = page.viewportSize()
     check(Boolean(box) && box.y + box.height <= view.height && box.y >= 0, `${name}: the reply field is on screen without scrolling the page`)
+    check(await composer.evaluate((el) => { const r = el.getBoundingClientRect(); return [r.top + 2, r.top + r.height / 2, r.bottom - 2].every((y) => el.contains(document.elementFromPoint(r.left + r.width / 2, y))) }), `${name}: nothing (e.g. the notifications nudge) covers the reply field`)
     check(await composer.evaluate((el) => parseFloat(getComputedStyle(el).fontSize) >= 16), `${name}: the reply field is 16 px, so focusing it does not zoom`)
     const send = page.getByRole('button', { name: 'Надіслати' })
     const sendBox = await send.boundingBox()

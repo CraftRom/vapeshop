@@ -592,9 +592,14 @@ export default function Settings() {
       .catch((err) => setError(err.message))
   }, [])
 
+  // Довідники тягнемо лише з підключеного SalesDrive. Раніше запит ішов при
+  // кожному відкритті «Інтеграцій» і без субдомену чи ключа закінчувався 400
+  // у журналі API та червоною помилкою тут. Кнопка «Оновити дані SalesDrive»
+  // лишається для ручної перевірки.
+  const salesDriveReady = Boolean(initial?.salesdrive_domain && initial?.salesdrive_api_connected)
   useEffect(() => {
-    if (isSysadmin() && category === 'integrations') loadSalesDriveDictionaries()
-  }, [category])
+    if (isSysadmin() && category === 'integrations' && salesDriveReady) loadSalesDriveDictionaries()
+  }, [category, salesDriveReady])
 
   const autoMapSalesDrive = () => {
     const norm = (v) => String(v || '').toLowerCase().replace(/[ʼ'’]/g, '').replace(/[^a-zа-яіїєґ0-9]+/giu, ' ').trim()

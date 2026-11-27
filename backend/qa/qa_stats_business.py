@@ -1,4 +1,5 @@
 """Regression rules for canonical sales statistics."""
+from qa_common import sql_repository_source
 from decimal import Decimal
 from types import SimpleNamespace
 from pathlib import Path
@@ -102,7 +103,7 @@ check("refusal never enters sale finance", not refusal["sold"] and refusal["tota
 
 # Static architecture guards: statistics must not drift back to workflow status.
 root = Path(__file__).resolve().parents[1]
-repo_source = (root / "shop/repo/sql.py").read_text()
+repo_source = sql_repository_source()
 users_source = (root / "shop/services/users.py").read_text()
 segments_source = (root / "shop/services/segments.py").read_text()
 migration_source = (root / "alembic/versions/c2f51b8d9e40_business_sale_state.py").read_text()

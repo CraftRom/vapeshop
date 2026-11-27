@@ -1,4 +1,5 @@
 """Глибокі invariants, яких не ловлять звичайні happy-path тести."""
+from qa_common import sql_repository_source
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -8,7 +9,7 @@ def check(label: str, ok: bool):
     checks.append((label, bool(ok)))
     print(('✓' if ok else '✗'), label)
 
-sql = (ROOT / 'backend/shop/repo/sql.py').read_text()
+sql = sql_repository_source()
 svc = (ROOT / 'backend/shop/services/shop_service.py').read_text()
 shop = (ROOT / 'backend/api/routers/shop.py').read_text()
 orders = (ROOT / 'backend/api/routers/orders.py').read_text()

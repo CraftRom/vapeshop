@@ -9,6 +9,7 @@
 - закриття клієнтом і менеджером мають явного автора/причину.
 """
 from __future__ import annotations
+from qa_common import sql_repository_source
 
 import asyncio
 import os
@@ -333,7 +334,7 @@ def static_contracts():
     root = pathlib.Path(__file__).resolve().parents[1]
     handler = (root / "bot/handlers/chat.py").read_text()
     service = (root / "shop/services/support_chat.py").read_text()
-    repo = (root / "shop/repo/sql.py").read_text()
+    repo = sql_repository_source()
     api = (root / "api/routers/support.py").read_text()
     migration = (root / "alembic/versions/4b8f0c2d91aa_support_lifecycle.py").read_text()
     dashboard = (root.parent / "dashboard/src/pages/Support.jsx").read_text()

@@ -112,7 +112,7 @@ try {
     check(await sheet.count()===0,`${viewport.width}px Escape closes the sheet`)
     check(await p.evaluate(()=>document.body.style.overflow!=='hidden'),`${viewport.width}px closing restores document scroll`)
     failProducts=true
-    await p.getByRole('button',{name:'Категорія 1',exact:true}).click()
+    await p.getByRole('button', { name: /^Категорія 1(?:\s|$)/ }).click()
     await p.getByRole('heading',{name:'Не вдалося завантажити каталог'}).waitFor()
     check(await p.locator('.skeleton').count()===0,`${viewport.width}px failed catalog request ends loading`)
     failProducts=false

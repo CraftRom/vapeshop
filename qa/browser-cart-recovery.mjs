@@ -39,7 +39,7 @@ try {
    }
    return route.fulfill({json})
   })
-  const open=async()=>{await page.goto((process.env.MINIAPP_URL||'http://127.0.0.1:5174')+'/app/');try{await page.getByRole('navigation').getByRole('button',{name:'Кошик',exact:true}).click()}catch(e){console.log('OPEN DIAGNOSTIC',width,errors,await page.locator('body').innerText());throw e};await page.getByRole('heading',{name:'Кошик',exact:true}).waitFor()}
+  const open=async()=>{await page.goto((process.env.MINIAPP_URL||'http://127.0.0.1:5174')+'/app/');try{await page.getByRole('navigation').getByRole('button', { name: /^Кошик(?:\s|$)/ }).click()}catch(e){console.log('OPEN DIAGNOSTIC',width,errors,await page.locator('body').innerText());throw e};await page.getByRole('heading',{name:'Кошик',exact:true}).waitFor()}
   const card=name=>page.locator('.cart-list .card').filter({has:page.getByText(name,{exact:true})})
   await open()
   check(await card('Недоступний товар').getByRole('button',{name:'Додати одну'}).isDisabled(),width+': unavailable product cannot be increased')

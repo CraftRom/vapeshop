@@ -5,11 +5,11 @@ import { mountDialog } from '../dialog'
 import { backButton } from '../telegram'
 
 function GroupCount({ group }) {
-  return Number.isFinite(group.products_count) ? <span className="taxonomy-count" title="Усього активних товарів у розділі, до пошуку та фільтра наявності" aria-label={`Усього товарів у розділі: ${group.products_count}`}>{group.products_count}</span> : null
+  return Number.isFinite(group.products_count) ? <span className="taxonomy-count" title="Усього активних товарів у розділі, до пошуку та фільтра наявності">{group.products_count}<span className="sr-only"> товарів</span></span> : null
 }
 
 function CategoryTile({ name, selected, onClick, group, detail, icon = 'box' }) {
-  return <button className="category-tile" aria-label={name} aria-pressed={selected} onClick={onClick}>
+  return <button className="category-tile" aria-pressed={selected} onClick={onClick}>
     <span className="category-tile-symbol"><StoreIcon name={icon} /></span>
     <span className="category-tile-name">{name}</span>
     <span className="category-tile-detail">{group && <GroupCount group={group} />}{group?.products_count === 0 ? 'Незабаром' : detail}</span>
@@ -39,13 +39,13 @@ function CategoryPicker({ categories, subcategories, active, subcategory, ungrou
           const isExpanded = Boolean(query.trim()) || expanded.has(group.id)
           const childId = `category-children-${group.id}`
           return <div className="category-tree-group" key={group.id}>
-            <div className="category-tree-row"><button className="category-tree-root" aria-label={group.name} aria-pressed={active === group.id && subcategory === null && !ungrouped} onClick={() => select(onCategory, group.id)}><StoreIcon name="box" /><span>{group.name}</span><GroupCount group={group} /></button>
-              {children.length > 0 && <button className="category-tree-toggle store-icon-button" aria-label={`Підкатегорії: ${group.name}`} aria-expanded={isExpanded} aria-controls={childId} disabled={Boolean(query.trim())} onClick={() => toggle(group.id)}><span>{children.length}</span><StoreIcon name="forward" /></button>}
+            <div className="category-tree-row"><button className="category-tree-root" aria-pressed={active === group.id && subcategory === null && !ungrouped} onClick={() => select(onCategory, group.id)}><StoreIcon name="box" /><span>{group.name}</span><GroupCount group={group} /></button>
+              {children.length > 0 && <button className="category-tree-toggle store-icon-button" aria-label={`Підкатегорії: ${group.name}, ${children.length}`} aria-expanded={isExpanded} aria-controls={childId} disabled={Boolean(query.trim())} onClick={() => toggle(group.id)}><span>{children.length}</span><StoreIcon name="forward" /></button>}
             </div>
-            {children.length > 0 && <div id={childId} className="category-tree-children" hidden={!isExpanded}>{children.map((sub) => <button key={sub.id} aria-label={sub.name} aria-pressed={subcategory === sub.id && !ungrouped} onClick={() => select(onSubcategory, sub)}><span>{sub.name}</span><GroupCount group={sub} />{subcategory === sub.id && <StoreIcon name="check" />}</button>)}</div>}
+            {children.length > 0 && <div id={childId} className="category-tree-children" hidden={!isExpanded}>{children.map((sub) => <button key={sub.id} aria-pressed={subcategory === sub.id && !ungrouped} onClick={() => select(onSubcategory, sub)}><span>{sub.name}</span><GroupCount group={sub} />{subcategory === sub.id && <StoreIcon name="check" />}</button>)}</div>}
           </div>
         })}
-        {independent.length > 0 && <div className="category-tree-group"><h3>Інші категорії</h3><div className="category-tree-children is-independent">{independent.map((sub) => <button key={sub.id} aria-label={sub.name} aria-pressed={subcategory === sub.id && !ungrouped} onClick={() => select(onSubcategory, sub)}><StoreIcon name="box" /><span>{sub.name}</span><GroupCount group={sub} />{subcategory === sub.id && <StoreIcon name="check" />}</button>)}</div></div>}
+        {independent.length > 0 && <div className="category-tree-group"><h3>Інші категорії</h3><div className="category-tree-children is-independent">{independent.map((sub) => <button key={sub.id} aria-pressed={subcategory === sub.id && !ungrouped} onClick={() => select(onSubcategory, sub)}><StoreIcon name="box" /><span>{sub.name}</span><GroupCount group={sub} />{subcategory === sub.id && <StoreIcon name="check" />}</button>)}</div></div>}
         {!roots.length && !independent.length && <p className="category-search-empty" role="status">Категорій за цим запитом немає. Спробуйте іншу назву.</p>}
       </div>
     </section>
@@ -91,8 +91,8 @@ export function CategoryNavigator({ categories, subcategories, active, subcatego
     </div>
     {(category || sub || ungrouped) && <nav className="taxonomy-breadcrumb" aria-label="Шлях категорії"><button onClick={() => onCategory(null)}>Усі товари</button>{category && <><StoreIcon name="forward" /><button onClick={() => onCategory(category.id)} aria-current={!sub ? 'page' : undefined}>{category.name}</button></>}{(sub || ungrouped) && <><StoreIcon name="forward" /><span aria-current="page">{sub?.name || 'Без категорії'}</span></>}</nav>}
     {!ungrouped && visibleSubs.length > 0 && <div className="taxonomy-subsection"><p className="taxonomy-eyebrow">Підкатегорії · {category?.name}</p><div ref={subsRef} className="rail store-subcategories" role="group" aria-label="Субкатегорії" tabIndex={0}>
-      <button className="chip" aria-label="Усі субкатегорії" aria-pressed={subcategory === null} onClick={() => onCategory(active)}>Усі товари розділу</button>
-      {visibleSubs.map((group) => <button key={group.id} className="chip" aria-label={group.name} aria-pressed={subcategory === group.id} onClick={() => onSubcategory(group)}><span>{group.name}</span><GroupCount group={group} />{subcategory === group.id && <StoreIcon name="check" />}</button>)}
+      <button className="chip" aria-pressed={subcategory === null} onClick={() => onCategory(active)}>Усі товари розділу</button>
+      {visibleSubs.map((group) => <button key={group.id} className="chip" aria-pressed={subcategory === group.id} onClick={() => onSubcategory(group)}><span>{group.name}</span><GroupCount group={group} />{subcategory === group.id && <StoreIcon name="check" />}</button>)}
     </div></div>}
     {open && <CategoryPicker categories={categories} subcategories={subcategories} active={active} subcategory={subcategory} ungrouped={ungrouped} onCategory={onCategory} onSubcategory={onSubcategory} onUngrouped={onUngrouped} onClose={close} />}
   </div>

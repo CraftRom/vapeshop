@@ -1,5 +1,6 @@
 """Regression checks for CRM status progression, live TTN enrichment and safe sync."""
 from __future__ import annotations
+from qa_common import sql_repository_source
 
 import asyncio
 import re
@@ -120,7 +121,7 @@ up_number, up_ref, up_cost = salesdrive._tracking_from({
 })
 
 source = Path("shop/services/salesdrive.py").read_text()
-repo_source = Path("shop/repo/sql.py").read_text()
+repo_source =sql_repository_source()
 orders_api = Path("api/routers/orders.py").read_text()
 page = Path("../dashboard/src/pages/OrderPage.jsx").read_text()
 def _css(path):

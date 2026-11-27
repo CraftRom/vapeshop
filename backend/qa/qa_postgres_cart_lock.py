@@ -4,6 +4,7 @@
 lazy=joined. SQLAlchemy therefore generated LEFT OUTER JOIN products ... FOR
 UPDATE, which PostgreSQL rejects with FeatureNotSupportedError.
 """
+from qa_common import sql_repository_source
 import re
 from pathlib import Path
 
@@ -14,7 +15,7 @@ from sqlalchemy.orm import lazyload
 from shop import models as m
 
 ROOT = Path(__file__).resolve().parents[2]
-SQL = (ROOT / "backend/shop/repo/sql.py").read_text(encoding="utf-8")
+SQL = sql_repository_source()
 
 compiled = str(
     select(m.CartItem)

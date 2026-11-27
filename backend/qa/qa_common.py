@@ -113,3 +113,13 @@ async def seed_operators(repo, people: dict[int, tuple[str, str, object]]) -> No
                 f"Менеджер {login} отримав id={created.id}, а токен виписано "
                 f"на {operator_id}."
             )
+
+
+def sql_repository_source() -> str:
+    """Source of the SQL repository package (shop/repo/sql/*.py) as one text.
+
+    It used to be a single shop/repo/sql.py; static checks read it as text.
+    """
+    from pathlib import Path as _Path
+    package = _Path(__file__).resolve().parents[1] / "shop" / "repo" / "sql"
+    return "\n".join(path.read_text(encoding="utf-8") for path in sorted(package.glob("*.py")))

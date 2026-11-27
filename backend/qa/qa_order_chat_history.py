@@ -1,3 +1,4 @@
+from qa_common import sql_repository_source
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -7,7 +8,7 @@ def check(cond, message):
         raise AssertionError(message)
     print(f"✓ {message}")
 
-repo = (ROOT / 'shop/repo/sql.py').read_text(encoding='utf-8')
+repo = sql_repository_source()
 base = (ROOT / 'shop/repo/base.py').read_text(encoding='utf-8')
 models = (ROOT / 'shop/models.py').read_text(encoding='utf-8')
 entities = (ROOT / 'shop/entities.py').read_text(encoding='utf-8')

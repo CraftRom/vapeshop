@@ -19,7 +19,7 @@ sys.path.insert(0, "/tmp")
 os.environ.update(BOT_TOKEN="777001:T", JWT_SECRET="t" * 32,
                   ELFAR_DATA_ROOT="/tmp/qa_dialect_data")
 
-from qa_common import Report                              # noqa: E402
+from qa_common import Report, sql_repository_source       # noqa: E402
 
 r = Report("ДІАЛЕКТ")
 
@@ -73,8 +73,7 @@ conn.close()
 # ------------------------------------- жодних дволиких конструкцій у коді
 
 print("\n--- у репозиторії немає функцій з різною арністю ---")
-raw = (Path(__file__).resolve().parents[1] / "shop" / "repo" / "sql.py").read_text(
-    encoding="utf-8")
+raw = sql_repository_source()
 
 # Шукаємо саме виклики в дереві, а не текст. У самому файлі пастка описана
 # словами в докстрінгу, і пошук підрядком ловив би пояснення замість коду —

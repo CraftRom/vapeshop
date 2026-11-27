@@ -1,5 +1,6 @@
 """Консервативний FAQ intent-router: відповідає лише коли готовий текст справді релевантний."""
 from __future__ import annotations
+from qa_common import sql_repository_source
 
 import os
 from datetime import datetime, timedelta, timezone
@@ -181,7 +182,7 @@ for text in ("А де?", "А як?", "Куди саме?"):
 print("\n--- wiring: smart decision реально використовується у потоках ---")
 root = Path(__file__).resolve().parents[1]
 handler = (root / "bot/handlers/chat.py").read_text()
-repo_src = (root / "shop/repo/sql.py").read_text()
+repo_src = sql_repository_source()
 check("decision = faq.decide(text, shop=shop, context=context)" in handler,
       "support handler використовує context-aware decide()")
 check("has_attachment=True" in handler,

@@ -281,6 +281,10 @@
     bottom: 10px;
   }
   .notification-nudge-main { flex: 1; min-width: 0; }
+  /* In a support conversation the reply field is pinned to the bottom of the
+     screen: the nudge would cover it (axe target-size, a tap on the field
+     opened the permission prompt instead). The 🔔 in the header stays. */
+  body:has(.support-compose) .notification-nudge { display: none; }
 }
 
 /* ================================================================

@@ -43,7 +43,7 @@ try {
   const open=async(q=2,stock=1000)=>{
    state.lines=[good(q,stock)];state.posts=[];state.holds.clear();state.failAfter=false;state.failCall=0
    await page.goto((process.env.MINIAPP_URL||'http://127.0.0.1:5174')+'/app/')
-   await page.getByRole('navigation').getByRole('button',{name:'Кошик',exact:true}).click()
+   await page.getByRole('navigation').getByRole('button', { name: /^Кошик(?:\s|$)/ }).click()
    await page.locator('[data-cart-quantity="1"]').waitFor()
   }
   const quantity=()=>page.locator('[data-cart-quantity="1"]')
@@ -112,7 +112,7 @@ try {
    await page.getByRole('button',{name:'До каталогу',exact:true}).click()
    await page.getByRole('button',{name:'Додати в кошик: Кількість',exact:true}).click()
    await until(()=>state.lines[0]?.qty===1)
-   await page.getByRole('navigation').getByRole('button',{name:'Кошик',exact:true}).click();await quantity().waitFor()
+   await page.getByRole('navigation').getByRole('button', { name: /^Кошик(?:\s|$)/ }).click();await quantity().waitFor()
    check(await quantity().innerText()==='1' && await saving().count()===0,width+': '+mode+' discards old acknowledgements without affecting a later addition')
   }
   await open();await minus().evaluate(el=>{for(let i=0;i<10;i++)el.click()})

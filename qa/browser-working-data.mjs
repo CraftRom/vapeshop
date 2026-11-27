@@ -159,7 +159,7 @@ try {
   check(await page.getByText('№46',{exact:true}).isVisible(),width+': independent failures retain successful prior history')
   await page.getByRole('button',{name:'Чат',exact:true}).click();await page.getByRole('button',{name:/№1/}).waitFor()
   check(true,width+': old active order available despite history failure')
-  await page.getByRole('button',{name:'Кошик',exact:true}).click();await page.getByRole('button',{name:'Повторити: Кошик'}).waitFor()
+  await page.getByRole('button', { name: /^Кошик(?:\s|$)/ }).click();await page.getByRole('button',{name:'Повторити: Кошик'}).waitFor()
   check(await page.getByText('Кошик поки порожній',{exact:true}).count()===0,width+': failed cart not presented as empty')
   state.failCart=false;await page.getByRole('button',{name:'Повторити: Кошик'}).click();await page.getByText('Кошик поки порожній',{exact:true}).waitFor()
   check(true,width+': independent retry recovers cart')
