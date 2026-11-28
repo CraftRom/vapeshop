@@ -24,7 +24,7 @@
     "test:a11y": "QA_BROWSER_SUITE=a11y bash run-browser.sh"
   },
   "devDependencies": {
-    "axe-core": "4.14.0",
+    "axe-core": "4.14.1",
     "playwright": "1.65.0"
   }
 }
