@@ -40,7 +40,7 @@ pydantic-settings==2.16.2
 pyjwt==2.15.1
 python-dotenv==1.2.4
 python-multipart==0.0.33
-pyyaml==6.0.3
+pyyaml==6.0.4
 redis==8.1.0
 sqlalchemy==2.1.8
 starlette==1.10.0
