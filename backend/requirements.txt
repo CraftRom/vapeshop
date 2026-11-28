@@ -9,7 +9,7 @@ pydantic==2.14.3
 pydantic-settings==2.16.2
 pyjwt==2.15.1
 httpx==0.28.1
-python-multipart==0.0.33
+python-multipart==0.0.34
 redis==8.1.0
 
 cryptography==50.0.2
